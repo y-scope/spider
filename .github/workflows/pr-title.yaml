@@ -1,0 +1,22 @@
+name: "pr-title"
+
+on:
+  pull_request_target:
+    types: ["edited", "opened", "reopened"]
+    branches: ["main"]
+
+permissions:
+  pull-requests: "read"
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency
+  cancel-in-progress: true
+
+jobs:
+  conventional-commits:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "semantic-pull-request"
+        uses: "amannn/action-semantic-pull-request@v5.5.3"
