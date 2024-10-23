@@ -1,0 +1,6 @@
+# Build-related directories and files
+.task
+build
+
+# IDE-related directories and files
+.idea
