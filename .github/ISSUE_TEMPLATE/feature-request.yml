@@ -19,4 +19,4 @@ body:
       label: "Possible implementation"
       description: "Describe any implementations you have in mind."
     validations:
-      required: true
+      required: false
