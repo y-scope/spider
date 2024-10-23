@@ -20,12 +20,7 @@ tasks:
     cmds:
       - |-
         . "{{.G_LINT_VENV_DIR}}/bin/activate"
-        yamllint \
-          --config-file "{{.ROOT_DIR}}/tools/yscope-dev-utils/lint-configs/.yamllint.yml" \
-          --strict \
-          .github \
-          lint-tasks.yml \
-          Taskfile.yml
+        yamllint --strict .
 
   venv:
     internal: true
