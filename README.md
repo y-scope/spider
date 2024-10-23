@@ -2,7 +2,7 @@
 Follow the steps below to develop and contribute to the project.
 
 ## Requirements
-* Python 3.8 or higher
+* Python 3.10 or higher
 * [Task] 3.38.0 or higher
 
 ## Set up
