@@ -1,7 +1,7 @@
 version: "3"
 
 includes:
-  lint: "lint-tasks.yml"
+  lint: "lint-tasks.yaml"
   utils: "tools/yscope-dev-utils/taskfiles/utils.yml"
 
 vars:

@@ -28,7 +28,7 @@ tasks:
       CHECKSUM_FILE: "{{.G_BUILD_DIR}}/{{.TASK | replace \":\" \"#\"}}.md5"
       OUTPUT_DIR: "{{.G_LINT_VENV_DIR}}"
     sources:
-      - "{{.ROOT_DIR}}/Taskfile.yml"
+      - "{{.ROOT_DIR}}/taskfile.yaml"
       - "{{.TASKFILE}}"
       - "lint-requirements.txt"
     generates: ["{{.CHECKSUM_FILE}}"]
