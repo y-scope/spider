@@ -44,7 +44,11 @@ tasks:
       vars: ["FLAGS"]
     cmd: |-
       . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find . -name CMakeLists.txt -print0 | xargs -0 gersemi {{.FLAGS}}
+      find . \
+        -path ./build -prune \
+        -o -name CMakeLists.txt \
+        -print0 | \
+          xargs -0 --no-run-if-empty gersemi {{.FLAGS}}
 
   venv:
     internal: true
