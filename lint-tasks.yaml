@@ -36,7 +36,14 @@ tasks:
     cmds:
       - |-
         . "{{.G_LINT_VENV_DIR}}/bin/activate"
-        yamllint --strict .
+        yamllint \
+          --config-file "tools/yscope-dev-utils/lint-configs/.yamllint.yml" \
+          --strict \
+          .gersemirc \
+          .github/ \
+          .yamllint.yaml \
+          lint-tasks.yaml \
+          taskfile.yaml
 
   cmake:
     internal: true
