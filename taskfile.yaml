@@ -6,11 +6,25 @@ includes:
 
 vars:
   G_BUILD_DIR: "{{.ROOT_DIR}}/build"
+  G_BUILD_SPIDER_DIR: "{{.G_BUILD_DIR}}/spider"
+  G_SPIDER_CMAKE_CACHE: "{{.G_BUILD_SPIDER_DIR}}/CMakeCache.txt"
+  G_SPIDER_COMPILE_COMMANDS_DB: "{{.G_BUILD_SPIDER_DIR}}/compile_commands.json"
+  G_SRC_SPIDER_DIR: "{{.ROOT_DIR}}/src/spider"
 
 tasks:
   clean:
     cmds:
       - "rm -rf '{{.G_BUILD_DIR}}'"
+
+  config-cmake-project:
+    internal: true
+    sources:
+      - "{{.TASKFILE}}"
+      - "CMakeLists.txt"
+    generates:
+      - "{{.G_SPIDER_CMAKE_CACHE}}"
+      - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
+    cmd: "cmake -S '{{.ROOT_DIR}}' -B '{{.G_BUILD_SPIDER_DIR}}'"
 
   init:
     internal: true

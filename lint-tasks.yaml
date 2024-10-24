@@ -2,16 +2,19 @@ version: "3"
 
 vars:
   G_LINT_VENV_DIR: "{{.G_BUILD_DIR}}/lint-venv"
+  G_LINT_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/lint#venv.md5"
 
 tasks:
   check:
     cmds:
       - task: "cmake-check"
+      - task: "cpp-check"
       - task: "yml-check"
 
   fix:
     cmds:
       - task: "cmake-fix"
+      - task: "cpp-fix"
       - task: "yml-fix"
 
   cmake-check:
@@ -27,6 +30,66 @@ tasks:
       - task: "cmake"
         vars:
           FLAGS: "--in-place"
+
+  cpp-configs: "tools/yscope-dev-utils/lint-configs/symlink-cpp-lint-configs.sh"
+
+  cpp-check:
+    cmds:
+      - task: "cpp-format-check"
+      - task: "cpp-static-check"
+
+  cpp-fix:
+    cmds:
+      - task: "cpp-format-fix"
+      - task: "cpp-static-fix"
+
+  cpp-format-check:
+    sources: &cpp_format_src_files
+      - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
+      - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
+      - "{{.TASKFILE}}"
+      - "tools/yscope-dev-utils/lint-configs/.clang-format"
+    deps: ["cpp-configs", "venv"]
+    cmds:
+      - task: "clang-format"
+        vars:
+          FLAGS: "--dry-run"
+          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
+
+  cpp-format-fix:
+    sources: *cpp_format_src_files
+    deps: ["cpp-configs", "venv"]
+    cmds:
+      - task: "clang-format"
+        vars:
+          FLAGS: "-i"
+          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
+
+  cpp-static-check:
+    # Alias task to `cpp-static-fix` since we don't currently support automatic fixes.
+    # NOTE: clang-tidy does have the ability to fix some errors, but the fixes can be inaccurate.
+    # When we eventually determine which errors can be safely fixed, we'll allow clang-tidy to
+    # fix them.
+    aliases: ["cpp-static-fix"]
+    sources:
+      - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
+      - "{{.G_SPIDER_CMAKE_CACHE}}"
+      - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
+      - "{{.TASKFILE}}"
+      - "Taskfile.yml"
+      - "tools/yscope-dev-utils/lint-configs/.clang-tidy"
+    deps: [":config-cmake-project", "cpp-configs", "venv"]
+    cmds:
+      - task: "clang-tidy"
+        vars:
+          FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
+          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
 
   yml:
     aliases:
@@ -45,6 +108,30 @@ tasks:
           lint-tasks.yaml \
           taskfile.yaml
 
+  clang-format:
+    internal: true
+    requires:
+      vars: ["FLAGS", "SRC_DIR"]
+    cmd: |-
+      . "{{.G_LINT_VENV_DIR}}/bin/activate"
+      find "{{.SRC_DIR}}" \
+        -type f \
+        \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
+        -print0 | \
+          xargs -0 --no-run-if-empty clang-format {{.FLAGS}} -Werror
+
+  clang-tidy:
+    internal: true
+    requires:
+      vars: ["FLAGS", "SRC_DIR"]
+    cmd: |-
+      . "{{.G_LINT_VENV_DIR}}/bin/activate"
+      find "{{.SRC_DIR}}" \
+        -type f \
+        \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
+        -print0 | \
+          xargs -0 --no-run-if-empty clang-tidy {{.FLAGS}}
+
   cmake:
     internal: true
     requires:
@@ -60,7 +147,7 @@ tasks:
   venv:
     internal: true
     vars:
-      CHECKSUM_FILE: "{{.G_BUILD_DIR}}/{{.TASK | replace \":\" \"#\"}}.md5"
+      CHECKSUM_FILE: "{{.G_LINT_VENV_CHECKSUM_FILE}}"
       OUTPUT_DIR: "{{.G_LINT_VENV_DIR}}"
     sources:
       - "{{.ROOT_DIR}}/taskfile.yaml"

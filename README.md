@@ -36,11 +36,17 @@ The commands above run all linting checks, but for performance you may want to r
 if you only changed C++ files, you don't need to run the YAML linting checks) using one of the tasks
 in the table below.
 
-| Task               | Description                                      |
-|--------------------|--------------------------------------------------|
-| `lint:cmake-check` | Runs the CMake linters.                          |
-| `lint:cmake-fix`   | Runs the CMake linters and fixes any violations. |
-| `lint:yml-check`   | Runs the YAML linters.                           |
-| `lint:yml-fix`     | Runs the YAML linters and fixes some violations. |
+| Task                    | Description                                              |
+|-------------------------|----------------------------------------------------------|
+| `lint:cmake-check`      | Runs the CMake linters.                                  |
+| `lint:cmake-fix`        | Runs the CMake linters and fixes any violations.         |
+| `lint:cpp-check`        | Runs the C++ linters (formatters and static analyzers).  |
+| `lint:cpp-fix`          | Runs the C++ linters and fixes some violations.          |
+| `lint:cpp-format-check` | Runs the C++ formatters.                                 |
+| `lint:cpp-format-fix`   | Runs the C++ formatters and fixes some violations.       |
+| `lint:cpp-static-check` | Runs the C++ static analyzers.                           |
+| `lint:cpp-static-fix`   | Runs the C++ static analyzers and fixes some violations. |
+| `lint:yml-check`        | Runs the YAML linters.                                   |
+| `lint:yml-fix`          | Runs the YAML linters and fixes some violations.         |
 
 [Task]: https://taskfile.dev
