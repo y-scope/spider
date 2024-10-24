@@ -49,3 +49,26 @@ tasks:
         vars:
           DATA_DIR: "{{.OUTPUT_DIR}}"
           OUTPUT_FILE: "{{.CHECKSUM_FILE}}"
+
+  cmake-check:
+    deps: ["venv"]
+    cmds:
+      - task: "cmake"
+        vars:
+          FLAGS: "--check"
+
+  cmake-fix:
+    deps: ["venv"]
+    cmds:
+      - task: "cmake"
+        vars:
+          FLAGS: "--in-place"
+
+  cmake:
+    internal: true
+    requires:
+      vars: ["FLAGS"]
+    cmd: |-
+      . "{{.G_LINT_VENV_DIR}}/bin/activate"
+      find . -name CMakeLists.txt -print0 \
+        | xargs -0 gersemi {{.FLAGS}} --line-length 100 --list-expansion favour-expansion
