@@ -11,6 +11,11 @@ Initialize and update submodules:
 git submodule update --init --recursive
 ```
 
+Set up the config files for our C++ linting tools:
+```shell
+task lint:cpp-configs
+```
+
 ## Adding files
 Certain file types need to be added to our linting rules manually:
 
