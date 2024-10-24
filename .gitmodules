@@ -1,3 +1,6 @@
 [submodule "tools/yscope-dev-utils"]
 	path = tools/yscope-dev-utils
 	url = https://github.com/y-scope/yscope-dev-utils.git
+[submodule "submodules/Catch2"]
+	path = submodules/Catch2
+	url = https://github.com/catchorg/Catch2.git
