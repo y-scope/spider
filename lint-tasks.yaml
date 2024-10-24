@@ -6,11 +6,27 @@ vars:
 tasks:
   check:
     cmds:
+      - task: "cmake-check"
       - task: "yml-check"
 
   fix:
     cmds:
+      - task: "cmake-fix"
       - task: "yml-fix"
+
+  cmake-check:
+    deps: ["venv"]
+    cmds:
+      - task: "cmake"
+        vars:
+          FLAGS: "--check"
+
+  cmake-fix:
+    deps: ["venv"]
+    cmds:
+      - task: "cmake"
+        vars:
+          FLAGS: "--in-place"
 
   yml:
     aliases:
@@ -22,6 +38,18 @@ tasks:
         . "{{.G_LINT_VENV_DIR}}/bin/activate"
         yamllint --strict .
 
+  cmake:
+    internal: true
+    requires:
+      vars: ["FLAGS"]
+    cmd: |-
+      . "{{.G_LINT_VENV_DIR}}/bin/activate"
+      find . \
+        -path ./build -prune \
+        -o -name CMakeLists.txt \
+        -print0 | \
+          xargs -0 --no-run-if-empty gersemi {{.FLAGS}}
+
   venv:
     internal: true
     vars:
@@ -32,6 +60,7 @@ tasks:
       - "{{.TASKFILE}}"
       - "lint-requirements.txt"
     generates: ["{{.CHECKSUM_FILE}}"]
+    run: "once"
     deps:
       - ":init"
       - task: ":utils:validate-checksum"

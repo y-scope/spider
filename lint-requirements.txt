@@ -1,1 +1,2 @@
+gersemi>=0.16.2
 yamllint>=1.35.1
