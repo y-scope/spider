@@ -31,4 +31,8 @@ endif()
 
 add_executable(spider)
 target_compile_features(spider PRIVATE cxx_std_20)
-target_sources(spider PRIVATE src/spider/spider.cpp)
+
+set(SPIDER_SOURCES src/spider/spider.cpp)
+target_sources(spider PRIVATE ${SPIDER_SOURCES})
+
+target_include_directories(spider PRIVATE src/)
