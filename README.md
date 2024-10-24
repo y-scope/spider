@@ -11,6 +11,12 @@ Initialize and update submodules:
 git submodule update --init --recursive
 ```
 
+## Adding files
+Certain file types need to be added to our linting rules manually:
+
+* **YAML**. If adding a YAML file (regardless of its extension), add it as an argument to the
+  `yamllint` command in [lint-tasks.yaml](lint-tasks.yaml).
+
 ## Linting
 Before submitting a pull request, ensure you’ve run the linting commands below and either fixed any
 violations or suppressed the warning.
