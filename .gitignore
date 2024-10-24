@@ -2,5 +2,9 @@
 .task
 build
 
+# Generated lint configs
+.clang-format
+.clang-tidy
+
 # IDE-related directories and files
 .idea
