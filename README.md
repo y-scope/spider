@@ -19,6 +19,9 @@ task lint:cpp-configs
 ## Adding files
 Certain file types need to be added to our linting rules manually:
 
+* **CMake**. If adding a CMake file, add it (or its parent directory) as an argument to the
+  `gersemi` command in [lint-tasks.yaml](lint-tasks.yaml).
+  * If adding a directory, the file must be named `CMakeLists.txt` or use the `.cmake` extension.
 * **YAML**. If adding a YAML file (regardless of its extension), add it as an argument to the
   `yamllint` command in [lint-tasks.yaml](lint-tasks.yaml).
 
