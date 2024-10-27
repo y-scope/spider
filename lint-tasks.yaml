@@ -104,7 +104,6 @@ tasks:
           --strict \
           .gersemirc \
           .github/ \
-          .yamllint.yaml \
           lint-tasks.yaml \
           taskfile.yaml
 
