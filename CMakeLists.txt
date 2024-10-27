@@ -117,11 +117,11 @@ if(SPIDER_USE_STATIC_LIBS)
     # NOTE: We can't statically link to MariaDBClient since it's GPL
     message(AUTHOR_WARNING "MariaDBClient cannot be statically linked due to its license.")
 endif()
-find_package(MariaDBClient 3.1.0 REQUIRED)
-if(MariaDBClient_FOUND)
-    message(STATUS "Found MariaDBClient ${MariaDBClient_VERSION}")
+find_package(MariaDBClientCpp 1.0 REQUIRED)
+if(MariaDBClientCpp_FOUND)
+    message(STATUS "Found MariaDBClientCpp ${MariaDBClientCpp_VERSION}")
 else()
-    message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for MariaDBClient")
+    message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for MariaDBClientCpp")
 endif()
 
 # Add abseil-cpp

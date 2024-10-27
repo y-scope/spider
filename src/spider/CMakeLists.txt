@@ -19,7 +19,7 @@ else()
 endif()
 target_compile_features(spider_core PRIVATE cxx_std_20)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_link_libraries(spider_core Boost::boost absl::flat_hash_map)
+target_link_libraries(spider_core Boost::boost absl::flat_hash_map MariaDBClientCpp::MariaDBClientCpp)
 
 set(SPIDER_WORKER_SOURCES
     worker/worker.cpp
