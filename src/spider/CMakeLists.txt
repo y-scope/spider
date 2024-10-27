@@ -18,7 +18,12 @@ else()
     add_library(spider_core SHARED)
 endif()
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_link_libraries(spider_core PUBLIC Boost::boost PRIVATE absl::flat_hash_map)
+target_link_libraries(
+    spider_core
+    Boost::boost
+    absl::flat_hash_map
+    MariaDBClientCpp::MariaDBClientCpp
+)
 
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 
