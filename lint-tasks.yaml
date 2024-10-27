@@ -82,7 +82,7 @@ tasks:
       - "{{.G_SPIDER_CMAKE_CACHE}}"
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
       - "{{.TASKFILE}}"
-      - "Taskfile.yml"
+      - "taskfile.yaml"
       - "tools/yscope-dev-utils/lint-configs/.clang-tidy"
     deps: [":config-cmake-project", "cpp-configs", "venv"]
     cmds:
