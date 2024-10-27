@@ -8,3 +8,4 @@ build
 
 # IDE-related directories and files
 .idea
+cmake-build-debug
