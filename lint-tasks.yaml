@@ -82,7 +82,7 @@ tasks:
       - "{{.G_SPIDER_CMAKE_CACHE}}"
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
       - "{{.TASKFILE}}"
-      - "Taskfile.yml"
+      - "taskfile.yaml"
       - "tools/yscope-dev-utils/lint-configs/.clang-tidy"
     deps: [":config-cmake-project", "cpp-configs", "venv"]
     cmds:
@@ -104,7 +104,6 @@ tasks:
           --strict \
           .gersemirc \
           .github/ \
-          .yamllint.yaml \
           lint-tasks.yaml \
           taskfile.yaml
 
@@ -138,11 +137,7 @@ tasks:
       vars: ["FLAGS"]
     cmd: |-
       . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find . \
-        -path ./build -prune \
-        -o -name CMakeLists.txt \
-        -print0 | \
-          xargs -0 --no-run-if-empty gersemi {{.FLAGS}}
+      gersemi {{.FLAGS}} CMakeLists.txt src/
 
   venv:
     internal: true
