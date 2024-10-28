@@ -12,7 +12,8 @@ enum class StorageErrType : std::uint8_t {
     DbNotFound,
     KeyNotFoundErr,
     DuplicateKeyErr,
-    ConstraintViolationErr
+    ConstraintViolationErr,
+    OtherErr
 };
 
 struct StorageErr {
@@ -24,6 +25,7 @@ struct StorageErr {
     StorageErr(StorageErrType type, std::string description)
             : type(type),
               description(std::move(description)) {}
+    explicit operator bool() const { type != StorageErrType::Success }
 };
 
 }  // namespace spider::core
