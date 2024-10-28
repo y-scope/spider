@@ -10,12 +10,12 @@
 namespace spider::core {
 class DataStorage {
 public:
-    virtual StorageErr connect(std::string url, boost::uuids::uuid id) = 0;
+    virtual StorageErr connect(std::string const& url) = 0;
     virtual void close() = 0;
     virtual StorageErr initialize() = 0;
 
     virtual StorageErr add_data(Data const& data) = 0;
-    virtual StorageErr get_data(boost::uuids::uuid id, Data& data) = 0;
+    virtual StorageErr get_data(boost::uuids::uuid id, Data* data) = 0;
     virtual StorageErr add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) = 0;
     virtual StorageErr remove_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) = 0;
     virtual StorageErr add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id)

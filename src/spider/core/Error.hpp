@@ -4,15 +4,20 @@
 namespace spider::core {
 enum class StorageErrType {
     kConnectionErr = 0,
-    kDbNotFound,
-    kKeyNotFoundErr,
-    kDuplicateKeyErr,
-    kConstraintViolationErr,
+    kCreateStorageErr,
+    kStorageNotFound,
+    kKeyNotFound,
+    kDuplicateKey,
+    kConstraintViolation,
+    kOtherErr,
+    kSuccess
 };
 
 struct StorageErr {
     StorageErrType type;
     std::string description;
+
+    explicit operator bool() const { type == StorageErrType::kSuccess }
 };
 
 }  // namespace spider::core
