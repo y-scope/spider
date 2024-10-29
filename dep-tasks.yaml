@@ -10,7 +10,7 @@ tasks:
 
   lib_install:
     internal: true
-    deps: ["fmtlib", "spdlog", "mariadb-connector-c"]
+    deps: ["fmtlib", "spdlog", "mariadb-connector-c", "submodules"]
 
   fmtlib:
     internal: true
