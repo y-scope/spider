@@ -30,7 +30,10 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Add local CMake module directory to CMake's modules path
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+set(CMAKE_MODULE_PATH
+    ${CMAKE_MODULE_PATH}
+    "${CMAKE_SOURCE_DIR}/cmake/Modules/"
+)
 
 # Macro providing the length of the absolute source directory path so we can
 # create a relative (rather than absolute) __FILE__ macro
@@ -51,21 +54,22 @@ add_definitions(-D_FILE_OFFSET_BITS=64)
 
 # Detect linking mode (static or shared); Default to static.
 set(SPIDER_USE_STATIC_LIBS ON CACHE BOOL "Whether to link against static libraries")
-if (SPIDER_USE_STATIC_LIBS)
-    if (APPLE)
+if(SPIDER_USE_STATIC_LIBS)
+    if(APPLE)
         set(SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM "macOS")
-    elseif (EXISTS "/etc/centos-release")
+    elseif(EXISTS "/etc/centos-release")
         set(SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM "CentOS")
     endif()
 
-    if (DEFINED SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM)
+    if(DEFINED SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM)
         message(
             AUTHOR_WARNING
             "Building with static libraries is unsupported on"
-            " ${SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM}. Switching to shared libraries.")
+            " ${SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM}. Switching to shared libraries."
+        )
         set(SPIDER_USE_STATIC_LIBS OFF)
     endif()
-endif ()
+endif()
 if(SPIDER_USE_STATIC_LIBS)
     set(SPIDER_LIBS_STRING "static")
 else()
@@ -94,7 +98,7 @@ find_package(spdlog 1.9.2 REQUIRED)
 if(spdlog_FOUND)
     message(STATUS "Found spdlog ${spdlog_VERSION}")
 else()
-    if (SPIDER_USE_STATIC_LIBS)
+    if(SPIDER_USE_STATIC_LIBS)
         message(FATAL_ERROR "Could not find static libraries for spdlog.`")
     else()
         message(FATAL_ERROR "Could not find libraries for spdlog.")
