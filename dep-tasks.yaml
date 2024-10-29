@@ -1,0 +1,36 @@
+version: "3"
+
+vars:
+  G_LIB_INSTALL_DIR: "{{.ROOT_DIR}}/tools/scripts/lib_install/"
+
+tasks:
+
+  lib_install:
+    internal: true
+    deps: ["fmtlib", "spdlog", "mariadb-connector-c"]
+
+  fmtlib:
+    internal: true
+    platforms: ["linux"]
+    dir: "{{.G_LIB_INSTALL_DIR}}"
+    cmds:
+      - "./fmtlib.sh 11.0.2"
+
+  spdlog:
+    internal: true
+    platforms: ["linux"]
+    dir: "{{.G_LIB_INSTALL_DIR}}"
+    cmds:
+      - "./spdlog.sh 1.14.1"
+
+  mariadb-connector-c:
+    internal: true
+    platforms: ["linux"]
+    dir: "{{.G_LIB_INSTALL_DIR}}"
+    cmds:
+      - "./mariadb-connector-c.sh 3.4.1"
+
+  submodules:
+    internal: true
+    cmds:
+      - "git submodule update --init --recursive"

@@ -2,6 +2,7 @@ version: "3"
 
 includes:
   lint: "lint-tasks.yaml"
+  deps: "dep-tasks.yaml"
   utils: "tools/yscope-dev-utils/taskfiles/utils.yml"
 
 vars:
@@ -24,6 +25,7 @@ tasks:
     generates:
       - "{{.G_SPIDER_CMAKE_CACHE}}"
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
+    deps: ["deps:lib_install"]
     cmd: "cmake -S '{{.ROOT_DIR}}' -B '{{.G_BUILD_SPIDER_DIR}}'"
 
   init:
