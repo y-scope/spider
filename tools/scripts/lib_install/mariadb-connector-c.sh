@@ -36,13 +36,6 @@ if [ $installed -eq 0 ] ; then
   exit
 fi
 
-echo "Checking for elevated privileges..."
-privileged_command_prefix=""
-if [ ${EUID:-$(id -u)} -ne 0 ] ; then
-  sudo echo "Script can elevate privileges."
-  privileged_command_prefix="${privileged_command_prefix} sudo"
-fi
-
 # Get OS version
 source /etc/os-release
 if [ $ID = "ubuntu" ] ; then
@@ -75,16 +68,16 @@ set -e
 
 # Install
 install_dir=/usr/local
-${privileged_command_prefix} mkdir -p ${install_dir}
+mkdir -p ${install_dir}
 
 install_command_prefix="${privileged_command_prefix}"
 if [ $checkinstall_installed -eq 0 ] ; then
   install_command_prefix="${install_command_prefix} checkinstall --pkgname '${package_name}' --pkgversion '${version}' --provides '${package_name}' --nodoc -y --pakdir \"${deb_output_dir}\""
 fi
-${install_command_prefix} rsync -a . ${install_dir}/
+rsync -a . ${install_dir}/
 
 # Update ld cache
-${privileged_command_prefix} ldconfig ${install_dir}/lib/mariadb
+ldconfig ${install_dir}/lib/mariadb
 
 # Clean up
 rm -rf $temp_dir
