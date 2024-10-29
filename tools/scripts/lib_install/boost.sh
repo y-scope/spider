@@ -12,8 +12,10 @@ version=$1
 version_with_underscores=${version//./_}
 
 echo "Checking for elevated privileges..."
+privileged_command_prefix=""
 if [ ${EUID:-$(id -u)} -ne 0 ] ; then
   sudo echo "Script can elevate privileges."
+  privileged_command_prefix="${privileged_command_prefix} sudo"
 fi
 
 # Get number of cpu cores
@@ -38,11 +40,7 @@ cd boost_${version_with_underscores}
 ./b2 -j${num_cpus}
 
 # Install
-if [ ${EUID:-$(id -u)} -ne 0 ] ; then
-  sudo ./b2 install
-else
-  ./b2 install
-fi
+${privileged_command_prefix} ./b2 install
 
 # Clean up
-rm -rf $temp_dir
+${privileged_command_prefix} rm -rf $temp_dir
