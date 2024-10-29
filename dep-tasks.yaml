@@ -14,11 +14,11 @@ tasks:
     platforms: [darwin]
     dir: "{{.G_SCRIPT_DIR}}/macOS"
     cmds:
-      - "./install-all.sh"
+      - "./install-lib.sh"
 
   lib_install_linux:
     internal: true
     platforms: [linux]
     dir: "{{.G_SCRIPT_DIR}}/linux"
     cmds:
-      - "./install-all.sh"
+      - "./install-lib.sh"
