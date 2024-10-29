@@ -1,62 +1,131 @@
 #include "MysqlStorage.hpp"
 
+#include <boost/uuid/uuid.hpp>
+#include <string>
+#include <vector>
+
+#include "../core/Data.hpp"
+#include "../core/Error.hpp"
+#include "../core/Task.hpp"
+#include "../core/TaskGraph.hpp"
+
 namespace spider::core {
-StorageErr MySqlMetadataStorage::connect(std::string url, boost::uuids::uuid id) {}
+auto MySqlMetadataStorage::connect(std::string /*url*/, boost::uuids::uuid /*id*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
 
 void MySqlMetadataStorage::close() {}
 
-StorageErr MySqlMetadataStorage::initialize() {}
-
-StorageErr MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) {}
-
-StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph& task_graph) {}
-
-StorageErr MySqlMetadataStorage::get_task_graphs(std::vector<TaskGraph>& task_graphs) {}
-
-StorageErr MySqlMetadataStorage::remove_task_graph(boost::uuids::uuid id) {}
-
-StorageErr MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task const& child) {}
-
-StorageErr MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task& task) {}
-
-StorageErr MySqlMetadataStorage::get_ready_tasks(std::vector<Task>& tasks) {}
-
-StorageErr MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state) {}
-
-StorageErr MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) {}
-
-StorageErr MySqlMetadataStorage::task_finish(TaskInstance const& instance) {}
-
-StorageErr MySqlMetadataStorage::get_task_timeout(std::vector<Task>& tasks) {}
-
-StorageErr get_child_task(boost::uuids::uuid id, Task& child) {}
-
-StorageErr get_parent_tasks(boost::uuids::uuid id, std::vector<Task>& tasks) {}
-
-StorageErr MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) {}
-
-StorageErr MySqlMetadataStorage::hearbeat_timeout(std::vector<boost::uuids::uuid>& ids) {}
-
-StorageErr MysqlDataStorage::connect(std::string url, boost::uuids::uuid id) {}
-
-void MysqlDataStorage::close() {}
-
-StorageErr MysqlDataStorage::initialize() {}
-
-StorageErr MysqlDataStorage::add_data(Data const& data) {}
-
-StorageErr MysqlDataStorage::get_data(boost::uuids::uuid id, Data& data) {}
-
-StorageErr MysqlDataStorage::add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) {
+auto MySqlMetadataStorage::initialize() -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
 }
 
-StorageErr
-MysqlDataStorage::remove_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) {}
+auto MySqlMetadataStorage::add_task_graph(TaskGraph const& /*task_graph*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
 
-StorageErr
-MysqlDataStorage::add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) {}
+auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid /*id*/, TaskGraph& /*task_graph*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
 
-StorageErr
-MysqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) {}
+auto MySqlMetadataStorage::get_task_graphs(std::vector<TaskGraph>& /*task_graphs*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::remove_task_graph(boost::uuids::uuid /*id*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::add_child(boost::uuids::uuid /*parent_id*/, Task const& /*child*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::get_task(boost::uuids::uuid /*id*/, Task& /*task*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>& /*tasks*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::set_task_state(boost::uuids::uuid /*id*/, TaskState /*state*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::add_task_instance(TaskInstance const& /*instance*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::task_finish(TaskInstance const& /*instance*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::get_task_timeout(std::vector<Task>& /*tasks*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::get_child_task(boost::uuids::uuid /*id*/, Task& /*child*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid /*id*/, std::vector<Task>& /*tasks*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid /*id*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlMetadataStorage::heartbeat_timeout(std::vector<boost::uuids::uuid>& /*ids*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::connect(std::string /*url*/, boost::uuids::uuid /*id*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+void MySqlDataStorage::close() {}
+
+auto MySqlDataStorage::initialize() -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::add_data(Data const& /*data*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::get_data(boost::uuids::uuid /*id*/, Data& /*data*/) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::add_task_reference(boost::uuids::uuid /*id*/, boost::uuids::uuid /*task_id*/)
+        -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::
+        remove_task_reference(boost::uuids::uuid /*id*/, boost::uuids::uuid /*task_id*/)
+                -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::
+        add_driver_reference(boost::uuids::uuid /*id*/, boost::uuids::uuid /*driver_id*/)
+                -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
+
+auto MySqlDataStorage::remove_driver_reference(
+        boost::uuids::uuid /*id*/,
+        boost::uuids::uuid /*driver_id*/
+) -> StorageErr {
+    return StorageErr{StorageErrType::Success, ""};
+}
 
 }  // namespace spider::core

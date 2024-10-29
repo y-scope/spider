@@ -8,7 +8,8 @@ set(SPIDER_CORE_SOURCES
     storage/DataStorage.hpp
     storage/MysqlStorage.cpp
     storage/MysqlStorage.hpp
-    CACHE INTERNAL "spider core source files"
+    CACHE INTERNAL
+    "spider core source files"
 )
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 
@@ -20,6 +21,15 @@ target_sources(
         ${SPIDER_CORE_SOURCES}
         ${SPIDER_WORKER_SOURCES}
 )
-target_sources(spider_worker PRIVATE ${SPIDER_CORE_SOURCES} ${SPIDER_WORKER_SOURCES})
-target_link_libraries(spider_worker Boost::boost absl::flat_hash_map)
+target_sources(
+    spider_worker
+    PRIVATE
+        ${SPIDER_CORE_SOURCES}
+        ${SPIDER_WORKER_SOURCES}
+)
+target_link_libraries(
+    spider_worker
+    Boost::boost
+    absl::flat_hash_map
+)
 add_executable(spider::worker ALIAS spider_worker)

@@ -2,30 +2,45 @@
 #define SPIDER_CORE_TASK_HPP
 
 #include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 namespace spider::core {
 
 class TaskInput {
 private:
-    std::optional<std::tuple<boost::uuids::uuid, uint8_t>> m_task_output;
+    std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> m_task_output;
     std::optional<std::string> m_value;
     std::optional<boost::uuids::uuid> m_data_id;
     std::string m_type;
 
 public:
-    TaskInput(boost::uuids::uuid output_task_id, uint8_t position, std::string type)
+    TaskInput(boost::uuids::uuid output_task_id, std::uint8_t position, std::string type)
             : m_task_output({output_task_id, position}),
-              m_type(type) {};
-    TaskInput(std::string value, std::string type) : m_value(value), m_type(type) {};
-    TaskInput(boost::uuids::uuid data_id, std::string type) : m_data_id(data_id), m_type(type) {};
+              m_type(std::move(type)) {};
+    TaskInput(std::string value, std::string type) : m_value(value), m_type(std::move(type)) {};
+    TaskInput(boost::uuids::uuid data_id, std::string type)
+            : m_data_id(data_id),
+              m_type(std::move(type)) {};
 
-    std::optional<std::tuple<boost::uuids::uuid, uint8_t>> get_task_output() const {
+    [[nodiscard]] auto get_task_output(
+    ) const -> std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> {
         return m_task_output;
     }
-    std::optional<std::string> get_value() const { return m_value; }
-    std::optional<boost::uuids::uuid> get_data_id() const { return m_data_id; }
-    std::string get_type() const { return m_type; }
+
+    [[nodiscard]] auto get_value() const -> std::optional<std::string> { return m_value; }
+
+    [[nodiscard]] auto get_data_id() const -> std::optional<boost::uuids::uuid> {
+        return m_data_id;
+    }
+
+    [[nodiscard]] auto get_type() const -> std::string { return m_type; }
 };
 
 class TaskOutput {
@@ -35,36 +50,42 @@ private:
     std::string m_type;
 
 public:
-    TaskOutput(std::string value, std::string type) : m_value(value), m_type(type) {}
+    TaskOutput(std::string value, std::string type) : m_value(value), m_type(std::move(type)) {}
 
-    TaskOutput(boost::uuids::uuid data_id, std::string type) : m_data_id(data_id), m_type(type) {}
+    TaskOutput(boost::uuids::uuid data_id, std::string type)
+            : m_data_id(data_id),
+              m_type(std::move(type)) {}
 
-    std::optional<std::string> get_value() const { return m_value; }
-    std::optional<boost::uuids::uuid> get_data_id() const { return m_data_id; }
-    std::string get_type() const { return m_type; }
+    [[nodiscard]] auto get_value() const -> std::optional<std::string> { return m_value; }
+
+    [[nodiscard]] auto get_data_id() const -> std::optional<boost::uuids::uuid> {
+        return m_data_id;
+    }
+
+    [[nodiscard]] auto get_type() const -> std::string { return m_type; }
 };
 
 class TaskInstance {};
 
-enum TaskState {
-    kPending = 0,
-    kReady,
-    kRunning,
-    kSucceed,
-    kFailed,
-    kCanceled,
+enum class TaskState : std::uint8_t {
+    Pending,
+    Ready,
+    Running,
+    Succeed,
+    Failed,
+    Canceled,
 };
 
-enum TaskCreatorType {
-    kClient = 0,
-    kTask,
+enum class TaskCreatorType : std::uint8_t {
+    Client = 0,
+    Task,
 };
 
 class Task {
 private:
     boost::uuids::uuid m_id;
     std::string m_function_name;
-    TaskState m_state = kPending;
+    TaskState m_state = TaskState::Pending;
     TaskCreatorType m_creator_type;
     boost::uuids::uuid m_creator_id;
     float m_timeout = 0;
@@ -84,17 +105,25 @@ public:
 
     void add_output(TaskOutput const& output) { m_outputs.emplace_back(output); }
 
-    boost::uuids::uuid get_id() const { return m_id; }
-    std::string get_function_name() const { return m_function_name; }
-    TaskState get_state() const { return m_state; }
-    TaskCreatorType get_creator_type() const { return m_creator_type; }
-    boost::uuids::uuid get_creator_id() const { return m_creator_id; }
-    float get_timeout() const { return m_timeout; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
-    uint64_t get_num_inputs() const { return m_inputs.size(); }
-    uint64_t get_num_outputs() const { return m_outputs.size(); }
-    TaskInput get_input(uint64_t index) const { return m_inputs[index]; }
-    TaskInput get_output(uint64_t index) const { return m_outputs[index]; }
+    [[nodiscard]] auto get_function_name() const -> std::string { return m_function_name; }
+
+    [[nodiscard]] auto get_state() const -> TaskState { return m_state; }
+
+    [[nodiscard]] auto get_creator_type() const -> TaskCreatorType { return m_creator_type; }
+
+    [[nodiscard]] auto get_creator_id() const -> boost::uuids::uuid { return m_creator_id; }
+
+    [[nodiscard]] auto get_timeout() const -> float { return m_timeout; }
+
+    [[nodiscard]] auto get_num_inputs() const -> size_t { return m_inputs.size(); }
+
+    [[nodiscard]] auto get_num_outputs() const -> size_t { return m_outputs.size(); }
+
+    [[nodiscard]] auto get_input(uint64_t index) const -> TaskInput { return m_inputs[index]; }
+
+    [[nodiscard]] auto get_output(uint64_t index) const -> TaskOutput { return m_outputs[index]; }
 };
 
 }  // namespace spider::core
