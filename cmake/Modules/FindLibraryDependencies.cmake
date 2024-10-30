@@ -24,13 +24,13 @@ macro(FindStaticLibraryDependencies fld_LIBNAME fld_PREFIX fld_STATIC_LIBS)
             continue()
         endif()
 
-        find_library(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY
-            NAMES ${fld_DEP_LIB}
-            PATH_SUFFIXES lib
-        )
+        find_library(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY NAMES ${fld_DEP_LIB} PATH_SUFFIXES lib)
         if(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY)
-            list(APPEND ${fld_PREFIX}_LIBRARY_DEPENDENCIES
-                "${${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY}")
+            list(
+                APPEND
+                ${fld_PREFIX}_LIBRARY_DEPENDENCIES
+                "${${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY}"
+            )
         else()
             message(SEND_ERROR "Static ${fld_DEP_LIB} library not found")
         endif()
@@ -45,12 +45,13 @@ endmacro()
 #   ${fld_PREFIX}_LIBRARY_DEPENDENCIES - Found libraries
 macro(FindDynamicLibraryDependencies fld_PREFIX fld_DYNAMIC_LIBS)
     foreach(fld_DEP_LIB ${fld_DYNAMIC_LIBS})
-        find_library(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY
-            NAMES ${fld_DEP_LIB}
-            PATH_SUFFIXES lib
-        )
+        find_library(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY NAMES ${fld_DEP_LIB} PATH_SUFFIXES lib)
         if(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY)
-            list(APPEND ${fld_PREFIX}_LIBRARY_DEPENDENCIES "${${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY}")
+            list(
+                APPEND
+                ${fld_PREFIX}_LIBRARY_DEPENDENCIES
+                "${${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY}"
+            )
         else()
             message(SEND_ERROR "${fld_DEP_LIB} library not found")
         endif()

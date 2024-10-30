@@ -21,12 +21,7 @@ find_package(PkgConfig)
 pkg_check_modules(SPDLOG_PKGCONF QUIET ${SPDLOG_LIBNAME})
 
 # Set include directory
-find_path(
-    spdlog_INCLUDE_DIR
-    spdlog.h
-    HINTS ${SPDLOG_PKGCONF_INCLUDEDIR}
-    PATH_SUFFIXES spdlog
-)
+find_path(spdlog_INCLUDE_DIR spdlog.h HINTS ${SPDLOG_PKGCONF_INCLUDEDIR} PATH_SUFFIXES spdlog)
 
 # Handle static libraries
 if(spdlog_USE_STATIC_LIBS)
@@ -40,24 +35,27 @@ endif()
 # Find library
 find_library(
     SPDLOG_LIBRARY
-    NAMES ${SPDLOG_LIBNAME}
-    HINTS ${SPDLOG_PKGCONF_LIBDIR}
-    PATH_SUFFIXES lib
+    NAMES
+        ${SPDLOG_LIBNAME}
+    HINTS
+        ${SPDLOG_PKGCONF_LIBDIR}
+    PATH_SUFFIXES
+        lib
 )
-if (SPDLOG_LIBRARY)
+if(SPDLOG_LIBRARY)
     # NOTE: This must be set for find_package_handle_standard_args to work
     set(spdlog_FOUND ON)
 endif()
 
 if(spdlog_USE_STATIC_LIBS)
-    FindStaticLibraryDependencies(${SPDLOG_LIBNAME} SPDLOG "${SPDLOG_PKGCONF_STATIC_LIBRARIES}")
+    findstaticlibrarydependencies(${SPDLOG_LIBNAME} SPDLOG "${SPDLOG_PKGCONF_STATIC_LIBRARIES}")
 
     # Restore original value of CMAKE_FIND_LIBRARY_SUFFIXES
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${SPDLOG_ORIG_CMAKE_FIND_LIBRARY_SUFFIXES})
     unset(SPDLOG_ORIG_CMAKE_FIND_LIBRARY_SUFFIXES)
 endif()
 
-FindDynamicLibraryDependencies(SPDLOG "${SPDLOG_PKGCONF_LIBRARIES}")
+finddynamiclibrarydependencies(SPDLOG "${SPDLOG_PKGCONF_LIBRARIES}")
 
 # Set version
 set(spdlog_VERSION ${SPDLOG_PKGCONF_VERSION})
@@ -65,19 +63,21 @@ set(spdlog_VERSION ${SPDLOG_PKGCONF_VERSION})
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(
     ${SPDLOG_LIBNAME}
-    REQUIRED_VARS spdlog_INCLUDE_DIR
+    REQUIRED_VARS
+        spdlog_INCLUDE_DIR
     VERSION_VAR spdlog_VERSION
 )
 
 if(NOT TARGET ${SPDLOG_TARGET_NAME})
     # Add library to build
-    if (spdlog_FOUND)
-        if (spdlog_USE_STATIC_LIBS)
+    if(spdlog_FOUND)
+        if(spdlog_USE_STATIC_LIBS)
             add_library(${SPDLOG_TARGET_NAME} STATIC IMPORTED)
             set_target_properties(
                 ${SPDLOG_TARGET_NAME}
                 PROPERTIES
-                COMPILE_FLAGS "${SPDLOG_PKGCONF_STATIC_CFLAGS}"
+                    COMPILE_FLAGS
+                        "${SPDLOG_PKGCONF_STATIC_CFLAGS}"
             )
         else()
             # NOTE: We use UNKNOWN so that if the user doesn't have the SHARED
@@ -86,19 +86,21 @@ if(NOT TARGET ${SPDLOG_TARGET_NAME})
             set_target_properties(
                 ${SPDLOG_TARGET_NAME}
                 PROPERTIES
-                COMPILE_FLAGS "${SPDLOG_PKGCONF_CFLAGS}"
+                    COMPILE_FLAGS
+                        "${SPDLOG_PKGCONF_CFLAGS}"
             )
         endif()
     endif()
 
     # Set include directories for library
-    if (NOT EXISTS "${spdlog_INCLUDE_DIR}")
+    if(NOT EXISTS "${spdlog_INCLUDE_DIR}")
         set(spdlog_FOUND OFF)
     else()
         set_target_properties(
             ${SPDLOG_TARGET_NAME}
             PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${spdlog_INCLUDE_DIR}"
+                INTERFACE_INCLUDE_DIRECTORIES
+                    "${spdlog_INCLUDE_DIR}"
         )
     endif()
 
@@ -109,8 +111,10 @@ if(NOT TARGET ${SPDLOG_TARGET_NAME})
         set_target_properties(
             ${SPDLOG_TARGET_NAME}
             PROPERTIES
-            IMPORTED_LINK_INTERFACE_LANGUAGES "C"
-            IMPORTED_LOCATION "${SPDLOG_LIBRARY}"
+                IMPORTED_LINK_INTERFACE_LANGUAGES
+                    "C"
+                IMPORTED_LOCATION
+                    "${SPDLOG_LIBRARY}"
         )
 
         # Add component's dependencies for linking
@@ -118,7 +122,8 @@ if(NOT TARGET ${SPDLOG_TARGET_NAME})
             set_target_properties(
                 ${SPDLOG_TARGET_NAME}
                 PROPERTIES
-                INTERFACE_LINK_LIBRARIES "${SPDLOG_LIBRARY_DEPENDENCIES}"
+                    INTERFACE_LINK_LIBRARIES
+                        "${SPDLOG_LIBRARY_DEPENDENCIES}"
             )
         endif()
     endif()

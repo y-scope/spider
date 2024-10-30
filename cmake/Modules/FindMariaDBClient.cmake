@@ -21,9 +21,13 @@ find_package(PkgConfig)
 pkg_check_modules(mariadbclient_PKGCONF QUIET "lib${mariadbclient_LIBNAME}")
 
 # Set include directory
-find_path(MariaDBClient_INCLUDE_DIR mysql.h
-    HINTS ${mariadbclient_PKGCONF_INCLUDEDIR}
-    PATH_SUFFIXES mariadb
+find_path(
+    MariaDBClient_INCLUDE_DIR
+    mysql.h
+    HINTS
+        ${mariadbclient_PKGCONF_INCLUDEDIR}
+    PATH_SUFFIXES
+        mariadb
 )
 
 # Handle static libraries
@@ -36,40 +40,47 @@ if(MariaDBClient_USE_STATIC_LIBS)
 endif()
 
 # Find library
-find_library(MariaDBClient_LIBRARY
-    NAMES ${mariadbclient_LIBNAME}
-    HINTS ${mariadbclient_PKGCONF_LIBDIR}
-    PATH_SUFFIXES lib
+find_library(
+    MariaDBClient_LIBRARY
+    NAMES
+        ${mariadbclient_LIBNAME}
+    HINTS
+        ${mariadbclient_PKGCONF_LIBDIR}
+    PATH_SUFFIXES
+        lib
 )
-if (MariaDBClient_LIBRARY)
+if(MariaDBClient_LIBRARY)
     # NOTE: This must be set for find_package_handle_standard_args to work
     set(MariaDBClient_FOUND ON)
 endif()
 
 if(MariaDBClient_USE_STATIC_LIBS)
-    FindStaticLibraryDependencies(${mariadbclient_LIBNAME} mariadbclient
-        "${mariadbclient_PKGCONF_STATIC_LIBRARIES}")
+    findstaticlibrarydependencies(${mariadbclient_LIBNAME} mariadbclient
+        "${mariadbclient_PKGCONF_STATIC_LIBRARIES}"
+    )
 
     # Restore original value of CMAKE_FIND_LIBRARY_SUFFIXES
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${mariadbclient_ORIG_CMAKE_FIND_LIBRARY_SUFFIXES})
     unset(mariadbclient_ORIG_CMAKE_FIND_LIBRARY_SUFFIXES)
 endif()
 
-FindDynamicLibraryDependencies(mariadbclient "${mariadbclient_DYNAMIC_LIBS}")
+finddynamiclibrarydependencies(mariadbclient "${mariadbclient_DYNAMIC_LIBS}")
 
 # Set version
 set(MariaDBClient_VERSION ${mariadbclient_PKGCONF_VERSION})
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(MariaDBClient
-    REQUIRED_VARS MariaDBClient_INCLUDE_DIR
+find_package_handle_standard_args(
+    MariaDBClient
+    REQUIRED_VARS
+        MariaDBClient_INCLUDE_DIR
     VERSION_VAR MariaDBClient_VERSION
 )
 
 if(NOT TARGET MariaDBClient::MariaDBClient)
     # Add library to build
-    if (MariaDBClient_FOUND)
-        if (MariaDBClient_USE_STATIC_LIBS)
+    if(MariaDBClient_FOUND)
+        if(MariaDBClient_USE_STATIC_LIBS)
             add_library(MariaDBClient::MariaDBClient STATIC IMPORTED)
         else()
             # NOTE: We use UNKNOWN so that if the user doesn't have the SHARED
@@ -80,25 +91,32 @@ if(NOT TARGET MariaDBClient::MariaDBClient)
 
     # Set include directories for library
     if(MariaDBClient_INCLUDE_DIR)
-        set_target_properties(MariaDBClient::MariaDBClient
+        set_target_properties(
+            MariaDBClient::MariaDBClient
             PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${MariaDBClient_INCLUDE_DIR}"
+                INTERFACE_INCLUDE_DIRECTORIES
+                    "${MariaDBClient_INCLUDE_DIR}"
         )
     endif()
 
     # Set location of library
     if(EXISTS "${MariaDBClient_LIBRARY}")
-        set_target_properties(MariaDBClient::MariaDBClient
+        set_target_properties(
+            MariaDBClient::MariaDBClient
             PROPERTIES
-            IMPORTED_LINK_INTERFACE_LANGUAGES "C"
-            IMPORTED_LOCATION "${MariaDBClient_LIBRARY}"
+                IMPORTED_LINK_INTERFACE_LANGUAGES
+                    "C"
+                IMPORTED_LOCATION
+                    "${MariaDBClient_LIBRARY}"
         )
 
         # Add component's dependencies for linking
         if(mariadbclient_LIBRARY_DEPENDENCIES)
-            set_target_properties(MariaDBClient::MariaDBClient
+            set_target_properties(
+                MariaDBClient::MariaDBClient
                 PROPERTIES
-                INTERFACE_LINK_LIBRARIES "${mariadbclient_LIBRARY_DEPENDENCIES}"
+                    INTERFACE_LINK_LIBRARIES
+                        "${mariadbclient_LIBRARY_DEPENDENCIES}"
             )
         endif()
     endif()

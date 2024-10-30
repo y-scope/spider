@@ -105,6 +105,7 @@ tasks:
           .gersemirc \
           .github/ \
           lint-tasks.yaml \
+          dep-tasks.yaml \
           taskfile.yaml
 
   clang-format:
@@ -135,9 +136,16 @@ tasks:
     internal: true
     requires:
       vars: ["FLAGS"]
-    cmd: |-
-      . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      gersemi {{.FLAGS}} CMakeLists.txt src/
+    sources:
+      - "CMakeLists.txt"
+      - "src/spider/CMakeLists.txt"
+      - "tests/CMakeLists.txt"
+      - "cmake/Modules/*.cmake"
+    cmds:
+      - for: "sources"
+        cmd: |-
+          . "{{.G_LINT_VENV_DIR}}/bin/activate"
+          gersemi {{.FLAGS}} {{.ITEM}}
 
   venv:
     internal: true
