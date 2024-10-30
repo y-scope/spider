@@ -45,7 +45,9 @@ jobs:
           tar --version
           task --version
 
-      - name: "task "
+      - name: "Install project dependencies "
+        timeout-minutes: 10
+        continue-on-error: false
         run: "task deps:lib_install"
 
       - run: "task lint:check"
