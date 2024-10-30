@@ -6,7 +6,6 @@ vars:
 tasks:
 
   lib_install:
-    internal: true
     deps: ["lib_install_mac", "lib_install_linux"]
 
   lib_install_mac:

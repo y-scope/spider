@@ -45,4 +45,7 @@ jobs:
           tar --version
           task --version
 
+      - name: "task "
+        run: "task deps:lib_install"
+
       - run: "task lint:check"
