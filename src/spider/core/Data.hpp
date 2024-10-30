@@ -13,22 +13,23 @@ private:
     std::optional<std::string> m_key;
     std::string m_value;
 
-public:
-    explicit Data(std::string value) : m_value(std::move(value)) {
+    void init_id() {
         boost::uuids::random_generator gen;
         m_id = gen();
     }
+
+public:
+    explicit Data(std::string value) : m_value(std::move(value)) { init_id(); }
 
     Data(std::string key, std::string value) : m_key(std::move(key)), m_value(std::move(value)) {
-        boost::uuids::random_generator gen;
-        m_id = gen();
+        init_id();
     }
 
-    auto get_id() -> boost::uuids::uuid { return m_id; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
-    auto get_key() -> std::optional<std::string> { return m_key; }
+    [[nodiscard]] auto get_key() const -> std::optional<std::string> { return m_key; }
 
-    auto get_value() -> std::string { return m_value; }
+    [[nodiscard]] auto get_value() const -> std::string { return m_value; }
 };
 
 #endif  // SPIDER_CORE_DATA_HPP

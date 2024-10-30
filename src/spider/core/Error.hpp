@@ -7,17 +7,19 @@
 
 namespace spider::core {
 enum class StorageErrType : std::uint8_t {
+    Success = 0,
     ConnectionErr,
     DbNotFound,
     KeyNotFoundErr,
     DuplicateKeyErr,
-    ConstraintViolationErr,
-    Success
+    ConstraintViolationErr
 };
 
 struct StorageErr {
     StorageErrType type;
     std::string description;
+
+    StorageErr() : type(StorageErrType::Success) {}
 
     StorageErr(StorageErrType type, std::string description)
             : type(type),

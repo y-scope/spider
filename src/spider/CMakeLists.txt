@@ -21,12 +21,6 @@ target_sources(
         ${SPIDER_CORE_SOURCES}
         ${SPIDER_WORKER_SOURCES}
 )
-target_sources(
-    spider_worker
-    PRIVATE
-        ${SPIDER_CORE_SOURCES}
-        ${SPIDER_WORKER_SOURCES}
-)
 target_link_libraries(
     spider_worker
     Boost::boost

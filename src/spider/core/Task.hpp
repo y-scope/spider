@@ -24,7 +24,9 @@ public:
     TaskInput(boost::uuids::uuid output_task_id, std::uint8_t position, std::string type)
             : m_task_output({output_task_id, position}),
               m_type(std::move(type)) {};
-    TaskInput(std::string value, std::string type) : m_value(value), m_type(std::move(type)) {};
+    TaskInput(std::string value, std::string type)
+            : m_value(std::move(value)),
+              m_type(std::move(type)) {};
     TaskInput(boost::uuids::uuid data_id, std::string type)
             : m_data_id(data_id),
               m_type(std::move(type)) {};
@@ -50,7 +52,9 @@ private:
     std::string m_type;
 
 public:
-    TaskOutput(std::string value, std::string type) : m_value(value), m_type(std::move(type)) {}
+    TaskOutput(std::string value, std::string type)
+            : m_value(std::move(value)),
+              m_type(std::move(type)) {}
 
     TaskOutput(boost::uuids::uuid data_id, std::string type)
             : m_data_id(data_id),
