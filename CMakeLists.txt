@@ -29,10 +29,96 @@ if(NOT CMAKE_BUILD_TYPE)
     )
 endif()
 
-add_executable(spider)
-target_compile_features(spider PRIVATE cxx_std_20)
+# Add local CMake module directory to CMake's modules path
+set(CMAKE_MODULE_PATH
+    ${CMAKE_MODULE_PATH}
+    "${CMAKE_SOURCE_DIR}/cmake/Modules/"
+)
 
-set(SPIDER_SOURCES src/spider/spider.cpp)
-target_sources(spider PRIVATE ${SPIDER_SOURCES})
+# Macro providing the length of the absolute source directory path so we can
+# create a relative (rather than absolute) __FILE__ macro
+string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
+add_definitions("-DSOURCE_PATH_SIZE=${SOURCE_PATH_SIZE}")
 
-target_include_directories(spider PRIVATE src/)
+# Profiling options
+add_definitions(-DPROF_ENABLED=0)
+
+# Compile-in debug logging statements
+#add_definitions(-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
+
+# Flush to disk switch
+add_definitions(-DFLUSH_TO_DISK_ENABLED=1)
+
+# Make off_t 64-bit
+add_definitions(-D_FILE_OFFSET_BITS=64)
+
+# Detect linking mode (static or shared); Default to static.
+set(SPIDER_USE_STATIC_LIBS ON CACHE BOOL "Whether to link against static libraries")
+if(SPIDER_USE_STATIC_LIBS)
+    if(APPLE)
+        set(SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM "macOS")
+    elseif(EXISTS "/etc/centos-release")
+        set(SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM "CentOS")
+    endif()
+
+    if(DEFINED SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM)
+        message(
+            AUTHOR_WARNING
+            "Building with static libraries is unsupported on"
+            " ${SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM}. Switching to shared libraries."
+        )
+        set(SPIDER_USE_STATIC_LIBS OFF)
+    endif()
+endif()
+if(SPIDER_USE_STATIC_LIBS)
+    set(SPIDER_LIBS_STRING "static")
+else()
+    set(SPIDER_LIBS_STRING "shared")
+endif()
+message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
+
+# Find and setup fmt
+find_package(fmt 8.0.1 REQUIRED)
+if(fmt_FOUND)
+    message(STATUS "Found fmt ${fmt_VERSION}")
+else()
+    message(FATAL_ERROR "Could not find static libraries for fmt")
+endif()
+
+# Find and setup spdlog
+if(SPIDER_USE_STATIC_LIBS)
+    # NOTE: On some Linux distributions (e.g. Ubuntu), the spdlog package only contains a dynamic
+    # library. If the `find_package(spdlog)` call below fails, re-run
+    # `tools/scripts/lib_install/<dist_name>/install-packages-from-source.sh` to build spdlog from
+    # source.
+    set(spdlog_USE_STATIC_LIBS ON)
+endif()
+set(SPDLOG_FMT_EXTERNAL ON)
+find_package(spdlog 1.9.2 REQUIRED)
+if(spdlog_FOUND)
+    message(STATUS "Found spdlog ${spdlog_VERSION}")
+else()
+    if(SPIDER_USE_STATIC_LIBS)
+        message(FATAL_ERROR "Could not find static libraries for spdlog.`")
+    else()
+        message(FATAL_ERROR "Could not find libraries for spdlog.")
+    endif()
+endif()
+
+# Find and setup MariaDBClient library
+if(CLP_USE_STATIC_LIBS)
+    # NOTE: We can't statically link to MariaDBClient since it's GPL
+    message(AUTHOR_WARNING "MariaDBClient cannot be statically linked due to its license.")
+endif()
+find_package(MariaDBClient 3.1.0 REQUIRED)
+if(MariaDBClient_FOUND)
+    message(STATUS "Found MariaDBClient ${MariaDBClient_VERSION}")
+else()
+    message(FATAL_ERROR "Could not find ${CLP_LIBS_STRING} libraries for MariaDBClient")
+endif()
+
+find_package(Threads REQUIRED)
+
+add_subdirectory(src/spider)
+
+add_subdirectory(tests)

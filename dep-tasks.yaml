@@ -1,0 +1,23 @@
+version: "3"
+
+vars:
+  G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
+
+tasks:
+
+  lib_install:
+    deps: ["lib_install_mac", "lib_install_linux"]
+
+  lib_install_mac:
+    internal: true
+    platforms: ["darwin"]
+    dir: "{{.G_SCRIPT_DIR}}/macOS"
+    cmds:
+      - "./install-lib.sh"
+
+  lib_install_linux:
+    internal: true
+    platforms: ["linux"]
+    dir: "{{.G_SCRIPT_DIR}}/linux"
+    cmds:
+      - "./install-lib.sh"
