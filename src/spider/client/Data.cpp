@@ -1,5 +1,9 @@
 #include "Data.hpp"
 
+#include <functional>
+#include <string>
+#include <vector>
+
 namespace spider {
 
 class DataImpl {};
@@ -29,7 +33,7 @@ auto Data<T>::Builder::cleanup(std::function<T const&()> const& /*f*/) -> Data<T
 }
 
 template <class T>
-auto Data<T>::Builder::build(T&& /*t*/) -> Data<T> {
+auto Data<T>::Builder::build(T const& /*t*/) -> Data<T> {
     return Data<T>();
 }
 

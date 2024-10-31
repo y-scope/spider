@@ -3,6 +3,8 @@
 
 #include <functional>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace spider {
 
@@ -70,7 +72,7 @@ public:
          * @param t value of the data
          * @return data object
          */
-        auto build(T&& t) -> Data<T>;
+        auto build(T const& /*t*/) -> Data<T>;
     };
 };
 
