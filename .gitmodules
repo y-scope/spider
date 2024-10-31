@@ -4,3 +4,6 @@
 [submodule "submodules/Catch2"]
 	path = submodules/Catch2
 	url = https://github.com/catchorg/Catch2.git
+[submodule "submodules/abseil-cpp"]
+	path = submodules/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git

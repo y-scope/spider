@@ -77,6 +77,17 @@ else()
 endif()
 message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 
+# Find and setup Boost Library
+if(SPIDER_USE_STATIC_LIBS)
+    set(Boost_USE_STATIC_LIBS ON)
+endif()
+find_package(Boost 1.74 REQUIRED)
+if(Boost_FOUND)
+    message(STATUS "Found Boost ${Boost_VERSION}")
+else()
+    message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for Boost")
+endif()
+
 # Find and setup fmt
 find_package(fmt 8.0.1 REQUIRED)
 if(fmt_FOUND)
@@ -106,7 +117,7 @@ else()
 endif()
 
 # Find and setup MariaDBClient library
-if(CLP_USE_STATIC_LIBS)
+if(SPIDER_USE_STATIC_LIBS)
     # NOTE: We can't statically link to MariaDBClient since it's GPL
     message(AUTHOR_WARNING "MariaDBClient cannot be statically linked due to its license.")
 endif()
@@ -114,8 +125,12 @@ find_package(MariaDBClient 3.1.0 REQUIRED)
 if(MariaDBClient_FOUND)
     message(STATUS "Found MariaDBClient ${MariaDBClient_VERSION}")
 else()
-    message(FATAL_ERROR "Could not find ${CLP_LIBS_STRING} libraries for MariaDBClient")
+    message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for MariaDBClient")
 endif()
+
+# Add abseil-cpp
+set(ABSL_PROPAGATE_CXX_STD ON)
+add_subdirectory(submodules/abseil-cpp EXCLUDE_FROM_ALL)
 
 find_package(Threads REQUIRED)
 
