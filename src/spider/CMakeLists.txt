@@ -17,7 +17,6 @@ if(SPIDER_USE_STATIC_LIBS)
 else()
     add_library(spider_core SHARED)
 endif()
-target_compile_features(spider_core PRIVATE cxx_std_20)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
 target_link_libraries(
     spider_core
@@ -26,8 +25,7 @@ target_link_libraries(
 )
 
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
-set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 
 add_executable(spider_worker)
-target_compile_features(spider_worker PRIVATE cxx_std_20)
+target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
 add_executable(spider::worker ALIAS spider_worker)
