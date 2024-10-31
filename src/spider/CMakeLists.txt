@@ -18,14 +18,11 @@ else()
     add_library(spider_core SHARED)
 endif()
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_link_libraries(
-    spider_core
-    Boost::boost
-    absl::flat_hash_map
-)
+target_link_libraries(spider_core PUBLIC Boost::boost PRIVATE absl::flat_hash_map)
 
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
+target_link_libraries(spider_worker PRIVATE ${spider_core})
 add_executable(spider::worker ALIAS spider_worker)
