@@ -26,3 +26,31 @@ add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
 target_link_libraries(spider_worker PRIVATE spider_core)
 add_executable(spider::worker ALIAS spider_worker)
+
+set(SPIDER_CLIENT_SOURCES
+    client/Task.cpp
+    client/Future.cpp
+    client/Data.cpp
+    CACHE INTERNAL
+    "spider client source files"
+)
+
+set(SPIDER_CLIENT_HEADERS
+    client/Spider.hpp
+    client/Task.hpp
+    client/Error.hpp
+    client/Future.hpp
+    client/Data.hpp
+    CACHE INTERNAL
+    "spider client header files"
+)
+
+add_library(spider_client)
+target_sources(
+    spider_client
+    PRIVATE
+        ${SPIDER_CLIENT_SOURCES}
+        ${SPIDER_CLIENT_HEADERS}
+)
+target_link_libraries(spider_client PRIVATE spider_core)
+add_library(spider::spider ALIAS spider_client)
