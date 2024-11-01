@@ -1,5 +1,4 @@
-# Try to find MariaDBClient
-# NOTE: The FindMariaDBClientCpp.cmake included with CMake has no support for static libraries, so we use our own.
+# Try to find MariaDBClientCpp
 #
 # Set MariaDBClientCpp_USE_STATIC_LIBS=ON to look for static libraries.
 #

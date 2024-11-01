@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Dependencies:
-# - curl
-# - rsync
+# - cmake
+# - g++
+# - git
 # NOTE: Dependencies should be installed outside the script to allow the script to be largely distro-agnostic
 
 # Exit on any error
