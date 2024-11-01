@@ -20,7 +20,12 @@ else()
 endif()
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
 target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
-target_link_libraries(spider_core PUBLIC Boost::boost PRIVATE absl::flat_hash_map)
+target_link_libraries(
+    spider_core
+    PUBLIC
+        Boost::boost
+        absl::flat_hash_map
+)
 
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Data.cpp
