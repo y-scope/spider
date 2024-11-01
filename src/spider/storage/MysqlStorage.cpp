@@ -7,6 +7,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <cstdint>
 #include <deque>
+#include <format>
 #include <iostream>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/Driver.hpp>
@@ -17,8 +18,10 @@
 #include <mariadb/conncpp/Statement.hpp>
 #include <mariadb/conncpp/Types.hpp>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
@@ -171,7 +174,9 @@ std::array<char const* const, 4> const cCreateDataStorage = {
 };
 
 auto uuid_get_bytes(boost::uuids::uuid id) -> sql::bytes {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast)
     return {(char*)id.data(), id.size()};
+    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast)
 }
 
 auto task_state_to_string(spider::core::TaskState state) -> std::string {
@@ -307,11 +312,13 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
             "INSERT INTO tasks (id, job_id, func_name, state, timeout) VALUES (?, ?, ?, ?, ?)"
     ));
     sql::bytes task_id_bytes = uuid_get_bytes(task.get_id());
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement->setBytes(1, &task_id_bytes);
     task_statement->setBytes(2, &job_id);
     task_statement->setString(3, task.get_function_name());
     task_statement->setString(4, task_state_to_string(task.get_state()));
     task_statement->setFloat(5, task.get_timeout());
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement->executeUpdate();
 
     // Add task inputs
@@ -327,12 +334,14 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
                     "INSERT INTO task_inputs (task_id, position, type, output_task_id, "
                     "output_task_position) VALUES (?, ?, ?, ?, ?)"
             ));
+            // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
             input_statement->setBytes(1, &task_id_bytes);
             input_statement->setUInt(2, i);
             input_statement->setString(3, input.get_type());
             sql::bytes task_output_id = uuid_get_bytes(std::get<0>(pair));
             input_statement->setBytes(4, &task_output_id);
             input_statement->setUInt(5, std::get<1>(pair));
+            // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
             input_statement->executeUpdate();
         } else if (data_id.has_value()) {
             std::unique_ptr<sql::PreparedStatement> input_statement(
@@ -380,7 +389,12 @@ auto MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) -> Storag
         std::deque<boost::uuids::uuid> queue;
         // First go ver all heads
         for (boost::uuids::uuid const task_id : heads) {
-            Task const task = task_graph.get_task(task_id).value();
+            std::optional<Task> const task_option = task_graph.get_task(task_id);
+            if (!task_option.has_value()) {
+                m_conn->rollback();
+                return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
+            }
+            Task const& task = task_option.value();
             this->add_task(job_id_bytes, task);
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 queue.push_back(id);
@@ -392,7 +406,12 @@ auto MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) -> Storag
             queue.pop_back();
             if (!heads.contains(task_id)) {
                 heads.insert(task_id);
-                Task const task = task_graph.get_task(task_id).value();
+                std::optional<Task> const task_option = task_graph.get_task(task_id);
+                if (!task_option.has_value()) {
+                    m_conn->rollback();
+                    return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
+                }
+                Task const& task = task_option.value();
                 this->add_task(job_id_bytes, task);
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     queue.push_back(id);
@@ -411,16 +430,17 @@ auto MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) -> Storag
 }
 
 namespace {
-static auto read_id(std::istream* stream) -> boost::uuids::uuid {
-    char id_bytes[16];
-    stream->read(id_bytes, 16);
-    std::uint8_t id_data[16];
-    memcpy(id_data, id_bytes, 16);
-    return {id_data};
+// NOLINTBEGIN
+auto read_id(std::istream* stream) -> boost::uuids::uuid {
+    std::uint8_t id_bytes[16];
+    stream->read((char*)id_bytes, 16);
+    return {id_bytes};
 }
+
+// NOLINTEND
 }  // namespace
 
-auto MySqlMetadataStorage::fetch_task(std::shared_ptr<sql::ResultSet> res) -> Task {
+auto MySqlMetadataStorage::fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task {
     boost::uuids::uuid const id = read_id(res->getBinaryStream("id"));
     std::string const function_name = res->getString("func_name").c_str();
     TaskState const state = string_to_task_state(res->getString("state").c_str());
@@ -441,9 +461,15 @@ auto MySqlMetadataStorage::fetch_task(std::shared_ptr<sql::ResultSet> res) -> Ta
 }
 
 namespace {
-void fetch_task_input(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> const res) {
+auto fetch_task_input(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> const& res) -> bool {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
     std::string const type = res->getString(3).c_str();
+    std::optional<Task> task_option = task_graph->get_task(task_id);
+    if (!task_option.has_value()) {
+        return false;
+    }
+    Task& task = task_option.value();
     if (!res->isNull(4)) {
         TaskInput input = TaskInput(read_id(res->getBinaryStream(4)), res->getUInt(5), type);
         if (!res->isNull(6)) {
@@ -452,16 +478,23 @@ void fetch_task_input(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> con
         if (!res->isNull(7)) {
             input.set_data_id(read_id(res->getBinaryStream(7)));
         }
-        task_graph->get_task(task_id)->add_input(input);
+        task.add_input(input);
     } else if (!res->isNull(6)) {
-        task_graph->get_task(task_id)->add_input(TaskInput(res->getString(6).c_str(), type));
+        task.add_input(TaskInput(res->getString(6).c_str(), type));
     } else if (!res->isNull(7)) {
-        task_graph->get_task(task_id)->add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
+        task.add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
     }
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    return true;
 }
 
-void fetch_task_output(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> const res) {
+auto fetch_task_output(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> const& res) -> bool {
     boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
+    std::optional<Task> task_option = task_graph->get_task(task_id);
+    if (!task_option.has_value()) {
+        return false;
+    }
+    Task& task = task_option.value();
     std::string const type = res->getString(3).c_str();
     TaskOutput output{type};
     if (!res->isNull(3)) {
@@ -469,7 +502,8 @@ void fetch_task_output(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> co
     } else if (!res->isNull(4)) {
         output.set_data_id(read_id(res->getBinaryStream(4)));
     }
-    task_graph->get_task(task_id)->add_output(output);
+    task.add_output(output);
+    return true;
 }
 }  // namespace
 
@@ -482,7 +516,7 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         task_statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const task_res(task_statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const task_res(task_statement->executeQuery());
         if (task_res->rowsCount() == 0) {
             m_conn->commit();
             return StorageErr{
@@ -503,9 +537,12 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
                 "t1.position"
         ));
         input_statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const input_res(input_statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const input_res(input_statement->executeQuery());
         while (input_res->next()) {
-            fetch_task_input(task_graph, input_res);
+            if (!fetch_task_input(task_graph, input_res)) {
+                m_conn->rollback();
+                return StorageErr{StorageErrType::KeyNotFoundErr, "Task storage inconsistent"};
+            }
         }
 
         // Get outputs
@@ -516,9 +553,12 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
                 "t1.task_id, t1.position"
         ));
         output_statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const output_res(output_statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const output_res(output_statement->executeQuery());
         while (output_res->next()) {
-            fetch_task_output(task_graph, output_res);
+            if (!fetch_task_output(task_graph, output_res)) {
+                m_conn->rollback();
+                return StorageErr{StorageErrType::KeyNotFoundErr, "Task storage inconsistent"};
+            }
         }
 
         // Get dependencies
@@ -613,7 +653,7 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const res(statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
         if (res->rowsCount() == 0) {
             m_conn->commit();
             return StorageErr{
@@ -633,7 +673,7 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
 auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
-        std::shared_ptr<sql::ResultSet> const res(
+        std::unique_ptr<sql::ResultSet> const res(
                 statement->executeQuery("SELECT id, func_name, state, creator, timeout "
                                         "FROM tasks WHERE state = 'ready'")
         );
@@ -670,7 +710,7 @@ auto MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state
 
 auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> StorageErr {
     try {
-        std::shared_ptr<sql::PreparedStatement> const statement(
+        std::unique_ptr<sql::PreparedStatement> const statement(
                 m_conn->prepareStatement("INSERT INTO task_instances (id, task_id, start_time) "
                                          "VALUES(?, ?, CURRENT_TIMESTAMP())")
         );
@@ -692,7 +732,7 @@ auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> St
 
 auto MySqlMetadataStorage::task_finish(TaskInstance const& instance) -> StorageErr {
     try {
-        std::shared_ptr<sql::PreparedStatement> const statement(
+        std::unique_ptr<sql::PreparedStatement> const statement(
                 m_conn->prepareStatement("UPDATE tasks (instance_id) VALUES (?) WHERE "
                                          "id = ? AND instance_id is NULL")
         );
@@ -722,9 +762,7 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) ->
                 "t1.start_time, CURRENT_TIMESTAMP()) > tasks.timeout * 1000"
         ));
         while (res->next()) {
-            tasks->emplace_back(
-                    TaskInstance{read_id(res->getBinaryStream(1)), read_id(res->getBinaryStream(2))}
-            );
+            tasks->emplace_back(read_id(res->getBinaryStream(1)), read_id(res->getBinaryStream(2)));
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -743,7 +781,7 @@ auto MySqlMetadataStorage::get_child_task(boost::uuids::uuid id, Task* child) ->
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const res(statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
         *child = fetch_task(res);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -763,7 +801,7 @@ auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<T
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const res(statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
         while (res->next()) {
             tasks->emplace_back(fetch_task(res));
         }
@@ -783,7 +821,7 @@ auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
-        std::shared_ptr<sql::ResultSet> const res(statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
         if (res->rowsCount() == 0) {
             m_conn->commit();
             return StorageErr{
@@ -799,6 +837,10 @@ auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr
     return StorageErr{};
 }
 
+namespace {
+constexpr int cMillisecondToMicrosecond = 1000;
+}  // namespace
+
 auto MySqlMetadataStorage::heartbeat_timeout(float timeout, std::vector<boost::uuids::uuid>* ids)
         -> StorageErr {
     try {
@@ -806,7 +848,7 @@ auto MySqlMetadataStorage::heartbeat_timeout(float timeout, std::vector<boost::u
                 m_conn->prepareStatement("SELECT id FROM drivers WHERE TIMESTAMPDIFF(MICROSECOND, "
                                          "heartbeat, CURRENT_TIMESTAMP()) > ?")
         );
-        statement->setFloat(1, timeout * 1000);
+        statement->setFloat(1, timeout * cMillisecondToMicrosecond);
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
         while (res->next()) {
             ids->emplace_back(read_id(res->getBinaryStream("id")));
@@ -906,8 +948,9 @@ auto MysqlDataStorage::add_data(Data const& data) -> StorageErr {
         );
         sql::bytes id_bytes = uuid_get_bytes(data.get_id());
         statement->setBytes(1, &id_bytes);
-        if (data.get_key().has_value()) {
-            statement->setString(2, data.get_key().value());
+        std::optional<std::string> const& key = data.get_key();
+        if (key.has_value()) {
+            statement->setString(2, key.value());
         } else {
             statement->setNull(2, sql::DataType::VARCHAR);
         }

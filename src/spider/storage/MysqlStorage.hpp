@@ -49,7 +49,7 @@ private:
     sql::Connection* m_conn = nullptr;
 
     void add_task(sql::bytes job_id, Task const& task);
-    auto fetch_task(std::shared_ptr<sql::ResultSet> res) -> Task;
+    auto fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };
 
 class MysqlDataStorage : public DataStorage {
