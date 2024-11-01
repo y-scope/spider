@@ -14,7 +14,6 @@
 #include <mariadb/conncpp/Exception.hpp>
 #include <mariadb/conncpp/jdbccompat.hpp>
 #include <mariadb/conncpp/PreparedStatement.hpp>
-#include <mariadb/conncpp/Properties.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 #include <mariadb/conncpp/Statement.hpp>
 #include <mariadb/conncpp/Types.hpp>
@@ -227,7 +226,7 @@ auto MySqlMetadataStorage::connect(std::string const& url) -> StorageErr {
     if (nullptr == m_conn) {
         try {
             sql::Driver* driver = sql::mariadb::get_driver_instance();
-            sql::Properties const properties;
+            sql::Properties properties;
             m_conn = driver->connect(sql::SQLString(url), properties);
             m_conn->setAutoCommit(false);
         } catch (sql::SQLException& e) {
@@ -909,7 +908,7 @@ auto MysqlDataStorage::connect(std::string const& url) -> StorageErr {
     if (nullptr == m_conn) {
         try {
             sql::Driver* driver = sql::mariadb::get_driver_instance();
-            sql::Properties const properties;
+            sql::Properties properties;
             m_conn = driver->connect(sql::SQLString(url), properties);
             m_conn->setAutoCommit(false);
         } catch (sql::SQLException& e) {
