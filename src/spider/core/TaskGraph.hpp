@@ -22,7 +22,7 @@ public:
 
     explicit TaskGraph(boost::uuids::uuid id) : m_id(id) {}
 
-    bool add_child_task(Task const& task, std::vector<boost::uuids::uuid> const& parents) {
+    auto add_child_task(Task const& task, std::vector<boost::uuids::uuid> const& parents) -> bool {
         boost::uuids::uuid task_id = task.get_id();
         for (boost::uuids::uuid const parent_id : parents) {
             if (!m_tasks.contains(parent_id)) {
@@ -41,12 +41,12 @@ public:
     }
 
     // User is responsible to add the dependencies
-    bool add_task(Task const& task) {
-        boost::uuids::uuid task_id = task.get_id();
-        if (m_tasks.contains(task.get_id())) {
+    auto add_task(Task const& task) -> bool {
+        boost::uuids::uuid const task_id = task.get_id();
+        if (m_tasks.contains(task_id)) {
             return false;
         }
-        m_tasks.emplace(task.get_id(), task);
+        m_tasks.emplace(task_id, task);
         return true;
     }
 
@@ -54,9 +54,9 @@ public:
         m_dependencies.emplace_back(parent, child);
     }
 
-    boost::uuids::uuid get_id() const { return m_id; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
-    std::optional<Task> get_task(boost::uuids::uuid id) const {
+    [[nodiscard]] auto get_task(boost::uuids::uuid id) const -> std::optional<Task> {
         if (m_tasks.contains(id)) {
             return m_tasks.at(id);
         }
@@ -89,7 +89,7 @@ public:
         return m_tasks;
     }
 
-    absl::flat_hash_set<boost::uuids::uuid> get_head_tasks() const {
+    [[nodiscard]] auto get_head_tasks() const -> absl::flat_hash_set<boost::uuids::uuid> {
         absl::flat_hash_set<boost::uuids::uuid> heads;
         for (auto const& pair : m_tasks) {
             heads.emplace(pair.first);
@@ -100,7 +100,8 @@ public:
         return heads;
     }
 
-    std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> const& get_dependencies() const {
+    [[nodiscard]] auto get_dependencies(
+    ) const -> std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> const& {
         return m_dependencies;
     }
 

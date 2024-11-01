@@ -26,7 +26,7 @@ struct StorageErr {
             : type(type),
               description(std::move(description)) {}
 
-    explicit operator bool() const { type != StorageErrType::Success }
+    explicit operator bool() const { return StorageErrType::Success != type; }
 };
 
 }  // namespace spider::core

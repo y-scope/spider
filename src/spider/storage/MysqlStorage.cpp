@@ -1,9 +1,24 @@
 #include "MysqlStorage.hpp"
 
+#include <absl/container/flat_hash_set.h>
+
+#include <array>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <cstdint>
+#include <deque>
+#include <iostream>
+#include <mariadb/conncpp/CArray.hpp>
+#include <mariadb/conncpp/Driver.hpp>
+#include <mariadb/conncpp/Exception.hpp>
+#include <mariadb/conncpp/jdbccompat.hpp>
+#include <mariadb/conncpp/PreparedStatement.hpp>
+#include <mariadb/conncpp/ResultSet.hpp>
+#include <mariadb/conncpp/Statement.hpp>
+#include <mariadb/conncpp/Types.hpp>
+#include <memory>
 #include <string>
-#include <vector>
+#include <tuple>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
@@ -11,25 +26,28 @@
 #include "../core/TaskGraph.hpp"
 
 // mariadb-connector-cpp does not define SQL errcode. Just include some useful ones.
-#define ER_CANT_CREATE_TABLE 1005
-#define ER_CANT_CREATE_DB 1006
-#define ER_DUP_KEY 1022
-#define ER_KEY_NOT_FOUND 1032
-#define ER_DUP_ENTRY 1062
-#define ER_WRONG_DB_NAME 1102
-#define ER_WRONG_TABLE_NAME 1103
-#define ER_UNKNOWN_TABLE 1109
+enum MariadbErr : uint16_t {
+    ErCantCreateTable = 1005,
+    ErCantCreateDb = 1006,
+    ErDupKey = 1022,
+    ErKeyNotFound = 1032,
+    ErDupEntry = 1062,
+    ErWrongDbName = 1102,
+    ErWrongTableName = 1103,
+    ErUnknownTable = 1109,
+};
 
 namespace spider::core {
 
-char const* cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS drivers (
+namespace {
+char const* const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS drivers (
     id BINARY(16) NOT NULL,
     address INT UNSIGNED NOT NULL,
     heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 ))";
 
-char const* cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS schedulers (
+char const* const cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS schedulers (
     id BINARY(16) NOT NULL,
     port INT UNSIGNED NOT NULL,
     state ENUM('normal', 'recovery', 'gc') NOT NULL,
@@ -37,7 +55,7 @@ char const* cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS schedulers (
     PRIMARY KEY (id)
 ))";
 
-char const* cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
+char const* const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     id BINARY(16) NOT NULL,
     job_id BINARY(16) NOT NULL, -- for performance only
     func_name VARCHAR(64) NOT NULL,
@@ -50,7 +68,7 @@ char const* cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     PRIMARY KEY (id)
 ))";
 
-char const* cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS task_inputs (
+char const* const cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS task_inputs (
     task_id BINARY(16) NOT NULL,
     position INT UNSIGNED NOT NULL,
     type VARCHAR(64) NOT NULL,
@@ -64,7 +82,7 @@ char const* cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS task_inputs (
     PRIMARY KEY (task_id, position)
 ))";
 
-char const* cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS task_outputs(
+char const* const cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS task_outputs(
     task_id BINARY(16) NOT NULL,
     position INT UNSIGNED NOT NULL,
     type VARCHAR(64) NOT NULL,
@@ -75,7 +93,7 @@ char const* cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS task_outputs(
     PRIMARY KEY (task_id, position)
 ))";
 
-char const* cCreateTaskDependencyTable = R"(CREATE TABLE IF NOT EXISTS task_dependencies (
+char const* const cCreateTaskDependencyTable = R"(CREATE TABLE IF NOT EXISTS task_dependencies (
     parent BINARY(16) NOT NULL,
     child BINARY(16) NOT NULL,
     KEY parent USING BTREE,
@@ -84,7 +102,7 @@ char const* cCreateTaskDependencyTable = R"(CREATE TABLE IF NOT EXISTS task_depe
     CONSTRAINT task_dep_child FOREIGN KEY (child) REFERENCES tasks (id) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-char const* cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS task_instances (
+char const* const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS task_instances (
     id BINARY(16) NOT NULL,
     task_id BINARY(16) NOT NULL,
     start_time TIMESTAMP NOT NULL,
@@ -92,7 +110,7 @@ char const* cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS task_instan
     PRIMARY KEY (id)
 ))";
 
-char const* cCreateFutureTable = R"(CREATE TABLE IF NOT EXISTS task_instances (
+char const* const cCreateFutureTable = R"(CREATE TABLE IF NOT EXISTS task_instances (
     id BINARY(16) NOT NULL,
     task_id BINARY(16) NOT NULL,
     start_time TIMESTAMP NOT NULL,
@@ -100,7 +118,7 @@ char const* cCreateFutureTable = R"(CREATE TABLE IF NOT EXISTS task_instances (
     PRIMARY KEY (id)
 ))";
 
-char const* cCreateMetadataStorage[] = {
+std::array<char const* const, 8> const cCreateMetadataStorage = {
         cCreateDriverTable,
         cCreateSchedulerTable,
         cCreateTaskTable,
@@ -111,7 +129,7 @@ char const* cCreateMetadataStorage[] = {
         cCreateFutureTable,
 };
 
-char const* cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS data (
+char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS data (
     id BINARY(16) NOT NULL,
     key VARCHAR(64),
     value VARCHAR(256) NOT NULL,
@@ -122,14 +140,14 @@ char const* cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS data (
     PRIMARY KEY (id)
 ))";
 
-char const* cCreateDataLocalityTable = R"(CREATE TABLE IF NOT EXISTS data_locality (
+char const* const cCreateDataLocalityTable = R"(CREATE TABLE IF NOT EXISTS data_locality (
     id BINARY(16) NOT NULL,
     address INT UNSIGNED NOT NULL,
     KEY id USING BTREE,
     CONSTRAINT locality_data_id FOREIGN KEY (id) REFERENCES data (id) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-char const* cCreateDataRefDriverTable = R"(CREATE TABLE IF NOT EXISTS data_ref_driver (
+char const* const cCreateDataRefDriverTable = R"(CREATE TABLE IF NOT EXISTS data_ref_driver (
     id BINARY(16) NOT NULL,
     driver_id BINARY(16) NOT NULL,
     KEY id USING BTREE,
@@ -137,7 +155,7 @@ char const* cCreateDataRefDriverTable = R"(CREATE TABLE IF NOT EXISTS data_ref_d
     CONSTRAINT data_ref_driver_id FOREIGN KEY (driver_id) REFERENCES drivers (id) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-char const* cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS data_ref_task (
+char const* const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS data_ref_task (
     id BINARY(16) NOT NULL,
     task_id BINARY(16) NOT NULL,
     KEY id USING BTREE,
@@ -145,18 +163,61 @@ char const* cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS data_ref_tas
     CONSTRAINT data_ref_task_id FOREIGN KEY (task_id) REFERENCES tasks (id) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-char const* cCreateDataStorage[] = {
+std::array<char const* const, 4> const cCreateDataStorage = {
         cCreateDataTable,
         cCreateDataLocalityTable,
         cCreateDataRefDriverTable,
         cCreateDataRefTaskTable,
 };
 
-static sql::bytes uuid_get_bytes(boost::uuids::uuid id) {
+auto uuid_get_bytes(boost::uuids::uuid id) -> sql::bytes {
     return {(char*)id.data(), id.size()};
 }
 
-StorageErr MySqlMetadataStorage::connect(std::string const& url) {
+auto task_state_to_string(spider::core::TaskState state) -> std::string {
+    switch (state) {
+        case spider::core::TaskState::Pending:
+            return "pending";
+        case spider::core::TaskState::Ready:
+            return "ready";
+        case spider::core::TaskState::Running:
+            return "running";
+        case spider::core::TaskState::Succeed:
+            return "success";
+        case spider::core::TaskState::Failed:
+            return "fail";
+        case spider::core::TaskState::Canceled:
+            return "cancel";
+        default:
+            return "";
+    }
+}
+
+auto string_to_task_state(std::string const& state) -> spider::core::TaskState {
+    if (state == "pending") {
+        return spider::core::TaskState::Pending;
+    }
+    if (state == "ready") {
+        return spider::core::TaskState::Ready;
+    }
+    if (state == "running") {
+        return spider::core::TaskState::Running;
+    }
+    if (state == "success") {
+        return spider::core::TaskState::Succeed;
+    }
+    if (state == "fail") {
+        return spider::core::TaskState::Failed;
+    }
+    if (state == "cancel") {
+        return spider::core::TaskState::Canceled;
+    }
+    return spider::core::TaskState::Pending;
+}
+
+}  // namespace
+
+auto MySqlMetadataStorage::connect(std::string const& url) -> StorageErr {
     if (nullptr == m_conn) {
         try {
             sql::Driver* driver = sql::mariadb::get_driver_instance();
@@ -164,10 +225,10 @@ StorageErr MySqlMetadataStorage::connect(std::string const& url) {
             m_conn = driver->connect(sql::SQLString(url), properties);
             m_conn->setAutoCommit(false);
         } catch (sql::SQLException& e) {
-            return StorageErr(StorageErrType::kConnectionErr, e.what());
+            return StorageErr{StorageErrType::ConnectionErr, e.what()};
         }
     }
-    return StorageErr;
+    return StorageErr{};
 }
 
 void MySqlMetadataStorage::close() {
@@ -177,7 +238,7 @@ void MySqlMetadataStorage::close() {
     }
 }
 
-StorageErr MySqlMetadataStorage::initialize() {
+auto MySqlMetadataStorage::initialize() -> StorageErr {
     try {
         for (char const* create_table_str : cCreateMetadataStorage) {
             std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
@@ -185,14 +246,15 @@ StorageErr MySqlMetadataStorage::initialize() {
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
 
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr) {
+auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("INSERT INTO drivers (id, address) VALUES (?, ?)")
@@ -203,17 +265,17 @@ StorageErr MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string c
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr
-MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr, int port) {
+auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr, int port)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> driver_statement(
                 m_conn->prepareStatement("INSERT INTO drivers (id, address) VALUES (?, ?)")
@@ -230,47 +292,13 @@ MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr,
         scheduler_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr(StorageErrType::Success, "");
-}
-
-static std::string task_state_to_string(TaskState state) {
-    if (state == TaskState::Pending) {
-        return "pending";
-    } else if (state == TaskState::Ready) {
-        return "ready";
-    } else if (state == TaskState::Running) {
-        return "running";
-    } else if (state == TaskState::Succeed) {
-        return "success";
-    } else if (state == TaskState::Failed) {
-        return "fail";
-    } else if (state == TaskState::Canceled) {
-        return "cancel";
-    }
-    return "";
-}
-
-static TaskState string_to_task_state(std::string const& state) {
-    if (state == "pending") {
-        return TaskState::Pending;
-    } else if (state == "ready") {
-        return TaskState::Ready;
-    } else if (state == "running") {
-        return TaskState::Running;
-    } else if (state == "success") {
-        return TaskState::Succeed;
-    } else if (state == "fail") {
-        return TaskState::Failed;
-    } else if (state == "cancel") {
-        return TaskState::Canceled;
-    }
-    return TaskState::Pending;
+    return StorageErr{};
 }
 
 void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
@@ -287,11 +315,14 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     task_statement->executeUpdate();
 
     // Add task inputs
-    for (uint64_t i = 0; i < task.get_num_inputs(); ++i) {
+    for (std::uint64_t i = 0; i < task.get_num_inputs(); ++i) {
         TaskInput const input = task.get_input(i);
-        if (input.get_task_output().has_value()) {
-            std::tuple<boost::uuids::uuid, uint8_t> const task_output
-                    = input.get_task_output().value();
+        std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> const task_output
+                = input.get_task_output();
+        std::optional<boost::uuids::uuid> const data_id = input.get_data_id();
+        std::optional<std::string> const& value = input.get_value();
+        if (task_output.has_value()) {
+            std::tuple<boost::uuids::uuid, std::uint8_t> const pair = task_output.value();
             std::unique_ptr<sql::PreparedStatement> input_statement(m_conn->prepareStatement(
                     "INSERT INTO task_inputs (task_id, position, type, output_task_id, "
                     "output_task_position) VALUES (?, ?, ?, ?, ?)"
@@ -299,34 +330,36 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
             input_statement->setBytes(1, &task_id_bytes);
             input_statement->setUInt(2, i);
             input_statement->setString(3, input.get_type());
-            sql::bytes task_output_id = uuid_get_bytes(std::get<0>(task_output));
+            sql::bytes task_output_id = uuid_get_bytes(std::get<0>(pair));
             input_statement->setBytes(4, &task_output_id);
-            input_statement->setUInt(5, std::get<1>(task_output));
+            input_statement->setUInt(5, std::get<1>(pair));
             input_statement->executeUpdate();
-        } else if (input.get_data_id().has_value()) {
-            std::unique_ptr<sql::PreparedStatement> input_statement(m_conn->prepareStatement(
-                    "INSERT INTO task_inputs (task_id, position, type, data_id) VALUES (?, ?, ?, ?)"
-            ));
+        } else if (data_id.has_value()) {
+            std::unique_ptr<sql::PreparedStatement> input_statement(
+                    m_conn->prepareStatement("INSERT INTO task_inputs (task_id, position, "
+                                             "type, data_id) VALUES (?, ?, ?, ?)")
+            );
             input_statement->setBytes(1, &task_id_bytes);
             input_statement->setUInt(2, i);
             input_statement->setString(3, input.get_type());
-            sql::bytes data_id = uuid_get_bytes(input.get_data_id().value());
-            input_statement->setBytes(4, &data_id);
+            sql::bytes data_id_bytes = uuid_get_bytes(data_id.value());
+            input_statement->setBytes(4, &data_id_bytes);
             input_statement->executeUpdate();
-        } else if (input.get_value().has_value()) {
-            std::unique_ptr<sql::PreparedStatement> input_statement(m_conn->prepareStatement(
-                    "INSERT INTO task_inputs (task_id, position, type, value) VALUES (?, ?, ?, ?)"
-            ));
+        } else if (value.has_value()) {
+            std::unique_ptr<sql::PreparedStatement> input_statement(
+                    m_conn->prepareStatement("INSERT INTO task_inputs (task_id, position, "
+                                             "type, value) VALUES (?, ?, ?, ?)")
+            );
             input_statement->setBytes(1, &task_id_bytes);
             input_statement->setUInt(2, i);
             input_statement->setString(3, input.get_type());
-            input_statement->setString(4, input.get_value().value());
+            input_statement->setString(4, value.value());
             input_statement->executeUpdate();
         }
     }
 
     // Add task outputs
-    for (uint64_t i = 0; i < task.get_num_outputs(); i++) {
+    for (std::uint64_t i = 0; i < task.get_num_outputs(); i++) {
         TaskOutput const output = task.get_output(i);
         std::unique_ptr<sql::PreparedStatement> output_statement(m_conn->prepareStatement(
                 "INSERT INTO task_outputs (task_id, position, type) VALUES (?, ?, ?)"
@@ -338,7 +371,7 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     }
 }
 
-StorageErr MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) {
+auto MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) -> StorageErr {
     try {
         sql::bytes const job_id_bytes = uuid_get_bytes(task_graph.get_id());
 
@@ -368,24 +401,26 @@ StorageErr MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) {
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-static boost::uuids::uuid read_id(std::istream* stream) {
+namespace {
+static auto read_id(std::istream* stream) -> boost::uuids::uuid {
     char id_bytes[16];
     stream->read(id_bytes, 16);
     std::uint8_t id_data[16];
     memcpy(id_data, id_bytes, 16);
     return {id_data};
 }
+}  // namespace
 
-Task MySqlMetadataStorage::fetch_task(std::shared_ptr<sql::ResultSet> res) {
+auto MySqlMetadataStorage::fetch_task(std::shared_ptr<sql::ResultSet> res) -> Task {
     boost::uuids::uuid const id = read_id(res->getBinaryStream("id"));
     std::string const function_name = res->getString("func_name").c_str();
     TaskState const state = string_to_task_state(res->getString("state").c_str());
@@ -402,10 +437,11 @@ Task MySqlMetadataStorage::fetch_task(std::shared_ptr<sql::ResultSet> res) {
     if (driver_res->rowsCount() == 0) {
         creator_type = TaskCreatorType::Client;
     }
-    return Task(id, function_name, state, creator_type, creator_id, timeout);
+    return Task{id, function_name, state, creator_type, creator_id, timeout};
 }
 
-static void fetch_task_input(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> res) {
+namespace {
+void fetch_task_input(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> const res) {
     boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
     std::string const type = res->getString(3).c_str();
     if (!res->isNull(4)) {
@@ -424,7 +460,7 @@ static void fetch_task_input(TaskGraph* task_graph, std::shared_ptr<sql::ResultS
     }
 }
 
-static void fetch_task_output(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> res) {
+void fetch_task_output(TaskGraph* task_graph, std::shared_ptr<sql::ResultSet> const res) {
     boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
     std::string const type = res->getString(3).c_str();
     TaskOutput output{type};
@@ -435,8 +471,10 @@ static void fetch_task_output(TaskGraph* task_graph, std::shared_ptr<sql::Result
     }
     task_graph->get_task(task_id)->add_output(output);
 }
+}  // namespace
 
-StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph) {
+auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph)
+        -> StorageErr {
     try {
         // Get all tasks
         std::unique_ptr<sql::PreparedStatement> task_statement(m_conn->prepareStatement(
@@ -447,10 +485,10 @@ StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph
         std::shared_ptr<sql::ResultSet> const task_res(task_statement->executeQuery());
         if (task_res->rowsCount() == 0) {
             m_conn->commit();
-            return StorageErr(
+            return StorageErr{
                     StorageErrType::KeyNotFoundErr,
                     std::format("no task graph with id %s", boost::uuids::to_string(id))
-            );
+            };
         }
         while (task_res->next()) {
             task_graph->add_task(this->fetch_task(task_res));
@@ -459,8 +497,10 @@ StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph
         // Get inputs
         std::unique_ptr<sql::PreparedStatement> input_statement(m_conn->prepareStatement(
                 "SELECT t1.task_id, t1.position, t1.type, t1.output_task_id, "
-                "t1.output_task_position, t1.value, t1.data_id FROM task_inputs AS t1 JOIN tasks "
-                "ON t1.task_id = tasks.id WHERE tasks.job_id = ? ORDER BY t1.task_id, t1.position"
+                "t1.output_task_position, t1.value, t1.data_id FROM task_inputs AS t1 JOIN "
+                "tasks "
+                "ON t1.task_id = tasks.id WHERE tasks.job_id = ? ORDER BY t1.task_id, "
+                "t1.position"
         ));
         input_statement->setBytes(1, &id_bytes);
         std::shared_ptr<sql::ResultSet> const input_res(input_statement->executeQuery());
@@ -470,7 +510,8 @@ StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph
 
         // Get outputs
         std::unique_ptr<sql::PreparedStatement> output_statement(m_conn->prepareStatement(
-                "SELECT t1.task_id, t1.position, t1.type, t1.value, t1.data_id FROM task_outputs "
+                "SELECT t1.task_id, t1.position, t1.type, t1.value, t1.data_id FROM "
+                "task_outputs "
                 "AS t1 JOIN tasks ON t1.task_id = tasks.id WHERE tasks.job_id = ? ORDER BY "
                 "t1.task_id, t1.position"
         ));
@@ -482,7 +523,8 @@ StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph
 
         // Get dependencies
         std::unique_ptr<sql::PreparedStatement> dep_statement(m_conn->prepareStatement(
-                "SELECT t1.parent, t1.child FROM task_dependencies AS t1 JOIN tasks ON t1.parent = "
+                "SELECT t1.parent, t1.child FROM task_dependencies AS t1 JOIN tasks ON "
+                "t1.parent = "
                 "tasks.id WHERE tasks.job_id = ?"
         ));
         dep_statement->setBytes(1, &id_bytes);
@@ -493,19 +535,19 @@ StorageErr MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph
                     read_id(dep_res->getBinaryStream(2))
             );
         }
-
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_KEY_NOT_FOUND) {
-            return StorageErr(StorageErrType::KeyNotFoundErr, e.what());
+        if (e.getErrorCode() == ErKeyNotFound) {
+            return StorageErr{StorageErrType::KeyNotFoundErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_task_graphs(std::vector<boost::uuids::uuid>* task_graphs) {
+auto MySqlMetadataStorage::get_task_graphs(std::vector<boost::uuids::uuid>* task_graphs
+) -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
         std::unique_ptr<sql::ResultSet> const res(
@@ -516,13 +558,13 @@ StorageErr MySqlMetadataStorage::get_task_graphs(std::vector<boost::uuids::uuid>
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::remove_task_graph(boost::uuids::uuid id) {
+auto MySqlMetadataStorage::remove_task_graph(boost::uuids::uuid id) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("DELETE FROM tasks WHERE job_id = ?")
@@ -532,13 +574,14 @@ StorageErr MySqlMetadataStorage::remove_task_graph(boost::uuids::uuid id) {
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task const& child) {
+auto MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task const& child)
+        -> StorageErr {
     try {
         sql::bytes const job_id = uuid_get_bytes(child.get_id());
         this->add_task(job_id, child);
@@ -554,16 +597,16 @@ StorageErr MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task co
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) {
+auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
                 "SELECT id, func_name, state, creator, timeout FROM tasks WHERE id = ?"
@@ -573,38 +616,39 @@ StorageErr MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) {
         std::shared_ptr<sql::ResultSet> const res(statement->executeQuery());
         if (res->rowsCount() == 0) {
             m_conn->commit();
-            return StorageErr(
+            return StorageErr{
                     StorageErrType::KeyNotFoundErr,
                     std::format("no task with id %s", boost::uuids::to_string(id))
-            );
+            };
         }
         *task = fetch_task(res);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) {
+auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
-        std::shared_ptr<sql::ResultSet> const res(statement->executeQuery(
-                "SELECT id, func_name, state, creator, timeout FROM tasks WHERE state = 'ready'"
-        ));
+        std::shared_ptr<sql::ResultSet> const res(
+                statement->executeQuery("SELECT id, func_name, state, creator, timeout "
+                                        "FROM tasks WHERE state = 'ready'")
+        );
         while (res->next()) {
             tasks->emplace_back(fetch_task(res));
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state) {
+auto MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("UPDATE tasks SET state = ? WHERE id = ?")
@@ -615,13 +659,13 @@ StorageErr MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_KEY_NOT_FOUND) {
-            return StorageErr(StorageErrType::KeyNotFoundErr, e.what());
+        if (e.getErrorCode() == ErKeyNotFound) {
+            return StorageErr{StorageErrType::KeyNotFoundErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
 auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> StorageErr {
@@ -637,20 +681,21 @@ auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> St
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
 auto MySqlMetadataStorage::task_finish(TaskInstance const& instance) -> StorageErr {
     try {
-        std::shared_ptr<sql::PreparedStatement> const statement(m_conn->prepareStatement(
-                "UPDATE tasks (instance_id) VALUES (?) WHERE id = ? AND instance_id is NULL"
-        ));
+        std::shared_ptr<sql::PreparedStatement> const statement(
+                m_conn->prepareStatement("UPDATE tasks (instance_id) VALUES (?) WHERE "
+                                         "id = ? AND instance_id is NULL")
+        );
         sql::bytes id_bytes = uuid_get_bytes(instance.id);
         sql::bytes task_id_bytes = uuid_get_bytes(instance.task_id);
         statement->setBytes(1, &id_bytes);
@@ -658,20 +703,21 @@ auto MySqlMetadataStorage::task_finish(TaskInstance const& instance) -> StorageE
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) {
+auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
-                "SELECT t1.id, t1.task_id FROM task_instances as t1 JOIN tasks ON t1.task_id = "
+                "SELECT t1.id, t1.task_id FROM task_instances as t1 JOIN tasks ON "
+                "t1.task_id = "
                 "tasks.id WHERE tasks.timeout > 0.0001 AND TIMESTAMPDIFF(MICROSECOND, "
                 "t1.start_time, CURRENT_TIMESTAMP()) > tasks.timeout * 1000"
         ));
@@ -682,16 +728,17 @@ StorageErr MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tas
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_child_task(boost::uuids::uuid id, Task* child) {
+auto MySqlMetadataStorage::get_child_task(boost::uuids::uuid id, Task* child) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "SELECT id, func_name, state, creator, timeout FROM tasks JOIN task_dependencies "
+                "SELECT id, func_name, state, creator, timeout FROM tasks JOIN "
+                "task_dependencies "
                 "as t2 WHERE tasks.id = t2.child AND t2.parent = ?"
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -700,16 +747,18 @@ StorageErr MySqlMetadataStorage::get_child_task(boost::uuids::uuid id, Task* chi
         *child = fetch_task(res);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr);
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) {
+auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "SELECT id, func_name, state, creator, timeout FROM tasks JOIN task_dependencies "
+                "SELECT id, func_name, state, creator, timeout FROM tasks JOIN "
+                "task_dependencies "
                 "as t2 WHERE tasks.id = t2.parent AND t2.child = ?"
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -720,37 +769,38 @@ StorageErr MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::ve
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) {
+auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "UPDATE divers SET (heartbeat) VALUES (CURRENT_TIMESTAMP()) WHERE id = ?"
-        ));
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("UPDATE divers SET (heartbeat) VALUES "
+                                         "(CURRENT_TIMESTAMP()) WHERE id = ?")
+        );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
         std::shared_ptr<sql::ResultSet> const res(statement->executeQuery());
         if (res->rowsCount() == 0) {
             m_conn->commit();
-            return StorageErr(
-                    StorageErrType::kKeyNotFound,
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
                     std::format("no driver with id %s", boost::uuids::to_string(id))
-            );
+            };
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr
-MySqlMetadataStorage::heartbeat_timeout(float timeout, std::vector<boost::uuids::uuid>* ids) {
+auto MySqlMetadataStorage::heartbeat_timeout(float timeout, std::vector<boost::uuids::uuid>* ids)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("SELECT id FROM drivers WHERE TIMESTAMPDIFF(MICROSECOND, "
@@ -763,13 +813,14 @@ MySqlMetadataStorage::heartbeat_timeout(float timeout, std::vector<boost::uuids:
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std::string* state) {
+auto MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std::string* state)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("SELECT state FROM schedulers WHERE id = ?")
@@ -779,22 +830,22 @@ StorageErr MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std:
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
         if (res->rowsCount() == 0) {
             m_conn->rollback();
-            return StorageErr(
-                    StorageErrType::kKeyNotFound,
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
                     std::format("no scheduler with id %s", boost::uuids::to_string(id))
-            );
+            };
         }
         *state = res->getString(1).c_str();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr
-MySqlMetadataStorage::set_scheduler_state(boost::uuids::uuid id, std::string const& state) {
+auto MySqlMetadataStorage::set_scheduler_state(boost::uuids::uuid id, std::string const& state)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("UPDATE schedulers SET (state) VALUES (?) WHERE id = ?")
@@ -805,13 +856,13 @@ MySqlMetadataStorage::set_scheduler_state(boost::uuids::uuid id, std::string con
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MysqlDataStorage::connect(std::string const& url) {
+auto MysqlDataStorage::connect(std::string const& url) -> StorageErr {
     if (nullptr == m_conn) {
         try {
             sql::Driver* driver = sql::mariadb::get_driver_instance();
@@ -819,10 +870,10 @@ StorageErr MysqlDataStorage::connect(std::string const& url) {
             m_conn = driver->connect(sql::SQLString(url), properties);
             m_conn->setAutoCommit(false);
         } catch (sql::SQLException& e) {
-            return StorageErr(StorageErrType::ConnectionErr, e.what());
+            return StorageErr{StorageErrType::ConnectionErr, e.what()};
         }
     }
-    return StorageErr();
+    return StorageErr{};
 }
 
 void MysqlDataStorage::close() {
@@ -832,7 +883,7 @@ void MysqlDataStorage::close() {
     }
 }
 
-StorageErr MysqlDataStorage::initialize() {
+auto MysqlDataStorage::initialize() -> StorageErr {
     try {
         for (char const* create_table_str : cCreateDataStorage) {
             std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
@@ -840,21 +891,19 @@ StorageErr MysqlDataStorage::initialize() {
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_CANT_CREATE_TABLE) {
-            return StorageErr(StorageErrType::kCreateStorageErr, e.what());
-        }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
 
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MysqlDataStorage::add_data(Data const& data) {
+auto MysqlDataStorage::add_data(Data const& data) -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "INSERT INTO data (id, key, value, hard_locality) VALUES(?, ?, ?, ?)"
-        ));
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("INSERT INTO data (id, key, value, "
+                                         "hard_locality) VALUES(?, ?, ?, ?)")
+        );
         sql::bytes id_bytes = uuid_get_bytes(data.get_id());
         statement->setBytes(1, &id_bytes);
         if (data.get_key().has_value()) {
@@ -867,38 +916,40 @@ StorageErr MysqlDataStorage::add_data(Data const& data) {
         statement->executeUpdate();
 
         for (std::string const& addr : data.get_locality()) {
-            std::unique_ptr<sql::PreparedStatement> locality_statement(m_conn->prepareStatement(
-                    "INSERT INTO data_locality (id, address) VALUES (?, ?)"
-            ));
+            std::unique_ptr<sql::PreparedStatement> locality_statement(
+                    m_conn->prepareStatement("INSERT INTO data_locality (id, "
+                                             "address) VALUES (?, ?)")
+            );
             locality_statement->setBytes(1, &id_bytes);
             locality_statement->setString(2, addr);
             locality_statement->executeUpdate();
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) {
+auto MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "SELECT id, key, value, hard_locality FROM schedulers WHERE id = ?"
-        ));
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("SELECT id, key, value, hard_locality "
+                                         "FROM schedulers WHERE id = ?")
+        );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
         if (res->rowsCount() == 0) {
             m_conn->rollback();
-            return StorageErr(
-                    StorageErrType::kKeyNotFound,
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
                     std::format("no data with id %s", boost::uuids::to_string(id))
-            );
+            };
         }
         *data = Data(id, res->getString(2).c_str(), res->getString(3).c_str());
         data->set_hard_locality(res->getBoolean(4));
@@ -907,7 +958,7 @@ StorageErr MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) {
                 m_conn->prepareStatement("SELECT addr FROM schedulers WHERE id = ?")
         );
         locality_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> locality_res(locality_statement->executeQuery());
+        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->executeQuery());
         std::vector<std::string> locality;
         while (res->next()) {
             locality.emplace_back(res->getString(1));
@@ -917,16 +968,18 @@ StorageErr MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) {
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr MysqlDataStorage::add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) {
+auto MysqlDataStorage::add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("INSERT INTO data_ref_task (id, task_id) VALUES(?, ?)")
+                m_conn->prepareStatement("INSERT INTO data_ref_task (id, "
+                                         "task_id) VALUES(?, ?)")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -935,20 +988,21 @@ StorageErr MysqlDataStorage::add_task_reference(boost::uuids::uuid id, boost::uu
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::DuplicateKeyErr, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr
-MysqlDataStorage::remove_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) {
+auto MysqlDataStorage::remove_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("DELETE FROM data_ref_task WHERE id = ? AND task_id = ?")
+                m_conn->prepareStatement("DELETE FROM data_ref_task WHERE "
+                                         "id = ? AND task_id = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -957,17 +1011,18 @@ MysqlDataStorage::remove_task_reference(boost::uuids::uuid id, boost::uuids::uui
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr
-MysqlDataStorage::add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) {
+auto MysqlDataStorage::add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("INSERT INTO data_ref_driver (id, task_id) VALUES(?, ?)")
+                m_conn->prepareStatement("INSERT INTO data_ref_driver (id, "
+                                         "task_id) VALUES(?, ?)")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -976,20 +1031,21 @@ MysqlDataStorage::add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        if (e.getErrorCode() == ER_DUP_KEY || e.getErrorCode() == ER_DUP_ENTRY) {
-            return StorageErr(StorageErrType::kDuplicateKey, e.what());
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
-StorageErr
-MysqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) {
+auto MysqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("DELETE FROM data_ref_driver WHERE id = ? AND task_id = ?")
+                m_conn->prepareStatement("DELETE FROM data_ref_driver "
+                                         "WHERE id = ? AND task_id = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -998,10 +1054,10 @@ MysqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uuids::u
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
-        return StorageErr(StorageErrType::OtherErr, e.what());
+        return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
-    return StorageErr();
+    return StorageErr{};
 }
 
 }  // namespace spider::core

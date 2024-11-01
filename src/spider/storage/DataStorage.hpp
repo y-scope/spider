@@ -16,7 +16,7 @@ public:
     auto operator=(DataStorage&&) -> DataStorage& = default;
     virtual ~DataStorage() = default;
 
-    virtual auto connect(std::string url) -> StorageErr = 0;
+    virtual auto connect(std::string const& url) -> StorageErr = 0;
     virtual void close() = 0;
     virtual auto initialize() -> StorageErr = 0;
 
