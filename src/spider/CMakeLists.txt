@@ -39,6 +39,7 @@ set(SPIDER_CLIENT_SHARED_HEADERS
 add_library(spider_client_lib)
 target_sources(spider_client_lib PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
 target_sources(spider_client_lib PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
+target_link_libraries(spider_client_lib PUBLIC Boost::boost)
 
 set(SPIDER_CLIENT_SOURCES
     client/TaskGraph.cpp
