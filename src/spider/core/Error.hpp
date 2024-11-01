@@ -25,6 +25,7 @@ struct StorageErr {
     StorageErr(StorageErrType type, std::string description)
             : type(type),
               description(std::move(description)) {}
+
     explicit operator bool() const { type != StorageErrType::Success }
 };
 

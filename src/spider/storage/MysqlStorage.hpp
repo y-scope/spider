@@ -2,9 +2,9 @@
 #define SPIDER_STORAGE_MYSQLSTORAGE_HPP
 
 #include <boost/uuid/uuid.hpp>
+#include <mariadb/conncpp.hpp>
 #include <string>
 #include <vector>
-#include <mariadb/conncpp.hpp>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
@@ -58,6 +58,7 @@ public:
     StorageErr add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) override;
     StorageErr
     remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) override;
+
 private:
     sql::Connection* m_conn = nullptr;
 };
