@@ -32,14 +32,13 @@ template <class R, class... Args>
 void register_task(std::function<R(Args...)> const& function);
 
 /**
- * Registers function to Spider with timeout
+ * Registers function to Spider with timeout
  * @param function_name name of the function to register
  * @param timeout task is considered straggler after timeout ms, and Spider triggers replicate the
  * task
  */
 template <class R, class... Args>
 void register_task(std::function<R(Args...)> const& function, float timeout);
-
 }  // namespace spider
 
 #endif  // SPIDER_CLIENT_SPIDER_HPP

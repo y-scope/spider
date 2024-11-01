@@ -1,3 +1,7 @@
+/**
+ * Task.hpp include functions that can be called inside a Task.
+ */
+
 #ifndef SPIDER_CORE_SPIDER_HPP
 #define SPIDER_CORE_SPIDER_HPP
 
@@ -10,11 +14,11 @@
 #include "TaskGraph.hpp"
 
 namespace spider {
-
 /**
  * Gets data by key.
  * This function can be called by a client to get all data or called by a task to get data created
  * by it.
+ * @tparam T type of the value stored in data
  * @param key key of the data
  * @return std::nullopt if no data with key is stored, the data associated by the key otherwise
  */
@@ -24,16 +28,22 @@ auto get_data(std::string const& key) -> std::optional<spider::Data<T>>;
 /**
  * Add task as a child of current task.
  * This function can only be called by a task.
+ * @tparam F task graph type or function type for a single task
  * @param f child task or task graph
  */
 template <class F>
 void add_child(F const& f);
 
 /**
- * Binds inputs to a task. Input of the task can be bound from
- * outputs of task, forming dependencies between tasks. Input can
- * also be a value or a spider::Data.
- * This function can be called by a client or by a task
+ * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,
+ * forming dependencies between tasks. Input can also be a value or a spider::Data.
+ * This function can be called by a client or by a task.
+ *
+ * @tparam R return type of the task or task graph
+ * @tparam Args input types of task or task graph
+ * @tparam Inputs types of task, task graph, spider::Data or POD value
+ * @tparam GraphInputs input types of the new task graph
+ *
  * @param task child task to be bound on
  * @param inputs task or task graph whose outputs to bind to f, or value or spider::Data used as
  * input
@@ -47,6 +57,10 @@ auto bind(std::function<R(Args...)> const& task, Inputs&&... inputs)
 /**
  * Runs task on Spider.
  * This function can be called by a client or by a task.
+ *
+ * @tparam R return type of the task
+ * @tparam Args input types of the task
+ *
  * @param task task to run
  * @param args task input
  * @return future of the result
@@ -57,13 +71,16 @@ auto run(std::function<R(Args...)> const& task, Args&&... args) -> Future<R>;
 /**
  * Runs task graph on Spider.
  * This function can be called by a client or by a task.
+ *
+ * @tparam R return type of the task graph
+ * @tparam Args input types of the task graph
+ *
  * @param graph task graph to run
  * @param args task input
  * @return future of the result
  */
 template <class R, class... Args>
 auto run(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Future<R>;
-
 }  // namespace spider
 
 #endif

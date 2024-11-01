@@ -30,6 +30,7 @@ target_link_libraries(
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Data.cpp
     client/Task.cpp
+    client/TaskGraph.cpp
     CACHE INTERNAL
     "spider client shared source files"
 )
@@ -37,6 +38,7 @@ set(SPIDER_CLIENT_SHARED_SOURCES
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
     client/Task.hpp
+    client/TaskGraph.hpp
     CACHE INTERNAL
     "spider client shared header files"
 )
@@ -46,16 +48,10 @@ target_sources(spider_client_lib PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
 target_sources(spider_client_lib PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
 target_link_libraries(spider_client_lib PUBLIC Boost::boost)
 
-set(SPIDER_CLIENT_SOURCES
-    client/TaskGraph.cpp
-    client/Future.cpp
-    CACHE INTERNAL
-    "spider client source files"
-)
+set(SPIDER_CLIENT_SOURCES client/Future.cpp CACHE INTERNAL "spider client source files")
 
 set(SPIDER_CLIENT_HEADERS
     client/Spider.hpp
-    client/TaskGraph.hpp
     client/Future.hpp
     CACHE INTERNAL
     "spider client header files"
