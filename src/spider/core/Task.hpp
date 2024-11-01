@@ -12,14 +12,7 @@
 #include <vector>
 
 namespace spider::core {
-
 class TaskInput {
-private:
-    std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> m_task_output;
-    std::optional<std::string> m_value;
-    std::optional<boost::uuids::uuid> m_data_id;
-    std::string m_type;
-
 public:
     TaskInput(boost::uuids::uuid output_task_id, std::uint8_t position, std::string type)
             : m_task_output({output_task_id, position}),
@@ -43,14 +36,15 @@ public:
     }
 
     [[nodiscard]] auto get_type() const -> std::string { return m_type; }
-};
 
-class TaskOutput {
 private:
+    std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> m_task_output;
     std::optional<std::string> m_value;
     std::optional<boost::uuids::uuid> m_data_id;
     std::string m_type;
+};
 
+class TaskOutput {
 public:
     TaskOutput(std::string value, std::string type)
             : m_value(std::move(value)),
@@ -67,6 +61,11 @@ public:
     }
 
     [[nodiscard]] auto get_type() const -> std::string { return m_type; }
+
+private:
+    std::optional<std::string> m_value;
+    std::optional<boost::uuids::uuid> m_data_id;
+    std::string m_type;
 };
 
 class TaskInstance {};

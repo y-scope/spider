@@ -11,12 +11,7 @@
 #include "Task.hpp"
 
 namespace spider::core {
-
 class TaskGraph {
-private:
-    absl::flat_hash_map<boost::uuids::uuid, Task> m_tasks;
-    std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> m_dependencies;
-
 public:
     auto add_child_task(Task const& task, std::vector<boost::uuids::uuid> const& parents) -> bool {
         boost::uuids::uuid const task_id = task.get_id();
@@ -73,6 +68,10 @@ public:
     ) const -> std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> const& {
         return m_dependencies;
     }
+
+private:
+    absl::flat_hash_map<boost::uuids::uuid, Task> m_tasks;
+    std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> m_dependencies;
 };
 }  // namespace spider::core
 

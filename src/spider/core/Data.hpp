@@ -7,17 +7,8 @@
 #include <string>
 #include <utility>
 
+namespace spider::core {
 class Data {
-private:
-    boost::uuids::uuid m_id;
-    std::optional<std::string> m_key;
-    std::string m_value;
-
-    void init_id() {
-        boost::uuids::random_generator gen;
-        m_id = gen();
-    }
-
 public:
     explicit Data(std::string value) : m_value(std::move(value)) { init_id(); }
 
@@ -30,6 +21,17 @@ public:
     [[nodiscard]] auto get_key() const -> std::optional<std::string> { return m_key; }
 
     [[nodiscard]] auto get_value() const -> std::string { return m_value; }
+
+private:
+    boost::uuids::uuid m_id;
+    std::optional<std::string> m_key;
+    std::string m_value;
+
+    void init_id() {
+        boost::uuids::random_generator gen;
+        m_id = gen();
+    }
 };
+}  // namespace spider::core
 
 #endif  // SPIDER_CORE_DATA_HPP
