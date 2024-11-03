@@ -1,5 +1,18 @@
 # Spider quick start guide
 
+## Architecture of Spider
+
+A Spider cluster is made up of three components:
+
+* __Database__: Spider stores all the states and data in a fault-tolerant database.
+* __Scheduler__: Scheduler is responsible for making scheduling decision when a worker ask for a new
+  task to run. It also handles garbage collection and failure recovery.
+* __Worker__: Worker executes the task it is assigned to. Once it finishes, it updates the task
+  output in database and contacts scheduler for a new task.
+
+Users creates a __client__ to run tasks on Spider cluster. It connects to the database to submit new
+tasks and get the results. Clients _never_ directly talks to a scheduler or a worker.
+
 ## Set up Spider
 
 To get started,
@@ -8,41 +21,42 @@ To get started,
 2. Start a scheduler and connect it to the database by running
    `spider start --scheduler --db <db_url> --port <scheduler_port>`.
 3. Start some workers and connect them to the database by running
-   `spider start --worker --db <db_url>`.
+   `spider start --worker --db <db_url>`. Starting a worker that can run specific tasks needs to
+   link to libraries. We'll cover this later.
 
 ## Start a client
 
 Client first creates a Spider client driver and connects it to the database. Spider automatically
-cleans up the resource in driver's destructor, but you can close the driver to release the resource
-early.
+cleans up the resource in driver's destructor.
 
 ```c++
 #include <spider/Spider.hpp>
 
 auto main(int argc, char **argv) -> int {
-    spider::Driver driver{};
-    driver.connect("db_url");
-    
-    driver.close();
+    spider::Driver driver{"db_url"};
 }
 ```
 
 ## Create a task
 
 In Spider, a task is a non-member function that takes the first argument a `spider::Context` object.
-It can then take any number of arguments of POD type.
+It can then take any number of arguments of POD type or `spider::Data` covered
+in [later section](#data-on-external-storage).
 
-Task can return any POD type. If a task needs to return more than one result, uses `std::tuple`.
+Task can return any POD type. If a task needs to return more than one result, uses `std::tuple` and
+makes sure all elements of `std::tuple` are POD or `spider::Data`.
 
 The `Context` object represents the context of a running task. It provides methods to get the task
 metadata information like task id. It also supports the creating task inside a task. We will cover
 this later.
 
 ```c++
+// Task that sums to integers
 auto sum(spider::Context &context, int x, int y) -> int {
     return x + y;
 }
 
+// Task that sorts two integers in non-acesending order
 auto sort(spider::Context &context, int x, int y) -> std::tuple<int, int> {
     if (x >= y) {
         return { x, y };
@@ -76,10 +90,16 @@ auto main(int argc, char **argv) -> int {
 ## Group tasks together
 
 In real world, running a single task is too simple to be useful. Spider lets you bind outputs of
-tasks as inputs of another task, similar to `std::bind`. Binding the tasks together forms a
-dependencies among tasks, which is represented by `spider::TaskGraph`. `TaskGraph` can be further
-bound into more complicated `TaskGraph` by serving as inputs for another task. You can run the task
-using `Driver::run` in the same way as running a single task.
+tasks as inputs of another task, similar to `std::bind`. The first argument of `spider::bind` is the
+child task. The later arguments are either a `spider::Task` or a `spider::TaskGraph`, whose entire
+outputs are used as part of the inputs to the child task, or a POD or
+`spider::Data` that is directly used as input. Spider requires that the types of `Task` or
+`TaskGraph` outputs or POD type or `spider::Data` matches the input types of child task.
+
+Binding the tasks together forms a dependencies among tasks, which is represented by
+`spider::TaskGraph`. `TaskGraph` can be further bound into more complicated `TaskGraph` by serving
+as inputs for another task. You can run the task using `Driver::run` in the same way as running a
+single task.
 
 ```c++
 auto square(spider::Context& context, int x) -> int {
@@ -120,10 +140,11 @@ auto gcd(spider::Conect& context, int x, int y) -> std::tuple<int, int> {
 }
 ```
 
-However, it is impossible to get the return value of the task graph from a client. We have a
-solution by sharing data using key-value store, which will be discussed later. Another solution is
-to run task or task graph inside a task and wait for its value, just like a client. This solution is
-closer to the conventional function call semantic.
+However, it is impossible to get the return value of the dynamically created tasks from a client. We
+have a solution by sharing data using key-value store, which will be discussed
+[later](#data-as-key-value-store). Another solution is to run task or task graph inside a task and
+wait for its value, just like a client. This solution is closer to the conventional function call
+semantic.
 
 ```c++
 auto gcd(spider:Context& context, int x, int y) -> int {
@@ -163,23 +184,63 @@ struct HdfsFile {
     std::string url;
 };
 
+/**
+ * In this example, we run a filter and map on the input stored in Hdfs.
+ * Filter writes its output into a temporary Hdfs file, which will be cleaned
+ * up by Spider when the task graph finishes.
+ * Map reads the temporary files and persists the output in Hdfs file.
+ */
+auto main(int argc, char** argv) -> int {
+    // Creates a HdfsFile Data to represent the input data stored in Hdfs.
+    spider::Data<HdfsFile> input = spider::Data<HdfsFile>::Builder()
+        .mark_persist(true)
+        .build(HdfsFile { "/path/to/input" });
+    spider::Future<spider::Data<HdfsFile>> future = spider::run(
+        spider::bind(map, filter),
+        input);
+    std::string const output_path = future.get().get().url;
+    std::cout << "Result is stored in " << output_path << std::endl;
+}
+
+/**
+ * Runs filer on the input data from Hdfs file and write the output into a
+ * temporary Hdfs file for later tasks.
+ *
+ * @param input input file stored in Hdfs
+ * @return temporary file store in Hdfs
+ */
 auto filter(spider::Data<Hdfsfile> input) -> spider::Data<HdfsFile> {
+    // We can use task id as a unique random number.
     std::string const output_path = std::format("/path/%s", context.task_id());
     std::string const input_path = input.get().url;
-    // Create HdfsFile Data first in case task fails and Spider can clean up the data.
+    // Creates HdfsFile Data before creating the actual file in Hdfs so Spider
+    // can clean up the Hdfs file on failure.
     spider::Data<HdfsFile> output = spider::Data<HdfsFile>::Builder()
         .cleanup([](HdfsFile const& file) { delete_hdfs_file(file); })
         .build(HdfsFile { output_path });
     auto file = hdfs_create(output_path);
+    // Hdfs allows reading data from any node, but reading from the nodes where
+    // file is stored and replicated is faster.
     std::vector<std::string> nodes = hdfs_get_nodes(file);
     output.set_locality(nodes, false); // not hard locality
     
+    // Runs the filter
     run_filter(input_path, file);
     
     return output;
 }
 
+/**
+ * Runs map on the input data from Hdfs file and persists the output into an
+ * Hdfs file.
+ *
+ * @param input input file stored in Hdfs
+ * @return persisted output in Hdfs
+ */
 auto map(spider::Data<HdfsFile> input) -> spider::Data<HdfsFile> {
+    // We use hardcoded path for simplicity in this example. You can pass in
+    // the path as an input to the task or use task id as random name as in
+    // filter.
     std::string const output_path = "/path/to/output";
     std::string const input_path = input.get().url;
     
@@ -190,20 +251,12 @@ auto map(spider::Data<HdfsFile> input) -> spider::Data<HdfsFile> {
     run_map(input_path, output_path);
     
     // Now that map finishes, the file is persisted on Hdfs as output of job.
+    // We need to inform Spider that the file is not persisted and should not
+    // be cleaned up.
     output.mark_persist();
     return output;
 }
 
-auto main(int argc, char** argv) -> int {
-    spider::Data<HdfsFile> input = spider::Data<HdfsFile>::Builder()
-        .mark_persist(true)
-        .build(HdfsFile { "/path/to/input" });
-    spider::Future<spider::Data<HdfsFile>> future = spider::run(
-        spider::bind(map, filter),
-        input);
-    std::string const output_path = future.get().get().url;
-    std::cout << "Result is stored in " << output_path << std::endl;
-}
 ```
 
 ## Data as key-value store
@@ -211,10 +264,12 @@ auto main(int argc, char** argv) -> int {
 `Data` can also be used a a key-value store. User can specify a key when creating the data, and the
 data can be accessed later by its key. Notice that a task can only access the `Data` created by
 itself or passed to it. Client can access any data with the key.
-Using the key value store, we can solve the dynamic task result problem.
+
+Using the key value store, we can solve the dynamic task result problem
+mentioned [before](#run-task-inside-task).
 
 ```c++
-auto gcd(spider::Context& context, int x, int y, std::string key)
+auto gcd(spider::Context& context, int x, int y, const char* key)
     -> std::tuple<int, int, std::string> {
     if (x == y) {
         spider::Data<int>.Builder()
