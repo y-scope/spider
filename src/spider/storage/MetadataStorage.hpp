@@ -12,10 +12,11 @@
 namespace spider::core {
 class MetadataStorage {
 public:
-    MetadataStorage(MetadataStorage const&) = default;
-    MetadataStorage(MetadataStorage&&) = default;
-    auto operator=(MetadataStorage const&) -> MetadataStorage& = default;
-    auto operator=(MetadataStorage&&) -> MetadataStorage& = default;
+    MetadataStorage() = default;
+    MetadataStorage(MetadataStorage const&) = delete;
+    MetadataStorage(MetadataStorage&&) = delete;
+    auto operator=(MetadataStorage const&) -> MetadataStorage& = delete;
+    auto operator=(MetadataStorage&&) -> MetadataStorage& = delete;
     virtual ~MetadataStorage() = default;
 
     virtual auto connect(std::string url, boost::uuids::uuid id) -> StorageErr = 0;

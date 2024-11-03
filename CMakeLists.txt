@@ -133,7 +133,10 @@ endif()
 
 # Add abseil-cpp
 set(ABSL_PROPAGATE_CXX_STD ON)
-add_subdirectory(submodules/abseil-cpp EXCLUDE_FROM_ALL)
+add_subdirectory(submodules/abseil-cpp)
+
+# Add catch2
+add_subdirectory(submodules/Catch2)
 
 find_package(Threads REQUIRED)
 

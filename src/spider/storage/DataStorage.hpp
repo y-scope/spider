@@ -10,10 +10,11 @@
 namespace spider::core {
 class DataStorage {
 public:
-    DataStorage(DataStorage const&) = default;
-    DataStorage(DataStorage&&) = default;
-    auto operator=(DataStorage const&) -> DataStorage& = default;
-    auto operator=(DataStorage&&) -> DataStorage& = default;
+    DataStorage() = default;
+    DataStorage(DataStorage const&) = delete;
+    DataStorage(DataStorage&&) = delete;
+    auto operator=(DataStorage const&) -> DataStorage& = delete;
+    auto operator=(DataStorage&&) -> DataStorage& = delete;
     virtual ~DataStorage() = default;
 
     virtual auto connect(std::string url, boost::uuids::uuid id) -> StorageErr = 0;

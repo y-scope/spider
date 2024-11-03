@@ -15,6 +15,7 @@
 namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
 public:
+    MySqlMetadataStorage() = default;
     MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
     MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
     auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
@@ -42,6 +43,7 @@ public:
 
 class MySqlDataStorage : public DataStorage {
 public:
+    MySqlDataStorage() = default;
     MySqlDataStorage(MySqlDataStorage const&) = delete;
     MySqlDataStorage(MySqlDataStorage&&) = delete;
     auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;
