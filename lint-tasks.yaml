@@ -90,6 +90,7 @@ tasks:
         vars:
           FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
           SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
+          TEST_DIR: "{{.G_TEST_DIR}}"
 
   yml:
     aliases:
@@ -123,10 +124,10 @@ tasks:
   clang-tidy:
     internal: true
     requires:
-      vars: ["FLAGS", "SRC_DIR"]
+      vars: ["FLAGS", "SRC_DIR", "TEST_DIR"]
     cmd: |-
       . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find "{{.SRC_DIR}}" \
+      find "{{.SRC_DIR}}" "{{.TEST_DIR}}" \
         -type f \
         \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
         -print0 | \

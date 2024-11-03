@@ -1,10 +1,12 @@
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
+#include "../../src/spider/core/Error.hpp"
 
 #include <concepts>
 #include <memory>
 
 #include <catch2/catch_template_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/random_generator.hpp>
 
