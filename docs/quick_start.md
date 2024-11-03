@@ -43,12 +43,12 @@ In Spider, a task is a non-member function that takes the first argument a `spid
 It can then take any number of arguments of POD type or `spider::Data` covered
 in [later section](#data-on-external-storage).
 
-Task can return any POD type. If a task needs to return more than one result, uses `std::tuple` and
-makes sure all elements of `std::tuple` are POD or `spider::Data`.
+Task can return any POD type or `spider::Data`. If a task needs to return more than one result, uses
+`std::tuple` and makes sure all elements of `std::tuple` are POD or `spider::Data`.
 
-The `Context` object represents the context of a running task. It provides methods to get the task
-metadata information like task id. It also supports the creating task inside a task. We will cover
-this later.
+Spider requires user to register the task function using static `spider::register_task`, which
+sets up the function internally in Spider library for later user. Spider requires the function name
+to be unique in the cluster.
 
 ```c++
 // Task that sums to integers
@@ -56,27 +56,27 @@ auto sum(spider::Context &context, int x, int y) -> int {
     return x + y;
 }
 
-// Task that sorts two integers in non-acesending order
+// Task that sorts two integers in non-ascending order
 auto sort(spider::Context &context, int x, int y) -> std::tuple<int, int> {
     if (x >= y) {
         return { x, y };
     }
     return { y, x };
 }
+
+spider::register_task(sum);
+spider::register_task(sort);
+
 ```
 
 ## Run a task
 
-Spider enables user to run a task on the cluster. First register the functions statically so it is
-known by Spider. Simply call `Driver::run` and provide the arguments of the task. `Driver::run`
-returns a `spider::Future` object, which represents the result that will be available in the future.
-You can call `Future::ready` to check if the value in future is available yet. You can use
-`Future::get` to block and get the value once it is available.
+Spider enables user to run a task on the cluster. Simply call `Driver::run` and provide the
+arguments of the task. `Driver::run`returns a `spider::Future` object, which represents the result
+that will be available in the future. You can call `Future::ready` to check if the value in future
+is available yet. You can use`Future::get` to block and get the value once it is available.
 
 ```c++
-spider::register_task(sum);
-spider::register_task(sort);
-
 auto main(int argc, char **argv) -> int {
     // driver initialization skipped
     spider::Future<int> sum_future = driver.run(sum, 2);
@@ -86,6 +86,11 @@ auto main(int argc, char **argv) -> int {
     assert(std::tuple{3, 4} == sort_future.get());
 }
 ```
+
+If you try to compile and run the example code directly, you'll find that it fails because Spider
+worker does not know which function to run. User need to compile all the tasks into a shared
+library, including the call to `spider::register_task`, and start the worker with the library by
+running `spider start --worker --db <db_url> --libs [client_libraries]`.
 
 ## Group tasks together
 
@@ -261,7 +266,7 @@ auto map(spider::Data<HdfsFile> input) -> spider::Data<HdfsFile> {
 
 ## Data as key-value store
 
-`Data` can also be used a a key-value store. User can specify a key when creating the data, and the
+`Data` can also be used as a key-value store. User can specify a key when creating the data, and the
 data can be accessed later by its key. Notice that a task can only access the `Data` created by
 itself or passed to it. Client can access any data with the key.
 
@@ -304,13 +309,3 @@ is cleaned up.
 
 The new task has a different task id, and it is the responsibility of the user to avoid any data
 race and deduplicate the output if necessary.
-
-## Note on worker setup
-
-The setup section said that we can start a worker by running `spider start --worker --db <db_url>`.
-This is oversimplified. The worker has to know the function it will run.
-
-When user compiles the client code, an executable and a library are generated. The executable
-executes the client code as expected. The library contains all the functions registered by user.
-Worker needs to run with a copy of this library. The actual commands to start a worker is
-`spider start --worker --db <db_url> --libs [client_libraries]`.
