@@ -26,9 +26,10 @@ target_link_libraries(
 )
 target_include_directories(
     spider_core
-    "${MariaDBClientCpp_INCLUDE_DIR}"
-    "${MariaDBClientCpp_INCLUDE_DIR}/conncpp"
-    "${MariaDBClientCpp_INCLUDE_DIR}/conncpp/compat"
+    PUBLIC
+        "${MariaDBClientCpp_INCLUDE_DIR}"
+        "${MariaDBClientCpp_INCLUDE_DIR}/conncpp"
+        "${MariaDBClientCpp_INCLUDE_DIR}/conncpp/compat"
 )
 
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
