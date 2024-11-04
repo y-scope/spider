@@ -1,5 +1,5 @@
-# CMake 3.16.3 is the default on Ubuntu 20.04
-cmake_minimum_required(VERSION 3.16.3)
+# CMake 3.22.1 is the default on Ubuntu 22.04
+cmake_minimum_required(VERSION 3.22.1)
 
 project(
     spider
