@@ -20,10 +20,12 @@ endif()
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
 target_link_libraries(
     spider_core
-    Boost::boost
-    absl::flat_hash_map
-    MariaDBClientCpp::MariaDBClientCpp
+    PUBLIC
+        Boost::boost
+        absl::flat_hash_map
+        MariaDBClientCpp::MariaDBClientCpp
 )
+target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 

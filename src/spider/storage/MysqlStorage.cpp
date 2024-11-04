@@ -1,13 +1,13 @@
 #include "MysqlStorage.hpp"
 
 #include <absl/container/flat_hash_set.h>
+#include <fmt/format.h>
 
 #include <array>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <cstdint>
 #include <deque>
-#include <format>
 #include <iostream>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/Driver.hpp>
@@ -522,7 +522,7 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
             m_conn->commit();
             return StorageErr{
                     StorageErrType::KeyNotFoundErr,
-                    std::format("no task graph with id %s", boost::uuids::to_string(id))
+                    fmt::format("no task graph with id %s", boost::uuids::to_string(id))
             };
         }
         while (task_res->next()) {
@@ -659,7 +659,7 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
             m_conn->commit();
             return StorageErr{
                     StorageErrType::KeyNotFoundErr,
-                    std::format("no task with id %s", boost::uuids::to_string(id))
+                    fmt::format("no task with id %s", boost::uuids::to_string(id))
             };
         }
         *task = fetch_task(res);
@@ -827,7 +827,7 @@ auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr
             m_conn->commit();
             return StorageErr{
                     StorageErrType::KeyNotFoundErr,
-                    std::format("no driver with id %s", boost::uuids::to_string(id))
+                    fmt::format("no driver with id %s", boost::uuids::to_string(id))
             };
         }
     } catch (sql::SQLException& e) {
@@ -875,7 +875,7 @@ auto MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std::strin
             m_conn->rollback();
             return StorageErr{
                     StorageErrType::KeyNotFoundErr,
-                    std::format("no scheduler with id %s", boost::uuids::to_string(id))
+                    fmt::format("no scheduler with id %s", boost::uuids::to_string(id))
             };
         }
         *state = res->getString(1).c_str();
@@ -992,7 +992,7 @@ auto MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
             m_conn->rollback();
             return StorageErr{
                     StorageErrType::KeyNotFoundErr,
-                    std::format("no data with id %s", boost::uuids::to_string(id))
+                    fmt::format("no data with id %s", boost::uuids::to_string(id))
             };
         }
         *data = Data(id, res->getString(2).c_str(), res->getString(3).c_str());
