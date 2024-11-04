@@ -24,13 +24,6 @@ target_link_libraries(
     absl::flat_hash_map
     MariaDBClientCpp::MariaDBClientCpp
 )
-target_include_directories(
-    spider_core
-    PUBLIC
-        "${MariaDBClientCpp_INCLUDE_DIR}"
-        "${MariaDBClientCpp_INCLUDE_DIR}/conncpp"
-        "${MariaDBClientCpp_INCLUDE_DIR}/conncpp/compat"
-)
 
 set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 
