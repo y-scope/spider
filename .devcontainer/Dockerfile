@@ -3,7 +3,7 @@ FROM ubuntu:focal
 WORKDIR /root
 
 RUN mkdir -p ./tools/scripts/lib_install
-ADD ./tools/scripts/lib_install ./tools/scripts/lib_install
+COPY ./tools/scripts/lib_install ./tools/scripts/lib_install
 
 RUN ./tools/scripts/lib_install/linux/install-dev.sh
 

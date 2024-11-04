@@ -23,7 +23,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
   make \
   pkg-config \
   python3 \
-  python3-pip
+  python3-pip \
+  python3-venv
 
 # Add alternatives for cpp-10, gcc-10, and g++-10
 # NOTE: We use a low priority to avoid affecting the prioritization of any existing alternatives
