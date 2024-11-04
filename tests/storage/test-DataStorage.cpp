@@ -1,3 +1,4 @@
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while)
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
 #include "../../src/spider/core/Error.hpp"
@@ -25,3 +26,4 @@ TEMPLATE_TEST_CASE("spider::core::DataStorage add and get task", "[storage]", sp
     REQUIRE(spider::core::StorageErrType::Success == storage->connect("url", id).type);
 }
 }
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while)
