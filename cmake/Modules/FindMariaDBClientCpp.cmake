@@ -90,11 +90,11 @@ if(NOT TARGET MariaDBClientCpp::MariaDBClientCpp)
     # Add library to build
     if(MariaDBClientCpp_FOUND)
         if(MariaDBClientCpp_USE_STATIC_LIBS)
-            add_library(MariaDBClientCpp::MariaDBClientCpp STATIC IMPORTED)
+            add_library(MariaDBClientCpp::MariaDBClientCpp STATIC IMPORTED GLOBAL)
         else()
             # NOTE: We use UNKNOWN so that if the user doesn't have the SHARED
             # libraries installed, we can still use the STATIC libraries
-            add_library(MariaDBClientCpp::MariaDBClientCpp UNKNOWN IMPORTED)
+            add_library(MariaDBClientCpp::MariaDBClientCpp UNKNOWN IMPORTED GLOBAL)
         endif()
     endif()
 
