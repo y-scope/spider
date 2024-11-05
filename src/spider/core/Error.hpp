@@ -26,7 +26,7 @@ struct StorageErr {
             : type(type),
               description(std::move(description)) {}
 
-    auto success() const -> bool { return StorageErrType::Success == type; }
+    [[nodiscard]] auto success() const -> bool { return StorageErrType::Success == type; }
 };
 
 }  // namespace spider::core

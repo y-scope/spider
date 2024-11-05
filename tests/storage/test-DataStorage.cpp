@@ -2,6 +2,7 @@
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
 #include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/core/Data.hpp"
 
 #include <concepts>
 #include <memory>
@@ -12,8 +13,7 @@
 #include "StorageTestHelper.hpp"
 #include "../utils/CoreDataUtils.hpp"
 
-namespace spider::test{
-
+namespace {
 template <class T>
 requires std::derived_from<T, spider::core::DataStorage>
 auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
@@ -23,7 +23,7 @@ auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
 
 TEMPLATE_TEST_CASE("spider::core::DataStorage add and get data", "[storage]", spider::core::MySqlDataStorage) {
     std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
-    REQUIRE(storage->connect(cStorageUrl).success());
+    REQUIRE(storage->connect(spider::test::cStorageUrl).success());
     REQUIRE(storage->initialize().success());
 
     // Add data

@@ -167,9 +167,9 @@ std::array<char const* const, 4> const cCreateDataStorage = {
         cCreateDataRefTaskTable,
 };
 
-auto uuid_get_bytes(boost::uuids::uuid id) -> sql::bytes {
+auto uuid_get_bytes(boost::uuids::uuid const& id) -> sql::bytes {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast)
-    return {(char*)id.data(), id.size()};
+    return {(char const*)id.data(), id.size()};
     // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast)
 }
 
