@@ -377,9 +377,9 @@ auto MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) -> Storag
         sql::bytes const job_id_bytes = uuid_get_bytes(task_graph.get_id());
 
         // Tasks must be added in graph order to avoid the dangling reference.
-        absl::flat_hash_set<boost::uuids::uuid> heads;
+        absl::flat_hash_set<boost::uuids::uuid> heads = task_graph.get_head_tasks();
         std::deque<boost::uuids::uuid> queue;
-        // First go ver all heads
+        // First go over all heads
         for (boost::uuids::uuid const task_id : heads) {
             std::optional<Task> const task_option = task_graph.get_task(task_id);
             if (!task_option.has_value()) {
