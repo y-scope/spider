@@ -807,7 +807,7 @@ auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<T
 auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "UPDATE divers SET heartbeat = CURRENT_TIMESTAMP() WHERE id = ?"
+                "UPDATE drivers SET heartbeat = CURRENT_TIMESTAMP() WHERE id = ?"
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -993,8 +993,8 @@ auto MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
         locality_statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->executeQuery());
         std::vector<std::string> locality;
-        while (res->next()) {
-            locality.emplace_back(res->getString(1));
+        while (locality_res->next()) {
+            locality.emplace_back(locality_res->getString(1));
         }
         if (!locality.empty()) {
             data->set_locality(locality);
