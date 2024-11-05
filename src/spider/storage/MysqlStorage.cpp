@@ -110,19 +110,11 @@ char const* const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS task_
     id BINARY(16) NOT NULL,
     task_id BINARY(16) NOT NULL,
     start_time TIMESTAMP NOT NULL,
-    CONSTRAINT instance_task_id FOREIGN KEY (task_id) REFERENCES task (id) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT instance_task_id FOREIGN KEY (task_id) REFERENCES tasks (id) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (id)
 ))";
 
-char const* const cCreateFutureTable = R"(CREATE TABLE IF NOT EXISTS task_instances (
-    id BINARY(16) NOT NULL,
-    task_id BINARY(16) NOT NULL,
-    start_time TIMESTAMP NOT NULL,
-    CONSTRAINT instance_task_id FOREIGN KEY (task_id) REFERENCES task (id) ON UPDATE NO ACTION ON DELETE CASCADE,
-    PRIMARY KEY (id)
-))";
-
-std::array<char const* const, 8> const cCreateMetadataStorage = {
+std::array<char const* const, 7> const cCreateMetadataStorage = {
         cCreateDriverTable,
         cCreateSchedulerTable,
         cCreateTaskTable,
@@ -130,7 +122,6 @@ std::array<char const* const, 8> const cCreateMetadataStorage = {
         cCreateTaskOutputTable,
         cCreateTaskDependencyTable,
         cCreateTaskInstanceTable,
-        cCreateFutureTable,
 };
 
 char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS data (
@@ -733,10 +724,9 @@ auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> St
 
 auto MySqlMetadataStorage::task_finish(TaskInstance const& instance) -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> const statement(
-                m_conn->prepareStatement("UPDATE tasks (instance_id) VALUES (?) WHERE "
-                                         "id = ? AND instance_id is NULL")
-        );
+        std::unique_ptr<sql::PreparedStatement> const statement(m_conn->prepareStatement(
+                "UPDATE tasks SET instance_id = ? WHERE id = ? AND instance_id is NULL"
+        ));
         sql::bytes id_bytes = uuid_get_bytes(instance.id);
         sql::bytes task_id_bytes = uuid_get_bytes(instance.task_id);
         statement->setBytes(1, &id_bytes);
@@ -816,10 +806,9 @@ auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<T
 
 auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("UPDATE divers SET (heartbeat) VALUES "
-                                         "(CURRENT_TIMESTAMP()) WHERE id = ?")
-        );
+        std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
+                "UPDATE divers SET heartbeat = CURRENT_TIMESTAMP() WHERE id = ?"
+        ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
@@ -891,7 +880,7 @@ auto MySqlMetadataStorage::set_scheduler_state(boost::uuids::uuid id, std::strin
         -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("UPDATE schedulers SET (state) VALUES (?) WHERE id = ?")
+                m_conn->prepareStatement("UPDATE schedulers SET state = ? WHERE id = ?")
         );
         statement->setString(1, state);
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -983,7 +972,7 @@ auto MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("SELECT id, key, value, hard_locality "
-                                         "FROM schedulers WHERE id = ?")
+                                         "FROM data WHERE id = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -999,7 +988,7 @@ auto MysqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
         data->set_hard_locality(res->getBoolean(4));
 
         std::unique_ptr<sql::PreparedStatement> locality_statement(
-                m_conn->prepareStatement("SELECT addr FROM schedulers WHERE id = ?")
+                m_conn->prepareStatement("SELECT address FROM data_locality WHERE id = ?")
         );
         locality_statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->executeQuery());
@@ -1066,7 +1055,7 @@ auto MysqlDataStorage::add_driver_reference(boost::uuids::uuid id, boost::uuids:
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("INSERT INTO data_ref_driver (id, "
-                                         "task_id) VALUES(?, ?)")
+                                         "driver_id) VALUES(?, ?)")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
@@ -1089,7 +1078,7 @@ auto MysqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uui
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("DELETE FROM data_ref_driver "
-                                         "WHERE id = ? AND task_id = ?")
+                                         "WHERE id = ? AND driver_id = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);

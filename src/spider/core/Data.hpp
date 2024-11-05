@@ -34,7 +34,7 @@ public:
 
     [[nodiscard]] auto is_hard_locality() const -> bool { return m_hard_locality; }
 
-    void set_locality(std::vector<std::string>& locality) { m_locality = locality; }
+    void set_locality(std::vector<std::string> const& locality) { m_locality = locality; }
 
     void set_hard_locality(bool hard) { m_hard_locality = hard; }
 
