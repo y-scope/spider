@@ -13,6 +13,8 @@ class Data {
 public:
     explicit Data(std::string value) : m_value(std::move(value)) { init_id(); }
 
+    Data(boost::uuids::uuid id, std::string value) : m_id(id), m_value(std::move(value)) {}
+
     Data(std::string key, std::string value) : m_key(std::move(key)), m_value(std::move(value)) {
         init_id();
     }

@@ -118,8 +118,8 @@ std::array<char const* const, 7> const cCreateMetadataStorage = {
         cCreateDriverTable,
         cCreateSchedulerTable,
         cCreateTaskTable,
+        cCreateTaskOutputTable,  // task_outputs table must be created before task_inputs
         cCreateTaskInputTable,
-        cCreateTaskOutputTable,
         cCreateTaskDependencyTable,
         cCreateTaskInstanceTable,
 };
@@ -926,6 +926,11 @@ void MySqlDataStorage::close() {
 
 auto MySqlDataStorage::initialize() -> StorageErr {
     try {
+        // Need to initialize metadata storage first so that foreign constraint is not voilated
+        for (char const* create_table_str : cCreateMetadataStorage) {
+            std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
+            statement->executeUpdate(create_table_str);
+        }
         for (char const* create_table_str : cCreateDataStorage) {
             std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
             statement->executeUpdate(create_table_str);
