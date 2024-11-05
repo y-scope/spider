@@ -68,7 +68,7 @@ char const* const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `timeout` FLOAT,
     `max_retry` INT UNSIGNED DEFAULT 0,
     `instance_id` BINARY(16),
-    KEY `job_id` USING BTREE,
+    KEY (`job_id`) USING BTREE,
     PRIMARY KEY (`id`)
 ))";
 
@@ -100,8 +100,8 @@ char const* const cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS `task_o
 char const* const cCreateTaskDependencyTable = R"(CREATE TABLE IF NOT EXISTS `task_dependencies` (
     `parent` BINARY(16) NOT NULL,
     `child` BINARY(16) NOT NULL,
-    KEY `parent` USING BTREE,
-    KEY `child` USING BTREE,
+    KEY (`parent`) USING BTREE,
+    KEY (`child`) USING BTREE,
     CONSTRAINT `task_dep_parent` FOREIGN KEY (`parent`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `task_dep_child` FOREIGN KEY (`child`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
@@ -131,22 +131,22 @@ char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
     `hard_locality` BOOL DEFAULT FALSE,
     `gc` BOOL DEFAULT FALSE,
     `persisted` BOOL DEFAULT FALSE,
-    KEY `key` USING BTREE,
+    KEY (`key`) USING BTREE,
     PRIMARY KEY (`id`)
 ))";
 
 char const* const cCreateDataLocalityTable = R"(CREATE TABLE IF NOT EXISTS `data_locality` (
     `id` BINARY(16) NOT NULL,
     `address` INT UNSIGNED NOT NULL,
-    KEY `id` USING BTREE,
+    KEY (`id`) USING BTREE,
     CONSTRAINT `locality_data_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
 char const* const cCreateDataRefDriverTable = R"(CREATE TABLE IF NOT EXISTS `data_ref_driver` (
     `id` BINARY(16) NOT NULL,
     `driver_id` BINARY(16) NOT NULL,
-    KEY `id` USING BTREE,
-    KEY `driver_id` USING BTREE,
+    KEY (`id`) USING BTREE,
+    KEY (`driver_id`) USING BTREE,
     CONSTRAINT `data_driver_ref_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `data_ref_driver_id` FOREIGN KEY (`driver_id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
@@ -154,8 +154,8 @@ char const* const cCreateDataRefDriverTable = R"(CREATE TABLE IF NOT EXISTS `dat
 char const* const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS `data_ref_task` (
     `id` BINARY(16) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
-    KEY `id` USING BTREE,
-    KEY `task_id` USING BTREE,
+    KEY (`id`) USING BTREE,
+    KEY (`task_id`) USING BTREE,
     CONSTRAINT `data_task_ref_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `data_ref_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
