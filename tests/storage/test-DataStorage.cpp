@@ -8,8 +8,6 @@
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/random_generator.hpp>
 
 namespace {
 
@@ -21,9 +19,7 @@ auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
 
 TEMPLATE_TEST_CASE("spider::core::DataStorage add and get task", "[storage]", spider::core::MySqlDataStorage) {
     std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
-    boost::uuids::random_generator gen;
-    boost::uuids::uuid const id = gen();
-    REQUIRE(spider::core::StorageErrType::Success == storage->connect("url", id).type);
+    REQUIRE(spider::core::StorageErrType::Success == storage->connect("url").type);
 }
 }
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while)
