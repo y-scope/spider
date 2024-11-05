@@ -105,6 +105,8 @@ if(NOT TARGET MariaDBClientCpp::MariaDBClientCpp)
             PROPERTIES
                 INTERFACE_INCLUDE_DIRECTORIES
                     "${MariaDBClientCpp_INCLUDE_DIR}"
+                "${MariaDBClientCpp_INCLUDE_DIR}/conncpp"
+                    "${MariaDBClientCpp_INCLUDE_DIR}/conncpp/compat"
         )
     endif()
 
