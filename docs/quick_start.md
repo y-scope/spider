@@ -27,24 +27,31 @@ To get started,
 ## Start a client
 
 Client first creates a Spider client driver and connects it to the database. Spider automatically
-cleans up the resource in driver's destructor.
+cleans up the resource in driver's destructor. User can pass in an optional client id. Two drivers
+with same client id cannot run at the same time.
 
 ```c++
 #include <spider/Spider.hpp>
 
 auto main(int argc, char **argv) -> int {
-    spider::Driver driver{"db_url"};
+    boost::uuids::string_generator gen;
+    spider::Driver driver{"db_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
 }
 ```
 
 ## Create a task
 
 In Spider, a task is a non-member function that takes the first argument a `spider::Context` object.
-It can then take any number of arguments of POD type or `spider::Data` covered
-in [later section](#data-on-external-storage).
+It can then take any number of arguments. The argument of a task must have one of the following
+type:
 
-Task can return any POD type or `spider::Data`. If a task needs to return more than one result, uses
-`std::tuple` and makes sure all elements of `std::tuple` are POD or `spider::Data`.
+1. POD type
+2. `spider::Data` covered in [later section](#data-on-external-storage)
+3. `std::vector` of POD type and `spider::Data`
+
+Task can return any value of the valid argument type listed above. If a task needs to return more
+than one result, uses `std::tuple` and makes sure all elements of the tuple are of a valid argument
+type.
 
 Spider requires user to register the task function using static `spider::register_task`, which
 sets up the function internally in Spider library for later user. Spider requires the function name
@@ -72,18 +79,20 @@ spider::register_task(sort);
 ## Run a task
 
 Spider enables user to run a task on the cluster. Simply call `Driver::run` and provide the
-arguments of the task. `Driver::run`returns a `spider::Future` object, which represents the result
-that will be available in the future. You can call `Future::ready` to check if the value in future
-is available yet. You can use`Future::get` to block and get the value once it is available.
+arguments of the task. `Driver::run`returns a `spider::Job` object, which represents the running
+task. `spider::Job` takes the output type of the task graph as template argument. You can call
+`Job::state` to check the state of the running task, and `Job::get_result` to block and get the task
+result. User can send a cancel signal to Spider by calling `Job::cancel`. Client can get all running
+jobs submitted by itself by calling `Driver::get_jobs`.
 
 ```c++
 auto main(int argc, char **argv) -> int {
     // driver initialization skipped
-    spider::Future<int> sum_future = driver.run(sum, 2);
-    assert(4 == sum_future.get());
+    spider::Job<int> sum_job = driver.run(sum, 2);
+    assert(4 == sum_job.get_result());
 
-    spider::Future<std::tuple<int, int>> sort_future = driver.run(4, 3);
-    assert(std::tuple{3, 4} == sort_future.get());
+    spider::Job<std::tuple<int, int>> sort_job = driver.run(4, 3);
+    assert(std::tuple{3, 4} == sort_job.get_result());
 }
 ```
 
@@ -119,8 +128,8 @@ auto main(int argc, char **argv) -> auto {
     // driver initialization skipped
     spider::TaskGraph<int(int, int)> sum_of_square = spider::bind(sum, square, square);
     spider::TaskGraph<int(int, int)> rss = spider::bind(square_root, sum_of_square);
-    spider::Future<int> future = driver::run(rss, 3, 4);
-    assert(5 == future.get());
+    spider::Job<int> job = driver::run(rss, 3, 4);
+    assert(5 == job.get_result());
 }
 ```
 
@@ -128,7 +137,9 @@ auto main(int argc, char **argv) -> auto {
 
 Static task graph is enough to solve a lot of real work problems, but dynamically add tasks
 on-the-fly could become handy. As mentioned before, spider allows you to add another task as child
-of the running task by calling `Context::add_child`.
+of the running task by calling `Context::add_child`. `Context::add_child` can also add a task graph
+as child. Task graph can be constructed by `Context::bind`, which has the same signature and
+semantic as`spider::bind`.
 
 ```c++
 auto gcd(spider::Conect& context, int x, int y) -> std::tuple<int, int> {
@@ -157,9 +168,9 @@ auto gcd(spider:Context& context, int x, int y) -> int {
         std::swap(x, y);
     }
     while (x != y) {
-        spider::Future<std:tuple<int, int>> future = context.run(gcd_impl, x, y);
-        x = future.get().get().get<0>();
-        y = future.get().get().get<1>();
+        spider::Job<std:tuple<int, int>> job = context.run(gcd_impl, x, y);
+        x = job.get_result().get<0>();
+        y = job.get_result().get<1>();
     }
     return x;
 }
@@ -200,10 +211,10 @@ auto main(int argc, char** argv) -> int {
     spider::Data<HdfsFile> input = spider::Data<HdfsFile>::Builder()
         .mark_persist(true)
         .build(HdfsFile { "/path/to/input" });
-    spider::Future<spider::Data<HdfsFile>> future = spider::run(
+    spider::Job<spider::Data<HdfsFile>> job = spider::run(
         spider::bind(map, filter),
         input);
-    std::string const output_path = future.get().get().url;
+    std::string const output_path = job.get_result().get().url;
     std::cout << "Result is stored in " << output_path << std::endl;
 }
 
