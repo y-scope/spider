@@ -1001,7 +1001,11 @@ auto MySqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
             };
         }
         res->next();
-        *data = Data(id, res->getString(2).c_str(), res->getString(3).c_str());
+        if (res->isNull(2)) {
+            *data = Data{id, res->getString(3).c_str()};
+        } else {
+            *data = Data{id, res->getString(2).c_str(), res->getString(3).c_str()};
+        }
         data->set_hard_locality(res->getBoolean(4));
 
         std::unique_ptr<sql::PreparedStatement> locality_statement(

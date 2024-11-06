@@ -21,7 +21,7 @@ auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
 }
 
 
-TEMPLATE_TEST_CASE("spider::core::DataStorage add and get data", "[storage]", spider::core::MySqlDataStorage) {
+TEMPLATE_TEST_CASE("DataStorage add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
     std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
     REQUIRE(storage->connect(spider::test::cStorageUrl).success());
     REQUIRE(storage->initialize().success());
