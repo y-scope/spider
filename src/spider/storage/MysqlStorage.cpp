@@ -662,6 +662,7 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
                     fmt::format("no task with id %s", boost::uuids::to_string(id))
             };
         }
+        res->next();
         *task = fetch_task(res);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -876,6 +877,7 @@ auto MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std::strin
                     fmt::format("no scheduler with id %s", boost::uuids::to_string(id))
             };
         }
+        res->next();
         *state = res->getString(1).c_str();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -998,6 +1000,7 @@ auto MySqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
                     fmt::format("no data with id %s", boost::uuids::to_string(id))
             };
         }
+        res->next();
         *data = Data(id, res->getString(2).c_str(), res->getString(3).c_str());
         data->set_hard_locality(res->getBoolean(4));
 
