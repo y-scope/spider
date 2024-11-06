@@ -16,12 +16,12 @@ public:
     auto operator=(DataStorage&&) -> DataStorage& = default;
     virtual ~DataStorage() = default;
 
-    virtual auto connect(std::string url, boost::uuids::uuid id) -> StorageErr = 0;
+    virtual auto connect(std::string const& url) -> StorageErr = 0;
     virtual void close() = 0;
     virtual auto initialize() -> StorageErr = 0;
 
     virtual auto add_data(Data const& data) -> StorageErr = 0;
-    virtual auto get_data(boost::uuids::uuid id, Data& data) -> StorageErr = 0;
+    virtual auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr = 0;
     virtual auto add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr
                                                                                           = 0;
     virtual auto

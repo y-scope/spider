@@ -26,6 +26,7 @@ target_link_libraries(
         Boost::boost
         absl::flat_hash_map
 )
+target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Data.cpp
