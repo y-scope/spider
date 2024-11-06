@@ -26,4 +26,4 @@ inline auto data_equal(Data const& d1, Data const& d2) -> bool {
     return true;
 }
 
-}
+}  // namespace spider::core

@@ -1,25 +1,23 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
+#include "../../src/spider/core/Data.hpp"
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/Data.hpp"
-
-#include <concepts>
-#include <memory>
+#include "../utils/CoreDataUtils.hpp"
+#include "StorageTestHelper.hpp"
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
-
-#include "StorageTestHelper.hpp"
-#include "../utils/CoreDataUtils.hpp"
+#include <concepts>
+#include <memory>
 
 namespace {
 template <class T>
 requires std::derived_from<T, spider::core::DataStorage>
 auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
-    return std::unique_ptr<spider::core::DataStorage>(static_cast<spider::core::DataStorage*>(new T()));
+    return std::unique_ptr<spider::core::DataStorage>(static_cast<spider::core::DataStorage*>(new T(
+    )));
 }
-
 
 TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
     std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
@@ -43,10 +41,15 @@ TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlD
     REQUIRE(storage->remove_data(data.get_id()).success());
 
     // Get data should fail
-    REQUIRE(spider::core::StorageErrType::KeyNotFoundErr == storage->get_data(data.get_id(), &result).type);
+    REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
+            == storage->get_data(data.get_id(), &result).type);
 }
 
-TEMPLATE_TEST_CASE("Add, get and remove data with key", "[storage]", spider::core::MySqlDataStorage) {
+TEMPLATE_TEST_CASE(
+        "Add, get and remove data with key",
+        "[storage]",
+        spider::core::MySqlDataStorage
+) {
     std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
     REQUIRE(storage->connect(spider::test::cStorageUrl).success());
     REQUIRE(storage->initialize().success());
@@ -71,5 +74,6 @@ TEMPLATE_TEST_CASE("Add, get and remove data with key", "[storage]", spider::cor
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == storage->get_data_by_key("key", &result).type);
 }
-}
+}  // namespace
+
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
