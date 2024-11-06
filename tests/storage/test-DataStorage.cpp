@@ -8,21 +8,14 @@
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <concepts>
 #include <memory>
+#include <iostream>
 
 namespace {
-template <class T>
-requires std::derived_from<T, spider::core::DataStorage>
-auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
-    return std::unique_ptr<spider::core::DataStorage>(static_cast<spider::core::DataStorage*>(new T(
-    )));
-}
 
 TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
-    std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
-    REQUIRE(storage->connect(spider::test::cStorageUrl).success());
-    REQUIRE(storage->initialize().success());
+    std::unique_ptr<spider::core::DataStorage> storage
+            = spider::test::create_data_storage<TestType>();
 
     // Add data
     spider::core::Data const data{"value"};
@@ -50,9 +43,8 @@ TEMPLATE_TEST_CASE(
         "[storage]",
         spider::core::MySqlDataStorage
 ) {
-    std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
-    REQUIRE(storage->connect(spider::test::cStorageUrl).success());
-    REQUIRE(storage->initialize().success());
+    std::unique_ptr<spider::core::DataStorage> storage
+            = spider::test::create_data_storage<TestType>();
 
     // Add data
     spider::core::Data const data{"key", "value"};
@@ -73,6 +65,70 @@ TEMPLATE_TEST_CASE(
     // Get data should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == storage->get_data_by_key("key", &result).type);
+}
+
+TEMPLATE_TEST_CASE(
+        "Add and remove data reference for task",
+        "[storage]",
+        (std::tuple<spider::core::MySqlMetadataStorage, spider::core::MySqlDataStorage>)
+) {
+    auto [metadata_storage, data_storage] = spider::test::
+            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+
+    boost::uuids::random_generator gen;
+    // Add task reference without data and task should fail.
+    REQUIRE(!data_storage->add_task_reference(gen(), gen()).success());
+
+    // Add task
+    spider::core::Task const task{"func", spider::core::TaskCreatorType::Client, gen()};
+    spider::core::TaskGraph graph;
+    graph.add_task(task);
+    REQUIRE(metadata_storage->add_job(gen(), gen(), graph).success());
+
+    // Add task reference without data should fail.
+    REQUIRE(!data_storage->add_task_reference(gen(), task.get_id()).success());
+
+    // Add data
+    spider::core::Data const data{"value"};
+    REQUIRE(data_storage->add_data(data).success());
+
+    // Add task reference
+    REQUIRE(data_storage->add_task_reference(data.get_id(), task.get_id()).success());
+
+    // Remove task reference
+    REQUIRE(data_storage->remove_task_reference(data.get_id(), task.get_id()).success());
+}
+
+TEMPLATE_TEST_CASE(
+        "Add and remove data reference for driver",
+        "[storage]",
+        (std::tuple<spider::core::MySqlMetadataStorage, spider::core::MySqlDataStorage>)
+) {
+    auto [metadata_storage, data_storage] = spider::test::
+            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+
+    boost::uuids::random_generator gen;
+
+    // Add driver reference without data and driver should fail
+    REQUIRE(!data_storage->add_driver_reference(gen(), gen()).success());
+
+    // Add driver
+    boost::uuids::uuid const driver_id = gen();
+    std::cout << metadata_storage->add_driver(driver_id, "127.0.0.1").description << std::endl;
+    // REQUIRE(metadata_storage->add_driver(driver_id, "127.0.0.1").success());
+
+    // Add driver reference without data should fail
+    REQUIRE(!data_storage->add_driver_reference(gen(), driver_id).success());
+
+    // Add data
+    spider::core::Data const data{"value"};
+    REQUIRE(data_storage->add_data(data).success());
+
+    // Add task reference
+    REQUIRE(data_storage->add_driver_reference(data.get_id(), driver_id).success());
+
+    // Remove task reference
+    REQUIRE(data_storage->remove_driver_reference(data.get_id(), driver_id).success());
 }
 }  // namespace
 

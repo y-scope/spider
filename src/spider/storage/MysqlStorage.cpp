@@ -45,7 +45,7 @@ namespace spider::core {
 namespace {
 char const* const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS `drivers` (
     `id` BINARY(16) NOT NULL,
-    `address` INT UNSIGNED NOT NULL,
+    `address` VARCHAR(40) NOT NULL,
     `heartbeat` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
 ))";
@@ -58,16 +58,23 @@ char const* const cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS `schedul
     PRIMARY KEY (`id`)
 ))";
 
+char const* const cCreateJobTable = R"(CREATE TABLE IF NOT EXISTS jobs (
+    `id` BINARY(16) NOT NULL,
+    `client_id` BINARY(64) NOT NULL,
+    KEY (`client_id`) USING BTREE,
+    PRIMARY KEY (`id`)
+))";
+
 char const* const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `id` BINARY(16) NOT NULL,
-    `job_id` BINARY(16) NOT NULL, -- for performance only
+    `job_id` BINARY(16) NOT NULL,
     `func_name` VARCHAR(64) NOT NULL,
     `state` ENUM('pending', 'ready', 'running', 'success', 'cancel', 'fail') NOT NULL,
     `creator` BINARY(64), -- used when task is created by task
     `timeout` FLOAT,
     `max_retry` INT UNSIGNED DEFAULT 0,
     `instance_id` BINARY(16),
-    KEY (`job_id`) USING BTREE,
+    CONSTRAINT `task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 ))";
 
@@ -149,9 +156,10 @@ char const* const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS `data_
     CONSTRAINT `data_ref_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-std::array<char const* const, 11> const cCreateStorage = {
+std::array<char const* const, 12> const cCreateStorage = {
         cCreateDriverTable,  // drivers table must be created before data_ref_driver
         cCreateSchedulerTable,
+        cCreateJobTable,  // jobs table must be created before task
         cCreateTaskTable,  // tasks table must be created before data_ref_task
         cCreateDataTable,  // data table must be created before task_outputs
         cCreateDataLocalityTable,
@@ -370,9 +378,22 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     }
 }
 
-auto MySqlMetadataStorage::add_task_graph(TaskGraph const& task_graph) -> StorageErr {
+auto MySqlMetadataStorage::add_job(
+        boost::uuids::uuid job_id,
+        boost::uuids::uuid client_id,
+        TaskGraph const& task_graph
+) -> StorageErr {
     try {
-        sql::bytes const job_id_bytes = uuid_get_bytes(task_graph.get_id());
+        sql::bytes job_id_bytes = uuid_get_bytes(job_id);
+        sql::bytes client_id_bytes = uuid_get_bytes(client_id);
+        {
+            std::unique_ptr<sql::PreparedStatement> statement{
+                    m_conn->prepareStatement("INSERT INTO `jobs` (`id`, `client_id`) VALUES (?, ?)")
+            };
+            statement->setBytes(1, &job_id_bytes);
+            statement->setBytes(2, &client_id_bytes);
+            statement->executeUpdate();
+        }
 
         // Tasks must be added in graph order to avoid the dangling reference.
         absl::flat_hash_set<boost::uuids::uuid> heads = task_graph.get_head_tasks();
@@ -581,15 +602,19 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_task_graphs(std::vector<boost::uuids::uuid>* task_graphs
+auto MySqlMetadataStorage::get_jobs_by_client_id(
+        boost::uuids::uuid client_id,
+        std::vector<boost::uuids::uuid>* job_ids
 ) -> StorageErr {
     try {
-        std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
-        std::unique_ptr<sql::ResultSet> const res(
-                statement->executeQuery("SELECT DISTINCT `job_id` FROM tasks")
-        );
+        std::unique_ptr<sql::PreparedStatement> statement{
+                m_conn->prepareStatement("SELECT `job_id` FROM `jobs` WHERE `client_id` = ?")
+        };
+        sql::bytes client_id_bytes = uuid_get_bytes(client_id);
+        statement->setBytes(1, &client_id_bytes);
+        std::unique_ptr<sql::ResultSet> const res{statement->executeQuery()};
         while (res->next()) {
-            task_graphs->emplace_back(read_id(res->getBinaryStream(1)));
+            job_ids->emplace_back(read_id(res->getBinaryStream(1)));
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -599,10 +624,10 @@ auto MySqlMetadataStorage::get_task_graphs(std::vector<boost::uuids::uuid>* task
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::remove_task_graph(boost::uuids::uuid id) -> StorageErr {
+auto MySqlMetadataStorage::remove_job(boost::uuids::uuid id) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("DELETE FROM `tasks` WHERE `job_id` = ?")
+                m_conn->prepareStatement("DELETE FROM `jobs` WHERE `id` = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
