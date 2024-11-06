@@ -113,16 +113,6 @@ char const* const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS `task
     PRIMARY KEY (`id`)
 ))";
 
-std::array<char const* const, 7> const cCreateMetadataStorage = {
-        cCreateDriverTable,
-        cCreateSchedulerTable,
-        cCreateTaskTable,
-        cCreateTaskOutputTable,  // task_outputs table must be created before task_inputs
-        cCreateTaskInputTable,
-        cCreateTaskDependencyTable,
-        cCreateTaskInstanceTable,
-};
-
 char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
     `id` BINARY(16) NOT NULL,
     `key` VARCHAR(64),
@@ -130,7 +120,7 @@ char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
     `hard_locality` BOOL DEFAULT FALSE,
     `gc` BOOL DEFAULT FALSE,
     `persisted` BOOL DEFAULT FALSE,
-    KEY (`key`) USING BTREE,
+    UNIQUE KEY (`key`) USING BTREE,
     PRIMARY KEY (`id`)
 ))";
 
@@ -159,11 +149,18 @@ char const* const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS `data_
     CONSTRAINT `data_ref_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-std::array<char const* const, 4> const cCreateDataStorage = {
-        cCreateDataTable,
+std::array<char const* const, 11> const cCreateStorage = {
+        cCreateDriverTable,  // drivers table must be created before data_ref_driver
+        cCreateSchedulerTable,
+        cCreateTaskTable,  // tasks table must be created before data_ref_task
+        cCreateDataTable,  // data table must be created before task_outputs
         cCreateDataLocalityTable,
         cCreateDataRefDriverTable,
         cCreateDataRefTaskTable,
+        cCreateTaskOutputTable,  // task_outputs table must be created before task_inputs
+        cCreateTaskInputTable,
+        cCreateTaskDependencyTable,
+        cCreateTaskInstanceTable,
 };
 
 auto uuid_get_bytes(boost::uuids::uuid const& id) -> sql::bytes {
@@ -237,7 +234,7 @@ void MySqlMetadataStorage::close() {
 
 auto MySqlMetadataStorage::initialize() -> StorageErr {
     try {
-        for (char const* create_table_str : cCreateMetadataStorage) {
+        for (char const* create_table_str : cCreateStorage) {
             std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
             statement->executeUpdate(create_table_str);
         }
@@ -927,11 +924,7 @@ void MySqlDataStorage::close() {
 auto MySqlDataStorage::initialize() -> StorageErr {
     try {
         // Need to initialize metadata storage first so that foreign constraint is not voilated
-        for (char const* create_table_str : cCreateMetadataStorage) {
-            std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
-            statement->executeUpdate(create_table_str);
-        }
-        for (char const* create_table_str : cCreateDataStorage) {
+        for (char const* create_table_str : cCreateStorage) {
             std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
             statement->executeUpdate(create_table_str);
         }
