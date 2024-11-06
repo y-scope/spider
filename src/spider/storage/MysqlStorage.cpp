@@ -840,7 +840,7 @@ auto MySqlMetadataStorage::heartbeat_timeout(float timeout, std::vector<boost::u
         -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "SELECT `id` FROM `driver`s WHERE TIMESTAMPDIFF(MICROSECOND, "
+                "SELECT `id` FROM `drivers` WHERE TIMESTAMPDIFF(MICROSECOND, "
                 "`heartbeat`, CURRENT_TIMESTAMP()) > ?"
         ));
         statement->setFloat(1, timeout * cMillisecondToMicrosecond);
@@ -1104,7 +1104,7 @@ auto MySqlDataStorage::remove_task_reference(boost::uuids::uuid id, boost::uuids
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("DELETE FROM `data_ref_task` WHERE "
-                                         "`id` = ? AND `task_i`d = ?")
+                                         "`id` = ? AND `task_id` = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
