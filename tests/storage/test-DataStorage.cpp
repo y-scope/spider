@@ -127,10 +127,10 @@ TEMPLATE_TEST_CASE(
     spider::core::Data const data{"value"};
     REQUIRE(data_storage->add_data(data).success());
 
-    // Add task reference
+    // Add driver reference
     REQUIRE(data_storage->add_driver_reference(data.get_id(), driver_id).success());
 
-    // Remove task reference
+    // Remove driver reference
     REQUIRE(data_storage->remove_driver_reference(data.get_id(), driver_id).success());
 }
 }  // namespace
