@@ -1,15 +1,19 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/core/Task.hpp"
+#include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
 #include "../utils/CoreDataUtils.hpp"
 #include "StorageTestHelper.hpp"
 
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/random_generator.hpp>
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <memory>
-#include <iostream>
+#include <tuple>
 
 namespace {
 
@@ -114,8 +118,7 @@ TEMPLATE_TEST_CASE(
 
     // Add driver
     boost::uuids::uuid const driver_id = gen();
-    std::cout << metadata_storage->add_driver(driver_id, "127.0.0.1").description << std::endl;
-    // REQUIRE(metadata_storage->add_driver(driver_id, "127.0.0.1").success());
+    REQUIRE(metadata_storage->add_driver(driver_id, "127.0.0.1").success());
 
     // Add driver reference without data should fail
     REQUIRE(!data_storage->add_driver_reference(gen(), driver_id).success());

@@ -6,6 +6,10 @@
 #include "../../src/spider/storage/MetadataStorage.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <concepts>
+#include <memory>
+#include <tuple>
+#include <utility>
 
 namespace spider::test {
 char const* const cStorageUrl
