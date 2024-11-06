@@ -42,7 +42,6 @@ enum MariadbErr : uint16_t {
 };
 
 namespace spider::core {
-
 namespace {
 char const* const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS `drivers` (
     `id` BINARY(16) NOT NULL,
@@ -213,7 +212,6 @@ auto string_to_task_state(std::string const& state) -> spider::core::TaskState {
     }
     return spider::core::TaskState::Pending;
 }
-
 }  // namespace
 
 auto MySqlMetadataStorage::connect(std::string const& url) -> StorageErr {
@@ -1028,6 +1026,63 @@ auto MySqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
     return StorageErr{};
 }
 
+auto MySqlDataStorage::get_data_by_key(std::string const& key, Data* data) -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("SELECT `id`, `key`, `value`, `hard_locality` "
+                                         "FROM `data` WHERE `key` = ?")
+        );
+        statement->setString(1, key);
+        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
+        if (res->rowsCount() == 0) {
+            m_conn->rollback();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("no data with key %s", key)
+            };
+        }
+        res->next();
+        boost::uuids::uuid const id = read_id(res->getBinaryStream(1));
+        *data = Data{id, key, res->getString(3).c_str()};
+        data->set_hard_locality(res->getBoolean(4));
+
+        std::unique_ptr<sql::PreparedStatement> locality_statement(
+                m_conn->prepareStatement("SELECT `address` FROM `data_locality` WHERE `id` = ?")
+        );
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        locality_statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->executeQuery());
+        std::vector<std::string> locality;
+        while (locality_res->next()) {
+            locality.emplace_back(locality_res->getString(1));
+        }
+        if (!locality.empty()) {
+            data->set_locality(locality);
+        }
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
+auto MySqlDataStorage::remove_data(boost::uuids::uuid id) -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("DELETE FROM `data` WHERE `id` = ?")
+        );
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
 auto MySqlDataStorage::add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id)
         -> StorageErr {
     try {
@@ -1113,5 +1168,4 @@ auto MySqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uui
     m_conn->commit();
     return StorageErr{};
 }
-
 }  // namespace spider::core

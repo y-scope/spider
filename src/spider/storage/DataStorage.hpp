@@ -23,6 +23,8 @@ public:
 
     virtual auto add_data(Data const& data) -> StorageErr = 0;
     virtual auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr = 0;
+    virtual auto get_data_by_key(std::string const& key, Data* data) -> StorageErr = 0;
+    virtual auto remove_data(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr
                                                                                           = 0;
     virtual auto

@@ -1,4 +1,4 @@
-// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while)
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
 #include "../../src/spider/core/Error.hpp"
@@ -21,7 +21,7 @@ auto create_data_storage() -> std::unique_ptr<spider::core::DataStorage> {
 }
 
 
-TEMPLATE_TEST_CASE("DataStorage add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
+TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
     std::unique_ptr<spider::core::DataStorage> storage = create_data_storage<TestType>();
     REQUIRE(storage->connect(spider::test::cStorageUrl).success());
     REQUIRE(storage->initialize().success());
@@ -38,6 +38,12 @@ TEMPLATE_TEST_CASE("DataStorage add, get and remove data", "[storage]", spider::
     spider::core::Data result{"temp"};
     REQUIRE(storage->get_data(data.get_id(), &result).success());
     REQUIRE(spider::core::data_equal(data, result));
+
+    // Remove data should succeed
+    REQUIRE(storage->remove_data(data.get_id()).success());
+
+    // Get data should fail
+    REQUIRE(spider::core::StorageErrType::KeyNotFoundErr == storage->get_data(data.get_id(), &result).type);
 }
 }
-// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while)
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)

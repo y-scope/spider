@@ -71,6 +71,8 @@ public:
     auto initialize() -> StorageErr override;
     auto add_data(Data const& data) -> StorageErr override;
     auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr override;
+    auto get_data_by_key(std::string const& key, Data* data) -> StorageErr override;
+    auto remove_data(boost::uuids::uuid id) -> StorageErr override;
     auto
     add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr override;
     auto
