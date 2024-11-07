@@ -6,6 +6,11 @@ set -e
 # Error on undefined variable
 set -u
 
+# Install libmariadb
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+    libmariadb-dev
+
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 lib_install_scripts_dir=$script_dir/..
 
