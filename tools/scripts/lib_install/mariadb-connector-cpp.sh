@@ -57,12 +57,12 @@ cd $temp_dir
 git clone https://github.com/mariadb-corporation/mariadb-connector-cpp.git "mariadb-connector-cpp-${version}"
 cd "mariadb-connector-cpp-${version}"
 git checkout "${version}"
-git submodule update --init --recursive
 
 # Build
 mkdir build
 cd build
-cmake ..
+# Setting USE_SYSTEM_INSTALLED_LIB mess up the install prefix, so set it manually
+cmake -DUSE_SYSTEM_INSTALLED_LIB=ON -DCMAKE_INSTALL_LIBDIR=/usr/local -DINSTALL_LAYOUT=RPM ..
 make -j${num_cpus}
 
 # Install

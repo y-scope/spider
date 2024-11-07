@@ -20,6 +20,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     libssl-dev \
     make \
     pkg-config \
+    libmariadb-dev\
     python3 \
     python3-pip \
     python3-venv
