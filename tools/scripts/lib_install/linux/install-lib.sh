@@ -7,8 +7,14 @@ set -e
 set -u
 
 # Install libmariadb
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+echo "Checking for elevated privileges..."
+privileged_command_prefix=""
+if [ ${EUID:-$(id -u)} -ne 0 ] ; then
+  sudo echo "Script can elevate privileges."
+  privileged_command_prefix="${privileged_command_prefix} sudo"
+fi
+"${privileged_command_prefix}" apt-get update
+DEBIAN_FRONTEND=noninteractive "${privileged_command_prefix}" apt-get install --no-install-recommends -y \
     libmariadb-dev
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
