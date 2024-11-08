@@ -17,7 +17,7 @@
 
 namespace {
 
-TEMPLATE_TEST_CASE("Driver heartbeat", "[storage]", spider::core::MySqlMetadataStorage) {
+TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataStorageTypeList) {
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
 
@@ -58,7 +58,11 @@ TEMPLATE_TEST_CASE("Driver heartbeat", "[storage]", spider::core::MySqlMetadataS
     }));
 }
 
-TEMPLATE_TEST_CASE("Scheduler state and addr", "[storage]", spider::core::MySqlMetadataStorage) {
+TEMPLATE_LIST_TEST_CASE(
+        "Scheduler state and addr",
+        "[storage]",
+        spider::test::MetadataStorageTypeList
+) {
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
 

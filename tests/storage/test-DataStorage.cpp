@@ -17,7 +17,11 @@
 
 namespace {
 
-TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
+TEMPLATE_LIST_TEST_CASE(
+        "Add, get and remove data",
+        "[storage]",
+        spider::test::DataStorageTypeList
+) {
     std::unique_ptr<spider::core::DataStorage> storage
             = spider::test::create_data_storage<TestType>();
 
@@ -42,10 +46,10 @@ TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlD
             == storage->get_data(data.get_id(), &result).type);
 }
 
-TEMPLATE_TEST_CASE(
+TEMPLATE_LIST_TEST_CASE(
         "Add, get and remove data with key",
         "[storage]",
-        spider::core::MySqlDataStorage
+        spider::test::DataStorageTypeList
 ) {
     std::unique_ptr<spider::core::DataStorage> storage
             = spider::test::create_data_storage<TestType>();
@@ -71,10 +75,10 @@ TEMPLATE_TEST_CASE(
             == storage->get_data_by_key("key", &result).type);
 }
 
-TEMPLATE_TEST_CASE(
+TEMPLATE_LIST_TEST_CASE(
         "Add and remove data reference for task",
         "[storage]",
-        (std::tuple<spider::core::MySqlMetadataStorage, spider::core::MySqlDataStorage>)
+        spider::test::StorageTypeList
 ) {
     auto [metadata_storage, data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
