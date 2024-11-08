@@ -1,13 +1,16 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
 
+#include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/storage/MetadataStorage.hpp"
 #include "../../src/spider/storage/MysqlStorage.hpp"
 #include "StorageTestHelper.hpp"
 
-#include <boost/uuid/uuid_io.hpp>
+#include <algorithm>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
 #include <catch2/catch_template_test_macros.hpp>
 #include <chrono>
 #include <memory>
-#include <ranges>
 #include <thread>
 
 namespace {
@@ -58,18 +61,18 @@ TEMPLATE_TEST_CASE("Scheduler state and addr", "[storage]", spider::core::MySqlM
             = spider::test::create_metadata_storage<TestType>();
 
     boost::uuids::random_generator gen;
-    boost::uuids::uuid scheduler_id = gen();
-    constexpr int port = 3306;
+    boost::uuids::uuid const scheduler_id = gen();
+    constexpr int cPort = 3306;
 
     // Add scheduler should succeed
-    REQUIRE(storage->add_driver(scheduler_id, "127.0.0.1", port).success());
+    REQUIRE(storage->add_driver(scheduler_id, "127.0.0.1", cPort).success());
 
     // Get scheduler addr should succeed
     std::string addr_res;
     int port_res = 0;
     REQUIRE(storage->get_scheduler_addr(scheduler_id, &addr_res, &port_res).success());
     REQUIRE(addr_res == "127.0.0.1");
-    REQUIRE(port_res == port);
+    REQUIRE(port_res == cPort);
 
     // Get non-exist scheduler should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
