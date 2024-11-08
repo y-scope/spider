@@ -55,6 +55,8 @@ public:
     heartbeat_timeout(double timeout, std::vector<boost::uuids::uuid>* ids) -> StorageErr override;
     auto get_scheduler_state(boost::uuids::uuid id, std::string* state) -> StorageErr override;
     auto
+    get_scheduler_addr(boost::uuids::uuid id, std::string* addr, int* port) -> StorageErr override;
+    auto
     set_scheduler_state(boost::uuids::uuid id, std::string const& state) -> StorageErr override;
 
 private:

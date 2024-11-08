@@ -53,6 +53,43 @@ TEMPLATE_TEST_CASE("Driver heartbeat", "[storage]", spider::core::MySqlMetadataS
     }));
 }
 
+TEMPLATE_TEST_CASE("Scheduler state and addr", "[storage]", spider::core::MySqlMetadataStorage) {
+    std::unique_ptr<spider::core::MetadataStorage> storage
+            = spider::test::create_metadata_storage<TestType>();
+
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid scheduler_id = gen();
+    constexpr int port = 3306;
+
+    // Add scheduler should succeed
+    REQUIRE(storage->add_driver(scheduler_id, "127.0.0.1", port).success());
+
+    // Get scheduler addr should succeed
+    std::string addr_res;
+    int port_res = 0;
+    REQUIRE(storage->get_scheduler_addr(scheduler_id, &addr_res, &port_res).success());
+    REQUIRE(addr_res == "127.0.0.1");
+    REQUIRE(port_res == port);
+
+    // Get non-exist scheduler should fail
+    REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
+            == storage->get_scheduler_addr(gen(), &addr_res, &port_res).type);
+
+    // Get default state
+    std::string state_res;
+    REQUIRE(storage->get_scheduler_state(scheduler_id, &state_res).success());
+    REQUIRE(state_res == "normal");
+    state_res.clear();
+
+    // Update scheduler state should succeed
+    std::string state = "recovery";
+    REQUIRE(storage->set_scheduler_state(scheduler_id, state).success());
+
+    // Get new state
+    REQUIRE(storage->get_scheduler_state(scheduler_id, &state_res).success());
+    REQUIRE(state_res == state);
+}
+
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)

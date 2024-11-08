@@ -52,6 +52,8 @@ public:
     virtual auto
     heartbeat_timeout(double timeout, std::vector<boost::uuids::uuid>* ids) -> StorageErr = 0;
     virtual auto get_scheduler_state(boost::uuids::uuid id, std::string* state) -> StorageErr = 0;
+    virtual auto
+    get_scheduler_addr(boost::uuids::uuid id, std::string* addr, int* port) -> StorageErr = 0;
     virtual auto set_scheduler_state(boost::uuids::uuid id, std::string const& state) -> StorageErr
                                                                                          = 0;
 };
