@@ -10,7 +10,8 @@ brew update
 brew install \
   boost \
   fmt \
-  spdlog
+  spdlog \
+  mariadb-connector-c
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 lib_install_scripts_dir=$script_dir/..

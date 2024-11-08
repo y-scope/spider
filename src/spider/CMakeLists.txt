@@ -1,23 +1,21 @@
 # set variable as CACHE INTERNAL to access it from other scope
-set(SPIDER_CORE_SOURCES
+set(SPIDER_CORE_SOURCES storage/MysqlStorage.cpp CACHE INTERNAL "spider core source files")
+
+set(SPIDER_CORE_HEADERS
     core/Error.hpp
     core/Data.hpp
     core/Task.hpp
     core/TaskGraph.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
-    storage/MysqlStorage.cpp
     storage/MysqlStorage.hpp
     CACHE INTERNAL
-    "spider core source files"
+    "spider core header files"
 )
 
-if(SPIDER_USE_STATIC_LIBS)
-    add_library(spider_core STATIC)
-else()
-    add_library(spider_core SHARED)
-endif()
+add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
+target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
 target_link_libraries(
     spider_core
     PUBLIC

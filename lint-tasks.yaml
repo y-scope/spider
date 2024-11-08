@@ -50,6 +50,9 @@ tasks:
       - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
+      - "{{.G_TEST_DIR}}/**/*.cpp"
+      - "{{.G_TEST_DIR}}/**/*.h"
+      - "{{.G_TEST_DIR}}/**/*.hpp"
       - "{{.TASKFILE}}"
       - "tools/yscope-dev-utils/lint-configs/.clang-format"
     deps: ["cpp-configs", "venv"]
@@ -67,6 +70,10 @@ tasks:
         vars:
           FLAGS: "-i"
           SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
+      - task: "clang-format"
+        vars:
+          FLAGS: "-i"
+          SRC_DIR: "{{.G_TEST_DIR}}"
 
   cpp-static-check:
     # Alias task to `cpp-static-fix` since we don't currently support automatic fixes.
@@ -79,6 +86,9 @@ tasks:
       - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
+      - "{{.G_TEST_DIR}}/**/*.cpp"
+      - "{{.G_TEST_DIR}}/**/*.h"
+      - "{{.G_TEST_DIR}}/**/*.hpp"
       - "{{.G_SPIDER_CMAKE_CACHE}}"
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
       - "{{.TASKFILE}}"
@@ -90,6 +100,7 @@ tasks:
         vars:
           FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
           SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
+          TEST_DIR: "{{.G_TEST_DIR}}"
 
   yml:
     aliases:
@@ -123,10 +134,10 @@ tasks:
   clang-tidy:
     internal: true
     requires:
-      vars: ["FLAGS", "SRC_DIR"]
+      vars: ["FLAGS", "SRC_DIR", "TEST_DIR"]
     cmd: |-
       . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find "{{.SRC_DIR}}" \
+      find "{{.SRC_DIR}}" "{{.TEST_DIR}}" \
         -type f \
         \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
         -print0 | \
