@@ -33,9 +33,9 @@ cmake --build build --target unitTest --parallel
 ./build/tests/unitTest
 ```
 
-If the tests show error messages for connection functions below, revisit
-the [Setup storage backend](#setup-storage-backend) and double check if `cStorageUrl` is correctly
-set.
+If the tests show error messages for connection functions below,
+revisit [Setup storage backend](#setup-storage-backend) section and double check if `cStorageUrl` is
+set correctly.
 
 ```c++
 REQUIRE( storage->connect(spider::test::cStorageUrl).success() )
