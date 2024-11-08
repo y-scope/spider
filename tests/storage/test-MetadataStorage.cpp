@@ -9,9 +9,11 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <catch2/catch_template_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <vector>
 
 namespace {
 
