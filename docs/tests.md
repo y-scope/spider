@@ -24,7 +24,7 @@ cmake --build build --target unitTest --parallel
 ```
 
 If the tests show error message for connection function below, revisit
-the [Setup storage backend](#setup-storage-backend) and double check if `cStroageUrl` is correctly
+the [Setup storage backend](#setup-storage-backend) and double check if `cStorageUrl` is correctly
 set.
 
 ```c++
