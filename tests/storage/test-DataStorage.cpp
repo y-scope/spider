@@ -1,10 +1,9 @@
-// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MysqlStorage.hpp"
 #include "../utils/CoreDataUtils.hpp"
 #include "StorageTestHelper.hpp"
 
@@ -107,10 +106,10 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(data_storage->remove_task_reference(data.get_id(), task.get_id()).success());
 }
 
-TEMPLATE_TEST_CASE(
+TEMPLATE_LIST_TEST_CASE(
         "Add and remove data reference for driver",
         "[storage]",
-        (std::tuple<spider::core::MySqlMetadataStorage, spider::core::MySqlDataStorage>)
+        spider::test::StorageTypeList
 ) {
     auto [metadata_storage, data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
@@ -139,4 +138,4 @@ TEMPLATE_TEST_CASE(
 }
 }  // namespace
 
-// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

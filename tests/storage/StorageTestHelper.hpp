@@ -4,6 +4,7 @@
 
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MysqlStorage.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <concepts>
