@@ -6,6 +6,7 @@
 #include <absl/container/flat_hash_map.h>
 #include <algorithm>
 #include <boost/uuid/uuid.hpp>
+#include <cmath>
 #include <compare>
 #include <concepts>
 #include <cstddef>
@@ -20,7 +21,7 @@ namespace {
 constexpr double cEpsilon = 0.0001;
 
 auto float_equal(float f1, float f2) -> bool {
-    return f1 - f2 < cEpsilon && f2 - f1 < cEpsilon;
+    return std::abs(f1 - f2) < cEpsilon;
 }
 
 template <class T>
@@ -124,7 +125,7 @@ auto task_graph_equal(core::TaskGraph const& graph_1, core::TaskGraph const& gra
     }
     if (!vector_sort_equal<std::pair<boost::uuids::uuid, boost::uuids::uuid>>(
                 graph_1.get_dependencies(),
-                graph_1.get_dependencies()
+                graph_2.get_dependencies()
         ))
     {
         return false;

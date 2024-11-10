@@ -104,7 +104,7 @@ TEMPLATE_LIST_TEST_CASE(
 }
 
 TEMPLATE_LIST_TEST_CASE(
-        "Job add, get ane remove",
+        "Job add, get and remove",
         "[storage]",
         spider::test::MetadataStorageTypeList
 ) {
@@ -198,6 +198,14 @@ TEMPLATE_LIST_TEST_CASE(
              || (spider::test::task_equal(tasks[0], parent_2)
                  && spider::test::task_equal(tasks[1], parent_1)))
     );
+
+    // Remove job should succeed
+    REQUIRE(storage->remove_job(simple_job_id).success());
+    REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
+            == storage->get_task_graph(simple_job_id, &simple_graph_res).type);
+    graph_res = spider::core::TaskGraph{};
+    REQUIRE(storage->get_task_graph(job_id, &graph_res).success());
+    REQUIRE(spider::test::task_graph_equal(graph, graph_res));
 }
 
 }  // namespace
