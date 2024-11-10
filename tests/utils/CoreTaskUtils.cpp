@@ -1,10 +1,17 @@
 #include "CoreTaskUtils.hpp"
 
+#include "../../src/spider/core/Task.hpp"
+#include "../../src/spider/core/TaskGraph.hpp"
+
+#include <absl/container/flat_hash_map.h>
 #include <algorithm>
 #include <boost/uuid/uuid.hpp>
+#include <compare>
 #include <concepts>
+#include <cstddef>
 #include <functional>
 #include <numeric>
+#include <utility>
 #include <vector>
 
 namespace spider::test {
@@ -20,7 +27,7 @@ template <class T>
 auto vector_equal(
         std::vector<T> const& v1,
         std::vector<T> const& v2,
-        std::function<bool(T const&, T const&)> equal
+        std::function<bool(T const&, T const&)> const& equal
 ) -> bool {
     if (v1.size() != v2.size()) {
         return false;
@@ -85,21 +92,20 @@ requires std::equality_comparable<K>
 auto hash_map_equal(
         absl::flat_hash_map<K, V> const& map_1,
         absl::flat_hash_map<K, V> const& map_2,
-        std::function<bool(V const&, V const&)> value_equal
+        std::function<bool(V const&, V const&)> const& value_equal
 ) -> bool {
     if (map_1.size() != map_2.size()) {
         return false;
     }
 
-    for (auto const& [key_1, value_1] : map_1) {
-        if (auto const& iter_2 = map_2.find(key_1); iter_2 != map_2.cend()) {
-            if (!value_equal(value_1, iter_2->second)) {
-                return false;
+    if (std::ranges::any_of(map_1, [&map_2, &value_equal](auto const& pair_1) -> bool {
+            if (auto const& iter_2 = map_2.find(pair_1.first); iter_2 != map_2.cend()) {
+                return !value_equal(pair_1.second, iter_2->second);
             }
-        } else {
-            // key not found in map_2
-            return false;
-        }
+            return true;
+        }))
+    {
+        return false;
     }
 
     return true;

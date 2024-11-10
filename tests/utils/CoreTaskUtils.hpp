@@ -4,9 +4,6 @@
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 
-#include <concepts>
-#include <vector>
-
 namespace spider::test {
 
 auto task_equal(core::Task const& t1, core::Task const& t2) -> bool;

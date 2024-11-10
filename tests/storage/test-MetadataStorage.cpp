@@ -112,10 +112,10 @@ TEMPLATE_LIST_TEST_CASE(
             = spider::test::create_metadata_storage<TestType>();
 
     boost::uuids::random_generator gen;
-    boost::uuids::uuid job_id = gen();
+    boost::uuids::uuid const job_id = gen();
 
     // Create a complicated task graph
-    boost::uuids::uuid client_id = gen();
+    boost::uuids::uuid const client_id = gen();
     spider::core::Task child_task{"child"};
     spider::core::Task parent_1{"p1"};
     spider::core::Task parent_2{"p2"};

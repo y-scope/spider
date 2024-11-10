@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "../core/Data.hpp"
@@ -454,8 +455,12 @@ auto MySqlMetadataStorage::add_job(
         }
 
         // Add all dependencies
-        for (std::pair<boost::uuids::uuid, boost::uuids::uuid> const& pair: task_graph.get_dependencies()) {
-            std::unique_ptr<sql::PreparedStatement> dep_statement{m_conn->prepareStatement("INSERT INTO `task_dependencies` (parent, child) VALUES (?, ?)")};
+        for (std::pair<boost::uuids::uuid, boost::uuids::uuid> const& pair :
+             task_graph.get_dependencies())
+        {
+            std::unique_ptr<sql::PreparedStatement> dep_statement{m_conn->prepareStatement(
+                    "INSERT INTO `task_dependencies` (parent, child) VALUES (?, ?)"
+            )};
             sql::bytes parent_id_bytes = uuid_get_bytes(pair.first);
             sql::bytes child_id_bytes = uuid_get_bytes(pair.second);
             dep_statement->setBytes(1, &parent_id_bytes);
