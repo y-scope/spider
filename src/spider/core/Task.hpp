@@ -99,32 +99,17 @@ enum class TaskState : std::uint8_t {
     Canceled,
 };
 
-enum class TaskCreatorType : std::uint8_t {
-    Client = 0,
-    Task,
-};
-
 class Task {
 public:
-    Task(std::string function_name, TaskCreatorType creator_type, boost::uuids::uuid creator_id)
-            : m_function_name(std::move(function_name)),
-              m_creator_type(creator_type),
-              m_creator_id(creator_id) {
+    explicit Task(std::string function_name) : m_function_name(std::move(function_name)) {
         boost::uuids::random_generator gen;
         m_id = gen();
     }
 
-    Task(boost::uuids::uuid id,
-         std::string function_name,
-         TaskState state,
-         TaskCreatorType creator_type,
-         boost::uuids::uuid creator_id,
-         float timeout)
+    Task(boost::uuids::uuid id, std::string function_name, TaskState state, float timeout)
             : m_id(id),
               m_function_name(std::move(function_name)),
               m_state(state),
-              m_creator_type(creator_type),
-              m_creator_id(creator_id),
               m_timeout(timeout) {}
 
     void add_input(TaskInput const& input) { m_inputs.emplace_back(input); }
@@ -137,10 +122,6 @@ public:
 
     [[nodiscard]] auto get_state() const -> TaskState { return m_state; }
 
-    [[nodiscard]] auto get_creator_type() const -> TaskCreatorType { return m_creator_type; }
-
-    [[nodiscard]] auto get_creator_id() const -> boost::uuids::uuid { return m_creator_id; }
-
     [[nodiscard]] auto get_timeout() const -> float { return m_timeout; }
 
     [[nodiscard]] auto get_num_inputs() const -> size_t { return m_inputs.size(); }
@@ -151,12 +132,14 @@ public:
 
     [[nodiscard]] auto get_output(uint64_t index) const -> TaskOutput { return m_outputs[index]; }
 
+    [[nodiscard]] auto get_inputs() const -> std::vector<TaskInput> const& { return m_inputs; }
+
+    [[nodiscard]] auto get_outputs() const -> std::vector<TaskOutput> const& { return m_outputs; }
+
 private:
     boost::uuids::uuid m_id;
     std::string m_function_name;
     TaskState m_state = TaskState::Pending;
-    TaskCreatorType m_creator_type;
-    boost::uuids::uuid m_creator_id;
     float m_timeout = 0;
     std::vector<TaskInput> m_inputs;
     std::vector<TaskOutput> m_outputs;

@@ -3,6 +3,8 @@ set(SPIDER_TEST_SOURCES
     storage/test-MetadataStorage.cpp
     storage/StorageTestHelper.hpp
     utils/CoreDataUtils.hpp
+    utils/CoreTaskUtils.hpp
+    utils/CoreTaskUtils.cpp
     CACHE INTERNAL
     "spider test source files"
 )

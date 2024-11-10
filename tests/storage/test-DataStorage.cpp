@@ -35,7 +35,7 @@ TEMPLATE_LIST_TEST_CASE(
     // Get data should match
     spider::core::Data result{"temp"};
     REQUIRE(storage->get_data(data.get_id(), &result).success());
-    REQUIRE(spider::core::data_equal(data, result));
+    REQUIRE(spider::test::data_equal(data, result));
 
     // Remove data should succeed
     REQUIRE(storage->remove_data(data.get_id()).success());
@@ -64,7 +64,7 @@ TEMPLATE_LIST_TEST_CASE(
     // Get data should match
     spider::core::Data result{"temp"};
     REQUIRE(storage->get_data_by_key("key", &result).success());
-    REQUIRE(spider::core::data_equal(data, result));
+    REQUIRE(spider::test::data_equal(data, result));
 
     // Remove data should succeed
     REQUIRE(storage->remove_data(data.get_id()).success());
@@ -87,7 +87,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(!data_storage->add_task_reference(gen(), gen()).success());
 
     // Add task
-    spider::core::Task const task{"func", spider::core::TaskCreatorType::Client, gen()};
+    spider::core::Task const task{"func"};
     spider::core::TaskGraph graph;
     graph.add_task(task);
     REQUIRE(metadata_storage->add_job(gen(), gen(), graph).success());

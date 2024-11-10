@@ -8,7 +8,6 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <cstdint>
 #include <deque>
-#include <iostream>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/Driver.hpp>
 #include <mariadb/conncpp/Exception.hpp>
@@ -60,7 +59,7 @@ char const* const cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS `schedul
 
 char const* const cCreateJobTable = R"(CREATE TABLE IF NOT EXISTS jobs (
     `id` BINARY(16) NOT NULL,
-    `client_id` BINARY(64) NOT NULL,
+    `client_id` BINARY(16) NOT NULL,
     KEY (`client_id`) USING BTREE,
     PRIMARY KEY (`id`)
 ))";
@@ -70,7 +69,6 @@ char const* const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `job_id` BINARY(16) NOT NULL,
     `func_name` VARCHAR(64) NOT NULL,
     `state` ENUM('pending', 'ready', 'running', 'success', 'cancel', 'fail') NOT NULL,
-    `creator` BINARY(64), -- used when task is created by task
     `timeout` FLOAT,
     `max_retry` INT UNSIGNED DEFAULT 0,
     `instance_id` BINARY(16),
@@ -425,13 +423,13 @@ auto MySqlMetadataStorage::add_job(
         std::deque<boost::uuids::uuid> queue;
         // First go over all heads
         for (boost::uuids::uuid const task_id : heads) {
-            std::optional<Task> const task_option = task_graph.get_task(task_id);
+            std::optional<Task const*> const task_option = task_graph.get_task(task_id);
             if (!task_option.has_value()) {
                 m_conn->rollback();
                 return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
             }
-            Task const& task = task_option.value();
-            this->add_task(job_id_bytes, task);
+            Task const* task = task_option.value();
+            this->add_task(job_id_bytes, *task);
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 queue.push_back(id);
             }
@@ -442,17 +440,27 @@ auto MySqlMetadataStorage::add_job(
             queue.pop_back();
             if (!heads.contains(task_id)) {
                 heads.insert(task_id);
-                std::optional<Task> const task_option = task_graph.get_task(task_id);
+                std::optional<Task const*> const task_option = task_graph.get_task(task_id);
                 if (!task_option.has_value()) {
                     m_conn->rollback();
                     return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
                 }
-                Task const& task = task_option.value();
-                this->add_task(job_id_bytes, task);
+                Task const* task = task_option.value();
+                this->add_task(job_id_bytes, *task);
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     queue.push_back(id);
                 }
             }
+        }
+
+        // Add all dependencies
+        for (std::pair<boost::uuids::uuid, boost::uuids::uuid> const& pair: task_graph.get_dependencies()) {
+            std::unique_ptr<sql::PreparedStatement> dep_statement{m_conn->prepareStatement("INSERT INTO `task_dependencies` (parent, child) VALUES (?, ?)")};
+            sql::bytes parent_id_bytes = uuid_get_bytes(pair.first);
+            sql::bytes child_id_bytes = uuid_get_bytes(pair.second);
+            dep_statement->setBytes(1, &parent_id_bytes);
+            dep_statement->setBytes(2, &child_id_bytes);
+            dep_statement->executeUpdate();
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -476,36 +484,19 @@ auto read_id(std::istream* stream) -> boost::uuids::uuid {
 // NOLINTEND
 }  // namespace
 
-auto MySqlMetadataStorage::fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task {
+namespace {
+
+auto fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task {
     boost::uuids::uuid const id = read_id(res->getBinaryStream("id"));
     std::string const function_name = res->getString("func_name").c_str();
     TaskState const state = string_to_task_state(res->getString("state").c_str());
-    boost::uuids::uuid const creator_id = read_id(res->getBinaryStream("creator"));
     float const timeout = res->getFloat("timeout");
-    // Check creator type
-    TaskCreatorType creator_type = TaskCreatorType::Task;
-    std::unique_ptr<sql::PreparedStatement> driver_creator_statement(
-            m_conn->prepareStatement("SELECT * FROM drivers WHERE id = ?")
-    );
-    sql::bytes id_bytes = uuid_get_bytes(creator_id);
-    driver_creator_statement->setBytes(1, &id_bytes);
-    std::unique_ptr<sql::ResultSet> driver_res(driver_creator_statement->executeQuery());
-    if (driver_res->rowsCount() == 0) {
-        creator_type = TaskCreatorType::Client;
-    }
-    return Task{id, function_name, state, creator_type, creator_id, timeout};
+    return Task{id, function_name, state, timeout};
 }
 
-namespace {
-auto fetch_task_input(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> const& res) -> bool {
+auto fetch_task_input(Task* task, std::unique_ptr<sql::ResultSet> const& res) {
     // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
-    boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
     std::string const type = res->getString(3).c_str();
-    std::optional<Task> task_option = task_graph->get_task(task_id);
-    if (!task_option.has_value()) {
-        return false;
-    }
-    Task& task = task_option.value();
     if (!res->isNull(4)) {
         TaskInput input = TaskInput(read_id(res->getBinaryStream(4)), res->getUInt(5), type);
         if (!res->isNull(6)) {
@@ -514,42 +505,115 @@ auto fetch_task_input(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> con
         if (!res->isNull(7)) {
             input.set_data_id(read_id(res->getBinaryStream(7)));
         }
-        task.add_input(input);
+        task->add_input(input);
     } else if (!res->isNull(6)) {
-        task.add_input(TaskInput(res->getString(6).c_str(), type));
+        task->add_input(TaskInput(res->getString(6).c_str(), type));
     } else if (!res->isNull(7)) {
-        task.add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
+        task->add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
+    }
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+}
+
+auto fetch_task_output(Task* task, std::unique_ptr<sql::ResultSet> const& res) {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    std::string const type = res->getString(3).c_str();
+    TaskOutput output{type};
+    if (!res->isNull(4)) {
+        output.set_value(res->getString(4).c_str());
+    } else if (!res->isNull(5)) {
+        output.set_data_id(read_id(res->getBinaryStream(5)));
+    }
+    task->add_output(output);
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+}
+
+auto fetch_task_graph_task_input(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> const& res)
+        -> bool {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
+    std::string const type = res->getString(3).c_str();
+    std::optional<Task*> task_option = task_graph->get_task(task_id);
+    if (!task_option.has_value()) {
+        return false;
+    }
+    Task* task = task_option.value();
+    if (!res->isNull(4)) {
+        TaskInput input = TaskInput(read_id(res->getBinaryStream(4)), res->getUInt(5), type);
+        if (!res->isNull(6)) {
+            input.set_value(res->getString(6).c_str());
+        }
+        if (!res->isNull(7)) {
+            input.set_data_id(read_id(res->getBinaryStream(7)));
+        }
+        task->add_input(input);
+    } else if (!res->isNull(6)) {
+        task->add_input(TaskInput(res->getString(6).c_str(), type));
+    } else if (!res->isNull(7)) {
+        task->add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
     }
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     return true;
 }
 
-auto fetch_task_output(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> const& res) -> bool {
+auto fetch_task_graph_task_output(TaskGraph* task_graph, std::unique_ptr<sql::ResultSet> const& res)
+        -> bool {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     boost::uuids::uuid const task_id = read_id(res->getBinaryStream(1));
-    std::optional<Task> task_option = task_graph->get_task(task_id);
+    std::optional<Task*> task_option = task_graph->get_task(task_id);
     if (!task_option.has_value()) {
         return false;
     }
-    Task& task = task_option.value();
+    Task* task = task_option.value();
     std::string const type = res->getString(3).c_str();
     TaskOutput output{type};
-    if (!res->isNull(3)) {
-        output.set_value(res->getString(3).c_str());
-    } else if (!res->isNull(4)) {
-        output.set_data_id(read_id(res->getBinaryStream(4)));
+    if (!res->isNull(4)) {
+        output.set_value(res->getString(4).c_str());
+    } else if (!res->isNull(5)) {
+        output.set_data_id(read_id(res->getBinaryStream(5)));
     }
-    task.add_output(output);
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    task->add_output(output);
     return true;
 }
 }  // namespace
+
+auto MySqlMetadataStorage::fetch_full_task(std::unique_ptr<sql::ResultSet> const& res) -> Task {
+    Task task = fetch_task(res);
+    boost::uuids::uuid const id = task.get_id();
+    sql::bytes id_bytes = uuid_get_bytes(id);
+
+    // Get task inputs
+    std::unique_ptr<sql::PreparedStatement> input_statement{m_conn->prepareStatement(
+            "SELECT `task_id`, `position`, `type`, `output_task_id`, `output_task_position`, "
+            "`value`, `data_id` FROM `task_inputs` "
+            "WHERE `task_id` = ? ORDER BY `position`"
+    )};
+    input_statement->setBytes(1, &id_bytes);
+    std::unique_ptr<sql::ResultSet> const input_res{input_statement->executeQuery()};
+    while (input_res->next()) {
+        fetch_task_input(&task, input_res);
+    }
+
+    // Get task outputs
+    std::unique_ptr<sql::PreparedStatement> output_statement{m_conn->prepareStatement(
+            "SELECT `task_id`, `position`, `type`, `value`, `data_id` FROM `task_outputs` WHERE "
+            "`task_id` = ? ORDER BY `position`"
+    )};
+    output_statement->setBytes(1, &id_bytes);
+    std::unique_ptr<sql::ResultSet> const output_res{output_statement->executeQuery()};
+    while (output_res->next()) {
+        fetch_task_output(&task, output_res);
+    }
+    return task;
+}
 
 auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph)
         -> StorageErr {
     try {
         // Get all tasks
         std::unique_ptr<sql::PreparedStatement> task_statement(
-                m_conn->prepareStatement("SELECT `id`, `func_name`, `state`, `creator`, `timeout` "
-                                         "FROM tasks WHERE `job_id` = ?")
+                m_conn->prepareStatement("SELECT `id`, `func_name`, `state`, `timeout` "
+                                         "FROM `tasks` WHERE `job_id` = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
         task_statement->setBytes(1, &id_bytes);
@@ -562,7 +626,8 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
             };
         }
         while (task_res->next()) {
-            task_graph->add_task(this->fetch_task(task_res));
+            // get_task_graph has special optimization to get inputs and outputs in batch
+            task_graph->add_task(fetch_task(task_res));
         }
 
         // Get inputs
@@ -572,13 +637,13 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
                 "`t1` JOIN "
                 "`tasks` "
                 "ON `t1`.`task_id` = `tasks`.`id` WHERE `tasks`.`job_id` = ? ORDER BY "
-                "t1.`task_id`, "
+                "`t1`.`task_id`, "
                 "`t1`.`position`"
         ));
         input_statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const input_res(input_statement->executeQuery());
         while (input_res->next()) {
-            if (!fetch_task_input(task_graph, input_res)) {
+            if (!fetch_task_graph_task_input(task_graph, input_res)) {
                 m_conn->rollback();
                 return StorageErr{StorageErrType::KeyNotFoundErr, "Task storage inconsistent"};
             }
@@ -596,7 +661,7 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
         output_statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const output_res(output_statement->executeQuery());
         while (output_res->next()) {
-            if (!fetch_task_output(task_graph, output_res)) {
+            if (!fetch_task_graph_task_output(task_graph, output_res)) {
                 m_conn->rollback();
                 return StorageErr{StorageErrType::KeyNotFoundErr, "Task storage inconsistent"};
             }
@@ -611,7 +676,7 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
         dep_statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const dep_res(dep_statement->executeQuery());
         while (dep_res->next()) {
-            task_graph->add_dependencies(
+            task_graph->add_dependency(
                     read_id(dep_res->getBinaryStream(1)),
                     read_id(dep_res->getBinaryStream(2))
             );
@@ -633,7 +698,7 @@ auto MySqlMetadataStorage::get_jobs_by_client_id(
 ) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement{
-                m_conn->prepareStatement("SELECT `job_id` FROM `jobs` WHERE `client_id` = ?")
+                m_conn->prepareStatement("SELECT `id` FROM `jobs` WHERE `client_id` = ?")
         };
         sql::bytes client_id_bytes = uuid_get_bytes(client_id);
         statement->setBytes(1, &client_id_bytes);
@@ -694,7 +759,7 @@ auto MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task const& c
 auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("SELECT `id`, `func_name`, `state`, `creator`, `timeout` "
+                m_conn->prepareStatement("SELECT `id`, `func_name`, `state`, `timeout` "
                                          "FROM `tasks` WHERE `id` = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -708,7 +773,7 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
             };
         }
         res->next();
-        *task = fetch_task(res);
+        *task = fetch_full_task(res);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -721,11 +786,11 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
     try {
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
         std::unique_ptr<sql::ResultSet> const res(
-                statement->executeQuery("SELECT `id`, `func_name`, `state`, `creator`, `timeout` "
+                statement->executeQuery("SELECT `id`, `func_name`, `state`, `timeout` "
                                         "FROM `tasks` WHERE `state` = 'ready'")
         );
         while (res->next()) {
-            tasks->emplace_back(fetch_task(res));
+            tasks->emplace_back(fetch_full_task(res));
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -818,17 +883,20 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) ->
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_child_task(boost::uuids::uuid id, Task* child) -> StorageErr {
+auto MySqlMetadataStorage::get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children)
+        -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "SELECT `id`, `func_name`, `state`, `creator`, `timeout` FROM `tasks` JOIN "
+                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN "
                 "`task_dependencies` "
                 "as `t2` WHERE `tasks`.`id` = `t2`.`child` AND `t2`.`parent` = ?"
         ));
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
-        *child = fetch_task(res);
+        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
+        while (res->next()) {
+            children->emplace_back(fetch_full_task(res));
+        }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -841,7 +909,7 @@ auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<T
         -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "SELECT `id`, `func_name`, `state`, `creator`, `timeout` FROM `tasks` JOIN "
+                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN "
                 "`task_dependencies` "
                 "as `t2` WHERE `tasks`.`id` = `t2`.`parent` AND `t2`.`child` = ?"
         ));
@@ -849,7 +917,7 @@ auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<T
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
         while (res->next()) {
-            tasks->emplace_back(fetch_task(res));
+            tasks->emplace_back(fetch_full_task(res));
         }
     } catch (sql::SQLException& e) {
         m_conn->rollback();

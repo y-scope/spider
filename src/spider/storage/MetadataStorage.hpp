@@ -44,7 +44,8 @@ public:
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;
     virtual auto task_finish(TaskInstance const& instance) -> StorageErr = 0;
     virtual auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr = 0;
-    virtual auto get_child_task(boost::uuids::uuid id, Task* child) -> StorageErr = 0;
+    virtual auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr
+                                                                                        = 0;
     virtual auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr
                                                                                       = 0;
 

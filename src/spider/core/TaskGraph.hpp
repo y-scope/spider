@@ -44,13 +44,20 @@ public:
         return true;
     }
 
-    void add_dependencies(boost::uuids::uuid parent, boost::uuids::uuid child) {
+    void add_dependency(boost::uuids::uuid parent, boost::uuids::uuid child) {
         m_dependencies.emplace_back(parent, child);
     }
 
-    [[nodiscard]] auto get_task(boost::uuids::uuid id) const -> std::optional<Task> {
+    [[nodiscard]] auto get_task(boost::uuids::uuid id) const -> std::optional<Task const*> {
         if (m_tasks.contains(id)) {
-            return m_tasks.at(id);
+            return &m_tasks.at(id);
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] auto get_task(boost::uuids::uuid id) -> std::optional<Task*> {
+        if (m_tasks.contains(id)) {
+            return &m_tasks.at(id);
         }
         return std::nullopt;
     }

@@ -1,5 +1,5 @@
-#ifndef SPIDER_TEST_STORAGETESTHELPER_HPP
-#define SPIDER_TEST_STORAGETESTHELPER_HPP
+#ifndef SPIDER_TESTS_STORAGETESTHELPER_HPP
+#define SPIDER_TESTS_STORAGETESTHELPER_HPP
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
 
 #include "../../src/spider/storage/DataStorage.hpp"
@@ -54,4 +54,4 @@ auto create_storage(
 }  // namespace spider::test
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
-#endif  // SPIDER_TEST_STORAGETESTHELPER_HPP
+#endif  // SPIDER_TESTS_STORAGETESTHELPER_HPP

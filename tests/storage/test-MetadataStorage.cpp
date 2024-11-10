@@ -1,9 +1,13 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
 #include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/core/Task.hpp"
+#include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../utils/CoreTaskUtils.hpp"
 #include "StorageTestHelper.hpp"
 
+#include <absl/container/flat_hash_set.h>
 #include <algorithm>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -35,7 +39,7 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
     // Driver should not time out
     REQUIRE(storage->heartbeat_timeout(cDuration, &ids).success());
     // Because other tests may run in parallel, just check `ids` don't have `driver_id`
-    REQUIRE(std::ranges::none_of(ids, [driver_id](boost::uuids::uuid id) {
+    REQUIRE(std::ranges::none_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
     }));
     ids.clear();
@@ -44,15 +48,16 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
     // Driver should time out
     REQUIRE(storage->heartbeat_timeout(cDuration, &ids).success());
     REQUIRE(!ids.empty());
-    REQUIRE(std::ranges::any_of(ids, [driver_id](boost::uuids::uuid id) { return id == driver_id; })
-    );
+    REQUIRE(std::ranges::any_of(ids, [&driver_id](boost::uuids::uuid id) {
+        return id == driver_id;
+    }));
     ids.clear();
 
     // Update heartbeat
     REQUIRE(storage->update_heartbeat(driver_id).success());
     // Driver should not time out
     REQUIRE(storage->heartbeat_timeout(cDuration, &ids).success());
-    REQUIRE(std::ranges::none_of(ids, [driver_id](boost::uuids::uuid id) {
+    REQUIRE(std::ranges::none_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
     }));
 }
@@ -96,6 +101,103 @@ TEMPLATE_LIST_TEST_CASE(
     // Get new state
     REQUIRE(storage->get_scheduler_state(scheduler_id, &state_res).success());
     REQUIRE(state_res == state);
+}
+
+TEMPLATE_LIST_TEST_CASE(
+        "Job add, get ane remove",
+        "[storage]",
+        spider::test::MetadataStorageTypeList
+) {
+    std::unique_ptr<spider::core::MetadataStorage> storage
+            = spider::test::create_metadata_storage<TestType>();
+
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid job_id = gen();
+
+    // Create a complicated task graph
+    boost::uuids::uuid client_id = gen();
+    spider::core::Task child_task{"child"};
+    spider::core::Task parent_1{"p1"};
+    spider::core::Task parent_2{"p2"};
+    parent_1.add_input(spider::core::TaskInput{"1", "float"});
+    parent_1.add_input(spider::core::TaskInput{"2", "float"});
+    parent_2.add_input(spider::core::TaskInput{"3", "int"});
+    parent_2.add_input(spider::core::TaskInput{"4", "int"});
+    parent_1.add_output(spider::core::TaskOutput{"float"});
+    parent_2.add_output(spider::core::TaskOutput{"int"});
+    child_task.add_input(spider::core::TaskInput{parent_1.get_id(), 0, "float"});
+    child_task.add_input(spider::core::TaskInput{parent_2.get_id(), 0, "int"});
+    child_task.add_output(spider::core::TaskOutput{"float"});
+    spider::core::TaskGraph graph;
+    // Add task and dependencies to task graph in wrong order
+    graph.add_task(child_task);
+    graph.add_task(parent_1);
+    graph.add_task(parent_2);
+    graph.add_dependency(parent_2.get_id(), child_task.get_id());
+    graph.add_dependency(parent_1.get_id(), child_task.get_id());
+
+    // Get head tasks should succeed
+    absl::flat_hash_set<boost::uuids::uuid> heads = graph.get_head_tasks();
+    REQUIRE(2 == heads.size());
+    REQUIRE(heads.contains(parent_1.get_id()));
+    REQUIRE(heads.contains(parent_2.get_id()));
+
+    // Submit a simple job
+    boost::uuids::uuid const simple_job_id = gen();
+    spider::core::Task const simple_task{"simple"};
+    spider::core::TaskGraph simple_graph;
+    simple_graph.add_task(simple_task);
+
+    heads = simple_graph.get_head_tasks();
+    REQUIRE(1 == heads.size());
+    REQUIRE(heads.contains(simple_task.get_id()));
+
+    // Submit job should success
+    REQUIRE(storage->add_job(job_id, client_id, graph).success());
+    REQUIRE(storage->add_job(simple_job_id, client_id, simple_graph).success());
+
+    // Get job id for non-existent client id should return empty vector
+    std::vector<boost::uuids::uuid> job_ids;
+    REQUIRE(storage->get_jobs_by_client_id(gen(), &job_ids).success());
+    REQUIRE(job_ids.empty());
+
+    // Get job id for client id should get correct value;
+    REQUIRE(storage->get_jobs_by_client_id(client_id, &job_ids).success());
+    REQUIRE(2 == job_ids.size());
+    REQUIRE(
+            ((job_ids[0] == job_id && job_ids[1] == simple_job_id)
+             || (job_ids[0] == simple_job_id && job_ids[1] == job_id))
+    );
+
+    // Get task graph should succeed
+    spider::core::TaskGraph graph_res{};
+    REQUIRE(storage->get_task_graph(job_id, &graph_res).success());
+    REQUIRE(spider::test::task_graph_equal(graph, graph_res));
+    spider::core::TaskGraph simple_graph_res{};
+    REQUIRE(storage->get_task_graph(simple_job_id, &simple_graph_res).success());
+    REQUIRE(spider::test::task_graph_equal(simple_graph, simple_graph_res));
+
+    // Get task should succeed
+    spider::core::Task task_res{""};
+    REQUIRE(storage->get_task(child_task.get_id(), &task_res).success());
+    REQUIRE(spider::test::task_equal(child_task, task_res));
+
+    // Get child tasks should succeed
+    std::vector<spider::core::Task> tasks;
+    REQUIRE(storage->get_child_tasks(parent_1.get_id(), &tasks).success());
+    REQUIRE(1 == tasks.size());
+    REQUIRE(spider::test::task_equal(child_task, tasks[0]));
+    tasks.clear();
+
+    // Get parent tasks should succeed
+    REQUIRE(storage->get_parent_tasks(child_task.get_id(), &tasks).success());
+    REQUIRE(2 == tasks.size());
+    REQUIRE(
+            ((spider::test::task_equal(tasks[0], parent_1)
+              && spider::test::task_equal(tasks[1], parent_2))
+             || (spider::test::task_equal(tasks[0], parent_2)
+                 && spider::test::task_equal(tasks[1], parent_1)))
+    );
 }
 
 }  // namespace

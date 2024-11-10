@@ -48,7 +48,7 @@ public:
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
     auto task_finish(TaskInstance const& instance) -> StorageErr override;
     auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
-    auto get_child_task(boost::uuids::uuid id, Task* child) -> StorageErr override;
+    auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;
     auto update_heartbeat(boost::uuids::uuid id) -> StorageErr override;
     auto
@@ -63,7 +63,7 @@ private:
     sql::Connection* m_conn = nullptr;
 
     void add_task(sql::bytes job_id, Task const& task);
-    auto fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task;
+    auto fetch_full_task(std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };
 
 class MySqlDataStorage : public DataStorage {
