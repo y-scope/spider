@@ -1,9 +1,10 @@
-#ifndef SPIDER_TEST_STORAGETESTHELPER_HPP
-#define SPIDER_TEST_STORAGETESTHELPER_HPP
+#ifndef SPIDER_TESTS_STORAGETESTHELPER_HPP
+#define SPIDER_TESTS_STORAGETESTHELPER_HPP
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
 
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MysqlStorage.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <concepts>
@@ -14,6 +15,10 @@
 namespace spider::test {
 char const* const cStorageUrl
         = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password";
+
+using DataStorageTypeList = std::tuple<core::MySqlDataStorage>;
+using MetadataStorageTypeList = std::tuple<core::MySqlMetadataStorage>;
+using StorageTypeList = std::tuple<std::tuple<core::MySqlMetadataStorage, core::MySqlDataStorage>>;
 
 template <class T>
 requires std::derived_from<T, core::DataStorage>
@@ -49,4 +54,4 @@ auto create_storage(
 }  // namespace spider::test
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
-#endif  // SPIDER_TEST_STORAGETESTHELPER_HPP
+#endif  // SPIDER_TESTS_STORAGETESTHELPER_HPP

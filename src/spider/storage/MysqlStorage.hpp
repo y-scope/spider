@@ -31,6 +31,7 @@ public:
     auto add_driver(boost::uuids::uuid id, std::string const& addr) -> StorageErr override;
     auto
     add_driver(boost::uuids::uuid id, std::string const& addr, int port) -> StorageErr override;
+    auto get_driver(boost::uuids::uuid id, std::string* addr) -> StorageErr override;
     auto
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
     ) -> StorageErr override;
@@ -47,12 +48,14 @@ public:
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
     auto task_finish(TaskInstance const& instance) -> StorageErr override;
     auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
-    auto get_child_task(boost::uuids::uuid id, Task* child) -> StorageErr override;
+    auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;
     auto update_heartbeat(boost::uuids::uuid id) -> StorageErr override;
     auto
-    heartbeat_timeout(float timeout, std::vector<boost::uuids::uuid>* ids) -> StorageErr override;
+    heartbeat_timeout(double timeout, std::vector<boost::uuids::uuid>* ids) -> StorageErr override;
     auto get_scheduler_state(boost::uuids::uuid id, std::string* state) -> StorageErr override;
+    auto
+    get_scheduler_addr(boost::uuids::uuid id, std::string* addr, int* port) -> StorageErr override;
     auto
     set_scheduler_state(boost::uuids::uuid id, std::string const& state) -> StorageErr override;
 
@@ -60,7 +63,7 @@ private:
     sql::Connection* m_conn = nullptr;
 
     void add_task(sql::bytes job_id, Task const& task);
-    auto fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task;
+    auto fetch_full_task(std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };
 
 class MySqlDataStorage : public DataStorage {

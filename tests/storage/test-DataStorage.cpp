@@ -1,10 +1,9 @@
-// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MysqlStorage.hpp"
 #include "../utils/CoreDataUtils.hpp"
 #include "StorageTestHelper.hpp"
 
@@ -17,7 +16,11 @@
 
 namespace {
 
-TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlDataStorage) {
+TEMPLATE_LIST_TEST_CASE(
+        "Add, get and remove data",
+        "[storage]",
+        spider::test::DataStorageTypeList
+) {
     std::unique_ptr<spider::core::DataStorage> storage
             = spider::test::create_data_storage<TestType>();
 
@@ -32,7 +35,7 @@ TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlD
     // Get data should match
     spider::core::Data result{"temp"};
     REQUIRE(storage->get_data(data.get_id(), &result).success());
-    REQUIRE(spider::core::data_equal(data, result));
+    REQUIRE(spider::test::data_equal(data, result));
 
     // Remove data should succeed
     REQUIRE(storage->remove_data(data.get_id()).success());
@@ -42,10 +45,10 @@ TEMPLATE_TEST_CASE("Add, get and remove data", "[storage]", spider::core::MySqlD
             == storage->get_data(data.get_id(), &result).type);
 }
 
-TEMPLATE_TEST_CASE(
+TEMPLATE_LIST_TEST_CASE(
         "Add, get and remove data with key",
         "[storage]",
-        spider::core::MySqlDataStorage
+        spider::test::DataStorageTypeList
 ) {
     std::unique_ptr<spider::core::DataStorage> storage
             = spider::test::create_data_storage<TestType>();
@@ -61,7 +64,7 @@ TEMPLATE_TEST_CASE(
     // Get data should match
     spider::core::Data result{"temp"};
     REQUIRE(storage->get_data_by_key("key", &result).success());
-    REQUIRE(spider::core::data_equal(data, result));
+    REQUIRE(spider::test::data_equal(data, result));
 
     // Remove data should succeed
     REQUIRE(storage->remove_data(data.get_id()).success());
@@ -71,10 +74,10 @@ TEMPLATE_TEST_CASE(
             == storage->get_data_by_key("key", &result).type);
 }
 
-TEMPLATE_TEST_CASE(
+TEMPLATE_LIST_TEST_CASE(
         "Add and remove data reference for task",
         "[storage]",
-        (std::tuple<spider::core::MySqlMetadataStorage, spider::core::MySqlDataStorage>)
+        spider::test::StorageTypeList
 ) {
     auto [metadata_storage, data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
@@ -84,7 +87,7 @@ TEMPLATE_TEST_CASE(
     REQUIRE(!data_storage->add_task_reference(gen(), gen()).success());
 
     // Add task
-    spider::core::Task const task{"func", spider::core::TaskCreatorType::Client, gen()};
+    spider::core::Task const task{"func"};
     spider::core::TaskGraph graph;
     graph.add_task(task);
     REQUIRE(metadata_storage->add_job(gen(), gen(), graph).success());
@@ -103,10 +106,10 @@ TEMPLATE_TEST_CASE(
     REQUIRE(data_storage->remove_task_reference(data.get_id(), task.get_id()).success());
 }
 
-TEMPLATE_TEST_CASE(
+TEMPLATE_LIST_TEST_CASE(
         "Add and remove data reference for driver",
         "[storage]",
-        (std::tuple<spider::core::MySqlMetadataStorage, spider::core::MySqlDataStorage>)
+        spider::test::StorageTypeList
 ) {
     auto [metadata_storage, data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
@@ -135,4 +138,4 @@ TEMPLATE_TEST_CASE(
 }
 }  // namespace
 
-// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
