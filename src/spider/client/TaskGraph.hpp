@@ -3,7 +3,7 @@
 
 #include <memory>
 
-#include "Future.hpp"
+#include "Job.hpp"
 
 namespace spider {
 class TaskGraphImpl;
@@ -25,7 +25,7 @@ public:
      * @param args inputs of the task graph
      * @return future of the result
      */
-    auto run(Args&&... args) -> Future<R>;
+    auto run(Args&&... args) -> Job<R>;
 
 private:
     std::unique_ptr<TaskGraphImpl> m_impl;

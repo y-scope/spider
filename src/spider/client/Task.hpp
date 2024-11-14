@@ -10,7 +10,7 @@
 #include <string>
 
 #include "Data.hpp"
-#include "Future.hpp"
+#include "Job.hpp"
 #include "TaskGraph.hpp"
 
 namespace spider {
@@ -66,7 +66,7 @@ auto bind(std::function<R(Args...)> const& task, Inputs&&... inputs)
  * @return future of the result
  */
 template <class R, class... Args>
-auto run(std::function<R(Args...)> const& task, Args&&... args) -> Future<R>;
+auto run(std::function<R(Args...)> const& task, Args&&... args) -> Job<R>;
 
 /**
  * Runs task graph on Spider.
@@ -80,7 +80,7 @@ auto run(std::function<R(Args...)> const& task, Args&&... args) -> Future<R>;
  * @return future of the result
  */
 template <class R, class... Args>
-auto run(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Future<R>;
+auto run(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
 }  // namespace spider
 
 #endif

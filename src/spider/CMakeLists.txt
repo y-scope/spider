@@ -54,11 +54,11 @@ target_link_libraries(
         absl::flat_hash_map
 )
 
-set(SPIDER_CLIENT_SOURCES client/Future.cpp CACHE INTERNAL "spider client source files")
+set(SPIDER_CLIENT_SOURCES client/Job.cpp CACHE INTERNAL "spider client source files")
 
 set(SPIDER_CLIENT_HEADERS
     client/Spider.hpp
-    client/Future.hpp
+    client/Job.hpp
     CACHE INTERNAL
     "spider client header files"
 )
