@@ -6,6 +6,7 @@ set(SPIDER_CORE_HEADERS
     core/Data.hpp
     core/Task.hpp
     core/TaskGraph.hpp
+    core/Serializer.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
@@ -22,10 +23,16 @@ target_link_libraries(
         Boost::boost
         absl::flat_hash_map
         MariaDBClientCpp::MariaDBClientCpp
+        msgpack-cxx
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
-set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
+set(SPIDER_WORKER_SOURCES
+    worker/worker.cpp
+    worker/FunctionManager.hpp
+    CACHE INTERNAL
+    "spider worker source files"
+)
 
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})

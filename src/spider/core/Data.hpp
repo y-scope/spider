@@ -3,10 +3,13 @@
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <msgpack.hpp>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "Serializer.hpp"
 
 namespace spider::core {
 class Data {
@@ -23,6 +26,10 @@ public:
             : m_id(id),
               m_key(std::move(key)),
               m_value(std::move(value)) {}
+
+    MSGPACK_DEFINE(m_id, m_key, m_value, m_locality, m_hard_locality);
+
+    static auto is_data() -> bool { return true; }
 
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
@@ -52,6 +59,7 @@ private:
         m_id = gen();
     }
 };
+
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_DATA_HPP
