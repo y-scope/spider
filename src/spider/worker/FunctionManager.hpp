@@ -3,16 +3,18 @@
 
 #include <absl/container/flat_hash_map.h>
 
+#include <cstddef>
 #include <functional>
-#include <msgpack.hpp>
+#include <initializer_list>
+#include <msgpack.hpp>  // IWYU pragma: keep
 #include <optional>
+#include <string>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
-#include "../core/Data.hpp"
-
 namespace spider::worker {
-
 using ArgsBuffers = std::vector<msgpack::sbuffer>;
 
 using Function = std::function<msgpack::sbuffer(ArgsBuffers)>;
@@ -29,19 +31,19 @@ struct signature<R(Args...)> {
 };
 
 template <class, class = void>
-struct is_data_t : std::false_type {};
+struct IsDataT : std::false_type {};
 
 template <class T>
-struct is_data_t<T, std::void_t<decltype(std::declval<T>().is_data())>> : std::true_type {};
+struct IsDataT<T, std::void_t<decltype(std::declval<T>().is_data())>> : std::true_type {};
 
 template <class T>
-constexpr auto is_data_v = is_data_t<T>::value;
+constexpr auto cIsDataV = IsDataT<T>::value;
 
 template <class F>
 requires std::is_function_v<F>
 class FunctionInvoker {
 public:
-    static inline auto
+    static auto
     apply(F const& function, ArgsBuffers const& args_buffers) -> std::optional<msgpack::sbuffer> {
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
@@ -60,8 +62,8 @@ public:
         }
 
         ReturnType result = std::apply(function, args_tuple);
-        msgpack::sbuffer result_buffer;
         try {
+            msgpack::sbuffer result_buffer;
             msgpack::pack(result_buffer, result);
             return result_buffer;
         } catch (msgpack::type_error& e) {
@@ -71,9 +73,9 @@ public:
 
 private:
     template <class T>
-    static inline auto parse_arg(msgpack::sbuffer const& arg_buffer, bool& success) -> T {
+    static auto parse_arg(msgpack::sbuffer const& arg_buffer, bool& success) -> T {
         try {
-            if constexpr (is_data_v<T>) {
+            if constexpr (cIsDataV<T>) {
                 msgpack::object_handle const handle
                         = msgpack::unpack(arg_buffer.data(), arg_buffer.size());
                 msgpack::object object = handle.get();
@@ -93,17 +95,19 @@ private:
         }
     }
 
-    static inline bool
-    get_args_tuple(std::tuple<>& tuple, ArgsBuffers const& args_buffer, std::index_sequence<>) {
+    static auto
+    get_args_tuple(std::tuple<>& /*tuple*/, ArgsBuffers const& /*args_buffer*/, std::index_sequence<>)
+            -> bool {
         return true;
     }
 
-    template <size_t... I, typename... Args>
-    static inline bool
-    get_args_tuple(std::tuple<Args...>& tuple, ArgsBuffers const& args_buffer, std::index_sequence<I...>) {
+    template <size_t... i, typename... Args>
+    static auto
+    get_args_tuple(std::tuple<Args...>& tuple, ArgsBuffers const& args_buffer, std::index_sequence<i...>)
+            -> bool {
         bool success = true;
         (void)std::initializer_list<int>{
-                (std::get<I>(tuple) = parse_arg<Args>(args_buffer.at(I), success), 0)...
+                (std::get<i>(tuple) = parse_arg<Args>(args_buffer.at(i), success), 0)...
         };
         return success;
     }
@@ -111,6 +115,14 @@ private:
 
 class FunctionManager {
 public:
+    FunctionManager(FunctionManager const&) = delete;
+
+    auto operator=(FunctionManager const&) -> FunctionManager& = delete;
+
+    FunctionManager(FunctionManager&&) = delete;
+
+    auto operator=(FunctionManager&&) -> FunctionManager& = delete;
+
     static auto get_instance() -> FunctionManager& {
         static FunctionManager instance;
         return instance;
@@ -127,13 +139,11 @@ public:
 
 private:
     FunctionManager() = default;
+
     ~FunctionManager() = default;
-    FunctionManager(FunctionManager const&) = delete;
-    FunctionManager(FunctionManager&&) = delete;
 
     FunctionMap m_map;
 };
-
 }  // namespace spider::worker
 
 #endif  // SPIDER_WORKER_FUNCTIONMANAGER_HPP

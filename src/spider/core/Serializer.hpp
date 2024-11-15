@@ -4,12 +4,13 @@
 #include <boost/uuid/uuid.hpp>
 #include <cstdint>
 #include <cstring>
-#include <msgpack.hpp>
+#include <msgpack.hpp>  // IWYU pragma: keep
 
 template <>
 struct msgpack::adaptor::convert<boost::uuids::uuid> {
     auto operator()(msgpack::object const& object, boost::uuids::uuid& id) const
             -> msgpack::object const& {
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,bugprone-return-const-ref-from-parameter)
         if (object.type != msgpack::type::BIN) {
             throw msgpack::type_error();
         }
@@ -21,6 +22,7 @@ struct msgpack::adaptor::convert<boost::uuids::uuid> {
         id = boost::uuids::uuid{data};
 
         return object;
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,bugprone-return-const-ref-from-parameter)
     }
 };
 
