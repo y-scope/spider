@@ -30,4 +30,5 @@ set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
 target_link_libraries(spider_worker PRIVATE spider_core)
+target_link_libraries(spider_worker PRIVATE msgpack-cxx)
 add_executable(spider::worker ALIAS spider_worker)

@@ -131,6 +131,14 @@ else()
     message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for MariaDBClientCpp")
 endif()
 
+# Find and setup msgpack
+find_package(msgpack-cxx 7.0.0 REQUIRED)
+if(msgpack-cxx_FOUND)
+    message(STATUS "Found msgpack-cxx ${msgpack-css_VERSION}")
+else()
+    message(FATAL_ERROR "Could not find msgpack-cxx")
+endif()
+
 # Add abseil-cpp
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(submodules/abseil-cpp)
