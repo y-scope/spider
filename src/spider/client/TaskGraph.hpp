@@ -16,17 +16,6 @@ class TaskGraphImpl;
 template <class R, class... Args>
 class TaskGraph {
 public:
-    /**
-     * Runs the task graph.
-     *
-     * @tparam Args input types of the task graph
-     * @tparam R return type of the task graph
-     *
-     * @param args inputs of the task graph
-     * @return future of the result
-     */
-    auto run(Args&&... args) -> Job<R>;
-
 private:
     std::unique_ptr<TaskGraphImpl> m_impl;
 };
