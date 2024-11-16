@@ -48,12 +48,6 @@ public:
     class Builder {
     public:
         /**
-         * Sets the key for the data.
-         * @param key of the data
-         * @return self
-         */
-        auto set_key(std::string const& key) -> Data<T>::Builder&;
-        /**
          * Sets locality list of the data to build.
          * @param nodes nodes that has locality
          * @param hard true if the locality list is a hard requirement, false otherwise
@@ -64,6 +58,7 @@ public:
         /**
          * Defines clean up functions of the data to build.
          * @param f clean up function of data
+         * @return self
          */
         auto set_cleanup(std::function<T const&()> const& f) -> Data<T>::Builder&;
 
@@ -73,7 +68,7 @@ public:
          * @param t value of the data
          * @return data object
          */
-        auto build(T const& /*t*/) -> Data<T>;
+        auto build(T const& t) -> Data<T>;
     };
 
 private:

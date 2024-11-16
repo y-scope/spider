@@ -30,6 +30,7 @@ target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Data.cpp
+    client/KeyValueData.cpp
     client/Context.cpp
     client/TaskGraph.cpp
     CACHE INTERNAL
@@ -38,6 +39,7 @@ set(SPIDER_CLIENT_SHARED_SOURCES
 
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
+    client/KeyValueData.hpp
     client/Context.hpp
     client/TaskGraph.hpp
     CACHE INTERNAL

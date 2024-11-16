@@ -17,11 +17,6 @@ template <class T>
 void Data<T>::set_locality(std::vector<std::string> const& /*nodes*/, bool /*hard*/) {}
 
 template <class T>
-auto Data<T>::Builder::set_key(std::string const& /*key*/) -> Data<T>::Builder& {
-    return this;
-}
-
-template <class T>
 auto Data<T>::Builder::set_locality(std::vector<std::string> const& /*nodes*/, bool /*hard*/)
         -> Data<T>::Builder& {
     return this;

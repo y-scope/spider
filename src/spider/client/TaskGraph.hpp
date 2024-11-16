@@ -3,8 +3,6 @@
 
 #include <memory>
 
-#include "Job.hpp"
-
 namespace spider {
 class TaskGraphImpl;
 

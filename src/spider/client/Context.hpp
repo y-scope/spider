@@ -41,6 +41,21 @@ public:
     auto get_data(std::string const& key) -> std::optional<Data<T>>;
 
     /**
+     * Insert the key-value pair into the key value store. Overwrite the existing value stored if
+     * key already exists.
+     * @param key key of the key-value pair
+     * @param value value of the key-value pair
+     */
+    auto insert_kv(std::string const& key, std::string const& value);
+
+    /**
+     * Get the value based on the key. Client can only get the value created by itself.
+     * @param key key to lookup
+     * @return std::nullopt if key not in storage, corresponding value if key in storage
+     */
+    auto get_kv(std::string const& key) -> std::optional<std::string>;
+
+    /**
      * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,
      * forming dependencies between tasks. Input can also be a value or a spider::Data.
      *
@@ -88,7 +103,6 @@ public:
 private:
     std::unique_ptr<ContextImpl> m_impl;
 };
-
 }  // namespace spider
 
 #endif
