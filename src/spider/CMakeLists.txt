@@ -26,17 +26,6 @@ target_link_libraries(
         msgpack-cxx
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
-# Manually add include directories for msgpack
-get_target_property(msgpack_include_dirs msgpack-cxx INTERFACE_INCLUDE_DIRECTORIES)
-get_target_property(msgpack_system_include_dirs msgpack-cxx INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
-foreach(msgpack_include_dir ${msgpack_include_dirs})
-    set(msgpack_header_dir "${msgpack_include_dir}/msgpack/v1")
-    if(EXISTS "${msgpack_header_dir}" AND IS_DIRECTORY "${msgpack_header_dir}")
-        list(APPEND msgpack_include_dirs "${msgpack_header_dir}")
-    endif()
-endforeach()
-target_include_directories(spider_core SYSTEM PUBLIC ${msgpack_include_dirs})
-target_link_libraries(spider_core PUBLIC msgpack-cxx)
 
 set(SPIDER_WORKER_SOURCES
     worker/worker.cpp
