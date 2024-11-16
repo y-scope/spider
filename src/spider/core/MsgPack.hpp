@@ -20,6 +20,15 @@
 #include <msgpack/x3_unpack.hpp>
 #include <msgpack/zone.hpp>
 
+#include <msgpack/adaptor/define_decl.hpp>
+#include <msgpack/v3/adaptor/adaptor_base.hpp>
+#include <msgpack/v3/object_decl.hpp>
+#include <msgpack/v3/object_fwd.hpp>
+#include <msgpack/v3/object_fwd_decl.hpp>
+#include <msgpack/v3/pack_decl.hpp>
+#include <msgpack/v3/sbuffer_decl.hpp>
+#include <msgpack/v3/unpack.hpp>
+
 // IWYU pragma: end_exports
 // clang-format on
 
