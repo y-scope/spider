@@ -4,6 +4,8 @@
 // clang-format off
 // IWYU pragma: begin_exports
 
+#include <msgpack.hpp>
+
 #include <msgpack/iterator.hpp>
 #include <msgpack/null_visitor.hpp>
 #include <msgpack/object.hpp>
