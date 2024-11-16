@@ -15,6 +15,12 @@
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
+
+#define REGISTER_TASK(func) \
+    auto ANONYMOUS_VARIABLE(var) = \
+        FunctionManager::get_instance().register_function(#func, func);
+
+
 namespace spider::worker {
 using ArgsBuffers = std::vector<msgpack::sbuffer>;
 
@@ -129,7 +135,10 @@ public:
         return instance;
     }
 
-    auto add_function(std::string const& name, Function const& func) { m_map.emplace(name, func); }
+    template <class F>
+    auto register_function(std::string const& name, F f) -> bool {
+        return m_map.emplace(name, std::bind(&FunctionInvoker<F>::apply, std::move(f), std::placeholders::_1));
+    }
 
     auto get_function(std::string const& name) -> Function* {
         if (auto func_iter = m_map.find(name); func_iter != m_map.end()) {
