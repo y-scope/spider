@@ -4,7 +4,8 @@
 #include <boost/uuid/uuid.hpp>
 #include <cstdint>
 #include <cstring>
-#include <msgpack.hpp>  // IWYU pragma: keep
+
+#include "MsgPack.hpp"  // IWYU pragma: keep
 
 template <>
 struct msgpack::adaptor::convert<boost::uuids::uuid> {

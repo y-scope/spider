@@ -6,13 +6,14 @@
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
-#include <msgpack.hpp>  // IWYU pragma: keep
 #include <optional>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
 using ArgsBuffers = std::vector<msgpack::sbuffer>;
