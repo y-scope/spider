@@ -28,27 +28,14 @@ target_link_libraries(
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 # Manually add include directories for msgpack
 get_target_property(msgpack_include_dirs msgpack-cxx INTERFACE_INCLUDE_DIRECTORIES)
-set(msgpack_full_include_dirs "")
-foreach(include_dir ${msgpack_include_dirs})
-    list(APPEND msgpack_full_include_dirs "${include_dir}")
-    set(include_msgpack_dir "${include_dir}/msgpack")
-    if(EXISTS "${include_msgpack_dir}" AND IS_DIRECTORY "${include_msgpack_dir}")
-        list(APPEND msgpack_full_include_dirs "${include_msgpack_dir}")
-        file(
-            GLOB_RECURSE MSGPACK_HEADERS
-            LIST_DIRECTORIES true
-            CONFIGURE_DEPENDS
-            "${include_msgpack_dir}/*.hpp"
-        )
-        foreach(MSGPACK_HEADER ${MSGPACK_HEADERS})
-            get_filename_component(MSGPACK_HEADER_DIR "${MSGPACK_HEADER}" DIRECTORY)
-            if(NOT "${MSGPACK_HEADER_DIR}" IN_LIST msgpack_full_include_dirs)
-                list(APPEND msgpack_full_include_dirs "${MSGPACK_HEADER_DIR}")
-            endif()
-        endforeach()
+get_target_property(msgpack_system_include_dirs msgpack-cxx INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
+foreach(msgpack_include_dir ${msgpack_include_dirs})
+    set(msgpack_header_dir "${msgpack_include_dir}/msgpack/v1")
+    if(EXISTS "${msgpack_header_dir}" AND IS_DIRECTORY "${msgpack_header_dir}")
+        list(APPEND msgpack_include_dirs "${msgpack_header_dir}")
     endif()
 endforeach()
-target_include_directories(spider_core SYSTEM PUBLIC "${msgpack_full_include_dirs}")
+target_include_directories(spider_core SYSTEM PUBLIC ${msgpack_include_dirs})
 target_link_libraries(spider_core PUBLIC msgpack-cxx)
 
 set(SPIDER_WORKER_SOURCES
