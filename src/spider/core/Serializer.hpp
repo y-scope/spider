@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cstring>
 
-#include "Data.hpp"
 #include "MsgPack.hpp"  // IWYU pragma: keep
 
 template <>
@@ -34,9 +33,9 @@ struct msgpack::adaptor::pack<boost::uuids::uuid> {
     auto operator()(msgpack::packer<Stream>& packer, boost::uuids::uuid const& id) const
             -> msgpack::packer<Stream>& {
         packer.pack_bin(id.size());
-        // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast)
         packer.pack_bin_body((char const*)id.data(), id.size());
-        // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+        // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast)
         return packer;
     }
 };

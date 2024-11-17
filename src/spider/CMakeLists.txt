@@ -28,11 +28,7 @@ target_link_libraries(
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
-set(SPIDER_WORKER_SOURCES
-    worker/worker.cpp
-    CACHE INTERNAL
-    "spider worker source files"
-)
+set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
 
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})

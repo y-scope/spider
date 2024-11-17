@@ -6,6 +6,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <optional>
+#include <string>
 #include <tuple>
 
 namespace {
@@ -36,17 +37,23 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     spider::core::ArgsBuffers const args_buffers = spider::test::create_args_buffers(2, 3);
     std::optional<msgpack::sbuffer> const result = (*function)(args_buffers);
     REQUIRE(result.has_value());
-    REQUIRE(5 == spider::test::get_result<int>(result.value()));
+    if (result.has_value()) {
+        REQUIRE(5 == spider::test::get_result<int>(result.value()));
+    }
 
     // Run function with wrong number of inputs should fail
     spider::core::ArgsBuffers wrong_args_buffers = spider::test::create_args_buffers(1);
     std::optional<msgpack::sbuffer> wrong_result = (*function)(wrong_args_buffers);
-    REQUIRE(!wrong_result.has_value());
+    if (result.has_value()) {
+        REQUIRE(!wrong_result.has_value());
+    }
 
     // Run function with wrong type of inputs should fail
     wrong_args_buffers = spider::test::create_args_buffers(0, "test");
     wrong_result = (*function)(wrong_args_buffers);
-    REQUIRE(!wrong_result.has_value());
+    if (result.has_value()) {
+        REQUIRE(!wrong_result.has_value());
+    }
 }
 
 TEST_CASE("Register and run function with tuple return", "[core]") {
@@ -59,8 +66,10 @@ TEST_CASE("Register and run function with tuple return", "[core]") {
     spider::core::ArgsBuffers const args_buffers = spider::test::create_args_buffers("test", 3);
     std::optional<msgpack::sbuffer> const result = (*function)(args_buffers);
     REQUIRE(result.has_value());
-    REQUIRE(std::make_tuple<std::string, int>("test", 3)
-            == spider::test::get_result<std::tuple<std::string, int>>(result.value()));
+    if (result.has_value()) {
+        REQUIRE(std::make_tuple<std::string, int>("test", 3)
+                == spider::test::get_result<std::tuple<std::string, int>>(result.value()));
+    }
 }
 
 TEST_CASE("Register and run function with data", "[core]") {
@@ -74,10 +83,11 @@ TEST_CASE("Register and run function with data", "[core]") {
     spider::core::ArgsBuffers const args_buffers = spider::test::create_args_buffers(data);
     std::optional<msgpack::sbuffer> const result = (*function)(args_buffers);
     REQUIRE(result.has_value());
-    spider::core::Data const result_data
-            = spider::test::get_result<spider::core::Data>(result.value());
-    REQUIRE(data.get_id() == result_data.get_id());
-    REQUIRE("testtest" == result_data.get_value());
+    if (result.has_value()) {
+        auto const result_data = spider::test::get_result<spider::core::Data>(result.value());
+        REQUIRE(data.get_id() == result_data.get_id());
+        REQUIRE("testtest" == result_data.get_value());
+    }
 }
 
 }  // namespace
