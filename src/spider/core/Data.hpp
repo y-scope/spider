@@ -14,6 +14,8 @@
 namespace spider::core {
 class Data {
 public:
+    Data() { init_id(); }
+
     explicit Data(std::string value) : m_value(std::move(value)) { init_id(); }
 
     Data(boost::uuids::uuid id, std::string value) : m_id(id), m_value(std::move(value)) {}

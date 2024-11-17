@@ -16,12 +16,12 @@
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
 #define REGISTER_TASK(func) \
-    auto ANONYMOUS_VARIABLE(var) = FunctionManager::get_instance().register_function(#func, func);
+    spider::core::FunctionManager::get_instance().register_function(#func, func);
 
-namespace spider::worker {
+namespace spider::core {
 using ArgsBuffers = std::vector<msgpack::sbuffer>;
 
-using Function = std::function<msgpack::sbuffer(ArgsBuffers)>;
+using Function = std::function<std::optional<msgpack::sbuffer>(ArgsBuffers const&)>;
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
 
@@ -30,6 +30,12 @@ struct signature;
 
 template <class R, class... Args>
 struct signature<R(Args...)> {
+    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using ret_t = R;
+};
+
+template <class R, class... Args>
+struct signature<R (*)(Args...)> {
     using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
     using ret_t = R;
 };
@@ -44,7 +50,6 @@ template <class T>
 constexpr auto cIsDataV = IsDataT<T>::value;
 
 template <class F>
-requires std::is_function_v<F>
 class FunctionInvoker {
 public:
     static auto
@@ -83,7 +88,7 @@ private:
                 msgpack::object_handle const handle
                         = msgpack::unpack(arg_buffer.data(), arg_buffer.size());
                 msgpack::object object = handle.get();
-                T t("");
+                T t;
                 object.convert(t);
                 return t;
             }
@@ -134,14 +139,16 @@ public:
 
     template <class F>
     auto register_function(std::string const& name, F f) -> bool {
-        return m_map.emplace(
-                name,
-                std::bind(&FunctionInvoker<F>::apply, std::move(f), std::placeholders::_1)
-        );
+        return m_map
+                .emplace(
+                        name,
+                        std::bind(&FunctionInvoker<F>::apply, std::move(f), std::placeholders::_1)
+                )
+                .second;
     }
 
     auto get_function(std::string const& name) -> Function* {
-        if (auto func_iter = m_map.find(name); func_iter != m_map.end()) {
+        if (auto const func_iter = m_map.find(name); func_iter != m_map.end()) {
             return &func_iter->second;
         }
         return nullptr;
@@ -154,6 +161,6 @@ private:
 
     FunctionMap m_map;
 };
-}  // namespace spider::worker
+}  // namespace spider::core
 
 #endif  // SPIDER_WORKER_FUNCTIONMANAGER_HPP

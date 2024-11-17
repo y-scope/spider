@@ -10,6 +10,7 @@ set(SPIDER_CORE_HEADERS
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
+    worker/FunctionManager.hpp
     CACHE INTERNAL
     "spider core header files"
 )
@@ -29,7 +30,6 @@ target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
     worker/worker.cpp
-    worker/FunctionManager.hpp
     CACHE INTERNAL
     "spider worker source files"
 )
