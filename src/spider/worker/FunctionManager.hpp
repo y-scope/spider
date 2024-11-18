@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <optional>
@@ -56,10 +57,16 @@ enum class FunctionInvokeError : std::uint8_t {
     ArgumentParsingError = 2,
     ResultParsingError = 3,
 };
+}  // namespace spider::core
 
-auto buffer_get_error(msgpack::sbuffer const& buffer
+// MSGPACK_ADD_ENUM must be called from global namespace
+MSGPACK_ADD_ENUM(spider::core::FunctionInvokeError);
+
+namespace spider::core {
+
+inline auto buffer_get_error(msgpack::sbuffer const& buffer
 ) -> std::optional<std::tuple<FunctionInvokeError, std::string>> {
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
         msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
         msgpack::object const object = handle.get();
@@ -68,12 +75,12 @@ auto buffer_get_error(msgpack::sbuffer const& buffer
             return std::nullopt;
         }
 
-        if ("err" != object.via.map.ptr[0].key) {
+        if ("err" != object.via.map.ptr[0].key.as<std::string>()) {
             return std::nullopt;
         }
         FunctionInvokeError const err{object.via.map.ptr[0].val.as<std::uint8_t>()};
 
-        if ("msg" != object.via.map.ptr[1].key) {
+        if ("msg" != object.via.map.ptr[1].key.as<std::string>()) {
             return std::nullopt;
         }
         std::string const message{object.via.map.ptr[1].val.as<std::string>()};
@@ -82,7 +89,7 @@ auto buffer_get_error(msgpack::sbuffer const& buffer
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
-    // NOLINTEND(cppcoreguidelines-pro-type-union-access)
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 template <class T>
