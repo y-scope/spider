@@ -5,7 +5,6 @@ set(SPIDER_TEST_SOURCES
     utils/CoreDataUtils.hpp
     utils/CoreTaskUtils.hpp
     utils/CoreTaskUtils.cpp
-    utils/FunctionManagerUtils.hpp
     worker/test-FunctionManager.cpp
     CACHE INTERNAL
     "spider test source files"

@@ -2,7 +2,6 @@
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
-#include "../utils/FunctionManagerUtils.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <optional>
@@ -34,25 +33,29 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     spider::core::Function const* function = manager.get_function("int_test");
 
     // Run function with two ints should succeed
-    spider::core::ArgsBuffers const args_buffers = spider::test::create_args_buffers(2, 3);
-    std::optional<msgpack::sbuffer> const result = (*function)(args_buffers);
-    REQUIRE(result.has_value());
-    if (result.has_value()) {
-        REQUIRE(5 == spider::test::get_result<int>(result.value()));
-    }
+    spider::core::ArgsBuffers const args_buffers = spider::core::create_args_buffers(2, 3);
+    msgpack::sbuffer const result = (*function)(args_buffers);
+    REQUIRE(5 == spider::core::buffer_get<int>(result).value_or(0));
 
     // Run function with wrong number of inputs should fail
-    spider::core::ArgsBuffers wrong_args_buffers = spider::test::create_args_buffers(1);
-    std::optional<msgpack::sbuffer> wrong_result = (*function)(wrong_args_buffers);
-    if (result.has_value()) {
-        REQUIRE(!wrong_result.has_value());
+    spider::core::ArgsBuffers wrong_args_buffers = spider::core::create_args_buffers(1);
+    msgpack::sbuffer wrong_result = (*function)(wrong_args_buffers);
+    std::optional<std::tuple<spider::core::FunctionInvokeError, std::string>> wrong_result_option
+            = spider::core::buffer_get_error(wrong_result);
+    REQUIRE(wrong_result_option.has_value());
+    if (wrong_result_option.has_value()) {
+        REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments
+                == std::get<0>(wrong_result_option.value()));
     }
 
     // Run function with wrong type of inputs should fail
-    wrong_args_buffers = spider::test::create_args_buffers(0, "test");
+    wrong_args_buffers = spider::core::create_args_buffers(0, "test");
     wrong_result = (*function)(wrong_args_buffers);
-    if (result.has_value()) {
-        REQUIRE(!wrong_result.has_value());
+    wrong_result_option = spider::core::buffer_get_error(wrong_result);
+    REQUIRE(wrong_result_option.has_value());
+    if (wrong_result_option.has_value()) {
+        REQUIRE(spider::core::FunctionInvokeError::ArgumentParsingError
+                == std::get<0>(wrong_result_option.value()));
     }
 }
 
@@ -63,13 +66,12 @@ TEST_CASE("Register and run function with tuple return", "[core]") {
 
     spider::core::Function const* function = manager.get_function("tuple_ret_test");
 
-    spider::core::ArgsBuffers const args_buffers = spider::test::create_args_buffers("test", 3);
-    std::optional<msgpack::sbuffer> const result = (*function)(args_buffers);
-    REQUIRE(result.has_value());
-    if (result.has_value()) {
-        REQUIRE(std::make_tuple<std::string, int>("test", 3)
-                == spider::test::get_result<std::tuple<std::string, int>>(result.value()));
-    }
+    spider::core::ArgsBuffers const args_buffers = spider::core::create_args_buffers("test", 3);
+    msgpack::sbuffer const result = (*function)(args_buffers);
+    REQUIRE(std::make_tuple("test", 3)
+            == spider::core::buffer_get<std::tuple<std::string, int>>(result).value_or(
+                    std::make_tuple("", 0)
+            ));
 }
 
 TEST_CASE("Register and run function with data", "[core]") {
@@ -80,11 +82,13 @@ TEST_CASE("Register and run function with data", "[core]") {
     spider::core::Function const* function = manager.get_function("data_test");
 
     spider::core::Data data{"test"};
-    spider::core::ArgsBuffers const args_buffers = spider::test::create_args_buffers(data);
-    std::optional<msgpack::sbuffer> const result = (*function)(args_buffers);
-    REQUIRE(result.has_value());
-    if (result.has_value()) {
-        auto const result_data = spider::test::get_result<spider::core::Data>(result.value());
+    spider::core::ArgsBuffers const args_buffers = spider::core::create_args_buffers(data);
+    msgpack::sbuffer const result = (*function)(args_buffers);
+    std::optional<spider::core::Data> result_option
+            = spider::core::buffer_get<spider::core::Data>(result);
+    REQUIRE(result_option.has_value());
+    if (result_option.has_value()) {
+        spider::core::Data const& result_data = result_option.value();
         REQUIRE(data.get_id() == result_data.get_id());
         REQUIRE("testtest" == result_data.get_value());
     }
