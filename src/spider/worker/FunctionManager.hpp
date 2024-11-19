@@ -72,6 +72,7 @@ enum class FunctionInvokeError : std::uint8_t {
     WrongNumberOfArguments = 1,
     ArgumentParsingError = 2,
     ResultParsingError = 3,
+    FunctionExecutionError = 4,
 };
 }  // namespace spider::core
 
@@ -91,17 +92,22 @@ inline auto buffer_get_error(msgpack::sbuffer const& buffer
             return std::nullopt;
         }
 
-        if ("err" != object.via.map.ptr[0].key.as<std::string>()) {
+        std::optional<FunctionInvokeError> err;
+        std::optional<std::string> message;
+        for (size_t i = 0; i < object.via.map.size; ++i) {
+            msgpack::object_kv const& kv = object.via.map.ptr[i];
+            std::string const key = kv.key.as<std::string>();
+            if ("err" == key) {
+                err = kv.val.as<FunctionInvokeError>();
+            } else if ("msg" == key) {
+                message = kv.val.as<std::string>();
+            }
+        }
+        if (!err || !message) {
             return std::nullopt;
         }
-        FunctionInvokeError const err{object.via.map.ptr[0].val.as<std::uint8_t>()};
 
-        if ("msg" != object.via.map.ptr[1].key.as<std::string>()) {
-            return std::nullopt;
-        }
-        std::string const message{object.via.map.ptr[1].val.as<std::string>()};
-
-        return std::make_tuple(err, message);
+        return std::make_tuple(*err, *message);
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
@@ -182,6 +188,11 @@ public:
             return generate_error(
                     FunctionInvokeError::ResultParsingError,
                     fmt::format("Cannot parse result.")
+            );
+        } catch (std::exception& e) {
+            return generate_error(
+                    FunctionInvokeError::FunctionExecutionError,
+                    "Function execution error"
             );
         }
         // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)

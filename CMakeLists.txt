@@ -132,9 +132,12 @@ else()
 endif()
 
 # Find and setup msgpack
+if(SPIDER_USE_STATIC_LIBS)
+    set(msgpack-cxx_USE_STATIC_LIBS ON)
+endif()
 find_package(msgpack-cxx 7.0.0 REQUIRED)
 if(msgpack-cxx_FOUND)
-    message(STATUS "Found msgpack-cxx ${msgpack-css_VERSION}")
+    message(STATUS "Found msgpack-cxx ${msgpack-cxx_VERSION}")
 else()
     message(FATAL_ERROR "Could not find msgpack-cxx")
 endif()
