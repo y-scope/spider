@@ -117,11 +117,15 @@ inline auto buffer_get_error(msgpack::sbuffer const& buffer
 
 template <class T>
 auto buffer_get(msgpack::sbuffer const& buffer) -> std::optional<T> {
-    msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
-    msgpack::object object = handle.get();
-    T t;
-    object.convert(t);
-    return t;
+    try {
+        msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
+        msgpack::object object = handle.get();
+        T t;
+        object.convert(t);
+        return t;
+    } catch (msgpack::type_error& e) {
+        return std::nullopt;
+    }
 }
 
 // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
