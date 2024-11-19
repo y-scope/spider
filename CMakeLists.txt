@@ -84,7 +84,15 @@ message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 if(SPIDER_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS ON)
 endif()
-find_package(Boost 1.74 REQUIRED)
+find_package(
+    Boost
+    1.74
+    REQUIRED
+    COMPONENTS
+        headers
+        program_options
+        system
+)
 if(Boost_FOUND)
     message(STATUS "Found Boost ${Boost_VERSION}")
 else()
