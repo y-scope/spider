@@ -33,12 +33,12 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     spider::core::Function const* function = manager.get_function("int_test");
 
     // Run function with two ints should succeed
-    spider::core::ArgsBuffers const args_buffers = spider::core::create_args_buffers(2, 3);
+    spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(2, 3);
     msgpack::sbuffer const result = (*function)(args_buffers);
     REQUIRE(5 == spider::core::buffer_get<int>(result).value_or(0));
 
     // Run function with wrong number of inputs should fail
-    spider::core::ArgsBuffers wrong_args_buffers = spider::core::create_args_buffers(1);
+    spider::core::ArgsBuffer wrong_args_buffers = spider::core::create_args_buffers(1);
     msgpack::sbuffer wrong_result = (*function)(wrong_args_buffers);
     std::optional<std::tuple<spider::core::FunctionInvokeError, std::string>> wrong_result_option
             = spider::core::buffer_get_error(wrong_result);
@@ -66,7 +66,7 @@ TEST_CASE("Register and run function with tuple return", "[core]") {
 
     spider::core::Function const* function = manager.get_function("tuple_ret_test");
 
-    spider::core::ArgsBuffers const args_buffers = spider::core::create_args_buffers("test", 3);
+    spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers("test", 3);
     msgpack::sbuffer const result = (*function)(args_buffers);
     REQUIRE(std::make_tuple("test", 3)
             == spider::core::buffer_get<std::tuple<std::string, int>>(result).value_or(
@@ -82,7 +82,7 @@ TEST_CASE("Register and run function with data", "[core]") {
     spider::core::Function const* function = manager.get_function("data_test");
 
     spider::core::Data data{"test"};
-    spider::core::ArgsBuffers const args_buffers = spider::core::create_args_buffers(data);
+    spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(data);
     msgpack::sbuffer const result = (*function)(args_buffers);
     std::optional<spider::core::Data> result_option
             = spider::core::buffer_get<spider::core::Data>(result);
