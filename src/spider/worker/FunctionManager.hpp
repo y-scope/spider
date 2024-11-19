@@ -13,7 +13,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
@@ -53,8 +52,10 @@ struct IsDataT<T, std::void_t<decltype(std::declval<T>().is_data())>> : std::tru
 template <class T>
 constexpr auto cIsDataV = IsDataT<T>::value;
 
-template<std::size_t n>
-struct Num { static constexpr auto cValue = n; };
+template <std::size_t n>
+struct Num {
+    static constexpr auto cValue = n;
+};
 
 template <class F, std::size_t... is>
 void for_n(F func, std::index_sequence<is...>) {
@@ -160,9 +161,10 @@ public:
                 );
             }
 
-            for_n<std::tuple_size_v<ArgsTuple>>([&] (auto i) {
+            for_n<std::tuple_size_v<ArgsTuple>>([&](auto i) {
                 msgpack::object arg = object.via.array.ptr[i.cValue];
-                std::get<i.cValue>(args_tuple) = arg.as<std::tuple_element_t<i.cValue, ArgsTuple>>();
+                std::get<i.cValue>(args_tuple)
+                        = arg.as<std::tuple_element_t<i.cValue, ArgsTuple>>();
             });
         } catch (msgpack::type_error& e) {
             return generate_error(
