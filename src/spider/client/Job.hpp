@@ -1,5 +1,5 @@
-#ifndef SPIDER_CLIENT_FUTURE_HPP
-#define SPIDER_CLIENT_FUTURE_HPP
+#ifndef SPIDER_CLIENT_JOB_HPP
+#define SPIDER_CLIENT_JOB_HPP
 
 #include <cstdint>
 #include <memory>
@@ -58,4 +58,4 @@ private:
 };
 }  // namespace spider
 
-#endif  // SPIDER_CLIENT_FUTURE_HPP
+#endif  // SPIDER_CLIENT_JOB_HPP

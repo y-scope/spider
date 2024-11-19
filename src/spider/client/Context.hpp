@@ -1,5 +1,5 @@
-#ifndef SPIDER_CORE_SPIDER_HPP
-#define SPIDER_CORE_SPIDER_HPP
+#ifndef SPIDER_CLIENT_CONTEXT_HPP
+#define SPIDER_CLIENT_CONTEXT_HPP
 
 #include <boost/uuid/uuid.hpp>
 #include <functional>
@@ -105,4 +105,4 @@ private:
 };
 }  // namespace spider
 
-#endif
+#endif // SPIDER_CLIENT_CONTEXT_HPP
