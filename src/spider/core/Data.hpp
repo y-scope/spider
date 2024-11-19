@@ -8,10 +8,17 @@
 #include <utility>
 #include <vector>
 
+#include "MsgPack.hpp"  // IWYU pragma: keep
+#include "Serializer.hpp"  // IWYU pragma: keep
+
 namespace spider::core {
 class Data {
 public:
+    Data() { init_id(); }
+
     explicit Data(std::string value) : m_value(std::move(value)) { init_id(); }
+
+    Data(boost::uuids::uuid id, std::string value) : m_id(id), m_value(std::move(value)) {}
 
     Data(std::string key, std::string value) : m_key(std::move(key)), m_value(std::move(value)) {
         init_id();
@@ -21,6 +28,10 @@ public:
             : m_id(id),
               m_key(std::move(key)),
               m_value(std::move(value)) {}
+
+    MSGPACK_DEFINE(m_id, m_key, m_value, m_locality, m_hard_locality);
+
+    static auto is_data() -> bool { return true; }
 
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
@@ -50,6 +61,7 @@ private:
         m_id = gen();
     }
 };
+
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_DATA_HPP

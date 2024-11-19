@@ -1,9 +1,7 @@
 #!/bin/bash
 
 # Dependencies:
-# - cmake
-# - g++
-# - git
+# - Boost
 # NOTE: Dependencies should be installed outside the script to allow the script to be largely distro-agnostic
 
 # Exit on any error
@@ -16,7 +14,7 @@ if [ "$#" -lt 1 ] ; then
 fi
 version=$1
 
-package_name=mariadb-connector-cpp
+package_name=msgpackc-cxx
 temp_dir=/tmp/${package_name}-installation
 deb_output_dir=${temp_dir}
 if [[ "$#" -gt 1 ]] ; then
@@ -37,13 +35,6 @@ if [ $installed -eq 0 ] ; then
   exit
 fi
 
-# Get number of cpu cores
-if [ "$(uname -s)" == "Darwin" ]; then
-  num_cpus=$(sysctl -n hw.ncpu)
-else
-  num_cpus=$(grep -c ^processor /proc/cpuinfo)
-fi
-
 echo "Checking for elevated privileges..."
 privileged_command_prefix=""
 if [ ${EUID:-$(id -u)} -ne 0 ] ; then
@@ -54,20 +45,32 @@ fi
 # Download
 mkdir -p $temp_dir
 cd $temp_dir
-git clone https://github.com/mariadb-corporation/mariadb-connector-cpp.git "mariadb-connector-cpp-${version}"
-cd "mariadb-connector-cpp-${version}"
-git checkout "${version}"
+extracted_dir=${temp_dir}/msgpack-cxx-${version}
+if [ ! -e ${extracted_dir} ] ; then
+  tar_filename=msgpack-cxx-${version}.tar.gz
+  if [ ! -e ${tar_filename} ] ; then
+    curl -fsSL https://github.com/msgpack/msgpack-c/releases/download/cpp-${version}/${tar_filename} -o ${tar_filename}
+  fi
 
-# Build
-mkdir build
-cd build
-# Setting USE_SYSTEM_INSTALLED_LIB mess up the install prefix, so set it manually
-cmake -DUSE_SYSTEM_INSTALLED_LIB=ON -DCMAKE_INSTALL_LIBDIR=/usr/local -DINSTALL_LAYOUT=RPM ..
-make -j${num_cpus}
+  tar -xf ${tar_filename}
+fi
+
+# Set up
+cd ${extracted_dir}
+cmake .
+
+# Check if checkinstall is installed
+set +e
+command -v checkinstall
+checkinstall_installed=$?
+set -e
 
 # Install
 install_command_prefix="${privileged_command_prefix}"
-${install_command_prefix} make install
+if [ $checkinstall_installed -eq 0 ] ; then
+  install_command_prefix="${install_command_prefix} checkinstall --pkgname '${package_name}' --pkgversion '${version}' --provides '${package_name}' --nodoc -y --pakdir \"${deb_output_dir}\""
+fi
+${install_command_prefix} cmake --build . --target install
 
 # Clean up
 rm -rf $temp_dir

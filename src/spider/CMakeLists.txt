@@ -6,18 +6,16 @@ set(SPIDER_CORE_HEADERS
     core/Data.hpp
     core/Task.hpp
     core/TaskGraph.hpp
+    core/Serializer.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
+    worker/FunctionManager.hpp
     CACHE INTERNAL
     "spider core header files"
 )
 
-if(SPIDER_USE_STATIC_LIBS)
-    add_library(spider_core STATIC)
-else()
-    add_library(spider_core SHARED)
-endif()
+add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
 target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
 target_link_libraries(
@@ -25,6 +23,8 @@ target_link_libraries(
     PUBLIC
         Boost::boost
         absl::flat_hash_map
+        MariaDBClientCpp::MariaDBClientCpp
+        msgpack-cxx
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 

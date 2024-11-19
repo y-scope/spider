@@ -4,7 +4,6 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
 
-#include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <optional>
 #include <utility>
@@ -15,12 +14,7 @@
 namespace spider::core {
 class TaskGraph {
 public:
-    TaskGraph() {
-        boost::uuids::random_generator gen;
-        m_id = gen();
-    }
-
-    explicit TaskGraph(boost::uuids::uuid id) : m_id(id) {}
+    TaskGraph() = default;
 
     auto add_child_task(Task const& task, std::vector<boost::uuids::uuid> const& parents) -> bool {
         boost::uuids::uuid task_id = task.get_id();
@@ -50,15 +44,20 @@ public:
         return true;
     }
 
-    void add_dependencies(boost::uuids::uuid parent, boost::uuids::uuid child) {
+    void add_dependency(boost::uuids::uuid parent, boost::uuids::uuid child) {
         m_dependencies.emplace_back(parent, child);
     }
 
-    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
-
-    [[nodiscard]] auto get_task(boost::uuids::uuid id) const -> std::optional<Task> {
+    [[nodiscard]] auto get_task(boost::uuids::uuid id) const -> std::optional<Task const*> {
         if (m_tasks.contains(id)) {
-            return m_tasks.at(id);
+            return &m_tasks.at(id);
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] auto get_task(boost::uuids::uuid id) -> std::optional<Task*> {
+        if (m_tasks.contains(id)) {
+            return &m_tasks.at(id);
         }
         return std::nullopt;
     }
@@ -106,7 +105,6 @@ public:
     }
 
 private:
-    boost::uuids::uuid m_id;
     absl::flat_hash_map<boost::uuids::uuid, Task> m_tasks;
     std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> m_dependencies;
 };
