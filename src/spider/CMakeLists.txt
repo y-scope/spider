@@ -6,9 +6,11 @@ set(SPIDER_CORE_HEADERS
     core/Data.hpp
     core/Task.hpp
     core/TaskGraph.hpp
+    core/Serializer.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
+    worker/FunctionManager.hpp
     CACHE INTERNAL
     "spider core header files"
 )
@@ -22,6 +24,7 @@ target_link_libraries(
         Boost::boost
         absl::flat_hash_map
         MariaDBClientCpp::MariaDBClientCpp
+        msgpack-cxx
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 

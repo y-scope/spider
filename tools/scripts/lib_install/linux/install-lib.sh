@@ -24,3 +24,4 @@ lib_install_scripts_dir=$script_dir/..
 "$lib_install_scripts_dir"/spdlog.sh 1.14.1
 "$lib_install_scripts_dir"/mariadb-connector-cpp.sh 1.1.5
 "$lib_install_scripts_dir"/boost.sh 1.86.0
+"$lib_install_scripts_dir"/msgpack.sh 7.0.0
