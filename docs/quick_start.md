@@ -31,7 +31,7 @@ cleans up the resource in driver's destructor. User can pass in an optional clie
 with same client id cannot run at the same time.
 
 ```c++
-#include <spider/Spider.hpp>
+#include <spider/spider.hpp>
 
 auto main(int argc, char **argv) -> int {
     boost::uuids::string_generator gen;
@@ -42,20 +42,14 @@ auto main(int argc, char **argv) -> int {
 ## Create a task
 
 In Spider, a task is a non-member function that takes the first argument a `spider::Context` object.
-It can then take any number of arguments. The argument of a task must have one of the following
-type:
+It can then take any number of arguments which is `Serializable`.
 
-1. POD type
-2. `spider::Data` covered in [later section](#data-on-external-storage)
-3. `std::vector` of POD type and `spider::Data`
+Tasks can return any `Serialiable` value. If a task needs to return more than one result, uses
+`std::tuple` and makes sure all elements of the tuple are `Serializable`.
 
-Task can return any value of the valid argument type listed above. If a task needs to return more
-than one result, uses `std::tuple` and makes sure all elements of the tuple are of a valid argument
-type.
-
-Spider requires user to register the task function using static `spider::register_task`, which
-sets up the function internally in Spider library for later user. Spider requires the function name
-to be unique in the cluster.
+Spider requires user to register the task function by calling `SPIDER_REGISTER_TASK` statically,
+which sets up the function internally in Spider library for later user. Spider requires the function
+name to be unique in the cluster.
 
 ```c++
 // Task that sums to integers
@@ -71,19 +65,19 @@ auto sort(spider::Context &context, int x, int y) -> std::tuple<int, int> {
     return { y, x };
 }
 
-spider::register_task(sum);
-spider::register_task(sort);
+SPIDER_REGISTER_TASK(sum);
+SPIDER_REGISTER_TASK(sort);
 
 ```
 
 ## Run a task
 
-Spider enables user to run a task on the cluster. Simply call `Driver::run` and provide the
-arguments of the task. `Driver::run`returns a `spider::Job` object, which represents the running
+Spider enables user to start a task on the cluster. Simply call `Driver::start` and provide the
+arguments of the task. `Driver::start`returns a `spider::Job` object, which represents the running
 task. `spider::Job` takes the output type of the task graph as template argument. You can call
-`Job::state` to check the state of the running task, and `Job::get_result` to block and get the task
-result. User can send a cancel signal to Spider by calling `Job::cancel`. Client can get all running
-jobs submitted by itself by calling `Driver::get_jobs`.
+`Job::state` to check the state of the running task, and `Job::wait_complete` to block until job
+ends and `Job::get_result`. User can send a cancel signal to Spider by calling `Job::cancel`. Client
+can get all running jobs submitted by itself by calling `Driver::get_jobs`.
 
 ```c++
 auto main(int argc, char **argv) -> int {
@@ -91,14 +85,15 @@ auto main(int argc, char **argv) -> int {
     spider::Job<int> sum_job = driver.run(sum, 2);
     assert(4 == sum_job.get_result());
 
-    spider::Job<std::tuple<int, int>> sort_job = driver.run(4, 3);
+    spider::Job<std::tuple<int, int>> sort_job = driver.start(4, 3);
+    sort_job.wait_complete();
     assert(std::tuple{3, 4} == sort_job.get_result());
 }
 ```
 
 If you try to compile and run the example code directly, you'll find that it fails because Spider
 worker does not know which function to run. User need to compile all the tasks into a shared
-library, including the call to `spider::register_task`, and start the worker with the library by
+library, including the call to `SPIDER_REGISTER_TASK`, and start the worker with the library by
 running `spider start --worker --db <db_url> --libs [client_libraries]`.
 
 ## Group tasks together
@@ -106,7 +101,7 @@ running `spider start --worker --db <db_url> --libs [client_libraries]`.
 In real world, running a single task is too simple to be useful. Spider lets you bind outputs of
 tasks as inputs of another task, similar to `std::bind`. The first argument of `spider::bind` is the
 child task. The later arguments are either a `spider::Task` or a `spider::TaskGraph`, whose entire
-outputs are used as part of the inputs to the child task, or a POD or
+outputs are used as part of the inputs to the child task, or a `Serializable` or
 `spider::Data` that is directly used as input. Spider requires that the types of `Task` or
 `TaskGraph` outputs or POD type or `spider::Data` matches the input types of child task.
 
@@ -128,39 +123,17 @@ auto main(int argc, char **argv) -> auto {
     // driver initialization skipped
     spider::TaskGraph<int(int, int)> sum_of_square = spider::bind(sum, square, square);
     spider::TaskGraph<int(int, int)> rss = spider::bind(square_root, sum_of_square);
-    spider::Job<int> job = driver::run(rss, 3, 4);
+    spider::Job<int> job = driver::start(rss, 3, 4);
+    job.wait_complete();
     assert(5 == job.get_result());
 }
 ```
 
 ## Run task inside task
 
-Static task graph is enough to solve a lot of real work problems, but dynamically add tasks
-on-the-fly could become handy. As mentioned before, spider allows you to add another task as child
-of the running task by calling `Context::add_child`. `Context::add_child` can also add a task graph
-as child. Task graph can be constructed by `Context::bind`, which has the same signature and
-semantic as`spider::bind`.
-
-```c++
-auto gcd(spider::Conect& context, int x, int y) -> std::tuple<int, int> {
-    if (x == y) {
-        std::cout << "gdc is: " << x << std::endl;
-        return { x, y };
-    }
-    if (x > y) {
-        context.add_child(gcd);
-        return { x % y, y };
-    }
-    context.add_child(gcd);
-    return { x, y % x };
-}
-```
-
-However, it is impossible to get the return value of the dynamically created tasks from a client. We
-have a solution by sharing data using key-value store, which will be discussed
-[later](#data-as-key-value-store). Another solution is to run task or task graph inside a task and
-wait for its value, just like a client. This solution is closer to the conventional function call
-semantic.
+Static task graph is enough to solve a lot of real work problems, but dynamically run task graphs
+on-the-fly could become handy. Running a task graph inside task is the same as running it from a
+client.
 
 ```c++
 auto gcd(spider:Context& context, int x, int y) -> int {
@@ -168,7 +141,8 @@ auto gcd(spider:Context& context, int x, int y) -> int {
         std::swap(x, y);
     }
     while (x != y) {
-        spider::Job<std:tuple<int, int>> job = context.run(gcd_impl, x, y);
+        spider::Job<std:tuple<int, int>> job = context.start(gcd_impl, x, y);
+        job.wait_complete();
         x = job.get_result().get<0>();
         y = job.get_result().get<1>();
     }
@@ -182,10 +156,10 @@ auto gcd_impl(spider::Context& context, int x, int y) -> std::tuple<int, int> {
 
 ## Data on external storage
 
-Often simple POD data are not enough. However, passing large amount of data around is expensive.
-Usually these data is stored on disk or a distributed storage system. For example, an ETL workload
-usually reads in data from an external storage, writes temporary data on an external storage, and
-writes final data into an external storage.
+Often simple `Serializable` value are not enough. However, passing large amount of data around is
+expensive. Usually these data is stored on disk or a distributed storage system. For example, an ETL
+workload usually reads in data from an external storage, writes temporary data on an external
+storage, and writes final data into an external storage.
 
 Spider lets user pass the metadata of these data around in `spider::Data` objects. `Data` stores the
 value of the metadata information of external data, and provides crucial information to Spider for
@@ -207,13 +181,15 @@ struct HdfsFile {
  * Map reads the temporary files and persists the output in Hdfs file.
  */
 auto main(int argc, char** argv) -> int {
+    // driver initialization skipped
     // Creates a HdfsFile Data to represent the input data stored in Hdfs.
     spider::Data<HdfsFile> input = spider::Data<HdfsFile>::Builder()
         .mark_persist(true)
         .build(HdfsFile { "/path/to/input" });
-    spider::Job<spider::Data<HdfsFile>> job = spider::run(
-        spider::bind(map, filter),
+    spider::Job<spider::Data<HdfsFile>> job = driver::start(
+        driver::bind(map, filter),
         input);
+    job.wait_complete();
     std::string const output_path = job.get_result().get().url;
     std::cout << "Result is stored in " << output_path << std::endl;
 }
@@ -275,48 +251,39 @@ auto map(spider::Data<HdfsFile> input) -> spider::Data<HdfsFile> {
 
 ```
 
-## Data as key-value store
+## Using key-value store when tasks restart
 
-`Data` can also be used as a key-value store. User can specify a key when creating the data, and the
-data can be accessed later by its key. Notice that a task can only access the `Data` created by
-itself or passed to it. Client can access any data with the key.
-
-Using the key value store, we can solve the dynamic task result problem
-mentioned [before](#run-task-inside-task).
+Spider provides exactly-once semantics in failure recovery. To achieve this, Spider restarts some
+tasks after a task fails. Tasks might want to keep some data around after restart. However, all the
+`Data` objects created by tasks are cleaned up on restart. Spider provides a key-value store for
+the restarted tasks and restarted clients to retrieve values stored by previous run by `insert_kv`
+and `get_kv` from `Context` or `Driver`. Note that a task or client can only get the value created
+by itself, and the two different tasks can store two different values using the same key.
 
 ```c++
-auto gcd(spider::Context& context, int x, int y, const char* key)
-    -> std::tuple<int, int, std::string> {
-    if (x == y) {
-        spider::Data<int>.Builder()
-            .set_key(key)
-            .build(x);
-        return { x, y, key };
+auto long_running(spider::Context& context) {
+    std::optional<std::string> state_option = context.get_kv("state");
+    if (!state_option.has_value()) {
+        long_compute_0();
+        context.store_kv("state", "0");
     }
-    if (x > y) {
-        context.add_child(gcd);
-        return { x % y, y, key };
-    }
-    context.add_child(gcd);
-    return { x, y % x, key };
-}
-
-auto main(int argc, char** argv) -> int {
-    std::string const key = "random_key";
-    driver.run(gcd, 48, 18, key);
-    while (!driver.get_data_by_key(key)) {
-        int value = driver.get_data_by_key(key).get();
-        std::cout << "gcd of " << x << " and " << y << " is " << value << std::endl;
+    std::string state = context.get_kv("state").value();
+    switch (std::stoi(state)) {
+        case 0:
+            long_compute_1();
+            context.store_kv("state", "1") // Keep running after update key-value store
+        case 1:
+            long_compute_2();
     }
 }
 ```
 
 ## Straggler mitigation
 
-`Driver::register_task` can take a second argument for timeout milliseconds. If a task executes for
-longer than the specified timeout, Spider spawns another task instance running the same function.
-The task that finishes first wins. Other running task instances are cancelled, and associated data
-is cleaned up.
+`SPIDER_REGISTER_TASK_TIMEOUT` is same as `SPIDER_REGISTER_TASK`, but accepts a second argument as
+timeout in milliseconds. If a task instance executes for longer than the specified timeout, Spider
+spawns another task instance running the same function. The task instance that finishes first wins.
+Other running task instances are cancelled, and associated data is cleaned up.
 
-The new task has a different task id, and it is the responsibility of the user to avoid any data
+The new task instance has a different id, and it is the responsibility of the user to avoid any data
 race and deduplicate the output if necessary.
