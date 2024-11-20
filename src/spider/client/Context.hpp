@@ -19,39 +19,45 @@ public:
     /**
      * Aborts the current running task and job. This function never returns.
      *
-     * @param message error message indicating the reason of failure
+     * @param message Error message indicating the reason for the abort.
      */
     auto abort(std::string const& message);
 
     /**
-     * Gets id of the current running task instance.
-     *
-     * @return id of the current running task instance.
+     * @return ID of the current running task instance.
      */
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid;
 
     /**
-     * Gets data by key. Cannot get data created by other tasks.
+     * Gets data by key.
      *
-     * @tparam T type of the value stored in data
-     * @param key key of the data
-     * @return std::nullopt if no data with key is stored, the data associated by the key otherwise
+     * NOTE: Callers cannot get data created by other tasks, but they can get data created by
+     * previous instances of the same task.
+     *
+     * @tparam T Type of the value stored in data
+     * @param key Key of the data.
+     * @return An optional containing the data if the given key exists, or `std::nullopt` otherwise.
      */
     template <typename T>
     auto get_data(std::string const& key) -> std::optional<Data<T>>;
 
     /**
-     * Insert the key-value pair into the key value store. Overwrite the existing value stored if
-     * key already exists.
-     * @param key key of the key-value pair
-     * @param value value of the key-value pair
+     * Inserts the given key-value pair into the key-value store, overwriting any existing value.
+     *
+     * @param key
+     * @param value
      */
     auto insert_kv(std::string const& key, std::string const& value);
 
     /**
-     * Get the value based on the key. Client can only get the value created by itself.
-     * @param key key to lookup
-     * @return std::nullopt if key not in storage, corresponding value if key in storage
+     * Gets the value corresponding to the given key.
+     *
+     * NOTE: Callers cannot get values created by other tasks, but they can get values created by
+     * previous instances of the same task.
+     *
+     * @param key
+     * @return An optional containing the value if the given key exists, or `std::nullopt`
+     * otherwise.
      */
     auto get_kv(std::string const& key) -> std::optional<std::string>;
 
