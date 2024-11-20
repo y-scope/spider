@@ -35,10 +35,19 @@ class DriverImpl;
 class Driver {
 public:
     /**
-     * Connects to storage
-     * @param url url of the storage to connect
+     * Create a spider driver that connects to a storage.
+     *
+     * @param url storage url
      */
-    void connect(std::string const& url);
+    explicit Driver(std::string const& url);
+
+    /**
+     * Create a spider driver that connects to a storage.
+     *
+     * @param url storage url
+     * @param id client id
+     */
+    Driver(std::string const& url, boost::uuids::uuid id);
 
     /**
      * Gets data by key.
@@ -71,7 +80,7 @@ public:
      *
      * @tparam R return type of the task or task graph
      * @tparam Args input types of task or task graph
-     * @tparam Inputs types of task, task graph, spider::Data or POD value
+     * @tparam Inputs types of task, task graph, spider::Data or Serializable
      * @tparam GraphInputs input types of the new task graph
      *
      * @param task child task to be bound on
@@ -80,7 +89,7 @@ public:
      * @return task graph representing the task dependencies. If none of args is a task or task
      * graph, returns a task graph with only one task
      */
-    template <Serializable R, Serializable... Args, class... Inputs, class... GraphInputs>
+    template <Serializable R, Serializable... Args, class... Inputs, Serializable... GraphInputs>
     auto
     bind(std::function<R(Args...)> const& task, Inputs&&... inputs) -> TaskGraph<R(GraphInputs...)>;
 
