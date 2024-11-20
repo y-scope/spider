@@ -94,7 +94,7 @@ public:
     bind(std::function<R(Args...)> const& task, Inputs&&... inputs) -> TaskGraph<R(GraphInputs...)>;
 
     /**
-     * Runs task on Spider.
+     * Starts task on Spider.
      *
      * @tparam R return type of the task
      * @tparam Args input types of the task
@@ -104,10 +104,10 @@ public:
      * @return job representing the running task
      */
     template <Serializable R, Serializable... Args>
-    auto run(std::function<R(Args...)> const& task, Args&&... args) -> Job<R>;
+    auto start(std::function<R(Args...)> const& task, Args&&... args) -> Job<R>;
 
     /**
-     * Runs task graph on Spider.
+     * Starts task graph on Spider.
      *
      * @tparam R return type of the task graph
      * @tparam Args input types of the task graph
@@ -117,7 +117,7 @@ public:
      * @return job representing the running task graph
      */
     template <Serializable R, Serializable... Args>
-    auto run(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
+    auto start(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
 
 private:
     std::unique_ptr<DriverImpl> m_impl;

@@ -6,14 +6,13 @@
 
 namespace spider {
 
-enum class ExceptionCode: std::uint8_t {
+enum class ExceptionCode : std::uint8_t {
     ConnectionError,
-
 };
 
-struct SpiderException: std::exception {
+struct SpiderException : std::exception {
     ExceptionCode code;
 };
 
-}
-#endif // SPIDER_CLIENT_EXCEPTION_HPP
+}  // namespace spider
+#endif  // SPIDER_CLIENT_EXCEPTION_HPP
