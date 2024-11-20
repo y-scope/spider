@@ -34,13 +34,13 @@ struct signature;
 
 template <class R, class... Args>
 struct signature<R(Args...)> {
-    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
 
 template <class R, class... Args>
 struct signature<R (*)(Args...)> {
-    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
 

@@ -40,4 +40,18 @@ struct msgpack::adaptor::pack<boost::uuids::uuid> {
     }
 };
 
+template <class T>
+concept Serialzable = requires(T t) {
+    {
+       msgpack::pack(msgpack::sbuffer{}, t)
+    };
+};
+
+template <class T>
+concept DeSerialzable = requires(T t) {
+    {
+        msgpack::object{}.convert(t)
+    };
+};
+
 #endif  // SPIDER_CORE_SERIALIZER_HPP

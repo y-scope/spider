@@ -5,13 +5,12 @@
 #include <optional>
 #include <string>
 
-// NOLINTBEGIN(misc-include-cleaner)
+// IWYU pragma: begin_exports
 #include "Context.hpp"
 #include "Data.hpp"
 #include "Job.hpp"
 #include "TaskGraph.hpp"
-
-// NOLINTEND(misc-include-cleaner)
+// IWYU pragma: end_exports
 
 namespace spider {
 /**
