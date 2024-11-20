@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "../core/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
@@ -118,6 +119,13 @@ public:
      */
     template <Serializable R, Serializable... Args>
     auto start(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
+
+    /**
+     * Gets all jobs started by drivers with same client id.
+     *
+     * @return ids of the jobs
+     */
+    auto get_jobs() -> std::vector<boost::uuids::uuid>;
 
 private:
     std::unique_ptr<DriverImpl> m_impl;
