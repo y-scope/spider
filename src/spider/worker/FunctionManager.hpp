@@ -17,7 +17,7 @@
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
-#define REGISTER_TASK(func) \
+#define SPIDER_WORKER_REGISTER_TASK(func) \
     spider::core::FunctionManager::get_instance().register_function(#func, func);
 
 namespace spider::core {

@@ -4,6 +4,8 @@
 #include <string>
 #include <utility>
 
+#include "../core/Serializer.hpp"
+
 namespace spider {
 
 class JobImpl {
@@ -20,20 +22,20 @@ private:
     boost::uuids::uuid m_id;
 };
 
-template <class T>
+template <Serializable T>
 auto Job<T>::wait_complete() {}
 
-template <class T>
+template <Serializable T>
 auto Job<T>::get_status() -> JobStatus {
     return m_impl->get_status();
 }
 
-template <class T>
+template <Serializable T>
 auto Job<T>::get_result() -> T {
     return T{};
 }
 
-template <class T>
+template <Serializable T>
 auto Job<T>::get_error() -> std::pair<std::string, std::string> {
     return std::make_pair("", "");
 }

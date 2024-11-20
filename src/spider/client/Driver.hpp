@@ -1,64 +1,67 @@
-#ifndef SPIDER_CLIENT_CONTEXT_HPP
-#define SPIDER_CLIENT_CONTEXT_HPP
+#ifndef SPIDER_CLIENT_DRIVER_HPP
+#define SPIDER_CLIENT_DRIVER_HPP
 
-#include <boost/uuid/uuid.hpp>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include "../core/Serializer.hpp"
+#include "../worker/FunctionManager.hpp"
 #include "Data.hpp"
 #include "Job.hpp"
 #include "TaskGraph.hpp"
 
-namespace spider {
-class ContextImpl;
+// NOLINTBEGIN(cppcoreguidelines-macro-usage)
+/**
+ * Registers function to Spider
+ * @param func function to register
+ */
+#define SPIDER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK(func)
 
-class Context {
+/**
+ * Registers function to Spider with timeout
+ * @param func function to register
+ * @param timeout task is considered straggler after timeout ms, and Spider triggers replicating
+ * the task
+ */
+#define SPIDER_REGISTER_TASK_TIMEOUT(func, timeout) SPIDER_WORKER_REGISTER_TASK(func)
+
+// NOLINTEND(cppcoreguidelines-macro-usage)
+
+namespace spider {
+class DriverImpl;
+
+class Driver {
 public:
     /**
-     * Aborts the current running task and job. This function never returns.
-     *
-     * @param message Error message indicating the reason for the abort.
+     * Connects to storage
+     * @param url url of the storage to connect
      */
-    auto abort(std::string const& message);
-
-    /**
-     * @return ID of the current running task instance.
-     */
-    [[nodiscard]] auto get_id() const -> boost::uuids::uuid;
+    void connect(std::string const& url);
 
     /**
      * Gets data by key.
      *
-     * NOTE: Callers cannot get data created by other tasks, but they can get data created by
-     * previous instances of the same task.
-     *
-     * @tparam T Type of the value stored in data
-     * @param key Key of the data.
-     * @return An optional containing the data if the given key exists, or `std::nullopt` otherwise.
+     * @tparam T type of the value stored in data
+     * @param key key of the data
+     * @return std::nullopt if no data with key is stored, the data associated by the key otherwise
      */
     template <Serializable T>
-    auto get_data(std::string const& key) -> std::optional<Data<T>>;
+    auto get_data(std::string const& key) -> std::optional<spider::Data<T>>;
 
     /**
-     * Inserts the given key-value pair into the key-value store, overwriting any existing value.
-     *
-     * @param key
-     * @param value
+     * Insert the key-value pair into the key value store. Overwrite the existing value stored if
+     * key already exists.
+     * @param key key of the key-value pair
+     * @param value value of the key-value pair
      */
     auto insert_kv(std::string const& key, std::string const& value);
 
     /**
-     * Gets the value corresponding to the given key.
-     *
-     * NOTE: Callers cannot get values created by other tasks, but they can get values created by
-     * previous instances of the same task.
-     *
-     * @param key
-     * @return An optional containing the value if the given key exists, or `std::nullopt`
-     * otherwise.
+     * Get the value based on the key. Client can only get the value created by itself.
+     * @param key key to lookup
+     * @return std::nullopt if key not in storage, corresponding value if key in storage
      */
     auto get_kv(std::string const& key) -> std::optional<std::string>;
 
@@ -108,8 +111,8 @@ public:
     auto run(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
 
 private:
-    std::unique_ptr<ContextImpl> m_impl;
+    std::unique_ptr<DriverImpl> m_impl;
 };
 }  // namespace spider
 
-#endif  // SPIDER_CLIENT_CONTEXT_HPP
+#endif  // SPIDER_CLIENT_DRIVER_HPP

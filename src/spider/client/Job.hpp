@@ -6,6 +6,8 @@
 #include <string>
 #include <utility>
 
+#include "../core/Serializer.hpp"
+
 namespace spider {
 class JobImpl;
 
@@ -21,7 +23,7 @@ enum class JobStatus : uint8_t {
  *
  * @tparam T output type of the job.
  */
-template <class T>
+template <Serializable T>
 class Job {
 public:
     /**

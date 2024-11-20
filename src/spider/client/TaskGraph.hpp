@@ -3,6 +3,8 @@
 
 #include <memory>
 
+#include "../core/Serializer.hpp"
+
 namespace spider {
 class TaskGraphImpl;
 
@@ -11,7 +13,7 @@ class TaskGraphImpl;
  * @tparam R return type of the task graph
  * @tparam Args input types of the task graph
  */
-template <class R, class... Args>
+template <Serializable R, Serializable... Args>
 class TaskGraph {
 public:
 private:

@@ -22,7 +22,7 @@ auto data_test(spider::core::Data const& data) -> spider::core::Data {
 }
 
 TEST_CASE("Register and run function with POD inputs", "[core]") {
-    REGISTER_TASK(int_test);
+    SPIDER_WORKER_REGISTER_TASK(int_test);
 
     spider::core::FunctionManager& manager = spider::core::FunctionManager::get_instance();
 
@@ -60,7 +60,7 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
 }
 
 TEST_CASE("Register and run function with tuple return", "[core]") {
-    REGISTER_TASK(tuple_ret_test);
+    SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
 
     spider::core::FunctionManager& manager = spider::core::FunctionManager::get_instance();
 
@@ -75,7 +75,7 @@ TEST_CASE("Register and run function with tuple return", "[core]") {
 }
 
 TEST_CASE("Register and run function with data", "[core]") {
-    REGISTER_TASK(data_test);
+    SPIDER_WORKER_REGISTER_TASK(data_test);
 
     spider::core::FunctionManager& manager = spider::core::FunctionManager::get_instance();
 

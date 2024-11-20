@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "../core/Serializer.hpp"
+
 namespace spider {
 class DataImpl;
 
@@ -26,9 +28,9 @@ class DataImpl;
  *         .set_key("key")
  *         .build("value");
  *
- * @tparam T type of the value. T must be a POD.
+ * @tparam T type of the value.
  */
-template <class T>
+template <Serializable T>
 class Data {
 public:
     /**
