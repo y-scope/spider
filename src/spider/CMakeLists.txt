@@ -42,6 +42,7 @@ set(SPIDER_CLIENT_SHARED_HEADERS
     client/Driver.hpp
     client/Context.hpp
     client/TaskGraph.hpp
+    client/Exception.hpp
     CACHE INTERNAL
     "spider client shared header files"
 )
