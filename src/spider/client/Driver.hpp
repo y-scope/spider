@@ -1,6 +1,7 @@
 #ifndef SPIDER_CLIENT_DRIVER_HPP
 #define SPIDER_CLIENT_DRIVER_HPP
 
+#include <boost/uuid/uuid.hpp>
 #include <functional>
 #include <memory>
 #include <optional>

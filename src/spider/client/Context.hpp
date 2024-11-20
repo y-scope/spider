@@ -78,7 +78,7 @@ public:
      * @return task graph representing the task dependencies. If none of args is a task or task
      * graph, returns a task graph with only one task
      */
-    template <Serializable R, Serializable... Args, class... Inputs, class... GraphInputs>
+    template <Serializable R, Serializable... Args, class... Inputs, Serializable... GraphInputs>
     auto
     bind(std::function<R(Args...)> const& task, Inputs&&... inputs) -> TaskGraph<R(GraphInputs...)>;
 
