@@ -111,4 +111,4 @@ private:
 };
 }  // namespace spider
 
-#endif // SPIDER_CLIENT_CONTEXT_HPP
+#endif  // SPIDER_CLIENT_CONTEXT_HPP

@@ -43,7 +43,7 @@ struct msgpack::adaptor::pack<boost::uuids::uuid> {
 template <class T>
 concept Serialzable = requires(T t) {
     {
-       msgpack::pack(msgpack::sbuffer{}, t)
+        msgpack::pack(msgpack::sbuffer{}, t)
     };
 };
 
