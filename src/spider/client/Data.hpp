@@ -22,12 +22,6 @@ class DataImpl;
  *
  * Data is passed in as input so the tasks can get the value of the data.
  *
- * Data could also be used as a key-value store.
- * Example:
- *     spider::Data<std::string> key_value_data = spider::Data<std::string>::Builder()
- *         .set_key("key")
- *         .build("value");
- *
  * @tparam T type of the value.
  */
 template <Serializable T>

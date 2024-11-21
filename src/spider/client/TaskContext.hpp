@@ -16,6 +16,11 @@
 namespace spider {
 class ContextImpl;
 
+/**
+ * TaskContext provides a task with all Spider functionalities, e.g. getting task instance id,
+ * accessing data storage, creating and waiting for new jobs, etc.
+ * TaskContext is provided as first argument to a task.
+ */
 class TaskContext {
 public:
     /**

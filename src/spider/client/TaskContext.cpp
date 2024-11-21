@@ -1,6 +1,6 @@
-#include <boost/uuid/uuid.hpp>
-
 #include "TaskContext.hpp"
+
+#include <boost/uuid/uuid.hpp>
 
 namespace spider {
 

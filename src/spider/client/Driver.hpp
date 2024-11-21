@@ -34,6 +34,10 @@
 namespace spider {
 class DriverImpl;
 
+/**
+ * Driver provides Spider functionalities for a client, e.g. accessing data storage, creating new
+ * jobs.
+ */
 class Driver {
 public:
     /**
