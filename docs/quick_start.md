@@ -26,9 +26,10 @@ To get started,
 
 ## Start a client
 
-Client first creates a Spider client driver and connects it to the database. Spider automatically
-cleans up the resource in driver's destructor. User can pass in an optional client id. Two drivers
-with same client id cannot run at the same time.
+Client first creates a Spider client driver that connects to the database. Spider automatically
+cleans up the resource in driver's destructor. User can pass in an optional client id to get access
+to the jobs and data created by a previous driver with same id. Two drivers with same client id
+cannot run at the same time.
 
 ```c++
 #include <spider/spider.hpp>
@@ -41,11 +42,12 @@ auto main(int argc, char **argv) -> int {
 
 ## Create a task
 
-In Spider, a task is a non-member function that takes the first argument a `spider::TaskContext`
-object. It can then take any number of arguments which is `Serializable`.
+In Spider, a task is a non-member function that takes a `spider::TaskContext` as first argument. It
+can then take any number of arguments which is a `TaskArgument`, i.e. `Serializable` or `Data`,
+which will be discussed later.
 
-Tasks can return any `Serialiable` value. If a task needs to return more than one result, uses
-`std::tuple` and makes sure all elements of the tuple are `Serializable`.
+Tasks can return any `TaskArgument` value. If a task needs to return more than one result, uses
+`std::tuple` and makes sure all elements of the tuple are `TaskArgument`.
 
 Spider requires user to register the task function by calling `SPIDER_REGISTER_TASK` statically,
 which sets up the function internally in Spider library for later user. Spider requires the function
@@ -72,10 +74,10 @@ SPIDER_REGISTER_TASK(sort);
 
 ## Run a task
 
-Spider enables user to start a task on the cluster. Simply call `Driver::start` and provide the
-arguments of the task. `Driver::start`returns a `spider::Job` object, which represents the running
-task. `spider::Job` takes the output type of the task graph as template argument. You can call
-`Job::state` to check the state of the running task, and `Job::wait_complete` to block until job
+Spider enables user to start a running task on the cluster. Simply call `Driver::start` and provide
+the arguments of the task. `Driver::start`returns a `spider::Job` object, which represents the
+running task. `spider::Job` takes the output type of the task graph as template argument. You can
+call`Job::state` to check the state of the running task, and `Job::wait_complete` to block until job
 ends and `Job::get_result`. User can send a cancel signal to Spider by calling `Job::cancel`. Client
 can get all running jobs submitted by itself by calling `Driver::get_jobs`.
 
@@ -99,11 +101,11 @@ running `spider start --worker --db <db_url> --libs [client_libraries]`.
 ## Group tasks together
 
 In real world, running a single task is too simple to be useful. Spider lets you bind outputs of
-tasks as inputs of another task, similar to `std::bind`. The first argument of `spider::bind` is the
+tasks as inputs of another task using `spider::bind`. The first argument of `spider::bind` is the
 child task. The later arguments are either a `spider::Task` or a `spider::TaskGraph`, whose entire
-outputs are used as part of the inputs to the child task, or a `Serializable` or
-`spider::Data` that is directly used as input. Spider requires that the types of `Task` or
-`TaskGraph` outputs or POD type or `spider::Data` matches the input types of child task.
+outputs are used as part of the inputs to the child task, or a `TaskArgument` that is directly used
+as input. Spider requires that the types of `Task` and `TaskGraph` outputs and type of
+`TaskArgument` matches the input types of child task.
 
 Binding the tasks together forms a dependencies among tasks, which is represented by
 `spider::TaskGraph`. `TaskGraph` can be further bound into more complicated `TaskGraph` by serving
@@ -131,9 +133,9 @@ auto main(int argc, char **argv) -> auto {
 
 ## Run task inside task
 
-Static task graph is enough to solve a lot of real work problems, but dynamically run task graphs
-on-the-fly could become handy. Running a task graph inside task is the same as running it from a
-client.
+Static task graph is enough to solve a lot of real work problems, but dynamically running task
+graphs on-the-fly could become handy. Running a task graph inside task is the same as running it
+from a client.
 
 ```c++
 auto gcd(spider:TaskContext& context, int x, int y) -> int {
@@ -258,8 +260,7 @@ tasks after a task fails. Tasks might want to keep some data around after restar
 `Data` objects created by tasks are cleaned up on restart. Spider provides a key-value store for
 the restarted tasks and restarted clients to retrieve values stored by previous run by `insert_kv`
 and `get_kv` from `TaskContext` or `Driver`. Note that a task or client can only get the value
-created
-by itself, and the two different tasks can store two different values using the same key.
+created by itself, and the two different tasks can store two different values using the same key.
 
 ```c++
 auto long_running(spider::TaskContext& context) {
