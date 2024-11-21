@@ -1,5 +1,5 @@
-#ifndef SPIDER_CLIENT_TASK_HPP
-#define SPIDER_CLIENT_TASK_HPP
+#ifndef SPIDER_CLIENT_TASKGRAPH_CPP
+#define SPIDER_CLIENT_TASKGRAPH_CPP
 
 #include <memory>
 
@@ -21,4 +21,4 @@ private:
 };
 }  // namespace spider
 
-#endif  // SPIDER_CLIENT_TASK_HPP
+#endif  // SPIDER_CLIENT_TASKGRAPH_CPP
