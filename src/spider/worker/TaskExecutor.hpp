@@ -4,6 +4,7 @@
 #include <boost/process/child.hpp>
 
 #include "FunctionManager.hpp"
+#include "../core/MsgPack.hpp" // IWYU pragma: keep
 
 namespace spider::worker {
 
@@ -31,6 +32,7 @@ public:
 
 private:
     boost::process::child m_process;
+    msgpack::sbuffer m_args_buffer;
     TaskExecutorState m_state = TaskExecutorState::Running;
 
 };
