@@ -41,8 +41,8 @@ auto main(int argc, char **argv) -> int {
 
 ## Create a task
 
-In Spider, a task is a non-member function that takes the first argument a `spider::Context` object.
-It can then take any number of arguments which is `Serializable`.
+In Spider, a task is a non-member function that takes the first argument a `spider::TaskContext`
+object. It can then take any number of arguments which is `Serializable`.
 
 Tasks can return any `Serialiable` value. If a task needs to return more than one result, uses
 `std::tuple` and makes sure all elements of the tuple are `Serializable`.
@@ -53,12 +53,12 @@ name to be unique in the cluster.
 
 ```c++
 // Task that sums to integers
-auto sum(spider::Context &context, int x, int y) -> int {
+auto sum(spider::TaskContext &context, int x, int y) -> int {
     return x + y;
 }
 
 // Task that sorts two integers in non-ascending order
-auto sort(spider::Context &context, int x, int y) -> std::tuple<int, int> {
+auto sort(spider::TaskContext &context, int x, int y) -> std::tuple<int, int> {
     if (x >= y) {
         return { x, y };
     }
@@ -111,11 +111,11 @@ as inputs for another task. You can run the task using `Driver::run` in the same
 single task.
 
 ```c++
-auto square(spider::Context& context, int x) -> int {
+auto square(spider::TaskContext& context, int x) -> int {
     return x * x;
 }
 
-auto square_root(spider::Context& context, int x) -> int {
+auto square_root(spider::TaskContext& context, int x) -> int {
     return sqrt(x);
 }
 // task registration skipped
@@ -136,7 +136,7 @@ on-the-fly could become handy. Running a task graph inside task is the same as r
 client.
 
 ```c++
-auto gcd(spider:Context& context, int x, int y) -> int {
+auto gcd(spider:TaskContext& context, int x, int y) -> int {
     if (x < y) {
         std::swap(x, y);
     }
@@ -149,7 +149,7 @@ auto gcd(spider:Context& context, int x, int y) -> int {
     return x;
 }
 
-auto gcd_impl(spider::Context& context, int x, int y) -> std::tuple<int, int> {
+auto gcd_impl(spider::TaskContext& context, int x, int y) -> std::tuple<int, int> {
     return { x, x % y};
 }
 ```
@@ -201,7 +201,7 @@ auto main(int argc, char** argv) -> int {
  * @param input input file stored in Hdfs
  * @return temporary file store in Hdfs
  */
-auto filter(spider::Data<Hdfsfile> input) -> spider::Data<HdfsFile> {
+auto filter(spider::TaskContext& context, spider::Data<Hdfsfile> input) -> spider::Data<HdfsFile> {
     // We can use task id as a unique random number.
     std::string const output_path = std::format("/path/%s", context.task_id());
     std::string const input_path = input.get().url;
@@ -229,7 +229,7 @@ auto filter(spider::Data<Hdfsfile> input) -> spider::Data<HdfsFile> {
  * @param input input file stored in Hdfs
  * @return persisted output in Hdfs
  */
-auto map(spider::Data<HdfsFile> input) -> spider::Data<HdfsFile> {
+auto map(spider::TaskContext& context, spider::Data<HdfsFile> input) -> spider::Data<HdfsFile> {
     // We use hardcoded path for simplicity in this example. You can pass in
     // the path as an input to the task or use task id as random name as in
     // filter.
@@ -257,11 +257,12 @@ Spider provides exactly-once semantics in failure recovery. To achieve this, Spi
 tasks after a task fails. Tasks might want to keep some data around after restart. However, all the
 `Data` objects created by tasks are cleaned up on restart. Spider provides a key-value store for
 the restarted tasks and restarted clients to retrieve values stored by previous run by `insert_kv`
-and `get_kv` from `Context` or `Driver`. Note that a task or client can only get the value created
+and `get_kv` from `TaskContext` or `Driver`. Note that a task or client can only get the value
+created
 by itself, and the two different tasks can store two different values using the same key.
 
 ```c++
-auto long_running(spider::Context& context) {
+auto long_running(spider::TaskContext& context) {
     std::optional<std::string> state_option = context.get_kv("state");
     if (!state_option.has_value()) {
         long_compute_0();

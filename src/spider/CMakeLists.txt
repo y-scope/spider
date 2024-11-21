@@ -31,7 +31,7 @@ target_link_libraries(spider_core PRIVATE fmt::fmt)
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Data.cpp
     client/Driver.cpp
-    client/Context.cpp
+    client/TaskContext.cpp
     client/TaskGraph.cpp
     CACHE INTERNAL
     "spider client shared source files"
@@ -40,7 +40,7 @@ set(SPIDER_CLIENT_SHARED_SOURCES
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
     client/Driver.hpp
-    client/Context.hpp
+    client/TaskContext.hpp
     client/TaskGraph.hpp
     client/Exception.hpp
     CACHE INTERNAL

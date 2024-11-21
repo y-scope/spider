@@ -16,7 +16,7 @@
 namespace spider {
 class ContextImpl;
 
-class Context {
+class TaskContext {
 public:
     /**
      * Aborts the current running task and job. This function never returns.
