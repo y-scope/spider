@@ -9,7 +9,6 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "Concepts.hpp"
 #include "Job.hpp"
@@ -19,7 +18,7 @@
  * Registers a Task function with Spider
  * @param func
  */
-// NOLINTLINE(cppcoreguidelines-macro-usage)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SPIDER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK(func)
 
 /**
@@ -28,7 +27,7 @@
  * @param timeout The time after which the task is considered a straggler, triggering Spider to
  * replicate the task.
  */
-// NOLINTLINE(cppcoreguidelines-macro-usage)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SPIDER_REGISTER_TASK_TIMEOUT(func, timeout) SPIDER_WORKER_REGISTER_TASK(func)
 
 namespace spider {

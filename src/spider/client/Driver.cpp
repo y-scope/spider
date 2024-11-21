@@ -1,5 +1,7 @@
 #include "Driver.hpp"
 
+#include <string>
+
 #include <boost/uuid/uuid.hpp>
 
 namespace spider {

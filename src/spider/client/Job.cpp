@@ -5,7 +5,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Serializer.hpp"
+#include "Concepts.hpp"
 
 namespace spider {
 
@@ -23,20 +23,20 @@ private:
     boost::uuids::uuid m_id;
 };
 
-template <Serializable T>
+template <TaskArgument T>
 auto Job<T>::wait_complete() {}
 
-template <Serializable T>
+template <TaskArgument T>
 auto Job<T>::get_status() -> JobStatus {
     return m_impl->get_status();
 }
 
-template <Serializable T>
+template <TaskArgument T>
 auto Job<T>::get_result() -> T {
     return T{};
 }
 
-template <Serializable T>
+template <TaskArgument T>
 auto Job<T>::get_error() -> std::pair<std::string, std::string> {
     return std::make_pair("", "");
 }
