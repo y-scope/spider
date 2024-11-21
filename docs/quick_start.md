@@ -43,11 +43,11 @@ auto main(int argc, char **argv) -> int {
 ## Create a task
 
 In Spider, a task is a non-member function that takes a `spider::TaskContext` as first argument. It
-can then take any number of arguments which is a `TaskArgument`, i.e. `Serializable` or `Data`,
-which will be discussed later.
+can then take any number of arguments which is a `TaskIo`, i.e. `Serializable` or `Data`, which will
+be discussed later.
 
-Tasks can return any `TaskArgument` value. If a task needs to return more than one result, uses
-`std::tuple` and makes sure all elements of the tuple are `TaskArgument`.
+Tasks can return any `TaskIo` value. If a task needs to return more than one result, uses
+`std::tuple` and makes sure all elements of the tuple are `TaskIo`.
 
 Spider requires user to register the task function by calling `SPIDER_REGISTER_TASK` statically,
 which sets up the function internally in Spider library for later user. Spider requires the function
@@ -103,9 +103,9 @@ running `spider start --worker --db <db_url> --libs [client_libraries]`.
 In real world, running a single task is too simple to be useful. Spider lets you bind outputs of
 tasks as inputs of another task using `spider::bind`. The first argument of `spider::bind` is the
 child task. The later arguments are either a `spider::Task` or a `spider::TaskGraph`, whose entire
-outputs are used as part of the inputs to the child task, or a `TaskArgument` that is directly used
-as input. Spider requires that the types of `Task` and `TaskGraph` outputs and type of
-`TaskArgument` matches the input types of child task.
+outputs are used as part of the inputs to the child task, or a `TaskIo` that is directly used as
+input. Spider requires that the types of `Task` and `TaskGraph` outputs and type of `TaskIo` matches
+the input types of child task.
 
 Binding the tasks together forms a dependencies among tasks, which is represented by
 `spider::TaskGraph`. `TaskGraph` can be further bound into more complicated `TaskGraph` by serving

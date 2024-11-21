@@ -69,10 +69,10 @@ public:
      * @return A `TaskGraph` of the inputs bound to `task`.
      */
     template <
-            TaskArgument ReturnType,
-            TaskArgument... TaskParams,
+            TaskIo ReturnType,
+            TaskIo... TaskParams,
             class... Inputs,
-            TaskArgument... GraphParams>
+            TaskIo... GraphParams>
     auto bind(std::function<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
             -> TaskGraph<ReturnType(GraphParams...)>;
 
@@ -85,7 +85,7 @@ public:
      * @param inputs
      * @return A job representing the running task.
      */
-    template <TaskArgument ReturnType, TaskArgument... Params>
+    template <TaskIo ReturnType, TaskIo... Params>
     auto
     start(std::function<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
 
@@ -98,7 +98,7 @@ public:
      * @param inputs
      * @return A job representing the running task graph.
      */
-    template <TaskArgument ReturnType, TaskArgument... Params>
+    template <TaskIo ReturnType, TaskIo... Params>
     auto
     start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
 

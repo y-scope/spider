@@ -18,7 +18,7 @@ template <class T, template <class, class...> class u>
 inline constexpr bool cIsSpecializationV = IsSpecialization<T, u>::value;
 
 template <class T>
-concept TaskArgument = Serializable<T> || cIsSpecializationV<T, Data>;
+concept TaskIo = Serializable<T> || cIsSpecializationV<T, Data>;
 
 }  // namespace spider
 

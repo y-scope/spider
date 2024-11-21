@@ -23,7 +23,7 @@ enum class JobStatus : uint8_t {
  *
  * @tparam ReturnType
  */
-template <TaskArgument ReturnType>
+template <TaskIo ReturnType>
 class Job {
 public:
     /**

@@ -14,7 +14,7 @@ class TaskGraphImpl;
  * @tparam ReturnType
  * @tparam Params
  */
-template <TaskArgument ReturnType, TaskArgument... Params>
+template <TaskIo ReturnType, TaskIo... Params>
 class TaskGraph {
 public:
 private:
