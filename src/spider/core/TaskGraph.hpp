@@ -4,10 +4,11 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
 
-#include <boost/uuid/uuid.hpp>
 #include <optional>
 #include <utility>
 #include <vector>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "Task.hpp"
 

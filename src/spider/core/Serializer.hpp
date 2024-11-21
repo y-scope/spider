@@ -1,9 +1,10 @@
 #ifndef SPIDER_CORE_SERIALIZER_HPP
 #define SPIDER_CORE_SERIALIZER_HPP
 
-#include <boost/uuid/uuid.hpp>
 #include <cstdint>
 #include <cstring>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "MsgPack.hpp"  // IWYU pragma: keep
 

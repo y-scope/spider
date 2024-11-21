@@ -1,8 +1,9 @@
 #include "Job.hpp"
 
-#include <boost/uuid/uuid.hpp>
 #include <string>
 #include <utility>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "../core/Serializer.hpp"
 

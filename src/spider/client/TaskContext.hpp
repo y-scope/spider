@@ -1,12 +1,13 @@
 #ifndef SPIDER_CLIENT_CONTEXT_HPP
 #define SPIDER_CLIENT_CONTEXT_HPP
 
-#include <boost/uuid/uuid.hpp>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "../core/Serializer.hpp"
 #include "Concepts.hpp"

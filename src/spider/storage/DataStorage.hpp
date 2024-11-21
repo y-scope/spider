@@ -1,8 +1,9 @@
 #ifndef SPIDER_STORAGE_DATASTORAGE_HPP
 #define SPIDER_STORAGE_DATASTORAGE_HPP
 
-#include <boost/uuid/uuid.hpp>
 #include <string>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"

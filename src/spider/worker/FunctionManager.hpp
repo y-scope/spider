@@ -2,7 +2,6 @@
 #define SPIDER_WORKER_FUNCTIONMANAGER_HPP
 
 #include <absl/container/flat_hash_map.h>
-#include <fmt/format.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +13,8 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include <fmt/format.h>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
