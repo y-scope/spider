@@ -32,6 +32,8 @@ set(SPIDER_WORKER_SOURCES
     worker/worker.cpp
     worker/DllLoader.hpp
     worker/DllLoader.cpp
+    worker/TaskExecutor.hpp
+    worker/TaskExecutor.cpp
     CACHE INTERNAL
     "spider worker source files"
 )

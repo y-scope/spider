@@ -7,7 +7,6 @@
 #include <array>
 #include <string>
 #include <vector>
-#include <iostream>
 
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
