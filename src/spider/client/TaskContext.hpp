@@ -37,19 +37,6 @@ public:
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid;
 
     /**
-     * Gets data by key.
-     *
-     * NOTE: Callers cannot get data created by other tasks, but they can get data created by
-     * previous instances of the same task.
-     *
-     * @tparam Value
-     * @param key
-     * @return An optional containing the data if the given key exists, or `std::nullopt` otherwise.
-     */
-    template <Serializable Value>
-    auto get_data(std::string const& key) -> std::optional<Data<Value>>;
-
-    /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.
      *
      * @param key

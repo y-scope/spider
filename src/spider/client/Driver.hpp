@@ -15,22 +15,21 @@
 #include "Job.hpp"
 #include "TaskGraph.hpp"
 
-// NOLINTBEGIN(cppcoreguidelines-macro-usage)
 /**
- * Registers function to Spider
- * @param func function to register
+ * Registers a Task function with Spider
+ * @param func
  */
+// NOLINTLINE(cppcoreguidelines-macro-usage)
 #define SPIDER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK(func)
 
 /**
- * Registers function to Spider with timeout
- * @param func function to register
- * @param timeout task is considered straggler after timeout ms, and Spider triggers replicating
- * the task
+ * Registers a timed Task function with Spider
+ * @param func
+ * @param timeout The time after which the task is considered a straggler, triggering Spider to
+ * replicate the task.
  */
+// NOLINTLINE(cppcoreguidelines-macro-usage)
 #define SPIDER_REGISTER_TASK_TIMEOUT(func, timeout) SPIDER_WORKER_REGISTER_TASK(func)
-
-// NOLINTEND(cppcoreguidelines-macro-usage)
 
 namespace spider {
 class DriverImpl;
@@ -42,42 +41,34 @@ class DriverImpl;
 class Driver {
 public:
     /**
-     * Create a spider driver that connects to a storage.
-     *
-     * @param url storage url
+     * @param storage_url
      */
-    explicit Driver(std::string const& url);
+    explicit Driver(std::string const& storage_url);
 
     /**
-     * Create a spider driver that connects to a storage.
-     *
-     * @param url storage url
-     * @param id client id
+     * @param storage_url
+     * @param id User could provide client id to access the jobs and data created from a previous
+     * Driver with same id
      */
-    Driver(std::string const& url, boost::uuids::uuid id);
+    Driver(std::string const& storage_url, boost::uuids::uuid id);
 
     /**
-     * Gets data by key.
+     * Inserts the given key-value pair into the key-value store, overwriting any existing value.
      *
-     * @tparam T type of the value stored in data
-     * @param key key of the data
-     * @return std::nullopt if no data with key is stored, the data associated by the key otherwise
-     */
-    template <Serializable T>
-    auto get_data(std::string const& key) -> std::optional<spider::Data<T>>;
-
-    /**
-     * Insert the key-value pair into the key value store. Overwrite the existing value stored if
-     * key already exists.
-     * @param key key of the key-value pair
-     * @param value value of the key-value pair
+     * @param key
+     * @param value
      */
     auto insert_kv(std::string const& key, std::string const& value);
 
     /**
-     * Get the value based on the key. Client can only get the value created by itself.
-     * @param key key to lookup
-     * @return std::nullopt if key not in storage, corresponding value if key in storage
+     * Gets the value corresponding to the given key.
+     *
+     * NOTE: Callers cannot get values created by other clients, but they can get values created by
+     * previous `Driver` with the same client id
+     *
+     * @param key
+     * @return An optional containing the value if the given key exists, or `std::nullopt`
+     * otherwise.
      */
     auto get_kv(std::string const& key) -> std::optional<std::string>;
 
@@ -134,7 +125,7 @@ public:
     /**
      * Gets all jobs started by drivers with same client id.
      *
-     * @return ids of the jobs
+     * @return IDs of the jobs
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
 
