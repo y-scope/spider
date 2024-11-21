@@ -43,6 +43,7 @@ set(SPIDER_CLIENT_SHARED_HEADERS
     client/TaskContext.hpp
     client/TaskGraph.hpp
     client/Exception.hpp
+    client/Concepts.hpp
     CACHE INTERNAL
     "spider client shared header files"
 )
