@@ -4,9 +4,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <utility>
 
-#include "../core/Serializer.hpp"
+#include "Concepts.hpp"
 
 namespace spider {
 class JobImpl;
@@ -21,9 +20,9 @@ enum class JobStatus : uint8_t {
 /**
  * Job represents a running task graph.
  *
- * @tparam T output type of the job.
+ * @tparam ReturnType
  */
-template <Serializable T>
+template <TaskArgument ReturnType>
 class Job {
 public:
     /**
@@ -40,18 +39,20 @@ public:
 
     /**
      * Get the result of the succeeded job.
-     * It is undefined behavior to call on job that is in other status.
+     *
+     * Note: It is undefined behavior to call on job that is in other status.
      *
      * @return Result of the job.
      */
-    auto get_result() -> T;
+    auto get_result() -> ReturnType;
 
     /**
      * Get the error message of the failed job.
-     * It is undefined behavior to call on job that is in other status.
      *
-     * @return first is the function that fails. second is the error message provided in
-     * context::abort
+     * Note: It is undefined behavior to call on job that is in other status.
+     *
+     * @return `first` is the name of the task function that fails. `second` is the error message
+     * provided in `TaskContext::abort`
      */
     auto get_error() -> std::pair<std::string, std::string>;
 

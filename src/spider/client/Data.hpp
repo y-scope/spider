@@ -35,9 +35,10 @@ public:
 
     /**
      * Sets locality list of the data.
-     * @param nodes nodes that has locality
+     *
+     * @param nodes
      * @param hard true if the locality list is a hard requirement, false otherwise. Hard locality
-     * requirement means that data can only be accessed from the node in the locality list.
+     * requirement means that data can only be accessed from `nodes`.
      */
     void set_locality(std::vector<std::string> const& nodes, bool hard);
 
@@ -45,15 +46,17 @@ public:
     public:
         /**
          * Sets locality list of the data to build.
-         * @param nodes nodes that has locality
+         *
+         * @param nodes
          * @param hard true if the locality list is a hard requirement, false otherwise
          * @return self
          */
         auto set_locality(std::vector<std::string> const& nodes, bool hard) -> Data<T>::Builder&;
 
         /**
-         * Defines clean up functions of the data to build.
-         * @param f clean up function of data
+         * Defines clean up function of the data to build.
+         *
+         * @param f
          * @return self
          */
         auto set_cleanup(std::function<T const&()> const& f) -> Data<T>::Builder&;
@@ -61,8 +64,9 @@ public:
         /**
          * Builds the data. Stores the value of data into storage with locality list and cleanup
          * functions.
-         * @param t value of the data
-         * @return data object
+         *
+         * @param t Value of the data
+         * @return Data object created.
          */
         auto build(T const& t) -> Data<T>;
     };
