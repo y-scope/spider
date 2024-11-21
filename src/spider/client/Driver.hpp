@@ -79,7 +79,6 @@ public:
      * @tparam TaskParams
      * @tparam Inputs
      * @tparam GraphParams
-     *
      * @param task
      * @param inputs Inputs to bind to `task`. If an input is a `Task` or `TaskGraph`, their
      * outputs will be bound to the inputs of `task`.
@@ -88,9 +87,9 @@ public:
     template <
             TaskIo ReturnType,
             TaskIo... TaskParams,
-            class... Inputs,
+            RunnableOrTaskIo... Inputs,
             TaskIo... GraphParams>
-    auto bind(std::function<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
+    auto bind(TaskFunction<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
             -> TaskGraph<ReturnType(GraphParams...)>;
 
     /**
@@ -98,21 +97,19 @@ public:
      *
      * @tparam ReturnType
      * @tparam Params
-     *
      * @param task task to run
      * @param inputs task input
      * @return A job representing the running task
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
-    start(std::function<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
+    start(TaskFunction<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
 
     /**
      * Starts running a task graph with the given inputs on Spider.
      *
      * @tparam ReturnType
-     * @tparam Params input types of the task grap
-     *
+     * @tparam Params
      * @param graph
      * @param inputs
      * @return A job representing the running task graph
