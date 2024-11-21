@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../core/Serializer.hpp"
+#include "Concepts.hpp"
 #include "Data.hpp"
 #include "Job.hpp"
 #include "TaskGraph.hpp"
@@ -82,10 +83,10 @@ public:
      * @return A `TaskGraph` of the inputs bound to `task`.
      */
     template <
-            Serializable ReturnType,
-            Serializable... TaskParams,
+            TaskArgument ReturnType,
+            TaskArgument... TaskParams,
             class... Inputs,
-            Serializable... GraphParams>
+            TaskArgument... GraphParams>
     auto bind(std::function<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
             -> TaskGraph<ReturnType(GraphParams...)>;
 
@@ -98,7 +99,7 @@ public:
      * @param inputs
      * @return A job representing the running task.
      */
-    template <Serializable ReturnType, Serializable... Params>
+    template <TaskArgument ReturnType, TaskArgument... Params>
     auto
     start(std::function<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
 
@@ -111,7 +112,7 @@ public:
      * @param inputs
      * @return A job representing the running task graph.
      */
-    template <Serializable ReturnType, Serializable... Params>
+    template <TaskArgument ReturnType, TaskArgument... Params>
     auto
     start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
 

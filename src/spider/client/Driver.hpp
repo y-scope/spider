@@ -10,6 +10,7 @@
 
 #include "../core/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
+#include "Concepts.hpp"
 #include "Data.hpp"
 #include "Job.hpp"
 #include "TaskGraph.hpp"
@@ -84,46 +85,51 @@ public:
      * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,
      * forming dependencies between tasks. Input can also be a value or a spider::Data.
      *
-     * @tparam R return type of the task or task graph
-     * @tparam Args input types of task or task graph
-     * @tparam Inputs types of task, task graph, spider::Data or Serializable
-     * @tparam GraphInputs input types of the new task graph
+     * @tparam ReturnType Return type for both the task and the resulting `TaskGraph`.
+     * @tparam TaskParams
+     * @tparam Inputs
+     * @tparam GraphParams
      *
-     * @param task child task to be bound on
-     * @param inputs task or task graph whose outputs to bind to f, or value or spider::Data used as
-     * input
-     * @return task graph representing the task dependencies. If none of args is a task or task
-     * graph, returns a task graph with only one task
+     * @param task
+     * @param inputs Inputs to bind to `task`. If an input is a `Task` or `TaskGraph`, their
+     * outputs will be bound to the inputs of `task`.
+     * @return  A `TaskGraph` of the inputs bound to `task`.
      */
-    template <Serializable R, Serializable... Args, class... Inputs, Serializable... GraphInputs>
-    auto
-    bind(std::function<R(Args...)> const& task, Inputs&&... inputs) -> TaskGraph<R(GraphInputs...)>;
+    template <
+            TaskArgument ReturnType,
+            TaskArgument... TaskParams,
+            class... Inputs,
+            TaskArgument... GraphParams>
+    auto bind(std::function<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
+            -> TaskGraph<ReturnType(GraphParams...)>;
 
     /**
-     * Starts task on Spider.
+     * Starts running a task with the given inputs on Spider.
      *
-     * @tparam R return type of the task
-     * @tparam Args input types of the task
+     * @tparam ReturnType
+     * @tparam Params
      *
      * @param task task to run
-     * @param args task input
-     * @return job representing the running task
+     * @param inputs task input
+     * @return A job representing the running task
      */
-    template <Serializable R, Serializable... Args>
-    auto start(std::function<R(Args...)> const& task, Args&&... args) -> Job<R>;
+    template <TaskArgument ReturnType, TaskArgument... Params>
+    auto
+    start(std::function<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
 
     /**
-     * Starts task graph on Spider.
+     * Starts running a task graph with the given inputs on Spider.
      *
-     * @tparam R return type of the task graph
-     * @tparam Args input types of the task graph
+     * @tparam ReturnType
+     * @tparam Params input types of the task grap
      *
-     * @param graph task graph to run
-     * @param args task input
-     * @return job representing the running task graph
+     * @param graph
+     * @param inputs
+     * @return A job representing the running task graph
      */
-    template <Serializable R, Serializable... Args>
-    auto start(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
+    template <TaskArgument ReturnType, TaskArgument... Params>
+    auto
+    start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
 
     /**
      * Gets all jobs started by drivers with same client id.
