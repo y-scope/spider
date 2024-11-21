@@ -41,7 +41,7 @@ public:
      * @param key
      * @param value
      */
-    auto insert_kv(std::string const& key, std::string const& value);
+    auto kv_store_insert(std::string const& key, std::string const& value);
 
     /**
      * Gets the value corresponding to the given key.
@@ -53,7 +53,7 @@ public:
      * @return An optional containing the value if the given key exists, or `std::nullopt`
      * otherwise.
      */
-    auto get_kv(std::string const& key) -> std::optional<std::string>;
+    auto kv_store_get(std::string const& key) -> std::optional<std::string>;
 
     /**
      * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,

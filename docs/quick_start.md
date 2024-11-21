@@ -258,22 +258,23 @@ auto map(spider::TaskContext& context, spider::Data<HdfsFile> input) -> spider::
 Spider provides exactly-once semantics in failure recovery. To achieve this, Spider restarts some
 tasks after a task fails. Tasks might want to keep some data around after restart. However, all the
 `Data` objects created by tasks are cleaned up on restart. Spider provides a key-value store for
-the restarted tasks and restarted clients to retrieve values stored by previous run by `insert_kv`
-and `get_kv` from `TaskContext` or `Driver`. Note that a task or client can only get the value
-created by itself, and the two different tasks can store two different values using the same key.
+the restarted tasks and restarted clients to retrieve values stored by previous run by
+`kv_store_insert` and `kv_store_get` from `TaskContext` or `Driver`. Note that a task or client can
+only get the value created by itself, and the two different tasks can store two different values
+using the same key.
 
 ```c++
 auto long_running(spider::TaskContext& context) {
-    std::optional<std::string> state_option = context.get_kv("state");
+    std::optional<std::string> state_option = context.kv_store_get("state");
     if (!state_option.has_value()) {
         long_compute_0();
-        context.store_kv("state", "0");
+        context.kv_store_insert("state", "0");
     }
-    std::string state = context.get_kv("state").value();
+    std::string state = context.kv_store_get("state").value();
     switch (std::stoi(state)) {
         case 0:
             long_compute_1();
-            context.store_kv("state", "1") // Keep running after update key-value store
+            context.kv_store_insert("state", "1") // Keep running after update key-value store
         case 1:
             long_compute_2();
     }
