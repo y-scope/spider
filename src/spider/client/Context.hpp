@@ -36,12 +36,12 @@ public:
      * NOTE: Callers cannot get data created by other tasks, but they can get data created by
      * previous instances of the same task.
      *
-     * @tparam T Type of the value stored in data
-     * @param key Key of the data.
+     * @tparam Value
+     * @param key
      * @return An optional containing the data if the given key exists, or `std::nullopt` otherwise.
      */
-    template <Serializable T>
-    auto get_data(std::string const& key) -> std::optional<Data<T>>;
+    template <Serializable Value>
+    auto get_data(std::string const& key) -> std::optional<Data<Value>>;
 
     /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.
@@ -67,51 +67,53 @@ public:
      * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,
      * forming dependencies between tasks. Input can also be a value or a spider::Data.
      *
-     * @tparam R return type of the task or task graph
-     * @tparam Args input types of task or task graph
-     * @tparam Inputs types of task, task graph, spider::Data or POD value
-     * @tparam GraphInputs input types of the new task graph
-     *
-     * @param task child task to be bound on
-     * @param inputs task or task graph whose outputs to bind to f, or value or spider::Data used as
-     * input
-     * @return task graph representing the task dependencies. If none of args is a task or task
-     * graph, returns a task graph with only one task
+     * @tparam ReturnType Return type for both the task and the resulting `TaskGraph`.
+     * @tparam TaskParams
+     * @tparam Inputs
+     * @tparam GraphParams
+     * @param task
+     * @param inputs Inputs to bind to `task`. If an input is a `Task` or `TaskGraph`, their
+     * outputs will be bound to the inputs of `task`.
+     * @return A `TaskGraph` of the inputs bound to `task`.
      */
-    template <Serializable R, Serializable... Args, class... Inputs, Serializable... GraphInputs>
+    template <
+            Serializable ReturnType,
+            Serializable... TaskParams,
+            class... Inputs,
+            Serializable... GraphParams>
+    auto bind(std::function<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
+            -> TaskGraph<ReturnType(GraphParams...)>;
+
+    /**
+     * Starts running a task with the given inputs on Spider.
+     *
+     * @tparam ReturnType
+     * @tparam Params
+     * @param task
+     * @param inputs
+     * @return A job representing the running task.
+     */
+    template <Serializable ReturnType, Serializable... Params>
     auto
-    bind(std::function<R(Args...)> const& task, Inputs&&... inputs) -> TaskGraph<R(GraphInputs...)>;
+    start(std::function<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
 
     /**
-     * Starts task on Spider.
+     * Starts running a task graph with the given inputs on Spider.
      *
-     * @tparam R return type of the task
-     * @tparam Args input types of the task
-     *
-     * @param task task to run
-     * @param args task input
-     * @return job representing the running task
+     * @tparam ReturnType
+     * @tparam Params
+     * @param graph
+     * @param inputs
+     * @return A job representing the running task graph.
      */
-    template <Serializable R, Serializable... Args>
-    auto start(std::function<R(Args...)> const& task, Args&&... args) -> Job<R>;
+    template <Serializable ReturnType, Serializable... Params>
+    auto
+    start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
 
     /**
-     * Starts task graph on Spider.
+     * Gets all jobs started by this task.
      *
-     * @tparam R return type of the task graph
-     * @tparam Args input types of the task graph
-     *
-     * @param graph task graph to run
-     * @param args task input
-     * @return job representing the running task graph
-     */
-    template <Serializable R, Serializable... Args>
-    auto start(TaskGraph<R(Args...)> const& graph, Args&&... args) -> Job<R>;
-
-    /**
-     * Gets all jobs started by the task.
-     *
-     * @return ids of the jobs
+     * @return IDs of the jobs.
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
 
