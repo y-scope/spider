@@ -50,7 +50,7 @@ target_link_libraries(
 set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/DllLoader.cpp
     worker/DllLoader.hpp
-    worker/TaskExecutor.cpp
+    worker/task_executor.cpp
     CACHE INTERNAL
     "spider task executor source filees"
 )
