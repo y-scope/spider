@@ -9,9 +9,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Serializer.hpp"
 #include "Concepts.hpp"
-#include "Data.hpp"
 #include "Job.hpp"
 #include "TaskGraph.hpp"
 

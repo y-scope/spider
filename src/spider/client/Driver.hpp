@@ -12,7 +12,6 @@
 #include "../core/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "Concepts.hpp"
-#include "Data.hpp"
 #include "Job.hpp"
 #include "TaskGraph.hpp"
 

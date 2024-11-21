@@ -3,17 +3,18 @@
 
 #include <memory>
 
-#include "../core/Serializer.hpp"
+#include "Concepts.hpp"
 
 namespace spider {
 class TaskGraphImpl;
 
 /**
  * TaskGraph represents a DAG of tasks.
- * @tparam R return type of the task graph
- * @tparam Args input types of the task graph
+ *
+ * @tparam ReturnType
+ * @tparam Params
  */
-template <Serializable R, Serializable... Args>
+template <TaskArgument ReturnType, TaskArgument... Params>
 class TaskGraph {
 public:
 private:
