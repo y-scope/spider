@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
+#include "TaskExecutorMessage.hpp"
 
 #define REGISTER_TASK(func) \
     spider::core::FunctionManager::get_instance().register_function(#func, func);
@@ -82,33 +83,27 @@ MSGPACK_ADD_ENUM(spider::core::FunctionInvokeError);
 
 namespace spider::core {
 
-inline auto buffer_get_error(msgpack::sbuffer const& buffer
+inline auto message_get_error(msgpack::sbuffer const& buffer
 ) -> std::optional<std::tuple<FunctionInvokeError, std::string>> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
         msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
         msgpack::object const object = handle.get();
 
-        if (msgpack::type::MAP != object.type || 2 != object.via.map.size) {
+        if (msgpack::type::ARRAY != object.type || 3 != object.via.array.size) {
             return std::nullopt;
         }
 
-        std::optional<FunctionInvokeError> err;
-        std::optional<std::string> message;
-        for (size_t i = 0; i < object.via.map.size; ++i) {
-            msgpack::object_kv const& kv = object.via.map.ptr[i];
-            std::string const key = kv.key.as<std::string>();
-            if ("err" == key) {
-                err = kv.val.as<FunctionInvokeError>();
-            } else if ("msg" == key) {
-                message = kv.val.as<std::string>();
-            }
-        }
-        if (!err || !message) {
+        if (worker::TaskExecutorMessageType::Error
+            != object.via.array.ptr[0].as<worker::TaskExecutorMessageType>())
+        {
             return std::nullopt;
         }
 
-        return std::make_tuple(*err, *message);
+        return std::make_tuple(
+                object.via.array.ptr[1].as<FunctionInvokeError>(),
+                object.via.array.ptr[2].as<std::string>()
+        );
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
@@ -116,16 +111,27 @@ inline auto buffer_get_error(msgpack::sbuffer const& buffer
 }
 
 template <class T>
-auto buffer_get(msgpack::sbuffer const& buffer) -> std::optional<T> {
+auto message_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
         msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
-        msgpack::object object = handle.get();
-        T t;
-        object.convert(t);
-        return t;
+        msgpack::object const object = handle.get();
+
+        if (msgpack::type::ARRAY != object.type || 2 != object.via.array.size) {
+            return std::nullopt;
+        }
+
+        if (worker::TaskExecutorMessageType::Result
+            != object.via.array.ptr[0].as<worker::TaskExecutorMessageType>())
+        {
+            return std::nullopt;
+        }
+
+        return object.via.array.ptr[1].as<T>();
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)

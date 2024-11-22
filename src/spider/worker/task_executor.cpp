@@ -1,16 +1,15 @@
 
+#include <array>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
-
-#include <array>
 #include <string>
 #include <vector>
 
+#include "../core/MsgPack.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
-#include "../core/MsgPack.hpp"
 
 namespace {
 
@@ -65,9 +64,9 @@ auto main(int const argc, char** argv) -> int {
     read_inputs(args_buffer);
 
     // Run fucntion
-    spider::core::Function* function = spider::core::FunctionManager::get_instance().get_function(func_name);
+    spider::core::Function* function
+            = spider::core::FunctionManager::get_instance().get_function(func_name);
     msgpack::sbuffer const result_buffer = (*function)(args_buffer);
 
     // Write arg buffer to stdout
-
 }

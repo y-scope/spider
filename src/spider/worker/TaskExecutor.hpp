@@ -32,12 +32,8 @@ public:
 private:
     boost::process::child m_process;
     TaskExecutorState m_state = TaskExecutorState::Running;
-
 };
 
+}  // namespace spider::worker
 
-}
-
-#endif // SPIDER_WORKER_TASKEXECUTOR_HPP
-
-
+#endif  // SPIDER_WORKER_TASKEXECUTOR_HPP
