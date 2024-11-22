@@ -12,6 +12,7 @@ class DllLoader {
 public:
     static auto get_instance() -> DllLoader& {
         // Explicitly use new because DllLoader instance should not be destroyed
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
         static auto* instance = new DllLoader();
         return *instance;
     }
