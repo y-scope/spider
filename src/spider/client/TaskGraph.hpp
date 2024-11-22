@@ -1,12 +1,14 @@
 #ifndef SPIDER_CLIENT_TASKGRAPH_CPP
 #define SPIDER_CLIENT_TASKGRAPH_CPP
 
+#include <functional>
 #include <memory>
 
 #include "Concepts.hpp"
-#include "TaskContext.hpp"
 
 namespace spider {
+
+class TaskContext;
 
 template <TaskIo ReturnType, TaskIo... TaskParams>
 using TaskFunction = std::function<ReturnType(TaskContext, TaskParams...)>;

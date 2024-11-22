@@ -73,7 +73,7 @@ public:
             TaskIo... TaskParams,
             RunnableOrTaskIo... Inputs,
             TaskIo... GraphParams>
-    auto bind(TaskFunction<ReturnType(TaskParams...)> const& task, Inputs&&... inputs)
+    auto bind(TaskFunction<ReturnType, TaskParams...> const& task, Inputs&&... inputs)
             -> TaskGraph<ReturnType(GraphParams...)>;
 
     /**
@@ -87,7 +87,7 @@ public:
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
-    start(TaskFunction<ReturnType(Params...)> const& task, Params&&... inputs) -> Job<ReturnType>;
+    start(TaskFunction<ReturnType, Params...> const& task, Params&&... inputs) -> Job<ReturnType>;
 
     /**
      * Starts running a task graph with the given inputs on Spider.
