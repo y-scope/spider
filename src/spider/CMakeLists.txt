@@ -35,6 +35,8 @@ set(SPIDER_WORKER_SOURCES
     worker/TaskExecutor.hpp
     worker/TaskExecutor.cpp
     worker/TaskExecutorMessage.hpp
+    worker/message_pipe.cpp
+    worker/message_pipe.hpp
     CACHE INTERNAL
     "spider worker source files"
 )
