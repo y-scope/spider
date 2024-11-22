@@ -128,6 +128,24 @@ auto main(int argc, char **argv) -> auto {
 }
 ```
 
+The above code generates a task graph that accepts two `int`s and returns an `int`.
+```mermaid
+flowchart LR
+    sq1["square(int) -> int"]
+    sq2["square(int) -> int"]
+    sum["sum(int, int) -> int"]
+    sqrt["square_root(int) -> int"]
+    i3("int")
+    i4("int")
+    o5("int")
+    i3 --3--> sq1
+    i4 --4--> sq2
+    sq1 --9--> sum
+    sq2 --16--> sum
+    sum --25--> sqrt
+    sqrt --5--> o5
+```
+
 ## Run task inside task
 
 Static task graph is enough to solve a lot of real work problems, but dynamically running task
