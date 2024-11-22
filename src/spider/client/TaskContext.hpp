@@ -1,7 +1,6 @@
 #ifndef SPIDER_CLIENT_CONTEXT_HPP
 #define SPIDER_CLIENT_CONTEXT_HPP
 
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
