@@ -4,29 +4,18 @@
 
 A Spider cluster is made up of three components:
 
-* __Database__: Spider stores all the states and data in a fault-tolerant database.
+* __Storage__: Spider stores all the states and data in a fault-tolerant storage.
 * __Scheduler__: Scheduler is responsible for making scheduling decision when a worker ask for a new
   task to run. It also handles garbage collection and failure recovery.
 * __Worker__: Worker executes the task it is assigned to. Once it finishes, it updates the task
-  output in database and contacts scheduler for a new task.
+  output in storage and contacts scheduler for a new task.
 
-Users creates a __client__ to run tasks on Spider cluster. It connects to the database to submit new
+Users creates a __client__ to run tasks on Spider cluster. It connects to the storage to submit new
 tasks and get the results. Clients _never_ directly talks to a scheduler or a worker.
-
-## Set up Spider
-
-To get started,
-
-1. Start a database supported by Spider, e.g. MySql.
-2. Start a scheduler and connect it to the database by running
-   `spider start --scheduler --db <db_url> --port <scheduler_port>`.
-3. Start some workers and connect them to the database by running
-   `spider start --worker --db <db_url>`. Starting a worker that can run specific tasks needs to
-   link to libraries. We'll cover this later.
 
 ## Start a client
 
-Client first creates a Spider client driver that connects to the database. Spider automatically
+Client first creates a Spider client driver that connects to the storage. Spider automatically
 cleans up the resource in driver's destructor. User can pass in an optional client id to get access
 to the jobs and data created by a previous driver with same id. Two drivers with same client id
 cannot run at the same time.
@@ -36,7 +25,7 @@ cannot run at the same time.
 
 auto main(int argc, char **argv) -> int {
     boost::uuids::string_generator gen;
-    spider::Driver driver{"db_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
+    spider::Driver driver{"storage_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
 }
 ```
 
@@ -76,8 +65,8 @@ SPIDER_REGISTER_TASK(sort);
 
 Spider enables user to start a running task on the cluster. Simply call `Driver::start` and provide
 the arguments of the task. `Driver::start`returns a `spider::Job` object, which represents the
-running task. `spider::Job` takes the output type of the task graph as template argument. You can
-call`Job::state` to check the state of the running task, and `Job::wait_complete` to block until job
+running task. `spider::Job` takes the output type of the task as template argument. You can call
+`Job::state` to check the state of the running task, and `Job::wait_complete` to block until job
 ends and `Job::get_result`. User can send a cancel signal to Spider by calling `Job::cancel`. Client
 can get all running jobs submitted by itself by calling `Driver::get_jobs`.
 
@@ -93,10 +82,18 @@ auto main(int argc, char **argv) -> int {
 }
 ```
 
-If you try to compile and run the example code directly, you'll find that it fails because Spider
-worker does not know which function to run. User need to compile all the tasks into a shared
-library, including the call to `SPIDER_REGISTER_TASK`, and start the worker with the library by
-running `spider start --worker --db <db_url> --libs [client_libraries]`.
+## Set up Spider cluster
+
+Now we have a basic client that creates and runs a task. However, we haven't talked about how to
+set up a Spider cluster which runs the actual task. To set up a Spider cluster:
+
+1. Start a storage supported by Spider, e.g. MySql.
+2. Start a scheduler and connect it to the storage by running
+   `spider start --scheduler --storage <storage_url> --port <scheduler_port>`.
+3. Start some workers and connect them to the storage. Workers also need to know the task functions
+   that will run. Thus, user need to compile all the tasks into shared libraries, including the call
+   to `SPIDER_REGISTER_TASK`, and provide them to the worker by running
+   `spider start --worker --storage <storage_url> --libs [client_libraries]`.
 
 ## Group tasks together
 
