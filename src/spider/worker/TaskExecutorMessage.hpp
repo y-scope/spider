@@ -6,7 +6,7 @@
 #include "MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
-enum class TaskExecutorMessageType : std::uint8_t {
+enum class TaskExecutorResponseType : std::uint8_t {
     Unknown = 0,
     Result,
     Error,
@@ -14,18 +14,40 @@ enum class TaskExecutorMessageType : std::uint8_t {
     Ready,
 };
 
-inline auto get_message_type(msgpack::sbuffer const& buffer) -> TaskExecutorMessageType {
+inline auto get_response_type(msgpack::sbuffer const& buffer) -> TaskExecutorResponseType {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     msgpack::object_handle handle = msgpack::unpack(buffer.data(), buffer.size());
     msgpack::object object = handle.get();
     if (object.type != msgpack::type::ARRAY || object.via.array.size < 2) {
-        return TaskExecutorMessageType::Unknown;
+        return TaskExecutorResponseType::Unknown;
     }
     msgpack::object header = object.via.array.ptr[0];
     try {
-        return header.as<TaskExecutorMessageType>();
+        return header.as<TaskExecutorResponseType>();
     } catch (msgpack::type_error const&) {
-        return TaskExecutorMessageType::Unknown;
+        return TaskExecutorResponseType::Unknown;
+    }
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
+enum class TaskExecutorRequestType : std::uint8_t {
+    Unknown = 0,
+    Arguments,
+    Resume,
+};
+
+inline auto get_request_type(msgpack::sbuffer const& buffer) -> TaskExecutorRequestType {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    msgpack::object_handle handle = msgpack::unpack(buffer.data(), buffer.size());
+    msgpack::object object = handle.get();
+    if (object.type != msgpack::type::ARRAY || object.via.array.size < 2) {
+        return TaskExecutorRequestType::Unknown;
+    }
+    msgpack::object header = object.via.array.ptr[0];
+    try {
+        return header.as<TaskExecutorRequestType>();
+    } catch (msgpack::type_error const&) {
+        return TaskExecutorRequestType::Unknown;
     }
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }

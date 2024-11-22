@@ -83,7 +83,7 @@ MSGPACK_ADD_ENUM(spider::core::FunctionInvokeError);
 
 namespace spider::core {
 
-inline auto message_get_error(msgpack::sbuffer const& buffer
+inline auto response_get_error(msgpack::sbuffer const& buffer
 ) -> std::optional<std::tuple<FunctionInvokeError, std::string>> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
@@ -94,8 +94,8 @@ inline auto message_get_error(msgpack::sbuffer const& buffer
             return std::nullopt;
         }
 
-        if (worker::TaskExecutorMessageType::Error
-            != object.via.array.ptr[0].as<worker::TaskExecutorMessageType>())
+        if (worker::TaskExecutorResponseType::Error
+            != object.via.array.ptr[0].as<worker::TaskExecutorResponseType>())
         {
             return std::nullopt;
         }
@@ -110,8 +110,19 @@ inline auto message_get_error(msgpack::sbuffer const& buffer
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
+inline auto
+create_error_response(FunctionInvokeError error, std::string const& message) -> msgpack::sbuffer {
+    msgpack::sbuffer buffer;
+    msgpack::packer packer{buffer};
+    packer.pack_array(3);
+    packer.pack(worker::TaskExecutorResponseType::Error);
+    packer.pack(error);
+    packer.pack(message);
+    return buffer;
+}
+
 template <class T>
-auto message_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
+auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
         msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
@@ -121,8 +132,8 @@ auto message_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
             return std::nullopt;
         }
 
-        if (worker::TaskExecutorMessageType::Result
-            != object.via.array.ptr[0].as<worker::TaskExecutorMessageType>())
+        if (worker::TaskExecutorResponseType::Result
+            != object.via.array.ptr[0].as<worker::TaskExecutorResponseType>())
         {
             return std::nullopt;
         }
@@ -132,6 +143,16 @@ auto message_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
         return std::nullopt;
     }
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
+template <class T>
+inline auto create_result_response(T const& t) -> msgpack::sbuffer {
+    msgpack::sbuffer buffer;
+    msgpack::packer packer{buffer};
+    packer.pack_array(2);
+    packer.pack(worker::TaskExecutorResponseType::Result);
+    packer.pack(t);
+    return buffer;
 }
 
 // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
@@ -161,14 +182,14 @@ public:
             msgpack::object const object = handle.get();
 
             if (msgpack::type::ARRAY != object.type) {
-                return generate_error(
+                return create_error_response(
                         FunctionInvokeError::ArgumentParsingError,
                         fmt::format("Cannot parse arguments.")
                 );
             }
 
             if (std::tuple_size_v<ArgsTuple> != object.via.array.size) {
-                return generate_error(
+                return message_create_error(
                         FunctionInvokeError::WrongNumberOfArguments,
                         fmt::format(
                                 "Wrong number of arguments. Expect {}. Get {}.",
@@ -184,7 +205,7 @@ public:
                         = arg.as<std::tuple_element_t<i.cValue, ArgsTuple>>();
             });
         } catch (msgpack::type_error& e) {
-            return generate_error(
+            return create_error_response(
                     FunctionInvokeError::ArgumentParsingError,
                     fmt::format("Cannot parse arguments.")
             );
@@ -192,16 +213,14 @@ public:
 
         try {
             ReturnType result = std::apply(function, args_tuple);
-            msgpack::sbuffer result_buffer;
-            msgpack::pack(result_buffer, result);
-            return result_buffer;
+            return message_create_result(result);
         } catch (msgpack::type_error& e) {
-            return generate_error(
+            return create_error_response(
                     FunctionInvokeError::ResultParsingError,
                     fmt::format("Cannot parse result.")
             );
         } catch (std::exception& e) {
-            return generate_error(
+            return create_error_response(
                     FunctionInvokeError::FunctionExecutionError,
                     "Function execution error"
             );
@@ -210,17 +229,6 @@ public:
     }
 
 private:
-    static auto
-    generate_error(FunctionInvokeError const err, std::string const& message) -> msgpack::sbuffer {
-        msgpack::sbuffer buffer;
-        msgpack::packer packer{buffer};
-        packer.pack_map(2);
-        packer.pack("err");
-        packer.pack(err);
-        packer.pack("msg");
-        packer.pack(message);
-        return buffer;
-    }
 };
 
 class FunctionManager {
