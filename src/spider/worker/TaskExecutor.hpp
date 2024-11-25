@@ -2,6 +2,8 @@
 #define SPIDER_WORKER_TASKEXECUTOR_HPP
 
 #include <cstdint>
+#include <string>
+#include <tuple>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "FunctionManager.hpp"

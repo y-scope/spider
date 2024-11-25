@@ -1,10 +1,9 @@
 
-#include <array>
 #include <string>
 #include <vector>
 
+#include <boost/program_options/detail/parsers.hpp>
 #include <boost/program_options/options_description.hpp>
-#include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
 
@@ -31,15 +30,6 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
     return variables;
 }
 
-auto read_inputs(msgpack::sbuffer& output_buffer) {
-    constexpr int cBufferSize = 1024;
-    std::array<char, cBufferSize> buffer{0};
-    size_t bytes_read = read(STDIN_FILENO, buffer.data(), cBufferSize);
-    for (; bytes_read == cBufferSize; bytes_read = read(STDIN_FILENO, buffer.data(), cBufferSize)) {
-        output_buffer.write(buffer.data(), bytes_read);
-    }
-}
-
 }  // namespace
 
 auto main(int const argc, char** argv) -> int {
@@ -62,7 +52,7 @@ auto main(int const argc, char** argv) -> int {
 
     // Get args buffer from stdin
     msgpack::sbuffer args_buffer{};
-    read_inputs(args_buffer);
+    // TODO: read input
 
     // Run fucntion
     spider::core::Function* function

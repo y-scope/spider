@@ -1,13 +1,22 @@
 #include "message_pipe.hpp"
 
 #include <array>
+#include <cstddef>
+#include <exception>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/read.hpp>
+#include <boost/asio/readable_pipe.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/writable_pipe.hpp>
 #include <boost/asio/write.hpp>
+#include <boost/system/system_error.hpp>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
@@ -28,7 +37,7 @@ auto send_request(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
     }
 }
 
-auto receive_response_async(boost::asio::readable_pipe& pipe
+auto receive_response_async(boost::asio::readable_pipe pipe
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     std::array<char, cHeaderSize> header_buffer{0};
     auto [header_ec, header_n] = co_await boost::asio::async_read(
