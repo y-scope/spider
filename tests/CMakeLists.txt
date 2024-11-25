@@ -20,3 +20,11 @@ endforeach()
 target_sources(unitTest PRIVATE ${SPIDER_TEST_WORKER_SOURCES})
 target_link_libraries(unitTest PRIVATE Catch2::Catch2WithMain)
 target_link_libraries(unitTest PRIVATE spider_core)
+target_link_libraries(
+    unitTest
+    PRIVATE
+        Boost::system
+        Boost::filesystem
+        Boost::program_options
+        spdlog::spdlog
+)

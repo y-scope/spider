@@ -91,6 +91,7 @@ find_package(
     COMPONENTS
         headers
         program_options
+        filesystem
         system
 )
 if(Boost_FOUND)
