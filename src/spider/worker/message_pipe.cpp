@@ -21,7 +21,7 @@ auto send_request(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
     try {
         size_t const size = request.size();
         std::string const size_str = fmt::format("{:016d}", size);
-        boost::asio::write(pipe, boost::asio::buffer{size_str});
+        boost::asio::write(pipe, boost::asio::buffer(size_str));
         return true;
     } catch (boost::system::system_error const& e) {
         return false;
@@ -33,7 +33,7 @@ auto receive_response_async(boost::asio::readable_pipe& pipe
     std::array<char, cHeaderSize> header_buffer{0};
     auto [header_ec, header_n] = co_await boost::asio::async_read(
             pipe,
-            boost::asio::buffer{header_buffer},
+            boost::asio::buffer(header_buffer),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
     if (header_ec) {

@@ -8,10 +8,10 @@
 namespace spider::worker {
 enum class TaskExecutorResponseType : std::uint8_t {
     Unknown = 0,
-    Result = 1,
-    Error = 2,
-    Block = 3,
-    Ready = 4,
+    Result,
+    Error,
+    Block,
+    Ready,
 };
 
 inline auto get_response_type(msgpack::sbuffer const& buffer) -> TaskExecutorResponseType {
@@ -53,5 +53,9 @@ inline auto get_request_type(msgpack::sbuffer const& buffer) -> TaskExecutorRequ
 }
 
 }  // namespace spider::worker
+
+// MSGPACK_ADD_ENUM must be called in global namespace
+MSGPACK_ADD_ENUM(spider::worker::TaskExecutorResponseType);
+MSGPACK_ADD_ENUM(spider::worker::TaskExecutorRequestType);
 
 #endif  // SPIDER_WORKER_TASKEXECUTORMESSAGE_HPP
