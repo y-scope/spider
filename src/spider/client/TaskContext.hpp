@@ -23,9 +23,9 @@ class ContextImpl;
 class TaskContext {
 public:
     /**
-     * Aborts the current running task and job. This function never returns.
+     * Aborts the current task and job. This function never returns.
      *
-     * @param message Error message indicating the reason for the abort.
+     * @param message The reason for the abort.
      */
     auto abort(std::string const& message);
 
@@ -55,8 +55,9 @@ public:
     auto kv_store_get(std::string const& key) -> std::optional<std::string>;
 
     /**
-     * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,
-     * forming dependencies between tasks. Input can also be a value or a spider::Data.
+     * Binds inputs to a task. Inputs can be:
+     * - the outputs of a task or task graph, forming dependencies between tasks.
+     * - any value that satisfies the `TaskIo` concept.
      *
      * @tparam ReturnType Return type for both the task and the resulting `TaskGraph`.
      * @tparam TaskParams
