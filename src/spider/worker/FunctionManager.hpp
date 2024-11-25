@@ -189,7 +189,7 @@ public:
             }
 
             if (std::tuple_size_v<ArgsTuple> != object.via.array.size) {
-                return message_create_error(
+                return create_error_response(
                         FunctionInvokeError::WrongNumberOfArguments,
                         fmt::format(
                                 "Wrong number of arguments. Expect {}. Get {}.",
@@ -213,7 +213,7 @@ public:
 
         try {
             ReturnType result = std::apply(function, args_tuple);
-            return message_create_result(result);
+            return create_result_response(result);
         } catch (msgpack::type_error& e) {
             return create_error_response(
                     FunctionInvokeError::ResultParsingError,
