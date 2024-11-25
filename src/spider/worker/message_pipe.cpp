@@ -29,6 +29,49 @@ auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
     }
 }
 
+auto send_message(boost::asio::posix::stream_descriptor& fd, msgpack::sbuffer const& request)
+        -> bool {
+    try {
+        size_t const size = request.size();
+        std::string const size_str = fmt::format("{:016d}", size);
+        boost::asio::write(fd, boost::asio::buffer(size_str));
+        boost::asio::write(fd, boost::asio::buffer(request.data(), size));
+        return true;
+    } catch (boost::system::system_error const& e) {
+        return false;
+    }
+}
+
+auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional<msgpack::sbuffer> {
+    std::array<char, cHeaderSize> header_buffer{0};
+    try {
+        boost::asio::read(fd, boost::asio::buffer(header_buffer));
+    } catch (boost::system::system_error& e) {
+        if (boost::asio::error::eof != e.code()) {
+            spdlog::error("Fail to read header: {}", e.what());
+        }
+        return std::nullopt;
+    }
+    size_t body_size = 0;
+    try {
+        body_size = std::stol(std::string{header_buffer.data(), cHeaderSize});
+    } catch (std::exception& e) {
+        spdlog::error("Cannot parse header: {}", e.what());
+        return std::nullopt;
+    }
+
+    std::vector<char> body_buffer(body_size);
+    try {
+        boost::asio::read(fd, boost::asio::buffer(body_buffer));
+    } catch (boost::system::system_error& e) {
+        spdlog::error("Fail to read header: {}", e.what());
+        return std::nullopt;
+    }
+    msgpack::sbuffer buffer;
+    buffer.write(body_buffer.data(), body_buffer.size());
+    return buffer;
+}
+
 auto receive_message_async(boost::asio::readable_pipe pipe
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     std::array<char, cHeaderSize> header_buffer{0};

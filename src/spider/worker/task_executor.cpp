@@ -1,7 +1,10 @@
 
+#include <unistd.h>
+
 #include <string>
 #include <vector>
 
+#include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
@@ -10,6 +13,7 @@
 #include "../core/MsgPack.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
+#include "message_pipe.hpp"
 
 namespace {
 
@@ -51,9 +55,23 @@ auto main(int const argc, char** argv) -> int {
         }
     }
 
+    // Set up asio
+    boost::asio::io_context context;
+    boost::asio::posix::stream_descriptor in(context, dup(STDIN_FILENO));
+    boost::asio::posix::stream_descriptor out(context, dup(STDOUT_FILENO));
+
     // Get args buffer from stdin
-    msgpack::sbuffer const args_buffer{};
-    // TODO: read input
+    std::optional<msgpack::sbuffer> request_buffer_option = spider::worker::receive_message(in);
+    if (!request_buffer_option.has_value()) {
+        return 3;
+    }
+    msgpack::sbuffer const& request_buffer = request_buffer_option.value();
+    if (spider::worker::TaskExecutorRequestType::Arguments
+        == spider::worker::get_request_type(request_buffer))
+    {
+        return 3;
+    }
+    msgpack::sbuffer const args_buffer = spider::worker::get_request_body(request_buffer);
 
     // Run function
     spider::core::Function* function
@@ -61,4 +79,6 @@ auto main(int const argc, char** argv) -> int {
     msgpack::sbuffer const result_buffer = (*function)(args_buffer);
 
     // Write arg buffer to stdout
+    msgpack::sbuffer const response_buffer = spider::core::create_result_response(result_buffer);
+    spider::worker::send_message(out, response_buffer);
 }

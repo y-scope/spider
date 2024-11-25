@@ -52,6 +52,18 @@ inline auto get_request_type(msgpack::sbuffer const& buffer) -> TaskExecutorRequ
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
+inline auto get_request_body(msgpack::sbuffer const& buffer) -> msgpack::sbuffer {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
+    msgpack::object const object = handle.get();
+    msgpack::object const body = object.via.array.ptr[1];
+    msgpack::sbuffer response_body;
+    msgpack::packer packer{response_body};
+    packer.pack(body);
+    return std::move(response_body);
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
 }  // namespace spider::worker
 
 // MSGPACK_ADD_ENUM must be called in global namespace

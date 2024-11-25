@@ -19,6 +19,7 @@
 #include <boost/asio/impl/connect_pipe.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_future.hpp>
+#include <boost/asio/posix/stream_descriptor.hpp>
 
 #include <boost/asio/impl/write.hpp>
 
