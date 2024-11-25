@@ -22,6 +22,7 @@
 #include <boost/asio/posix/stream_descriptor.hpp>
 
 #include <boost/asio/impl/write.hpp>
+#include <boost/asio/impl/read.hpp>
 
 // IWYU pragma: end_exports
 // clang-format on

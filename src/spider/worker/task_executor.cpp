@@ -1,19 +1,24 @@
 
 #include <unistd.h>
 
+#include <exception>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include <boost/asio/posix/stream_descriptor.hpp>
+#include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
+#include <spdlog.h>
 
-#include "../core/MsgPack.hpp"
+#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
+#include "TaskExecutorMessage.hpp"
 
 namespace {
 
@@ -40,45 +45,59 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 auto main(int const argc, char** argv) -> int {
     boost::program_options::variables_map const args = parse_arg(argc, argv);
 
-    if (!args.contains("func")) {
-        return 1;
-    }
-    std::string const func_name = args["func"].as<std::string>();
-    if (!args.contains("libs")) {
-        return 1;
-    }
-    std::vector<std::string> const libs = args["libs"].as<std::vector<std::string>>();
-    spider::worker::DllLoader& dll_loader = spider::worker::DllLoader::get_instance();
-    for (std::string const& lib : libs) {
-        if (false == dll_loader.load_dll(lib)) {
-            return 2;
+    std::string func_name;
+    try {
+        if (!args.contains("func")) {
+            return 1;
         }
+        func_name = args["func"].as<std::string>();
+        if (!args.contains("libs")) {
+            return 1;
+        }
+        std::vector<std::string> const libs = args["libs"].as<std::vector<std::string>>();
+        spider::worker::DllLoader& dll_loader = spider::worker::DllLoader::get_instance();
+        for (std::string const& lib : libs) {
+            if (false == dll_loader.load_dll(lib)) {
+                return 2;
+            }
+        }
+    } catch (boost::bad_any_cast& e) {
+        return 1;
     }
 
-    // Set up asio
-    boost::asio::io_context context;
-    boost::asio::posix::stream_descriptor in(context, dup(STDIN_FILENO));
-    boost::asio::posix::stream_descriptor out(context, dup(STDOUT_FILENO));
+    try {
+        // Set up asio
+        boost::asio::io_context context;
+        boost::asio::posix::stream_descriptor in(context, dup(STDIN_FILENO));
+        boost::asio::posix::stream_descriptor out(context, dup(STDOUT_FILENO));
 
-    // Get args buffer from stdin
-    std::optional<msgpack::sbuffer> request_buffer_option = spider::worker::receive_message(in);
-    if (!request_buffer_option.has_value()) {
-        return 3;
+        // Get args buffer from stdin
+        std::optional<msgpack::sbuffer> request_buffer_option = spider::worker::receive_message(in);
+        if (!request_buffer_option.has_value()) {
+            return 3;
+        }
+        msgpack::sbuffer const& request_buffer = request_buffer_option.value();
+        if (spider::worker::TaskExecutorRequestType::Arguments
+            != spider::worker::get_request_type(request_buffer))
+        {
+            return 3;
+        }
+        msgpack::sbuffer const args_buffer = spider::worker::get_request_body(request_buffer);
+
+        // Run function
+        spider::core::Function* function
+                = spider::core::FunctionManager::get_instance().get_function(func_name);
+        msgpack::sbuffer const result_buffer = (*function)(args_buffer);
+
+        // Write arg buffer to stdout
+        msgpack::object_handle const handle
+                = msgpack::unpack(result_buffer.data(), result_buffer.size());
+        msgpack::object const object = handle.get();
+        msgpack::sbuffer const response_buffer = spider::core::create_result_response(object);
+        spider::worker::send_message(out, response_buffer);
+    } catch (std::exception& e) {
+        spdlog::error("Exception thrown: {}", e.what());
+        return 4;
     }
-    msgpack::sbuffer const& request_buffer = request_buffer_option.value();
-    if (spider::worker::TaskExecutorRequestType::Arguments
-        == spider::worker::get_request_type(request_buffer))
-    {
-        return 3;
-    }
-    msgpack::sbuffer const args_buffer = spider::worker::get_request_body(request_buffer);
-
-    // Run function
-    spider::core::Function* function
-            = spider::core::FunctionManager::get_instance().get_function(func_name);
-    msgpack::sbuffer const result_buffer = (*function)(args_buffer);
-
-    // Write arg buffer to stdout
-    msgpack::sbuffer const response_buffer = spider::core::create_result_response(result_buffer);
-    spider::worker::send_message(out, response_buffer);
+    return 0;
 }

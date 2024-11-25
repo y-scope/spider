@@ -2,6 +2,7 @@
 #define SPIDER_WORKER_TASKEXECUTORMESSAGE_HPP
 
 #include <cstdint>
+#include <utility>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
