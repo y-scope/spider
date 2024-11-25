@@ -7,19 +7,10 @@
 #include <string>
 #include <vector>
 
-#include <boost/asio/as_tuple.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/error.hpp>
-#include <boost/asio/read.hpp>
-#include <boost/asio/readable_pipe.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/writable_pipe.hpp>
-#include <boost/asio/write.hpp>
-#include <boost/system/system_error.hpp>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
@@ -41,6 +32,7 @@ auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
 auto receive_message_async(boost::asio::readable_pipe pipe
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     std::array<char, cHeaderSize> header_buffer{0};
+    // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     auto [header_ec, header_n] = co_await boost::asio::async_read(
             pipe,
             boost::asio::buffer(header_buffer),

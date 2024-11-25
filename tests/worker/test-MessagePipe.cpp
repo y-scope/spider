@@ -1,16 +1,15 @@
+#include "../../src/spider/core/BoostAsio.hpp"
 #include "../../src/spider/core/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/message_pipe.hpp"
+#include "../../src/spider/worker/TaskExecutorMessage.hpp"
 
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/connect_pipe.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/readable_pipe.hpp>
-#include <boost/asio/strand.hpp>
-#include <boost/asio/use_future.hpp>
-#include <boost/asio/writable_pipe.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <future>
+#include <optional>
+#include <string>
+#include <tuple>
+#include <utility>
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 namespace {

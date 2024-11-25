@@ -1,10 +1,9 @@
 #ifndef SPIDER_WORKER_MESSAGE_PIPE_HPP
 #define SPIDER_WORKER_MESSAGE_PIPE_HPP
 
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/readable_pipe.hpp>
-#include <boost/asio/writable_pipe.hpp>
+#include <optional>
 
+#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {

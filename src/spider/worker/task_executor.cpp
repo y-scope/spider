@@ -23,6 +23,7 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
+            // NOLINTNEXTLINE(misc-include-cleaner)
             boost::program_options::parse_command_line(argc, argv, desc),
             variables
     );
@@ -51,10 +52,10 @@ auto main(int const argc, char** argv) -> int {
     }
 
     // Get args buffer from stdin
-    msgpack::sbuffer args_buffer{};
+    msgpack::sbuffer const args_buffer{};
     // TODO: read input
 
-    // Run fucntion
+    // Run function
     spider::core::Function* function
             = spider::core::FunctionManager::get_instance().get_function(func_name);
     msgpack::sbuffer const result_buffer = (*function)(args_buffer);

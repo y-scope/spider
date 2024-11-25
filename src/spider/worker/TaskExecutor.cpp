@@ -29,6 +29,9 @@ auto TaskExecutor::get_result() -> T {
 }
 
 auto TaskExecutor::get_error() -> std::tuple<core::FunctionInvokeError, std::string> {
-    return std::make_tuple(spider::core::FunctionInvokeError::Success, "");
+    if (TaskExecutorState::Succeed == m_state) {
+        return std::make_tuple(spider::core::FunctionInvokeError::Success, "");
+    }
+    return std::make_tuple(spider::core::FunctionInvokeError::ArgumentParsingError, "");
 }
 }  // namespace spider::worker
