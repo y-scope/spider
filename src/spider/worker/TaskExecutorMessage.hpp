@@ -3,15 +3,15 @@
 
 #include <cstdint>
 
-#include "MsgPack.hpp"  // IWYU pragma: keep
+#include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
 enum class TaskExecutorResponseType : std::uint8_t {
     Unknown = 0,
-    Result,
-    Error,
-    Block,
-    Ready,
+    Result = 1,
+    Error = 2,
+    Block = 3,
+    Ready = 4,
 };
 
 inline auto get_response_type(msgpack::sbuffer const& buffer) -> TaskExecutorResponseType {

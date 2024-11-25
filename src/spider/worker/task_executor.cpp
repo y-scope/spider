@@ -1,11 +1,12 @@
 
 #include <array>
+#include <string>
+#include <vector>
+
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
-#include <string>
-#include <vector>
 
 #include "../core/MsgPack.hpp"
 #include "DllLoader.hpp"

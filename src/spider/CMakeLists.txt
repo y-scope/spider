@@ -29,7 +29,6 @@ target_link_libraries(
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
-    worker/worker.cpp
     worker/DllLoader.hpp
     worker/DllLoader.cpp
     worker/TaskExecutor.hpp
@@ -43,6 +42,7 @@ set(SPIDER_WORKER_SOURCES
 
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
+target_sources(spider_worker PRIVATE worker/worker.cpp)
 target_link_libraries(spider_worker PRIVATE spider_core)
 target_link_libraries(
     spider_worker
@@ -55,6 +55,8 @@ target_link_libraries(
 set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/DllLoader.cpp
     worker/DllLoader.hpp
+    worker/message_pipe.cpp
+    worker/message_pipe.hpp
     worker/task_executor.cpp
     CACHE INTERNAL
     "spider task executor source filees"

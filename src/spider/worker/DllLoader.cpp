@@ -1,10 +1,10 @@
 #include "DllLoader.hpp"
 
-#include <spdlog/spdlog.h>
-
 #include <exception>
 #include <filesystem>
 #include <string>
+
+#include <spdlog/spdlog.h>
 
 namespace spider::worker {
 

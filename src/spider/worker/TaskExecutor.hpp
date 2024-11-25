@@ -1,14 +1,14 @@
 #ifndef SPIDER_WORKER_TASKEXECUTOR_HPP
 #define SPIDER_WORKER_TASKEXECUTOR_HPP
 
-#include <boost/process/child.hpp>
+#include <cstdint>
 
+#include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "FunctionManager.hpp"
-#include "../core/MsgPack.hpp" // IWYU pragma: keep
 
 namespace spider::worker {
 
-enum class TaskExecutorState {
+enum class TaskExecutorState : std::uint8_t {
     Running,
     Succeed,
     Error,
@@ -31,7 +31,6 @@ public:
     auto get_error() -> std::tuple<core::FunctionInvokeError, std::string>;
 
 private:
-    boost::process::child m_process;
     msgpack::sbuffer m_args_buffer;
     TaskExecutorState m_state = TaskExecutorState::Running;
 };
