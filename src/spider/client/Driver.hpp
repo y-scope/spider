@@ -33,8 +33,7 @@ namespace spider {
 class DriverImpl;
 
 /**
- * Driver provides Spider functionalities for a client, e.g. accessing data storage, creating new
- * jobs.
+ * An interface for a client to interact with Spider and create jobs, access the kv-store, etc.
  */
 class Driver {
 public:
@@ -45,8 +44,10 @@ public:
 
     /**
      * @param storage_url
-     * @param id User could provide client id to access the jobs and data created from a previous
-     * Driver with same id
+     * @param id A caller-specified ID to associate with this driver. All jobs created by this
+     * driver will be associated with this ID. This may be useful if, for instance, the caller
+     * fails and then needs to reconnect and retrieve all previously created jobs. NOTE: It is
+     * undefined behaviour for two clients to concurrently use the same ID.
      */
     Driver(std::string const& storage_url, boost::uuids::uuid id);
 
@@ -62,7 +63,7 @@ public:
      * Gets the value corresponding to the given key.
      *
      * NOTE: Callers cannot get values created by other clients, but they can get values created by
-     * previous `Driver` with the same client id
+     * previous `Driver` instances with the same client ID.
      *
      * @param key
      * @return An optional containing the value if the given key exists, or `std::nullopt`
@@ -71,8 +72,9 @@ public:
     auto kv_store_get(std::string const& key) -> std::optional<std::string>;
 
     /**
-     * Binds inputs to a task. Input of the task can be bound from outputs of task or task graph,
-     * forming dependencies between tasks. Input can also be a value or a spider::Data.
+     * Binds inputs to a task. Inputs can be:
+     * - the outputs of a task or task graph, forming dependencies between tasks.
+     * - any value that satisfies the `TaskIo` concept.
      *
      * @tparam ReturnType Return type for both the task and the resulting `TaskGraph`.
      * @tparam TaskParams
@@ -96,9 +98,9 @@ public:
      *
      * @tparam ReturnType
      * @tparam Params
-     * @param task task to run
-     * @param inputs task input
-     * @return A job representing the running task
+     * @param task
+     * @param inputs
+     * @return A job representing the running task.
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
@@ -111,16 +113,16 @@ public:
      * @tparam Params
      * @param graph
      * @param inputs
-     * @return A job representing the running task graph
+     * @return A job representing the running task graph.
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
     start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
 
     /**
-     * Gets all jobs started by drivers with same client id.
+     * Gets all jobs started by drivers with the current client's ID.
      *
-     * @return IDs of the jobs
+     * @return IDs of the jobs.
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
 
