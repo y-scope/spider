@@ -26,18 +26,19 @@ namespace spider::worker {
 
 constexpr size_t cHeaderSize = 16;
 
-auto send_request(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& request) -> bool {
+auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& request) -> bool {
     try {
         size_t const size = request.size();
         std::string const size_str = fmt::format("{:016d}", size);
         boost::asio::write(pipe, boost::asio::buffer(size_str));
+        boost::asio::write(pipe, boost::asio::buffer(request.data(), size));
         return true;
     } catch (boost::system::system_error const& e) {
         return false;
     }
 }
 
-auto receive_response_async(boost::asio::readable_pipe pipe
+auto receive_message_async(boost::asio::readable_pipe pipe
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     std::array<char, cHeaderSize> header_buffer{0};
     auto [header_ec, header_n] = co_await boost::asio::async_read(
