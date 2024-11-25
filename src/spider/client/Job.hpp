@@ -11,6 +11,10 @@
 namespace spider {
 class JobImpl;
 
+// TODO: Use std::expected or Boost's outcome so that the user can get the result of the job in one
+// call rather than the current error-prone approach which requires that the user check the job's
+// status and then call the relevant method.
+
 enum class JobStatus : uint8_t {
     Running,
     Succeed,
@@ -19,7 +23,7 @@ enum class JobStatus : uint8_t {
 };
 
 /**
- * Job represents a running task graph.
+ * A running task graph.
  *
  * @tparam ReturnType
  */
@@ -32,28 +36,24 @@ public:
     auto wait_complete();
 
     /**
-     * Gets the status of the job.
-     *
      * @return Status of the job.
      */
     auto get_status() -> JobStatus;
 
     /**
-     * Get the result of the succeeded job.
-     *
-     * Note: It is undefined behavior to call on job that is in other status.
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeed`
+     * state.
      *
      * @return Result of the job.
      */
     auto get_result() -> ReturnType;
 
     /**
-     * Get the error message of the failed job.
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Fail` state.
      *
-     * Note: It is undefined behavior to call on job that is in other status.
-     *
-     * @return `first` is the name of the task function that fails. `second` is the error message
-     * provided in `TaskContext::abort`
+     * @return A pair:
+     * - the name of the task function that failed.
+     * - the error message sent from the task through `TaskContext::abort`.
      */
     auto get_error() -> std::pair<std::string, std::string>;
 
