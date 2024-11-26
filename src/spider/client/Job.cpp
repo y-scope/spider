@@ -14,7 +14,7 @@ class JobImpl {
 public:
     auto get_status() -> JobStatus {
         if (m_id.is_nil()) {
-            return JobStatus::Cancel;
+            return JobStatus::Cancelled;
         }
         return JobStatus::Running;
     }

@@ -17,9 +17,9 @@ class JobImpl;
 
 enum class JobStatus : uint8_t {
     Running,
-    Succeed,
-    Fail,
-    Cancel,
+    Succeeded,
+    Failed,
+    Cancelled,
 };
 
 /**
@@ -53,7 +53,7 @@ public:
      *
      * @return A pair:
      * - the name of the task function that failed.
-     * - the error message sent from the task through `TaskContext::abort`.
+     * - the error message sent from the task through `TaskContext::abort` or from Spider.
      */
     auto get_error() -> std::pair<std::string, std::string>;
 
