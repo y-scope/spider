@@ -88,7 +88,7 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
                 std::lock_guard const lock(m_state_mutex);
                 m_state = TaskExecutorState::Error;
                 m_result_buffer.write(response.data(), response.size());
-                break;
+                co_return;
             }
             case TaskExecutorResponseType::Ready:
                 break;
@@ -96,7 +96,7 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
                 std::lock_guard const lock(m_state_mutex);
                 m_state = TaskExecutorState::Succeed;
                 m_result_buffer.write(response.data(), response.size());
-                break;
+                co_return;
             }
             case TaskExecutorResponseType::Unknown:
                 break;
