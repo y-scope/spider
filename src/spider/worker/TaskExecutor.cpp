@@ -1,18 +1,27 @@
 #include "TaskExecutor.hpp"
 
+#include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
+#include <absl/container/flat_hash_map.h>
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
+#include <fmt/format.h>
 
+#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
+#include "TaskExecutorMessage.hpp"
 
 namespace spider::worker {
 
+// NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
 template <class... Args>
 TaskExecutor::TaskExecutor(
         boost::asio::io_context& context,
@@ -48,6 +57,8 @@ TaskExecutor::TaskExecutor(
     msgpack::sbuffer args_request = core::create_args_request(args...);
     send_message(m_write_pipe, args_request);
 }
+
+// NOLINTEND(cppcoreguidelines-missing-std-forward)
 
 auto TaskExecutor::completed() -> bool {
     std::lock_guard const lock(m_state_mutex);
@@ -90,12 +101,20 @@ auto TaskExecutor::cancel() {
     packer.pack("Task cancelled");
 }
 
+// NOLINTBEGIN(clang-analyzer-core.CallAndMessage)
 auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
     while (true) {
         std::optional<msgpack::sbuffer> const response_option
                 = co_await receive_message_async(m_read_pipe);
         if (!response_option.has_value()) {
-            break;
+            std::lock_guard const lock(m_state_mutex);
+            m_state = TaskExecutorState::Succeed;
+            core::create_error_buffer(
+                    core::FunctionInvokeError::FunctionExecutionError,
+                    "Pipe read fails",
+                    m_result_buffer
+            );
+            co_return;
         }
         msgpack::sbuffer const& response = response_option.value();
         switch (get_response_type(response)) {
@@ -127,12 +146,18 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
     }
 }
 
+// NOLINTEND(clang-analyzer-core.CallAndMessage)
+
 template <class T>
 auto TaskExecutor::get_result() -> T {
     return core::response_get_result<T>(m_result_buffer);
 }
 
 auto TaskExecutor::get_error() const -> std::tuple<core::FunctionInvokeError, std::string> {
-    return core::response_get_error(m_result_buffer).value();
+    return core::response_get_error(m_result_buffer)
+            .value_or(std::make_tuple(
+                    core::FunctionInvokeError::ResultParsingError,
+                    "Fail to parse error message"
+            ));
 }
 }  // namespace spider::worker

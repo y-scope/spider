@@ -24,6 +24,8 @@
 #include <boost/asio/impl/write.hpp>
 #include <boost/asio/impl/read.hpp>
 
+#include <boost/asio/detached.hpp>
+
 // IWYU pragma: end_exports
 // clang-format on
 #endif  // SPIDER_CORE_BOOSTASIO_HPP
