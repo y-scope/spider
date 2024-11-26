@@ -82,7 +82,10 @@ auto main(int const argc, char** argv) -> int {
         {
             return 3;
         }
-        msgpack::sbuffer const args_buffer = spider::worker::get_request_body(request_buffer);
+        msgpack::object const args_object = spider::worker::get_message_body(request_buffer);
+        msgpack::sbuffer args_buffer;
+        msgpack::packer packer{args_buffer};
+        packer.pack(args_object);
 
         // Run function
         spider::core::Function* function

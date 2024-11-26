@@ -1,6 +1,7 @@
 #ifndef SPIDER_WORKER_MESSAGE_PIPE_HPP
 #define SPIDER_WORKER_MESSAGE_PIPE_HPP
 
+#include <functional>
 #include <optional>
 
 #include "../core/BoostAsio.hpp"  // IWYU pragma: keep
@@ -13,7 +14,7 @@ auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
 auto send_message(boost::asio::posix::stream_descriptor& fd, msgpack::sbuffer const& request)
         -> bool;
 
-auto receive_message_async(boost::asio::readable_pipe pipe
+auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pipe
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>>;
 
 auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional<msgpack::sbuffer>;

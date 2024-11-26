@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <exception>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -72,12 +73,12 @@ auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional
     return buffer;
 }
 
-auto receive_message_async(boost::asio::readable_pipe pipe
+auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pipe
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     std::array<char, cHeaderSize> header_buffer{0};
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     auto [header_ec, header_n] = co_await boost::asio::async_read(
-            pipe,
+            pipe.get(),
             boost::asio::buffer(header_buffer),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
@@ -103,7 +104,7 @@ auto receive_message_async(boost::asio::readable_pipe pipe
     }
     std::vector<char> response_buffer(response_size);
     auto [response_ec, response_n] = co_await boost::asio::async_read(
-            pipe,
+            pipe.get(),
             boost::asio::buffer(response_buffer),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );

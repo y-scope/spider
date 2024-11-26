@@ -165,6 +165,17 @@ auto create_args_buffers(Args&&... args) -> ArgsBuffer {
     return args_buffer;
 }
 
+template <class... Args>
+auto create_args_request(Args&&... args) -> msgpack::sbuffer {
+    msgpack::sbuffer buffer;
+    msgpack::packer packer{buffer};
+    packer.pack_array(2);
+    packer.pack(worker::TaskExecutorRequestType::Arguments);
+    packer.pack_array(sizeof...(args));
+    ([&] { packer.pack(args); }(), ...);
+    return buffer;
+}
+
 // NOLINTEND(cppcoreguidelines-missing-std-forward)
 
 template <class F>

@@ -23,6 +23,7 @@ target_link_libraries(unitTest PRIVATE spider_core)
 target_link_libraries(
     unitTest
     PRIVATE
+        Boost::headers
         Boost::system
         Boost::filesystem
         Boost::program_options

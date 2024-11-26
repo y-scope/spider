@@ -84,6 +84,7 @@ message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 if(SPIDER_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS ON)
 endif()
+set(Boost_DEBUG ON)
 find_package(
     Boost
     1.74

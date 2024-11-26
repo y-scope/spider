@@ -9,7 +9,6 @@
 #include <optional>
 #include <string>
 #include <tuple>
-#include <utility>
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 namespace {
@@ -24,7 +23,7 @@ TEST_CASE("pipe message response", "[worker]") {
 
     std::future<std::optional<msgpack::sbuffer>> future = boost::asio::co_spawn(
             context,
-            spider::worker::receive_message_async(std::move(read_pipe)),
+            spider::worker::receive_message_async(read_pipe),
             boost::asio::use_future
     );
 

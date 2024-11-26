@@ -49,6 +49,7 @@ target_link_libraries(spider_worker PRIVATE spider_core)
 target_link_libraries(
     spider_worker
     PRIVATE
+        Boost::headers
         Boost::system
         Boost::filesystem
         Boost::program_options
