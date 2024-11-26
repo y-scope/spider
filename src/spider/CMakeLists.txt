@@ -40,10 +40,11 @@ set(SPIDER_CLIENT_SHARED_SOURCES
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
     client/Driver.hpp
+    client/task.hpp
     client/TaskContext.hpp
     client/TaskGraph.hpp
+    client/type_utils.hpp
     client/Exception.hpp
-    client/Concepts.hpp
     CACHE INTERNAL
     "spider client shared header files"
 )

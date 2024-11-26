@@ -1,10 +1,7 @@
-#ifndef SPIDER_CLIENT_CONCEPTS_HPP
-#define SPIDER_CLIENT_CONCEPTS_HPP
+#ifndef SPIDER_CLIENT_TYPEUTILS_HPP
+#define SPIDER_CLIENT_TYPEUTILS_HPP
 
 #include <type_traits>
-
-#include "../core/Serializer.hpp"
-#include "Data.hpp"
 
 namespace spider {
 // The template and partial specialization below check whether a given type is a specialization of
@@ -31,13 +28,5 @@ struct IsSpecialization<type<TypeParams...>, type> : public std::true_type {};
 template <class Type, template <typename...> class template_type>
 inline constexpr bool cIsSpecializationV = IsSpecialization<Type, template_type>::value;
 
-/**
- * Concept that represents the input to or output from a Task.
- *
- * @tparam T
- */
-template <class T>
-concept TaskIo = Serializable<T> || cIsSpecializationV<T, Data>;
 }  // namespace spider
-
-#endif  // SPIDER_CLIENT_CONCEPTS_HPP
+#endif  // SPIDER_CLIENT_TYPEUTILS_HPP
