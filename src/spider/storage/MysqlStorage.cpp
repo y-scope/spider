@@ -1,7 +1,5 @@
 #include "MysqlStorage.hpp"
 
-#include <absl/container/flat_hash_set.h>
-
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -12,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include <absl/container/flat_hash_set.h>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>

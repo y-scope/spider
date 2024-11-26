@@ -1,13 +1,12 @@
 #ifndef SPIDER_CORE_TASKGRAPH_HPP
 #define SPIDER_CORE_TASKGRAPH_HPP
 
-#include <absl/container/flat_hash_map.h>
-#include <absl/container/flat_hash_set.h>
-
 #include <optional>
 #include <utility>
 #include <vector>
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <boost/uuid/uuid.hpp>
 
 #include "Task.hpp"
