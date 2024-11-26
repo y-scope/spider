@@ -63,21 +63,6 @@ auto main(int argc, char **argv) -> int {
 }
 ```
 
-## More on Spider driver
-
-In spider, every driver has a driver id. When creating a driver with a storage url, a driver id is implicitly created.
-User can pass in a driver id to get access to the jobs and data created by a previous driver with same id. Two drivers
-with same id cannot exist at the same time.
-
-```c++
-#include <spider/spider.hpp>
-
-auto main(int argc, char **argv) -> int {
-    boost::uuids::string_generator gen;
-    spider::Driver driver{"storage_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
-}
-```
-
 ## Set up Spider cluster
 
 Now we have a basic client that creates and runs a task. However, we don't have a Spider cluster that will execute the
@@ -292,6 +277,23 @@ auto long_running(spider::TaskContext& context) {
         case 1:
             long_compute_2();
     }
+}
+```
+
+## Recovery on Driver restarts
+
+It is possible that a user client fails and is manually restarted. Spider keeps the jobs running when its driver fails
+so that when user client recovers it can retrieve all running jobs. In spider, every driver has a driver id. When
+creating a driver with a storage url, a driver id is implicitly created. When creating the driver, user can pass in a
+driver id to get access to the jobs and data created by a previous driver with same id. Two drivers with same id cannot
+exist at the same time.
+
+```c++
+#include <spider/spider.hpp>
+
+auto main(int argc, char **argv) -> int {
+    boost::uuids::string_generator gen;
+    spider::Driver driver{"storage_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
 }
 ```
 
