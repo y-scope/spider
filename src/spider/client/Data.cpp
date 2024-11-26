@@ -25,7 +25,8 @@ auto Data<T>::Builder::set_locality(std::vector<std::string> const& /*nodes*/, b
 }
 
 template <Serializable T>
-auto Data<T>::Builder::set_cleanup(std::function<T const&()> const& /*f*/) -> Data<T>::Builder& {
+auto Data<T>::Builder::set_cleanup_func(std::function<T const&()> const& /*f*/)
+        -> Data<T>::Builder& {
     return this;
 }
 

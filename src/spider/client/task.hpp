@@ -1,6 +1,8 @@
 #ifndef SPIDER_CLIENT_TASK_HPP
 #define SPIDER_CLIENT_TASK_HPP
 
+#include <functional>
+
 #include "../core/Serializer.hpp"
 #include "Data.hpp"
 #include "type_utils.hpp"
