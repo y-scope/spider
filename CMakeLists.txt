@@ -90,6 +90,7 @@ find_package(
     REQUIRED
     COMPONENTS
         headers
+        process
         program_options
         filesystem
         system

@@ -24,8 +24,9 @@ target_link_libraries(
     unitTest
     PRIVATE
         Boost::headers
-        Boost::system
         Boost::filesystem
         Boost::program_options
+        Boost::process
+        Boost::system
         spdlog::spdlog
 )

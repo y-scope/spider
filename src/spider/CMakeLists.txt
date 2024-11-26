@@ -50,9 +50,10 @@ target_link_libraries(
     spider_worker
     PRIVATE
         Boost::headers
-        Boost::system
         Boost::filesystem
+        Boost::process
         Boost::program_options
+        Boost::system
         spdlog::spdlog
 )
 
@@ -72,8 +73,8 @@ target_link_libraries(spider_task_executor PRIVATE spider_core)
 target_link_libraries(
     spider_task_executor
     PRIVATE
-        Boost::system
         Boost::filesystem
         Boost::program_options
+        Boost::system
         spdlog::spdlog
 )
