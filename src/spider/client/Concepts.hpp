@@ -17,19 +17,19 @@ namespace spider {
  * defines the case where `Type` is considered a specialization of `TemplateType`.
  *
  * @tparam Type
- * @tparam TemplateType
+ * @tparam template_type
  */
-template <typename Type, template <typename...> class TemplateType>
+template <typename Type, template <typename...> class template_type>
 struct IsSpecialization : public std::false_type {};
 
 // Specialization of `IsSpecialization` that inherits from `std::true_type` only when the first
 // template argument is a specialization (i.e., the same type with template parameters) of the
 // second template argument.
-template <template <typename...> class Type, class... TypeParams>
-struct IsSpecialization<Type<TypeParams...>, Type> : public std::true_type {};
+template <template <typename...> class type, class... TypeParams>
+struct IsSpecialization<type<TypeParams...>, type> : public std::true_type {};
 
-template <class Type, template <typename...> class TemplateType>
-inline constexpr bool cIsSpecializationV = IsSpecialization<Type, TemplateType>::value;
+template <class Type, template <typename...> class template_type>
+inline constexpr bool cIsSpecializationV = IsSpecialization<Type, template_type>::value;
 
 /**
  * Concept that represents the input to or output from a Task.
