@@ -3,8 +3,6 @@
 
 #include "../core/Serializer.hpp"
 #include "Data.hpp"
-#include "TaskContext.hpp"
-#include "TaskGraph.hpp"
 #include "type_utils.hpp"
 
 namespace spider {
@@ -17,6 +15,10 @@ namespace spider {
 template <class T>
 concept TaskIo = Serializable<T> || cIsSpecializationV<T, Data>;
 
+// Forward declare `TaskContext` since `TaskFunction` takes `TaskContext` as a param, and
+// `TaskContext` uses `TaskFunction` as a param in its methods
+class TaskContext;
+
 /**
  * A function that can be run as a task on Spider.
  *
@@ -25,6 +27,11 @@ concept TaskIo = Serializable<T> || cIsSpecializationV<T, Data>;
  */
 template <TaskIo ReturnType, TaskIo... TaskParams>
 using TaskFunction = std::function<ReturnType(TaskContext, TaskParams...)>;
+
+// Forward declare `TaskGraph` since `Runnable` takes `TaskGraph` as a param, and `TaskGraph` uses
+// `TaskIo` defined in this header as its template params.
+template <TaskIo ReturnType, TaskIo... Params>
+class TaskGraph;
 
 /**
  * Concept for an object that's runnable on Spider.
