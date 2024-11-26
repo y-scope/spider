@@ -24,7 +24,7 @@
  * Registers a timed Task function with Spider
  * @param func
  * @param timeout The time after which the task is considered a straggler, triggering Spider to
- * replicate the task.
+ * replicate the task. TODO: Use the timeout.
  */
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SPIDER_REGISTER_TASK_TIMEOUT(func, timeout) SPIDER_WORKER_REGISTER_TASK(func)
