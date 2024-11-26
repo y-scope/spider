@@ -225,7 +225,7 @@ auto filter(spider::TaskContext& context, spider::Data<Hdfsfile> input) -> spide
     // Creates HdfsFile Data before creating the actual file in Hdfs so Spider
     // can clean up the Hdfs file on failure.
     spider::Data<HdfsFile> output = spider::Data<HdfsFile>::Builder()
-        .cleanup([](HdfsFile const& file) { delete_hdfs_file(file); })
+        .set_cleanup_func([](HdfsFile const& file) { delete_hdfs_file(file); })
         .build(HdfsFile { output_path });
     auto file = hdfs_create(output_path);
     // Hdfs allows reading data from any node, but reading from the nodes where
@@ -254,7 +254,7 @@ auto map(spider::TaskContext& context, spider::Data<HdfsFile> input) -> spider::
     std::string const input_path = input.get().url;
     
     spider::Data<HdfsFile> output = spider::Data<HdfsFile>::Builder()
-        .cleanup([](HdfaFile const& file) { delete_hdfs_file(file); })
+        .set_cleanup_func([](HdfaFile const& file) { delete_hdfs_file(file); })
         .build(HdfsFile { output_path });
     
     run_map(input_path, output_path);
