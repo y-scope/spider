@@ -1,33 +1,12 @@
 # Spider quick start guide
 
-## Architecture of Spider
+## Intro of Spider
 
-A Spider cluster is made up of three components:
-
-* __Storage__: Spider stores all the states and data in a fault-tolerant storage.
-* __Scheduler__: Scheduler is responsible for making scheduling decision when a worker ask for a new
-  task to run. It also handles garbage collection and failure recovery.
-* __Worker__: Worker executes the task it is assigned to. Once it finishes, it updates the task
-  output in storage and contacts scheduler for a new task.
-
-Users creates a __client__ to run tasks on Spider cluster. It connects to the storage to submit new
-tasks and get the results. Clients _never_ directly talks to a scheduler or a worker.
-
-## Start a client
-
-Client first creates a Spider client driver that connects to the storage. Spider automatically
-cleans up the resource in driver's destructor. User can pass in an optional client id to get access
-to the jobs and data created by a previous driver with same id. Two drivers with same client id
-cannot run at the same time.
-
-```c++
-#include <spider/spider.hpp>
-
-auto main(int argc, char **argv) -> int {
-    boost::uuids::string_generator gen;
-    spider::Driver driver{"storage_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
-}
-```
+Spider is a distributes task executor. It runs tasks submitted by users on a distributed cluster and
+returns the results to users. We develop Spider because existing distributed task executor
+like [Ray](https://docs.ray.io/en/latest/index.html)
+and [Celery](https://docs.celeryq.dev/en/stable/getting-started/introduction.html) lacks important features like
+efficient failure recovery and straggler mitigation.
 
 ## Create a task
 
@@ -63,16 +42,18 @@ SPIDER_REGISTER_TASK(sort);
 
 ## Run a task
 
-Spider enables user to start a running task on the cluster. Simply call `Driver::start` and provide
-the arguments of the task. `Driver::start`returns a `spider::Job` object, which represents the
-running task. `spider::Job` takes the output type of the task as template argument. You can call
-`Job::state` to check the state of the running task, and `Job::wait_complete` to block until job
-ends and `Job::get_result`. User can send a cancel signal to Spider by calling `Job::cancel`. Client
-can get all running jobs submitted by itself by calling `Driver::get_jobs`.
+Spider enables user to start a running task on the cluster. User first creates a driver that connects to Spider's
+internal storage. Spider automatically cleans up the resource in driver's destructor. User then calls `Driver::start`
+and provides the arguments of the task. `Driver::start`returns a `spider::Job` object, which represents the running
+task. `spider::Job` takes the output type of the task as template argument. You can call `Job::state` to check the state
+of the running task, and `Job::wait_complete` to block until job ends and `Job::get_result`. User can send a cancel
+signal to Spider by calling `Job::cancel`. Client can get all running jobs submitted by itself by calling
+`Driver::get_jobs`.
 
 ```c++
 auto main(int argc, char **argv) -> int {
-    // driver initialization skipped
+    spider::Driver driver{"storage_url"};
+
     spider::Job<int> sum_job = driver.run(sum, 2);
     assert(4 == sum_job.get_result());
 
@@ -82,10 +63,25 @@ auto main(int argc, char **argv) -> int {
 }
 ```
 
+## More on Spider driver
+
+In spider, every driver has a driver id. When creating a driver with a storage url, a driver id is implicitly created.
+User can pass in a driver id to get access to the jobs and data created by a previous driver with same id. Two drivers
+with same id cannot exist at the same time.
+
+```c++
+#include <spider/spider.hpp>
+
+auto main(int argc, char **argv) -> int {
+    boost::uuids::string_generator gen;
+    spider::Driver driver{"storage_url", gen(L"01234567-89ab-cdef-0123-456789abcdef")};
+}
+```
+
 ## Set up Spider cluster
 
-Now we have a basic client that creates and runs a task. However, we haven't talked about how to
-set up a Spider cluster which runs the actual task. To set up a Spider cluster:
+Now we have a basic client that creates and runs a task. However, we don't have a Spider cluster that will execute the
+tasks. To set up a Spider cluster:
 
 1. Start a storage supported by Spider, e.g. MySql.
 2. Start a scheduler and connect it to the storage by running
@@ -94,6 +90,8 @@ set up a Spider cluster which runs the actual task. To set up a Spider cluster:
    that will run. Thus, user need to compile all the tasks into shared libraries, including the call
    to `SPIDER_REGISTER_TASK`, and provide them to the worker by running
    `spider start --worker --storage <storage_url> --libs [client_libraries]`.
+
+Now we can run the compiled client program and see the tasks run on Spider cluster.
 
 ## Group tasks together
 
@@ -129,6 +127,7 @@ auto main(int argc, char **argv) -> auto {
 ```
 
 The above code generates a task graph that accepts two `int`s and returns an `int`.
+
 ```mermaid
 flowchart LR
     sq1["square(int) -> int"]
@@ -150,7 +149,7 @@ flowchart LR
 
 Static task graph is enough to solve a lot of real work problems, but dynamically running task
 graphs on-the-fly could become handy. Running a task graph inside task is the same as running it
-from a client.
+from a client. The only difference is to use the `TaskContext` where you need a `Driver`.
 
 ```c++
 auto gcd(spider:TaskContext& context, int x, int y) -> int {
