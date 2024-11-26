@@ -13,6 +13,7 @@ enum class TaskExecutorResponseType : std::uint8_t {
     Error,
     Block,
     Ready,
+    Cancel,
 };
 
 inline auto get_response_type(msgpack::sbuffer const& buffer) -> TaskExecutorResponseType {

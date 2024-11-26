@@ -121,6 +121,17 @@ create_error_response(FunctionInvokeError error, std::string const& message) -> 
     return buffer;
 }
 
+inline auto create_error_buffer(
+        FunctionInvokeError error,
+        std::string const& message,
+        msgpack::sbuffer& buffer
+) {
+    msgpack::packer packer{buffer};
+    packer.pack_array(2);
+    packer.pack(error);
+    packer.pack(message);
+}
+
 template <class T>
 auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)

@@ -70,7 +70,24 @@ auto TaskExecutor::error() -> bool {
 }
 
 auto TaskExecutor::wait() {
-    m_process.wait();
+    int const exit_code = m_process.wait();
+    if (exit_code != 0) {
+        std::lock_guard const lock(m_state_mutex);
+        m_state = TaskExecutorState::Error;
+        core::create_error_buffer(
+                core::FunctionInvokeError::FunctionExecutionError,
+                fmt::format("Subprocess exit with {}", exit_code),
+                m_result_buffer
+        );
+    }
+}
+
+auto TaskExecutor::cancel() {
+    m_process.terminate();
+    std::lock_guard const lock(m_state_mutex);
+    m_state = TaskExecutorState::Cancelled;
+    msgpack::packer packer{m_result_buffer};
+    packer.pack("Task cancelled");
 }
 
 auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
@@ -95,6 +112,12 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
             case TaskExecutorResponseType::Result: {
                 std::lock_guard const lock(m_state_mutex);
                 m_state = TaskExecutorState::Succeed;
+                m_result_buffer.write(response.data(), response.size());
+                co_return;
+            }
+            case TaskExecutorResponseType::Cancel: {
+                std::lock_guard const lock(m_state_mutex);
+                m_state = TaskExecutorState::Cancelled;
                 m_result_buffer.write(response.data(), response.size());
                 co_return;
             }

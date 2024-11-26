@@ -22,6 +22,7 @@ enum class TaskExecutorState : std::uint8_t {
     Waiting,
     Succeed,
     Error,
+    Cancelled,
 };
 
 class TaskExecutor {
@@ -43,6 +44,8 @@ public:
     auto error() -> bool;
 
     auto wait();
+
+    auto cancel();
 
     template <class T>
     auto get_result() -> T;
