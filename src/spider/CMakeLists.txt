@@ -28,14 +28,7 @@ target_link_libraries(
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
-set(SPIDER_CLIENT_SHARED_SOURCES
-    client/Data.cpp
-    client/Driver.cpp
-    client/TaskContext.cpp
-    client/TaskGraph.cpp
-    CACHE INTERNAL
-    "spider client shared source files"
-)
+set(SPIDER_CLIENT_SHARED_SOURCES CACHE INTERNAL "spider client shared source files")
 
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
@@ -59,7 +52,7 @@ target_link_libraries(
         absl::flat_hash_map
 )
 
-set(SPIDER_CLIENT_SOURCES client/Job.cpp CACHE INTERNAL "spider client source files")
+set(SPIDER_CLIENT_SOURCES CACHE INTERNAL "spider client source files")
 
 set(SPIDER_CLIENT_HEADERS
     client/spider.hpp
