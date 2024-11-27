@@ -18,8 +18,13 @@
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "TaskExecutorMessage.hpp"
 
+#define CONCAT_DIRECT(s1, s2) s1##s2
+#define CONCAT(s1, s2) CONCAT_DIRECT(s1, s2)
+#define ANONYMOUS_VARIABLE(str) CONCAT(str, __COUNTER__)
+
 #define REGISTER_TASK(func) \
-    spider::core::FunctionManager::get_instance().register_function(#func, func);
+    inline auto ANONYMOUS_VARIABLE(var) \
+            = spider::core::FunctionManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
 using ArgsBuffer = msgpack::sbuffer;

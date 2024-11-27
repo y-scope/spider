@@ -92,10 +92,6 @@ auto main(int const argc, char** argv) -> int {
         msgpack::sbuffer args_buffer;
         msgpack::packer packer{args_buffer};
         packer.pack(args_object);
-        spdlog::error("functions: {}", spider::core::FunctionManager::get_instance().list_functions().size());
-        for (auto name : spider::core::FunctionManager::get_instance().list_functions()) {
-            spdlog::error(name);
-        }
 
         // Run function
         spider::core::Function* function
