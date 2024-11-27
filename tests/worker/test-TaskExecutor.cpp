@@ -48,6 +48,40 @@ TEST_CASE("Task execute success", "[worker]") {
     REQUIRE(result_option.has_value());
     REQUIRE(5 == result_option.value_or(0));
 }
+
+TEST_CASE("Task execute wrong number of arguments", "[worker]") {
+    absl::flat_hash_map<
+            boost::process::v2::environment::key,
+            boost::process::v2::environment::value> const environment_variable
+            = get_environment_variable();
+
+    boost::asio::io_context context;
+
+    spider::worker::TaskExecutor
+            executor{context, "sum_test", get_libraries(), environment_variable, 2};
+    context.run();
+    executor.wait();
+    REQUIRE(executor.error());
+    std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
+    REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments == std::get<0>(error));
+}
+
+TEST_CASE("Task execute fail", "[worker]") {
+    absl::flat_hash_map<
+            boost::process::v2::environment::key,
+            boost::process::v2::environment::value> const environment_variable
+            = get_environment_variable();
+
+    boost::asio::io_context context;
+
+    spider::worker::TaskExecutor
+            executor{context, "error_test", get_libraries(), environment_variable, 2};
+    context.run();
+    executor.wait();
+    REQUIRE(executor.error());
+    std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
+    REQUIRE(spider::core::FunctionInvokeError::ResultParsingError == std::get<0>(error));
+}
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
