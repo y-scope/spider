@@ -67,7 +67,7 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
                 = co_await receive_message_async(m_read_pipe);
         if (!response_option.has_value()) {
             std::lock_guard const lock(m_state_mutex);
-            m_state = TaskExecutorState::Succeed;
+            m_state = TaskExecutorState::Error;
             core::create_error_buffer(
                     core::FunctionInvokeError::FunctionExecutionError,
                     "Pipe read fails",

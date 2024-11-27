@@ -12,6 +12,7 @@
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
 #include <spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "../core/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
@@ -43,6 +44,9 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 }  // namespace
 
 auto main(int const argc, char** argv) -> int {
+    // Set up spdlog to write to stderr
+    spdlog::set_default_logger(spdlog::stderr_color_mt("stderr"));
+
     boost::program_options::variables_map const args = parse_arg(argc, argv);
 
     std::string func_name;
@@ -74,33 +78,45 @@ auto main(int const argc, char** argv) -> int {
         // Get args buffer from stdin
         std::optional<msgpack::sbuffer> request_buffer_option = spider::worker::receive_message(in);
         if (!request_buffer_option.has_value()) {
+            spdlog::error("Cannot read args buffer request");
             return 3;
         }
         msgpack::sbuffer const& request_buffer = request_buffer_option.value();
         if (spider::worker::TaskExecutorRequestType::Arguments
             != spider::worker::get_request_type(request_buffer))
         {
+            spdlog::error("Expect args request.");
             return 3;
         }
         msgpack::object const args_object = spider::worker::get_message_body(request_buffer);
         msgpack::sbuffer args_buffer;
         msgpack::packer packer{args_buffer};
         packer.pack(args_object);
+        spdlog::error("functions: {}", spider::core::FunctionManager::get_instance().list_functions().size());
+        for (auto name : spider::core::FunctionManager::get_instance().list_functions()) {
+            spdlog::error(name);
+        }
 
         // Run function
         spider::core::Function* function
                 = spider::core::FunctionManager::get_instance().get_function(func_name);
+        if (nullptr == function) {
+            spider::worker::send_message(
+                    out,
+                    spider::core::create_error_response(
+                            spider::core::FunctionInvokeError::FunctionExecutionError,
+                            fmt::format("Function {} not found.", func_name)
+                    )
+            );
+            return 4;
+        }
         msgpack::sbuffer const result_buffer = (*function)(args_buffer);
 
-        // Write arg buffer to stdout
-        msgpack::object_handle const handle
-                = msgpack::unpack(result_buffer.data(), result_buffer.size());
-        msgpack::object const object = handle.get();
-        msgpack::sbuffer const response_buffer = spider::core::create_result_response(object);
-        spider::worker::send_message(out, response_buffer);
+        // Write result buffer to stdout
+        spider::worker::send_message(out, result_buffer);
     } catch (std::exception& e) {
         spdlog::error("Exception thrown: {}", e.what());
-        return 4;
+        return 5;
     }
     return 0;
 }

@@ -57,7 +57,11 @@ auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional
     try {
         body_size = std::stol(std::string{header_buffer.data(), cHeaderSize});
     } catch (std::exception& e) {
-        spdlog::error("Cannot parse header: {}", e.what());
+        spdlog::error(
+                "Cannot parse header: {} {}",
+                e.what(),
+                std::string{header_buffer.data(), cHeaderSize}
+        );
         return std::nullopt;
     }
 
@@ -96,7 +100,11 @@ auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pi
     try {
         response_size = std::stol(std::string{header_buffer.data(), cHeaderSize});
     } catch (std::exception& e) {
-        spdlog::error("Cannot parse header: {}", e.what());
+        spdlog::error(
+                "Cannot parse header: {} {}",
+                e.what(),
+                std::string{header_buffer.data(), cHeaderSize}
+        );
         co_return std::nullopt;
     }
     if (response_size == 0) {

@@ -41,6 +41,7 @@ TEST_CASE("Task execute success", "[worker]") {
 
     spider::worker::TaskExecutor
             executor{context, "sum_test", get_libraries(), environment_variable, 2, 3};
+    context.run();
     executor.wait();
     REQUIRE(executor.succeed());
     std::optional<int> const result_option = executor.get_result<int>();

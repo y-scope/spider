@@ -32,6 +32,6 @@ target_link_libraries(
         spdlog::spdlog
 )
 
-add_library(worker_test)
+add_library(worker_test SHARED)
 target_sources(worker_test PUBLIC worker/worker-test.hpp)
 target_link_libraries(worker_test PUBLIC spider_core)

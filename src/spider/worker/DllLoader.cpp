@@ -11,7 +11,7 @@ namespace spider::worker {
 auto DllLoader::load_dll(std::string const& path_str) -> bool {
     std::filesystem::path const dll_path(path_str);
 
-    if (std::filesystem::exists(dll_path)) {
+    if (!std::filesystem::exists(dll_path)) {
         spdlog::error("Cannot find dll file {}", dll_path.string());
         return false;
     }

@@ -285,6 +285,14 @@ public:
         return nullptr;
     }
 
+    auto list_functions() -> std::vector<std::string> {
+        std::vector<std::string> functions;
+        for (auto func_iter = m_map.cend(); func_iter != m_map.cend(); ++func_iter) {
+            functions.emplace_back(func_iter->first);
+        }
+        return functions;
+    }
+
 private:
     FunctionManager() = default;
 
