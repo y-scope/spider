@@ -23,7 +23,7 @@
 #define ANONYMOUS_VARIABLE(str) CONCAT(str, __COUNTER__)
 
 #define REGISTER_TASK(func) \
-    inline auto ANONYMOUS_VARIABLE(var) \
+    __attribute__((dllexport)) inline const auto ANONYMOUS_VARIABLE(var) \
             = spider::core::FunctionManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
@@ -275,6 +275,7 @@ public:
 
     template <class F>
     auto register_function(std::string const& name, F f) -> bool {
+        std::cerr << "Register function " << name << std::endl;
         return m_map
                 .emplace(
                         name,

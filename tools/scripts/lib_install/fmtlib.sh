@@ -64,7 +64,7 @@ fi
 cd ${extracted_dir}
 mkdir -p cmake-build-release
 cd cmake-build-release
-cmake ../
+cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ../
 make -j${num_cpus}
 
 # Check if checkinstall is installed

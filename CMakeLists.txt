@@ -55,6 +55,9 @@ add_definitions(-DFLUSH_TO_DISK_ENABLED=1)
 # Make off_t 64-bit
 add_definitions(-D_FILE_OFFSET_BITS=64)
 
+# Turn on PIC
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Detect linking mode (static or shared); Default to static.
 set(SPIDER_USE_STATIC_LIBS ON CACHE BOOL "Whether to link against static libraries")
 if(SPIDER_USE_STATIC_LIBS)
