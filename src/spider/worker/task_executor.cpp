@@ -92,10 +92,9 @@ auto main(int const argc, char** argv) -> int {
         msgpack::sbuffer args_buffer;
         msgpack::packer packer{args_buffer};
         packer.pack(args_object);
-        spdlog::error("Function registered: {}", spider::core::FunctionManager::get_instance().list_functions().size());
 
         // Run function
-        spider::core::Function* function
+        spider::core::Function const* function
                 = spider::core::FunctionManager::get_instance().get_function(func_name);
         if (nullptr == function) {
             spider::worker::send_message(

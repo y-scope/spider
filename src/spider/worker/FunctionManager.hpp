@@ -23,7 +23,7 @@
 #define ANONYMOUS_VARIABLE(str) CONCAT(str, __COUNTER__)
 
 #define REGISTER_TASK(func) \
-    __attribute__((dllexport)) inline const auto ANONYMOUS_VARIABLE(var) \
+    inline const auto ANONYMOUS_VARIABLE(var) \
             = spider::core::FunctionManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
@@ -275,7 +275,6 @@ public:
 
     template <class F>
     auto register_function(std::string const& name, F f) -> bool {
-        std::cerr << "Register function " << name << std::endl;
         return m_map
                 .emplace(
                         name,
@@ -284,20 +283,26 @@ public:
                 .second;
     }
 
-    auto get_function(std::string const& name) -> Function* {
+    auto register_function_invoker(std::string const& name, Function f) -> bool {
+        return m_map.emplace(name, f).second;
+    }
+
+    [[nodiscard]] auto get_function(std::string const& name) const -> Function const* {
         if (auto const func_iter = m_map.find(name); func_iter != m_map.end()) {
-            return &func_iter->second;
+            return &(func_iter->second);
         }
         return nullptr;
     }
 
-    auto list_functions() -> std::vector<std::string> {
+    [[nodiscard]] auto list_functions() const -> std::vector<std::string> {
         std::vector<std::string> functions;
-        for (auto func_iter = m_map.cend(); func_iter != m_map.cend(); ++func_iter) {
-            functions.emplace_back(func_iter->first);
+        for (std::string const& func_name : std::views::keys(m_map)) {
+            functions.emplace_back(func_name);
         }
         return functions;
     }
+
+    [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_map; }
 
 private:
     FunctionManager() = default;
