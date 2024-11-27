@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <string>
 
-#include <boost/dll/library_info.hpp>
+#include <boost/dll/shared_library.hpp>
 #include <spdlog/spdlog.h>
 
 #include "../worker/FunctionManager.hpp"

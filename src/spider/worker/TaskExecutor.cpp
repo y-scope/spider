@@ -5,7 +5,6 @@
 #include <string>
 #include <tuple>
 
-#include <boost/process/v2/environment.hpp>
 #include <boost/process/v2/process.hpp>
 #include <fmt/format.h>
 

@@ -4,11 +4,13 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>

@@ -7,10 +7,12 @@
 #include <functional>
 #include <initializer_list>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <absl/container/flat_hash_map.h>
 #include <fmt/format.h>
@@ -18,9 +20,11 @@
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "TaskExecutorMessage.hpp"
 
+// NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define CONCAT_DIRECT(s1, s2) s1##s2
 #define CONCAT(s1, s2) CONCAT_DIRECT(s1, s2)
 #define ANONYMOUS_VARIABLE(str) CONCAT(str, __COUNTER__)
+// NOLINTEND(cppcoreguidelines-macro-usage)
 
 #define REGISTER_TASK(func) \
     inline const auto ANONYMOUS_VARIABLE(var) \
