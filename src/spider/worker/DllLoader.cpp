@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 
+#include <boost/dll/import.hpp>
 #include <boost/dll/shared_library.hpp>
 #include <spdlog/spdlog.h>
 
@@ -22,8 +23,9 @@ auto DllLoader::load_dll(std::string const& path_str) -> bool {
     try {
         boost::dll::shared_library library{dll_path.string()};
 
-        auto const function_manager_func = library.get<core::FunctionManager&()>(
-                "_ZN6spider4core15FunctionManager12get_instanceEv"
+        auto const function_manager_func = boost::dll::import_alias<core::FunctionManager&()>(
+                library,
+                "function_manager_get_instance"
         );
         core::FunctionManager const& function_manager = function_manager_func();
         core::FunctionMap const& function_map = function_manager.get_function_map();

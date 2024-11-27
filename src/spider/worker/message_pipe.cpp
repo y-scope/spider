@@ -26,6 +26,7 @@ auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
         boost::asio::write(pipe, boost::asio::buffer(request.data(), size));
         return true;
     } catch (boost::system::system_error const& e) {
+        spdlog::error("Failed to send message: {}", e.what());
         return false;
     }
 }
@@ -39,6 +40,7 @@ auto send_message(boost::asio::posix::stream_descriptor& fd, msgpack::sbuffer co
         boost::asio::write(fd, boost::asio::buffer(request.data(), size));
         return true;
     } catch (boost::system::system_error const& e) {
+        spdlog::error("Failed to send message: {}", e.what());
         return false;
     }
 }
@@ -55,7 +57,7 @@ auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional
     }
     size_t body_size = 0;
     try {
-        body_size = std::stol(std::string{header_buffer.data(), cHeaderSize});
+        body_size = std::stoul(std::string{header_buffer.data(), cHeaderSize});
     } catch (std::exception& e) {
         spdlog::error(
                 "Cannot parse header: {} {}",
@@ -69,7 +71,7 @@ auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional
     try {
         boost::asio::read(fd, boost::asio::buffer(body_buffer));
     } catch (boost::system::system_error& e) {
-        spdlog::error("Fail to read header: {}", e.what());
+        spdlog::error("Fail to read response body: {}", e.what());
         return std::nullopt;
     }
     msgpack::sbuffer buffer;
@@ -98,7 +100,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pi
     }
     size_t response_size = 0;
     try {
-        response_size = std::stol(std::string{header_buffer.data(), cHeaderSize});
+        response_size = std::stoul(std::string{header_buffer.data(), cHeaderSize});
     } catch (std::exception& e) {
         spdlog::error(
                 "Cannot parse header: {} {}",
@@ -119,7 +121,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pi
     if (response_ec) {
         if (boost::asio::error::eof != response_ec) {
             spdlog::error(
-                    "Cannot read header from pipe {}: {}",
+                    "Cannot read response body from pipe {}: {}",
                     response_ec.value(),
                     response_ec.message()
             );

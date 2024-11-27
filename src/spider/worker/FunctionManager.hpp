@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <boost/dll/alias.hpp>
 #include <fmt/format.h>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
@@ -316,5 +317,8 @@ private:
     FunctionMap m_map;
 };
 }  // namespace spider::core
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-definitions-in-headers)
+BOOST_DLL_ALIAS(spider::core::FunctionManager::get_instance, function_manager_get_instance)
 
 #endif  // SPIDER_WORKER_FUNCTIONMANAGER_HPP

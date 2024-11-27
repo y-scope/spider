@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -32,7 +33,6 @@ enum class TaskExecutorState : std::uint8_t {
 
 class TaskExecutor {
 public:
-    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
     template <class... Args>
     explicit TaskExecutor(
             boost::asio::io_context& context,
@@ -67,11 +67,15 @@ public:
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
 
         // Send args
-        msgpack::sbuffer args_request = core::create_args_request(args...);
+        msgpack::sbuffer args_request = core::create_args_request(std::forward<Args>(args)...);
         send_message(m_write_pipe, args_request);
     }
 
-    // NOLINTEND(cppcoreguidelines-missing-std-forward)
+    TaskExecutor(TaskExecutor const&) = delete;
+    auto operator=(TaskExecutor const&) -> TaskExecutor& = delete;
+    TaskExecutor(TaskExecutor&&) = delete;
+    auto operator=(TaskExecutor&&) -> TaskExecutor& = delete;
+    ~TaskExecutor() = default;
 
     auto completed() -> bool;
     auto waiting() -> bool;

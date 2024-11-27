@@ -86,7 +86,7 @@ TEST_CASE("Task execute fail", "[worker]") {
     executor.wait();
     REQUIRE(executor.error());
     std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
-    REQUIRE(spider::core::FunctionInvokeError::ResultParsingError == std::get<0>(error));
+    REQUIRE(spider::core::FunctionInvokeError::FunctionExecutionError == std::get<0>(error));
 }
 }  // namespace
 

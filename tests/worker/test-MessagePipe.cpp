@@ -5,6 +5,7 @@
 #include "../../src/spider/worker/TaskExecutorMessage.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <future>
 #include <optional>
 #include <string>
@@ -31,7 +32,8 @@ TEST_CASE("pipe message response", "[worker]") {
     REQUIRE(spider::worker::send_message(write_pipe, buffer));
 
     context.run();
-    future.wait();
+
+    REQUIRE(future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
 
     // Get value should succeed
     std::optional<msgpack::sbuffer> const& response_option = future.get();

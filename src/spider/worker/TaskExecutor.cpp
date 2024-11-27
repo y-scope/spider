@@ -40,7 +40,7 @@ void TaskExecutor::wait() {
     int const exit_code = m_process->wait();
     if (exit_code != 0) {
         std::lock_guard const lock(m_state_mutex);
-        if (m_state != TaskExecutorState::Cancelled || m_state != TaskExecutorState::Error) {
+        if (m_state != TaskExecutorState::Cancelled && m_state != TaskExecutorState::Error) {
             m_state = TaskExecutorState::Error;
             core::create_error_buffer(
                     core::FunctionInvokeError::FunctionExecutionError,
