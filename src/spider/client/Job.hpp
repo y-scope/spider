@@ -36,6 +36,11 @@ public:
     auto wait_complete();
 
     /**
+     * Cancels the job and waits for the all running tasks cancelled.
+     */
+    auto cancel();
+
+    /**
      * @return Status of the job.
      */
     auto get_status() -> JobStatus;
