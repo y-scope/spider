@@ -1,6 +1,13 @@
 #include "FunctionManager.hpp"
 
+#include <optional>
+#include <string>
+#include <tuple>
+
+#include <boost/dll/alias.hpp>
+
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
+#include "TaskExecutorMessage.hpp"
 
 namespace spider::core {
 
