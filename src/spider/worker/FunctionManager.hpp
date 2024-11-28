@@ -93,54 +93,17 @@ MSGPACK_ADD_ENUM(spider::core::FunctionInvokeError);
 
 namespace spider::core {
 
-inline auto response_get_error(msgpack::sbuffer const& buffer
-) -> std::optional<std::tuple<FunctionInvokeError, std::string>> {
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    try {
-        msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
-        msgpack::object const object = handle.get();
+auto response_get_error(msgpack::sbuffer const& buffer
+) -> std::optional<std::tuple<FunctionInvokeError, std::string>>;
 
-        if (msgpack::type::ARRAY != object.type || 3 != object.via.array.size) {
-            return std::nullopt;
-        }
+auto create_error_response(FunctionInvokeError error, std::string const& message)
+        -> msgpack::sbuffer;
 
-        if (worker::TaskExecutorResponseType::Error
-            != object.via.array.ptr[0].as<worker::TaskExecutorResponseType>())
-        {
-            return std::nullopt;
-        }
-
-        return std::make_tuple(
-                object.via.array.ptr[1].as<FunctionInvokeError>(),
-                object.via.array.ptr[2].as<std::string>()
-        );
-    } catch (msgpack::type_error& e) {
-        return std::nullopt;
-    }
-    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-}
-
-inline auto
-create_error_response(FunctionInvokeError error, std::string const& message) -> msgpack::sbuffer {
-    msgpack::sbuffer buffer;
-    msgpack::packer packer{buffer};
-    packer.pack_array(3);
-    packer.pack(worker::TaskExecutorResponseType::Error);
-    packer.pack(error);
-    packer.pack(message);
-    return buffer;
-}
-
-inline auto create_error_buffer(
+void create_error_buffer(
         FunctionInvokeError error,
         std::string const& message,
         msgpack::sbuffer& buffer
-) {
-    msgpack::packer packer{buffer};
-    packer.pack_array(2);
-    packer.pack(error);
-    packer.pack(message);
-}
+);
 
 template <class T>
 auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
@@ -167,7 +130,7 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
 }
 
 template <class T>
-inline auto create_result_response(T const& t) -> msgpack::sbuffer {
+auto create_result_response(T const& t) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
@@ -259,8 +222,6 @@ public:
         }
         // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     }
-
-private:
 };
 
 class FunctionManager {
@@ -292,20 +253,7 @@ public:
         return m_map.emplace(name, f).second;
     }
 
-    [[nodiscard]] auto get_function(std::string const& name) const -> Function const* {
-        if (auto const func_iter = m_map.find(name); func_iter != m_map.end()) {
-            return &(func_iter->second);
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] auto list_functions() const -> std::vector<std::string> {
-        std::vector<std::string> functions;
-        for (std::string const& func_name : std::views::keys(m_map)) {
-            functions.emplace_back(func_name);
-        }
-        return functions;
-    }
+    [[nodiscard]] auto get_function(std::string const& name) const -> Function const*;
 
     [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_map; }
 
@@ -317,8 +265,5 @@ private:
     FunctionMap m_map;
 };
 }  // namespace spider::core
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-definitions-in-headers)
-BOOST_DLL_ALIAS(spider::core::FunctionManager::get_instance, function_manager_get_instance)
 
 #endif  // SPIDER_WORKER_FUNCTIONMANAGER_HPP
