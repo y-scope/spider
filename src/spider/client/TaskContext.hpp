@@ -1,5 +1,5 @@
-#ifndef SPIDER_CLIENT_CONTEXT_HPP
-#define SPIDER_CLIENT_CONTEXT_HPP
+#ifndef SPIDER_CLIENT_TASKCONTEXT_HPP
+#define SPIDER_CLIENT_TASKCONTEXT_HPP
 
 #include <memory>
 #include <optional>
@@ -114,4 +114,4 @@ private:
 };
 }  // namespace spider
 
-#endif  // SPIDER_CLIENT_CONTEXT_HPP
+#endif  // SPIDER_CLIENT_TASKCONTEXT_HPP

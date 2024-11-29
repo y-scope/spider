@@ -1,5 +1,5 @@
-#ifndef SPIDER_CLIENT_TYPEUTILS_HPP
-#define SPIDER_CLIENT_TYPEUTILS_HPP
+#ifndef SPIDER_CLIENT_TYPE_UTILS_HPP
+#define SPIDER_CLIENT_TYPE_UTILS_HPP
 
 #include <type_traits>
 
@@ -27,6 +27,5 @@ struct IsSpecialization<type<TypeParams...>, type> : public std::true_type {};
 
 template <class Type, template <typename...> class template_type>
 inline constexpr bool cIsSpecializationV = IsSpecialization<Type, template_type>::value;
-
 }  // namespace spider
-#endif  // SPIDER_CLIENT_TYPEUTILS_HPP
+#endif  // SPIDER_CLIENT_TYPE_UTILS_HPP
