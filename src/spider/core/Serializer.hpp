@@ -49,13 +49,13 @@ concept SerializableImpl = requires(T t) {
 };
 
 template <class T>
-concept DeSerialzableImpl = requires(T t) {
+concept DeSerializableImpl = requires(T t) {
     {
         msgpack::object{}.convert(t)
     };
 };
 
 template <class T>
-concept Serializable = SerializableImpl<T> && DeSerialzableImpl<T>;
+concept Serializable = SerializableImpl<T> && DeSerializableImpl<T>;
 
 #endif  // SPIDER_CORE_SERIALIZER_HPP
