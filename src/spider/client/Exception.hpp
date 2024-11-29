@@ -2,6 +2,7 @@
 #define SPIDER_CLIENT_EXCEPTION_HPP
 
 #include <exception>
+#include <string>
 
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
