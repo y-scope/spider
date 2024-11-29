@@ -20,7 +20,7 @@ class DataImpl;
  * @code{.cpp}
  * auto disk_file_data = spider::Data<std::string>::Builder()
  *         .set_locality({"node_address"}, true)
- *         .set_cleanup_func([](std::string cont& path) { std::remove(path); })
+ *         .set_cleanup_func([](std::string const& path) { std::filesystem::remove(path); })
  *         .build("/path/of/file");
  * @endcode
  *
