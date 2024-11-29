@@ -6,6 +6,7 @@ set(SPIDER_TEST_SOURCES
     utils/CoreTaskUtils.hpp
     utils/CoreTaskUtils.cpp
     worker/test-FunctionManager.cpp
+    worker/test-MessagePipe.cpp
     CACHE INTERNAL
     "spider test source files"
 )

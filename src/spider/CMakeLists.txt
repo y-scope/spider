@@ -28,9 +28,24 @@ target_link_libraries(
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
-set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
+set(SPIDER_WORKER_SOURCES
+    worker/message_pipe.cpp
+    worker/message_pipe.hpp
+    CACHE INTERNAL
+    "spider worker source files"
+)
 
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
+target_sources(spider_worker PRIVATE worker/worker.cpp)
 target_link_libraries(spider_worker PRIVATE spider_core)
-add_executable(spider::worker ALIAS spider_worker)
+target_link_libraries(
+    spider_worker
+    PRIVATE
+        Boost::headers
+        Boost::filesystem
+        Boost::process
+        Boost::program_options
+        Boost::system
+        spdlog::spdlog
+)
