@@ -9,22 +9,26 @@
 #include <fmt/format.h>
 
 namespace spider {
-class ConnectionException final : std::exception {
+class ConnectionException final : public std::exception {
 public:
-    auto what() -> std::string { return fmt::format("Cannot connect to storage {}.", m_addr); }
+    explicit ConnectionException(std::string const& addr)
+            : m_message(fmt::format("Cannot connect to storage {}.", addr)) {}
+
+    [[nodiscard]] auto what() const noexcept -> char const* override { return m_message.c_str(); }
 
 private:
-    std::string m_addr;
+    std::string m_message;
 };
 
-class DriverIdUsedException final : std::exception {
+class DriverIdUsedException final : public std::exception {
 public:
-    auto what() -> std::string {
-        return fmt::format("Driver id {} already used.", boost::uuids::to_string(m_id));
-    }
+    explicit DriverIdUsedException(boost::uuids::uuid id)
+            : m_message(fmt::format("Driver id {} already used.", boost::uuids::to_string(id))) {}
+
+    [[nodiscard]] auto what() const noexcept -> char const* override { return m_message.c_str(); }
 
 private:
-    boost::uuids::uuid m_id;
+    std::string m_message;
 };
 
 }  // namespace spider
