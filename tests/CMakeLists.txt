@@ -23,10 +23,10 @@ target_link_libraries(unitTest PRIVATE spider_core)
 target_link_libraries(
     unitTest
     PRIVATE
-    Boost::headers
-    Boost::filesystem
-    Boost::program_options
-    Boost::process
-    Boost::system
-    spdlog::spdlog
+        Boost::headers
+        Boost::filesystem
+        Boost::program_options
+        Boost::process
+        Boost::system
+        spdlog::spdlog
 )
