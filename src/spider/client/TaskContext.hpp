@@ -1,7 +1,6 @@
 #ifndef SPIDER_CLIENT_TASKCONTEXT_HPP
 #define SPIDER_CLIENT_TASKCONTEXT_HPP
 
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -13,7 +12,6 @@
 #include "TaskGraph.hpp"
 
 namespace spider {
-class ContextImpl;
 
 /**
  * TaskContext provides a task with all Spider functionalities, e.g. getting task instance id,
@@ -120,9 +118,6 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
-
-private:
-    std::unique_ptr<ContextImpl> m_impl;
 };
 }  // namespace spider
 

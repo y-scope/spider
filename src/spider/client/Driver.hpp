@@ -1,7 +1,6 @@
 #ifndef SPIDER_CLIENT_DRIVER_HPP
 #define SPIDER_CLIENT_DRIVER_HPP
 
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -30,7 +29,6 @@
 #define SPIDER_REGISTER_TASK_TIMEOUT(func, timeout) SPIDER_WORKER_REGISTER_TASK(func)
 
 namespace spider {
-class DriverImpl;
 
 /**
  * An interface for a client to interact with Spider and create jobs, access the kv-store, etc.
@@ -143,9 +141,6 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
-
-private:
-    std::unique_ptr<DriverImpl> m_impl;
 };
 }  // namespace spider
 

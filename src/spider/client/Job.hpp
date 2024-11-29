@@ -2,14 +2,12 @@
 #define SPIDER_CLIENT_JOB_HPP
 
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <utility>
 
 #include "task.hpp"
 
 namespace spider {
-class JobImpl;
 
 // TODO: Use std::expected or Boost's outcome so that the user can get the result of the job in one
 // call rather than the current error-prone approach which requires that the user check the job's
@@ -71,9 +69,6 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_error() -> std::pair<std::string, std::string>;
-
-private:
-    std::unique_ptr<JobImpl> m_impl;
 };
 }  // namespace spider
 
