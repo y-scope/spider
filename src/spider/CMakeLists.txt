@@ -1,5 +1,10 @@
 # set variable as CACHE INTERNAL to access it from other scope
-set(SPIDER_CORE_SOURCES storage/MysqlStorage.cpp CACHE INTERNAL "spider core source files")
+set(SPIDER_CORE_SOURCES
+    storage/MysqlStorage.cpp
+    worker/FunctionManager.cpp
+    CACHE INTERNAL
+    "spider core source files"
+)
 
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
@@ -7,6 +12,8 @@ set(SPIDER_CORE_HEADERS
     core/Task.hpp
     core/TaskGraph.hpp
     core/Serializer.hpp
+    core/BoostAsio.hpp
+    core/MsgPack.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
@@ -31,6 +38,7 @@ target_link_libraries(spider_core PRIVATE fmt::fmt)
 set(SPIDER_WORKER_SOURCES
     worker/message_pipe.cpp
     worker/message_pipe.hpp
+    worker/TaskExecutorMessage.hpp
     CACHE INTERNAL
     "spider worker source files"
 )

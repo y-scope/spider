@@ -1,5 +1,8 @@
 #include "message_pipe.hpp"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+
 #include <array>
 #include <cstddef>
 #include <exception>
@@ -7,9 +10,6 @@
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
 
 #include "../core/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep

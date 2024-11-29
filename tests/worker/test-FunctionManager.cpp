@@ -21,10 +21,12 @@ auto data_test(spider::core::Data const& data) -> spider::core::Data {
     return spider::core::Data{data.get_id(), data.get_value() + data.get_value()};
 }
 
-TEST_CASE("Register and run function with POD inputs", "[core]") {
-    REGISTER_TASK(int_test);
+REGISTER_TASK(int_test);
+REGISTER_TASK(tuple_ret_test);
+REGISTER_TASK(data_test);
 
-    spider::core::FunctionManager& manager = spider::core::FunctionManager::get_instance();
+TEST_CASE("Register and run function with POD inputs", "[core]") {
+    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 
     // Get the function that has not been registered should return nullptr
     REQUIRE(nullptr == manager.get_function("foo"));
@@ -35,13 +37,13 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     // Run function with two ints should succeed
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(2, 3);
     msgpack::sbuffer const result = (*function)(args_buffers);
-    REQUIRE(5 == spider::core::buffer_get<int>(result).value_or(0));
+    REQUIRE(5 == spider::core::response_get_result<int>(result).value_or(0));
 
     // Run function with wrong number of inputs should fail
     spider::core::ArgsBuffer wrong_args_buffers = spider::core::create_args_buffers(1);
     msgpack::sbuffer wrong_result = (*function)(wrong_args_buffers);
     std::optional<std::tuple<spider::core::FunctionInvokeError, std::string>> wrong_result_option
-            = spider::core::buffer_get_error(wrong_result);
+            = spider::core::response_get_error(wrong_result);
     REQUIRE(wrong_result_option.has_value());
     if (wrong_result_option.has_value()) {
         REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments
@@ -51,7 +53,7 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     // Run function with wrong type of inputs should fail
     wrong_args_buffers = spider::core::create_args_buffers(0, "test");
     wrong_result = (*function)(wrong_args_buffers);
-    wrong_result_option = spider::core::buffer_get_error(wrong_result);
+    wrong_result_option = spider::core::response_get_error(wrong_result);
     REQUIRE(wrong_result_option.has_value());
     if (wrong_result_option.has_value()) {
         REQUIRE(spider::core::FunctionInvokeError::ArgumentParsingError
@@ -60,24 +62,20 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
 }
 
 TEST_CASE("Register and run function with tuple return", "[core]") {
-    REGISTER_TASK(tuple_ret_test);
-
-    spider::core::FunctionManager& manager = spider::core::FunctionManager::get_instance();
+    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 
     spider::core::Function const* function = manager.get_function("tuple_ret_test");
 
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers("test", 3);
     msgpack::sbuffer const result = (*function)(args_buffers);
     REQUIRE(std::make_tuple("test", 3)
-            == spider::core::buffer_get<std::tuple<std::string, int>>(result).value_or(
+            == spider::core::response_get_result<std::tuple<std::string, int>>(result).value_or(
                     std::make_tuple("", 0)
             ));
 }
 
 TEST_CASE("Register and run function with data", "[core]") {
-    REGISTER_TASK(data_test);
-
-    spider::core::FunctionManager& manager = spider::core::FunctionManager::get_instance();
+    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 
     spider::core::Function const* function = manager.get_function("data_test");
 
@@ -85,7 +83,7 @@ TEST_CASE("Register and run function with data", "[core]") {
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(data);
     msgpack::sbuffer const result = (*function)(args_buffers);
     std::optional<spider::core::Data> result_option
-            = spider::core::buffer_get<spider::core::Data>(result);
+            = spider::core::response_get_result<spider::core::Data>(result);
     REQUIRE(result_option.has_value());
     if (result_option.has_value()) {
         spider::core::Data const& result_data = result_option.value();
