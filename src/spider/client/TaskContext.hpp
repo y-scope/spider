@@ -26,6 +26,8 @@ public:
      * Aborts the current task and job. This function never returns.
      *
      * @param message The reason for the abort.
+     *
+     * @throw spider::ConnectionException
      */
     [[noreturn]] auto abort(std::string const& message) -> void;
 
@@ -39,6 +41,8 @@ public:
      *
      * @param key
      * @param value
+     *
+     * @throw spider::ConnectionException
      */
     auto kv_store_insert(std::string const& key, std::string const& value) -> void;
 
@@ -51,6 +55,8 @@ public:
      * @param key
      * @return An optional containing the value if the given key exists, or `std::nullopt`
      * otherwise.
+     *
+     * @throw spider::ConnectionException
      */
     auto kv_store_get(std::string const& key) -> std::optional<std::string>;
 
@@ -84,6 +90,8 @@ public:
      * @param task
      * @param inputs
      * @return A job representing the running task.
+     *
+     * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
@@ -97,6 +105,8 @@ public:
      * @param graph
      * @param inputs
      * @return A job representing the running task graph.
+     *
+     * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
@@ -106,6 +116,8 @@ public:
      * Gets all jobs started by this task.
      *
      * @return IDs of the jobs.
+     *
+     * @throw spider::ConnectionException
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
 

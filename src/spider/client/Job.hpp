@@ -32,16 +32,22 @@ class Job {
 public:
     /**
      * Waits for the job to complete.
+     *
+     * @throw spider::ConnectionException
      */
     auto wait_complete();
 
     /**
      * Cancels the job and waits for the job's tasks to be cancelled.
+     *
+     * @throw spider::ConnectionException
      */
     auto cancel();
 
     /**
      * @return Status of the job.
+     *
+     * @throw spider::ConnectionException
      */
     auto get_status() -> JobStatus;
 
@@ -50,6 +56,8 @@ public:
      * state.
      *
      * @return Result of the job.
+     *
+     * @throw spider::ConnectionException
      */
     auto get_result() -> ReturnType;
 
@@ -59,6 +67,8 @@ public:
      * @return A pair:
      * - the name of the task function that failed.
      * - the error message sent from the task through `TaskContext::abort` or from Spider.
+     *
+     * @throw spider::ConnectionException
      */
     auto get_error() -> std::pair<std::string, std::string>;
 
