@@ -36,7 +36,7 @@ public:
     auto wait_complete();
 
     /**
-     * Cancels the job and waits for the all running tasks cancelled.
+     * Cancels the job and waits for the job's tasks to be cancelled.
      */
     auto cancel();
 

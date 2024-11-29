@@ -120,7 +120,9 @@ public:
     start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
 
     /**
-     * Gets all jobs started by drivers with the current client's ID.
+     * Gets all scheduled and running jobs started by drivers with the current client's ID.
+     *
+     * NOTE: This method will not return jobs that have finished.
      *
      * @return IDs of the jobs.
      */

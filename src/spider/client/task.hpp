@@ -18,7 +18,7 @@ template <class T>
 concept TaskIo = Serializable<T> || cIsSpecializationV<T, Data>;
 
 // Forward declare `TaskContext` since `TaskFunction` takes `TaskContext` as a param, and
-// `TaskContext` uses `TaskFunction` as a param in its methods
+// `TaskContext` uses `TaskFunction` as a param in its methods.
 class TaskContext;
 
 /**
