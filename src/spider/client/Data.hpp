@@ -62,7 +62,7 @@ public:
          * @param f
          * @return self
          */
-        auto set_cleanup_func(std::function<T const&()> const& f) -> Builder&;
+        auto set_cleanup_func(std::function<void(T const&)> const& f) -> Builder&;
 
         /**
          * Builds the data object.
