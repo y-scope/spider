@@ -27,7 +27,7 @@ public:
      *
      * @param message The reason for the abort.
      */
-    auto abort(std::string const& message);
+    [[noreturn]] auto abort(std::string const& message) -> void;
 
     /**
      * @return ID of the current running task instance.
