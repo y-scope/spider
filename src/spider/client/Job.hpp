@@ -50,7 +50,7 @@ public:
     auto get_status() -> JobStatus;
 
     /**
-     * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeed`
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeeded`
      * state.
      *
      * @return Result of the job.
@@ -60,7 +60,8 @@ public:
     auto get_result() -> ReturnType;
 
     /**
-     * NOTE: It is undefined behavior to call this method for a job that is not in the `Fail` state.
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
+     * state.
      *
      * @return A pair:
      * - the name of the task function that failed.
