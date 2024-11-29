@@ -69,7 +69,6 @@ public:
          *
          * @param t Value of the data
          * @return The built object.
-         *
          * @throw spider::ConnectionException
          */
         auto build(T const& t) -> Data;

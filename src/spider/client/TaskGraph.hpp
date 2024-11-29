@@ -12,7 +12,6 @@ namespace spider {
  */
 template <TaskIo ReturnType, TaskIo... Params>
 class TaskGraph {};
-
 }  // namespace spider
 
 #endif  // SPIDER_CLIENT_TASKGRAPH_HPP

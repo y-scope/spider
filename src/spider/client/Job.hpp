@@ -8,7 +8,6 @@
 #include "task.hpp"
 
 namespace spider {
-
 // TODO: Use std::expected or Boost's outcome so that the user can get the result of the job in one
 // call rather than the current error-prone approach which requires that the user check the job's
 // status and then call the relevant method.
@@ -44,7 +43,6 @@ public:
 
     /**
      * @return Status of the job.
-     *
      * @throw spider::ConnectionException
      */
     auto get_status() -> JobStatus;
@@ -54,7 +52,6 @@ public:
      * state.
      *
      * @return Result of the job.
-     *
      * @throw spider::ConnectionException
      */
     auto get_result() -> ReturnType;
@@ -66,7 +63,6 @@ public:
      * @return A pair:
      * - the name of the task function that failed.
      * - the error message sent from the task through `TaskContext::abort` or from Spider.
-     *
      * @throw spider::ConnectionException
      */
     auto get_error() -> std::pair<std::string, std::string>;

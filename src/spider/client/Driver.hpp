@@ -37,7 +37,6 @@ class Driver {
 public:
     /**
      * @param storage_url
-     *
      * @throw spider::ConnectionException
      */
     explicit Driver(std::string const& storage_url);
@@ -48,10 +47,8 @@ public:
      * driver will be associated with this ID. This may be useful if, for instance, the caller
      * fails and then needs to reconnect and retrieve all previously created jobs. NOTE: It is
      * undefined behaviour for two clients to concurrently use the same ID.
-     *
-     * @throw
-     * - spider::ConnectionException
-     * - spider::DriverIdUsedException
+     * @throw spider::ConnectionException
+     * @throw spider::DriverIdInUseException
      */
     Driver(std::string const& storage_url, boost::uuids::uuid id);
 
@@ -60,7 +57,6 @@ public:
      *
      * @param key
      * @param value
-     *
      * @throw spider::ConnectionException
      */
     auto kv_store_insert(std::string const& key, std::string const& value);
@@ -74,7 +70,6 @@ public:
      * @param key
      * @return An optional containing the value if the given key exists, or `std::nullopt`
      * otherwise.
-     *
      * @throw spider::ConnectionException
      */
     auto kv_store_get(std::string const& key) -> std::optional<std::string>;
@@ -109,7 +104,6 @@ public:
      * @param task
      * @param inputs
      * @return A job representing the running task.
-     *
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params>
@@ -124,7 +118,6 @@ public:
      * @param graph
      * @param inputs
      * @return A job representing the running task graph.
-     *
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params>
@@ -137,7 +130,6 @@ public:
      * NOTE: This method will not return jobs that have finished.
      *
      * @return IDs of the jobs.
-     *
      * @throw spider::ConnectionException
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
