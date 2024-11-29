@@ -40,7 +40,7 @@ public:
      * @param key
      * @param value
      */
-    auto kv_store_insert(std::string const& key, std::string const& value);
+    auto kv_store_insert(std::string const& key, std::string const& value) -> void;
 
     /**
      * Gets the value corresponding to the given key.
