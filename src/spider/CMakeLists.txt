@@ -1,5 +1,10 @@
 # set variable as CACHE INTERNAL to access it from other scope
-set(SPIDER_CORE_SOURCES storage/MysqlStorage.cpp CACHE INTERNAL "spider core source files")
+set(SPIDER_CORE_SOURCES
+    storage/MysqlStorage.cpp
+    worker/FunctionManager.cpp
+    CACHE INTERNAL
+    "spider core source files"
+)
 
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
@@ -7,6 +12,8 @@ set(SPIDER_CORE_HEADERS
     core/Task.hpp
     core/TaskGraph.hpp
     core/Serializer.hpp
+    core/BoostAsio.hpp
+    core/MsgPack.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
@@ -27,6 +34,29 @@ target_link_libraries(
         msgpack-cxx
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
+
+set(SPIDER_WORKER_SOURCES
+    worker/message_pipe.cpp
+    worker/message_pipe.hpp
+    worker/TaskExecutorMessage.hpp
+    CACHE INTERNAL
+    "spider worker source files"
+)
+
+add_executable(spider_worker)
+target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
+target_sources(spider_worker PRIVATE worker/worker.cpp)
+target_link_libraries(spider_worker PRIVATE spider_core)
+target_link_libraries(
+    spider_worker
+    PRIVATE
+        Boost::headers
+        Boost::filesystem
+        Boost::process
+        Boost::program_options
+        Boost::system
+        spdlog::spdlog
+)
 
 set(SPIDER_CLIENT_SHARED_SOURCES CACHE INTERNAL "spider client shared source files")
 
@@ -67,15 +97,3 @@ target_sources(spider_client PUBLIC ${SPIDER_CLIENT_HEADERS})
 target_link_libraries(spider_client PRIVATE spider_core)
 target_link_libraries(spider_client PUBLIC spider_client_lib)
 add_library(spider::spider ALIAS spider_client)
-
-set(SPIDER_WORKER_SOURCES worker/worker.cpp CACHE INTERNAL "spider worker source files")
-
-add_executable(spider_worker)
-target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
-target_link_libraries(
-    spider_worker
-    PRIVATE
-        spider_core
-        spider_client_lib
-)
-add_executable(spider::worker ALIAS spider_worker)

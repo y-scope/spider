@@ -55,6 +55,9 @@ add_definitions(-DFLUSH_TO_DISK_ENABLED=1)
 # Make off_t 64-bit
 add_definitions(-D_FILE_OFFSET_BITS=64)
 
+# Turn on PIC
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Detect linking mode (static or shared); Default to static.
 set(SPIDER_USE_STATIC_LIBS ON CACHE BOOL "Whether to link against static libraries")
 if(SPIDER_USE_STATIC_LIBS)
@@ -84,7 +87,17 @@ message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 if(SPIDER_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS ON)
 endif()
-find_package(Boost 1.74 REQUIRED)
+find_package(
+    Boost
+    1.74
+    REQUIRED
+    COMPONENTS
+        headers
+        process
+        program_options
+        filesystem
+        system
+)
 if(Boost_FOUND)
     message(STATUS "Found Boost ${Boost_VERSION}")
 else()
@@ -108,6 +121,7 @@ if(SPIDER_USE_STATIC_LIBS)
     set(spdlog_USE_STATIC_LIBS ON)
 endif()
 set(SPDLOG_FMT_EXTERNAL ON)
+add_compile_definitions(SPDLOG_FMT_EXTERNAL)
 find_package(spdlog 1.9.2 REQUIRED)
 if(spdlog_FOUND)
     message(STATUS "Found spdlog ${spdlog_VERSION}")
