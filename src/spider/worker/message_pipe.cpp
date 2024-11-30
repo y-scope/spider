@@ -69,7 +69,15 @@ auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional
 
     std::vector<char> body_buffer(body_size);
     try {
-        boost::asio::read(fd, boost::asio::buffer(body_buffer));
+        size_t body_read_size = boost::asio::read(fd, boost::asio::buffer(body_buffer));
+        if (body_read_size != body_size) {
+            spdlog::error(
+                    "Message body read size mismatch. Expect {}. Got {}",
+                    body_size,
+                    body_read_size
+            );
+            return std::nullopt;
+        }
     } catch (boost::system::system_error& e) {
         spdlog::error("Fail to read response body: {}", e.what());
         return std::nullopt;
@@ -98,9 +106,9 @@ auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pi
         }
         co_return std::nullopt;
     }
-    size_t response_size = 0;
+    size_t body_size = 0;
     try {
-        response_size = std::stoul(std::string{header_buffer.data(), cHeaderSize});
+        body_size = std::stoul(std::string{header_buffer.data(), cHeaderSize});
     } catch (std::exception& e) {
         spdlog::error(
                 "Cannot parse header: {} {}",
@@ -109,35 +117,31 @@ auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pi
         );
         co_return std::nullopt;
     }
-    if (response_size == 0) {
+    if (body_size == 0) {
         co_return std::nullopt;
     }
-    std::vector<char> response_buffer(response_size);
-    auto [response_ec, response_n] = co_await boost::asio::async_read(
+    std::vector<char> body_buffer(body_size);
+    auto [body_ec, body_n] = co_await boost::asio::async_read(
             pipe.get(),
-            boost::asio::buffer(response_buffer),
+            boost::asio::buffer(body_buffer),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
-    if (response_ec) {
-        if (boost::asio::error::eof != response_ec) {
+    if (body_ec) {
+        if (boost::asio::error::eof != body_ec) {
             spdlog::error(
                     "Cannot read response body from pipe {}: {}",
-                    response_ec.value(),
-                    response_ec.message()
+                    body_ec.value(),
+                    body_ec.message()
             );
         }
         co_return std::nullopt;
     }
-    if (response_size != response_n) {
-        spdlog::error(
-                "Response read size not match. Expect {}. Got {}.",
-                response_size,
-                response_n
-        );
+    if (body_size != body_n) {
+        spdlog::error("Message body read size not match. Expect {}. Got {}.", body_size, body_n);
         co_return std::nullopt;
     }
     msgpack::sbuffer buffer;
-    buffer.write(response_buffer.data(), response_buffer.size());
+    buffer.write(body_buffer.data(), body_buffer.size());
     co_return buffer;
 }
 
