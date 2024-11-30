@@ -33,5 +33,5 @@ target_link_libraries(
 )
 
 add_library(worker_test SHARED)
-target_sources(worker_test PUBLIC worker/worker-test.cpp)
-target_link_libraries(worker_test PUBLIC spider_core)
+target_sources(worker_test PRIVATE worker/worker-test.cpp)
+target_link_libraries(worker_test PRIVATE spider_core)

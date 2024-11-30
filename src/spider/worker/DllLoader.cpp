@@ -36,7 +36,7 @@ auto DllLoader::load_dll(std::string const& path_str) -> bool {
             );
         }
 
-        m_libraries.emplace(path_str, library);
+        m_libraries.emplace(path_str, std::move(library));
     } catch (std::exception& e) {
         spdlog::error("Failed to load library {}: {}", dll_path.string(), e.what());
         return false;

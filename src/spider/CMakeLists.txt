@@ -69,7 +69,7 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/message_pipe.hpp
     worker/task_executor.cpp
     CACHE INTERNAL
-    "spider task executor source filees"
+    "spider task executor source files"
 )
 
 add_executable(spider_task_executor)

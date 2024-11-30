@@ -77,10 +77,10 @@ public:
     auto operator=(TaskExecutor&&) -> TaskExecutor& = delete;
     ~TaskExecutor() = default;
 
-    auto completed() -> bool;
-    auto waiting() -> bool;
-    auto succeed() -> bool;
-    auto error() -> bool;
+    auto completed() const -> bool;
+    auto waiting() const -> bool;
+    auto succeed() const -> bool;
+    auto error() const -> bool;
 
     void wait();
 
