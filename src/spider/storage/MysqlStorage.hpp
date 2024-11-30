@@ -1,13 +1,14 @@
 #ifndef SPIDER_STORAGE_MYSQLSTORAGE_HPP
 #define SPIDER_STORAGE_MYSQLSTORAGE_HPP
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include <boost/uuid/uuid.hpp>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/Connection.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
-#include <memory>
-#include <string>
-#include <vector>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"

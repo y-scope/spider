@@ -1,9 +1,10 @@
 #ifndef SPIDER_CORE_SERIALIZER_HPP
 #define SPIDER_CORE_SERIALIZER_HPP
 
-#include <boost/uuid/uuid.hpp>
 #include <cstdint>
 #include <cstring>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "MsgPack.hpp"  // IWYU pragma: keep
 
@@ -39,5 +40,22 @@ struct msgpack::adaptor::pack<boost::uuids::uuid> {
         return packer;
     }
 };
+
+template <class T>
+concept SerializableImpl = requires(T t) {
+    {
+        msgpack::pack(msgpack::sbuffer{}, t)
+    };
+};
+
+template <class T>
+concept DeSerializableImpl = requires(T t) {
+    {
+        msgpack::object{}.convert(t)
+    };
+};
+
+template <class T>
+concept Serializable = SerializableImpl<T> && DeSerializableImpl<T>;
 
 #endif  // SPIDER_CORE_SERIALIZER_HPP

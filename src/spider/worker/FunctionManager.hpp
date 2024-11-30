@@ -1,9 +1,6 @@
 #ifndef SPIDER_WORKER_FUNCTIONMANAGER_HPP
 #define SPIDER_WORKER_FUNCTIONMANAGER_HPP
 
-#include <absl/container/flat_hash_map.h>
-#include <fmt/format.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -15,9 +12,12 @@
 #include <type_traits>
 #include <utility>
 
+#include <absl/container/flat_hash_map.h>
+#include <fmt/format.h>
+
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 
-#define REGISTER_TASK(func) \
+#define SPIDER_WORKER_REGISTER_TASK(func) \
     spider::core::FunctionManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
@@ -34,13 +34,13 @@ struct signature;
 
 template <class R, class... Args>
 struct signature<R(Args...)> {
-    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
 
 template <class R, class... Args>
 struct signature<R (*)(Args...)> {
-    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
 
