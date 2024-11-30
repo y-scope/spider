@@ -18,12 +18,13 @@ namespace spider::worker {
 
 constexpr size_t cHeaderSize = 16;
 
-auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& request) -> bool {
+template <typename T>
+auto send_message_impl(T& output, msgpack::sbuffer const& request) -> bool {
     try {
         size_t const size = request.size();
         std::string const size_str = fmt::format("{:016d}", size);
-        boost::asio::write(pipe, boost::asio::buffer(size_str));
-        boost::asio::write(pipe, boost::asio::buffer(request.data(), size));
+        boost::asio::write(output, boost::asio::buffer(size_str));
+        boost::asio::write(output, boost::asio::buffer(request.data(), size));
         return true;
     } catch (boost::system::system_error const& e) {
         spdlog::error("Failed to send message: {}", e.what());
@@ -31,18 +32,13 @@ auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& requ
     }
 }
 
+auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& request) -> bool {
+    return send_message_impl(pipe, request);
+}
+
 auto send_message(boost::asio::posix::stream_descriptor& fd, msgpack::sbuffer const& request)
         -> bool {
-    try {
-        size_t const size = request.size();
-        std::string const size_str = fmt::format("{:016d}", size);
-        boost::asio::write(fd, boost::asio::buffer(size_str));
-        boost::asio::write(fd, boost::asio::buffer(request.data(), size));
-        return true;
-    } catch (boost::system::system_error const& e) {
-        spdlog::error("Failed to send message: {}", e.what());
-        return false;
-    }
+    return send_message_impl(fd, request);
 }
 
 auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional<msgpack::sbuffer> {
