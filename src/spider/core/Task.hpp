@@ -1,8 +1,6 @@
 #ifndef SPIDER_CORE_TASK_HPP
 #define SPIDER_CORE_TASK_HPP
 
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -10,6 +8,9 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
 
 namespace spider::core {
 class TaskInput {

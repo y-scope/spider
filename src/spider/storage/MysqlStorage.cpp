@@ -1,13 +1,19 @@
 #include "MysqlStorage.hpp"
 
-#include <absl/container/flat_hash_set.h>
-#include <fmt/format.h>
-
 #include <array>
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_io.hpp>
 #include <cstdint>
 #include <deque>
+#include <memory>
+#include <optional>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include <absl/container/flat_hash_set.h>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <fmt/format.h>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/Driver.hpp>
 #include <mariadb/conncpp/Exception.hpp>
@@ -17,12 +23,6 @@
 #include <mariadb/conncpp/ResultSet.hpp>
 #include <mariadb/conncpp/Statement.hpp>
 #include <mariadb/conncpp/Types.hpp>
-#include <memory>
-#include <optional>
-#include <string>
-#include <tuple>
-#include <utility>
-#include <vector>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"

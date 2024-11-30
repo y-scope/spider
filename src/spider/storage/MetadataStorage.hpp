@@ -1,9 +1,10 @@
 #ifndef SPIDER_STORAGE_METADATASTORAGE_HPP
 #define SPIDER_STORAGE_METADATASTORAGE_HPP
 
-#include <boost/uuid/uuid.hpp>
 #include <string>
 #include <vector>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "../core/Error.hpp"
 #include "../core/Task.hpp"

@@ -10,7 +10,7 @@ IncludeCategories:
   # Ex:
   # - Regex: "<(fmt|spdlog)"
   #   Priority: 3
-  - Regex: "^<(|absl|boost|catch2|fmt|mariadb|msgpack|spdlog)"
+  - Regex: "^<(absl|boost|catch2|fmt|mariadb|msgpack|spdlog)"
     Priority: 3
   # C system headers
   - Regex: "^<.+\\.h>"

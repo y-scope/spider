@@ -1,9 +1,6 @@
 #ifndef SPIDER_WORKER_FUNCTIONMANAGER_HPP
 #define SPIDER_WORKER_FUNCTIONMANAGER_HPP
 
-#include <absl/container/flat_hash_map.h>
-#include <fmt/format.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -14,6 +11,9 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include <absl/container/flat_hash_map.h>
+#include <fmt/format.h>
 
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
 #include "TaskExecutorMessage.hpp"
@@ -42,13 +42,13 @@ struct signature;
 
 template <class R, class... Args>
 struct signature<R(Args...)> {
-    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
 
 template <class R, class... Args>
 struct signature<R (*)(Args...)> {
-    using args_t = std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...>;
+    using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
 
