@@ -22,6 +22,7 @@ auto get_environment_variable() -> absl::flat_hash_map<
     boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
     boost::filesystem::path const src_dir = executable_dir.parent_path() / "src" / "spider";
 
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
     char const* path_env_str = std::getenv("PATH");
     std::string path_env = nullptr == path_env_str ? path_env_str : "";
     path_env.append(src_dir.string());

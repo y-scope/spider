@@ -13,8 +13,8 @@
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
 #include <fmt/format.h>
-#include <spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <spdlog/spdlog.h>
 
 #include "../core/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../core/MsgPack.hpp"  // IWYU pragma: keep
@@ -27,7 +27,9 @@ namespace {
 
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
-    desc.add_options()("help", "spider task executor")("func", boost::program_options::value<std::string>(), "function to run")(
+    desc.add_options()("help", "spider task executor");
+    desc.add_options()("func", boost::program_options::value<std::string>(), "function to run");
+    desc.add_options()(
             "libs",
             boost::program_options::value<std::vector<std::string>>(),
             "dynamic libraries that include the spider tasks"
