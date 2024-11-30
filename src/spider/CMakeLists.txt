@@ -36,9 +36,13 @@ target_link_libraries(
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
+    worker/DllLoader.hpp
+    worker/DllLoader.cpp
+    worker/TaskExecutor.hpp
+    worker/TaskExecutor.cpp
+    worker/TaskExecutorMessage.hpp
     worker/message_pipe.cpp
     worker/message_pipe.hpp
-    worker/TaskExecutorMessage.hpp
     CACHE INTERNAL
     "spider worker source files"
 )
@@ -53,6 +57,28 @@ target_link_libraries(
         Boost::headers
         Boost::filesystem
         Boost::process
+        Boost::program_options
+        Boost::system
+        spdlog::spdlog
+)
+
+set(SPIDER_TASK_EXECUTOR_SOURCES
+    worker/DllLoader.cpp
+    worker/DllLoader.hpp
+    worker/message_pipe.cpp
+    worker/message_pipe.hpp
+    worker/task_executor.cpp
+    CACHE INTERNAL
+    "spider task executor source filees"
+)
+
+add_executable(spider_task_executor)
+target_sources(spider_task_executor PRIVATE ${SPIDER_TASK_EXECUTOR_SOURCES})
+target_link_libraries(spider_task_executor PRIVATE spider_core)
+target_link_libraries(
+    spider_task_executor
+    PRIVATE
+        Boost::filesystem
         Boost::program_options
         Boost::system
         spdlog::spdlog
