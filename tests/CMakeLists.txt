@@ -7,6 +7,7 @@ set(SPIDER_TEST_SOURCES
     utils/CoreTaskUtils.cpp
     worker/test-FunctionManager.cpp
     worker/test-MessagePipe.cpp
+    worker/test-TaskExecutor.cpp
     CACHE INTERNAL
     "spider test source files"
 )
@@ -30,3 +31,7 @@ target_link_libraries(
         Boost::system
         spdlog::spdlog
 )
+
+add_library(worker_test SHARED)
+target_sources(worker_test PRIVATE worker/worker-test.cpp)
+target_link_libraries(worker_test PRIVATE spider_core)
