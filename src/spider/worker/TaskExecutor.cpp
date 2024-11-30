@@ -16,22 +16,22 @@
 
 namespace spider::worker {
 
-auto TaskExecutor::completed() const -> bool {
+auto TaskExecutor::completed() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Succeed == m_state || TaskExecutorState::Error == m_state;
 }
 
-auto TaskExecutor::waiting() const -> bool {
+auto TaskExecutor::waiting() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Waiting == m_state;
 }
 
-auto TaskExecutor::succeed() const -> bool {
+auto TaskExecutor::succeed() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Succeed == m_state;
 }
 
-auto TaskExecutor::error() const -> bool {
+auto TaskExecutor::error() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Error == m_state;
 }
