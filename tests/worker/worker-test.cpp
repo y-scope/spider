@@ -13,6 +13,6 @@ auto error_test(int const /*x*/) -> int {
 }  // namespace
 
 // NOLINTBEGIN(cert-err58-cpp)
-REGISTER_TASK(sum_test);
-REGISTER_TASK(error_test);
+SPIDER_WORKER_REGISTER_TASK(sum_test);
+SPIDER_WORKER_REGISTER_TASK(error_test);
 // NOLINTEND(cert-err58-cpp)
