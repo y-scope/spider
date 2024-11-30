@@ -24,7 +24,8 @@ auto get_environment_variable() -> absl::flat_hash_map<
 
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
     char const* path_env_str = std::getenv("PATH");
-    std::string path_env = nullptr == path_env_str ? path_env_str : "";
+    std::string path_env = nullptr == path_env_str ? "" : path_env_str;
+    path_env.append(":");
     path_env.append(src_dir.string());
 
     absl::flat_hash_map<
