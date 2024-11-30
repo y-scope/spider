@@ -21,9 +21,9 @@ auto data_test(spider::core::Data const& data) -> spider::core::Data {
     return spider::core::Data{data.get_id(), data.get_value() + data.get_value()};
 }
 
-REGISTER_TASK(int_test);
-REGISTER_TASK(tuple_ret_test);
-REGISTER_TASK(data_test);
+SPIDER_WORKER_REGISTER_TASK(int_test);
+SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
+SPIDER_WORKER_REGISTER_TASK(data_test);
 
 TEST_CASE("Register and run function with POD inputs", "[core]") {
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
