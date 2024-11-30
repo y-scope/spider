@@ -24,7 +24,7 @@
 #define ANONYMOUS_VARIABLE(str) CONCAT(str, __COUNTER__)
 // NOLINTEND(cppcoreguidelines-macro-usage)
 
-#define REGISTER_TASK(func) \
+#define SPIDER_WORKER_REGISTER_TASK(func) \
     inline const auto ANONYMOUS_VARIABLE(var) \
             = spider::core::FunctionManager::get_instance().register_function(#func, func);
 

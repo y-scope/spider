@@ -18,6 +18,7 @@ namespace spider::worker {
 
 constexpr size_t cHeaderSize = 16;
 
+namespace {
 template <typename T>
 auto send_message_impl(T& output, msgpack::sbuffer const& request) -> bool {
     try {
@@ -31,6 +32,7 @@ auto send_message_impl(T& output, msgpack::sbuffer const& request) -> bool {
         return false;
     }
 }
+}  // namespace
 
 auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& request) -> bool {
     return send_message_impl(pipe, request);
