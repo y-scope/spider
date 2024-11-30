@@ -7,6 +7,7 @@
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -21,12 +22,16 @@ auto get_environment_variable() -> absl::flat_hash_map<
     boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
     boost::filesystem::path const src_dir = executable_dir.parent_path() / "src" / "spider";
 
+    char const* path_env_str = std::getenv("PATH");
+    std::string path_env = nullptr == path_env_str ? path_env_str : "";
+    path_env.append(src_dir.string());
+
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value>
             environment_variables;
 
-    environment_variables.emplace("PATH", src_dir);
+    environment_variables.emplace("PATH", path_env);
 
     return environment_variables;
 }
