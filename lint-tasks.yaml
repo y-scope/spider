@@ -118,6 +118,7 @@ tasks:
           lint-tasks.yaml \
           dep-tasks.yaml \
           test-tasks.yaml \
+          build-tasks.yaml \
           taskfile.yaml
 
   clang-format:
