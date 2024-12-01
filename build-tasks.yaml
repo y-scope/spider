@@ -15,10 +15,12 @@ tasks:
             - "spider_task_executor"
             - "unitTest"
             - "worker_test"
+    deps: ["::config-cmake-project"]
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target {{.TARGET}} --parallel"
 
   clean:
     internal: true
+    deps: ["::config-cmake-project"]
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel"

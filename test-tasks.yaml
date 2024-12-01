@@ -8,13 +8,13 @@ vars:
 
 tasks:
   unit-test:
-    deps:
+    cmds:
+      # Add build in cmds to serialize the build
       - task: "build:target"
         vars: {TARGET: "unitTest"}
       - task: "build:target"
         vars: {TARGET: "spider_task_executor"}
       - task: "build:target"
         vars: {TARGET: "worker_test"}
-    cmds:
       # Tests tagged with storage requires mysql. Skip them for now.
       - "{{.G_TEST_BINARY}} \"~[storage]\""
