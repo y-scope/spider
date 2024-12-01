@@ -117,6 +117,7 @@ tasks:
           .github/ \
           lint-tasks.yaml \
           dep-tasks.yaml \
+          test-tasks.yaml \
           taskfile.yaml
 
   clang-format:
