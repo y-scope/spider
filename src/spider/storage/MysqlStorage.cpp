@@ -51,7 +51,7 @@ namespace {
 char const* const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS `drivers` (
     `id` BINARY(16) NOT NULL,
     `address` VARCHAR(40) NOT NULL,
-    `heartbeat` NOT NULL TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `heartbeat` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
 ))";
 
@@ -120,7 +120,7 @@ char const* const cCreateTaskDependencyTable = R"(CREATE TABLE IF NOT EXISTS `ta
 char const* const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS `task_instances` (
     `id` BINARY(16) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
-    `start_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,,
+    `start_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 ))";

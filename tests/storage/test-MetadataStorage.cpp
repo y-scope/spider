@@ -144,7 +144,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(heads.contains(parent_1.get_id()));
     REQUIRE(heads.contains(parent_2.get_id()));
 
-    std::chrono::system_clock::time_point job_creation_time = std::chrono::system_clock::now();
+    std::chrono::system_clock::time_point const job_creation_time = std::chrono::system_clock::now();
 
     // Submit a simple job
     boost::uuids::uuid const simple_job_id = gen();
@@ -180,6 +180,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(client_id == job_metadata.get_client_id());
     std::chrono::seconds const time_delta{1};
     REQUIRE(job_creation_time + time_delta >= job_metadata.get_creation_time());
+    REQUIRE(job_creation_time - time_delta <= job_metadata.get_creation_time());
 
     // Get task graph should succeed
     spider::core::TaskGraph graph_res{};
