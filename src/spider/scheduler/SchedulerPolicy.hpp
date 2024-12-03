@@ -16,9 +16,9 @@ public:
     virtual auto schedule_next(
             std::shared_ptr<core::MetadataStorage> metadata_store,
             std::shared_ptr<core::DataStorage> data_store
-    ) -> boost::uuids::uuid;
+    ) -> boost::uuids::uuid = 0;
 
-    virtual auto cleanup_job(boost::uuids::uuid job_id) -> void;
+    virtual auto cleanup_job(boost::uuids::uuid job_id) -> void = 0;
 };
 
 }  // namespace spider::scheduler
