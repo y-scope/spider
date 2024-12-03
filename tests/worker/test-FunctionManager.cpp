@@ -1,12 +1,13 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-#include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/MsgPack.hpp"  // IWYU pragma: keep
-#include "../../src/spider/worker/FunctionManager.hpp"
-
-#include <catch2/catch_test_macros.hpp>
 #include <optional>
 #include <string>
 #include <tuple>
+
+#include <catch2/catch_test_macros.hpp>
+
+#include "../../src/spider/core/Data.hpp"
+#include "../../src/spider/core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../../src/spider/worker/FunctionManager.hpp"
 
 namespace {
 auto int_test(int const x, int const y) -> int {

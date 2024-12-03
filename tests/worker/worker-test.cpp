@@ -1,6 +1,6 @@
-#include "../../src/spider/worker/FunctionManager.hpp"
-
 #include <stdexcept>
+
+#include "../../src/spider/worker/FunctionManager.hpp"
 
 namespace {
 auto sum_test(int const x, int const y) -> int {

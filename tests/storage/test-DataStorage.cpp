@@ -1,4 +1,12 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+#include <memory>
+#include <tuple>
+
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <catch2/catch_template_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
+
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
@@ -6,13 +14,6 @@
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../utils/CoreDataUtils.hpp"
 #include "StorageTestHelper.hpp"
-
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid.hpp>
-#include <catch2/catch_template_test_macros.hpp>
-#include <catch2/catch_test_macros.hpp>
-#include <memory>
-#include <tuple>
 
 namespace {
 

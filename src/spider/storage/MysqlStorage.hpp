@@ -36,6 +36,7 @@ public:
     auto
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
     ) -> StorageErr override;
+    auto get_job_metadata(boost::uuids::uuid id, JobMetadata* job) -> StorageErr override;
     auto get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph) -> StorageErr override;
     auto get_jobs_by_client_id(
             boost::uuids::uuid client_id,
