@@ -132,7 +132,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
-    // Submit task with hard locality
+    // Submit task with soft locality
     spider::core::Task task{"task"};
     spider::core::Data data;
     data.set_hard_locality(false);
