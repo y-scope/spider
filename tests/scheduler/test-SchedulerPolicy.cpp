@@ -92,7 +92,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data data{"value"};
     data.set_hard_locality(true);
     data.set_locality({"127.0.0.1"});
-    auto err = data_store->add_data(data);
+    REQUIRE(data_store->add_data(data).success());
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
@@ -112,7 +112,7 @@ TEMPLATE_LIST_TEST_CASE(
         REQUIRE(task_id == task.get_id());
     }
 
-    // REQUIRE(metadata_store->remove_job(job_id).success());
+    REQUIRE(metadata_store->remove_job(job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -137,7 +137,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data data;
     data.set_hard_locality(false);
     data.set_locality({"127.0.0.1"});
-    data_store->add_data(data);
+    REQUIRE(data_store->add_data(data).success());
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
