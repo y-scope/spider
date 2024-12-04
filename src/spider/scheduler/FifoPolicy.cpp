@@ -1,20 +1,20 @@
 #include "FifoPolicy.hpp"
 
 #include <chrono>
-#include <stdexcept>
 #include <memory>
 #include <optional>
-#include <vector>
 #include <ranges>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 
-#include "../core/Task.hpp"
 #include "../core/JobMetadata.hpp"
+#include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 

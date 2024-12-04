@@ -12,9 +12,9 @@
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
+#include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
-#include "../core/JobMetadata.hpp"
 #include "DataStorage.hpp"
 #include "MetadataStorage.hpp"
 
