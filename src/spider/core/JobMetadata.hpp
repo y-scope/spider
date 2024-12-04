@@ -20,11 +20,11 @@ public:
               m_client_id{client_id},
               m_creation_time{creation_time} {}
 
-    [[nodiscard]] auto get_id() -> boost::uuids::uuid { return m_id; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
-    [[nodiscard]] auto get_client_id() -> boost::uuids::uuid { return m_client_id; }
+    [[nodiscard]] auto get_client_id() const -> boost::uuids::uuid { return m_client_id; }
 
-    [[nodiscard]] auto get_creation_time() -> std::chrono::system_clock::time_point {
+    [[nodiscard]] auto get_creation_time() const -> std::chrono::system_clock::time_point {
         return m_creation_time;
     }
 
