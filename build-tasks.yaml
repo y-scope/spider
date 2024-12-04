@@ -10,11 +10,11 @@ tasks:
         - name: "TARGETS"
     deps: [":config-cmake-project"]
     cmds:
-      - "cmake --build {{.G_BUILD_SPIDER_DIR}} --parallel
+      - "cmake --build {{.G_BUILD_SPIDER_DIR}} --parallel {{numCPU}}
       --target {{trimPrefix \"[\" .TARGETS | trimSuffix \"]\"}}"
 
   clean:
     internal: true
     deps: ["::config-cmake-project"]
     cmds:
-      - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel"
+      - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
