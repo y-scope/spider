@@ -3,8 +3,11 @@
 
 #include <chrono>
 #include <memory>
+#include <optional>
+#include <string>
 
 #include <absl/container/flat_hash_map.h>
+#include <boost/uuid/uuid.hpp>
 
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
@@ -17,10 +20,10 @@ public:
     auto schedule_next(
             std::shared_ptr<core::MetadataStorage> metadata_store,
             std::shared_ptr<core::DataStorage> data_store,
-            boost::uuids::uuid const worker_id,
+            boost::uuids::uuid worker_id,
             std::string const& worker_addr
     ) -> std::optional<boost::uuids::uuid> override;
-    auto cleanup_job(boost::uuids::uuid const job_id) -> void override;
+    auto cleanup_job(boost::uuids::uuid job_id) -> void override;
 
 private:
     absl::flat_hash_map<boost::uuids::uuid, boost::uuids::uuid> m_task_job_map;

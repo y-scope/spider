@@ -1,19 +1,27 @@
 #include "FifoPolicy.hpp"
 
+#include <chrono>
+#include <stdexcept>
 #include <memory>
+#include <optional>
+#include <vector>
+#include <ranges>
+#include <string>
 
+#include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 
 #include "../core/Task.hpp"
+#include "../core/JobMetadata.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 
 namespace {
 
 auto task_locality_satisfied(
-        std::shared_ptr<spider::core::DataStorage> data_store,
+        std::shared_ptr<spider::core::DataStorage> const& data_store,
         spider::core::Task const& task,
         std::string const& addr
 ) -> bool {

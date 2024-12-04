@@ -1,9 +1,11 @@
-// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
 
 #include <chrono>
 #include <memory>
 #include <optional>
 #include <thread>
+#include <tuple>
+#include <utility>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -18,6 +20,7 @@
 #include "../../src/spider/storage/MetadataStorage.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
+namespace {
 TEMPLATE_LIST_TEST_CASE(
         "FIFO schedule order",
         "[scheduler][storage]",
@@ -154,5 +157,6 @@ TEMPLATE_LIST_TEST_CASE(
 
     REQUIRE(metadata_store->remove_job(job_id).success());
 }
+}  // namespace
 
-// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
