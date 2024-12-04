@@ -737,7 +737,6 @@ auto MySqlMetadataStorage::get_job_metadata(boost::uuids::uuid id, JobMetadata* 
         std::chrono::system_clock::time_point const creation_time
                 = parse_timestamp(res->getString("creation_time").c_str());
         *job = JobMetadata{id, client_id, creation_time};
-        return StorageErr{};
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -828,6 +827,32 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
         }
         res->next();
         *task = fetch_full_task(res);
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id)
+        -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("SELECT `job_id` FROM `tasks` WHERE `id` = ?")
+        );
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
+        if (res->rowsCount() == 0) {
+            m_conn->commit();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("no task with id {}", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        *job_id = read_id(res->getBinaryStream("job_id"));
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

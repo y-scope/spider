@@ -42,6 +42,8 @@ public:
     virtual auto remove_job(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(boost::uuids::uuid parent_id, Task const& child) -> StorageErr = 0;
     virtual auto get_task(boost::uuids::uuid id, Task* task) -> StorageErr = 0;
+    virtual auto get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id) -> StorageErr
+                                                                                       = 0;
     virtual auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr = 0;
     virtual auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr = 0;
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;

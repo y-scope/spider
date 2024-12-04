@@ -2,6 +2,7 @@
 #define SPIDER_SCHEDULER_SCHEDULERPOLICY_HPP
 
 #include <memory>
+#include <optional>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -15,8 +16,10 @@ public:
 
     virtual auto schedule_next(
             std::shared_ptr<core::MetadataStorage> metadata_store,
-            std::shared_ptr<core::DataStorage> data_store
-    ) -> boost::uuids::uuid = 0;
+            std::shared_ptr<core::DataStorage> data_store,
+            boost::uuids::uuid worker_id,
+            std::string const& worker_addr
+    ) -> std::optional<boost::uuids::uuid> = 0;
 
     virtual auto cleanup_job(boost::uuids::uuid job_id) -> void = 0;
 };

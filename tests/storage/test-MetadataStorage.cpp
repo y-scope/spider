@@ -144,7 +144,8 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(heads.contains(parent_1.get_id()));
     REQUIRE(heads.contains(parent_2.get_id()));
 
-    std::chrono::system_clock::time_point const job_creation_time = std::chrono::system_clock::now();
+    std::chrono::system_clock::time_point const job_creation_time
+            = std::chrono::system_clock::now();
 
     // Submit a simple job
     boost::uuids::uuid const simple_job_id = gen();
