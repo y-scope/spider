@@ -706,10 +706,14 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
 
 namespace {
 
-auto parse_timestamp(std::string const& timestamp) -> std::chrono::system_clock::time_point {
+auto parse_timestamp(std::string const& timestamp
+) -> std::optional<std::chrono::system_clock::time_point> {
     std::tm time_date{};
     std::stringstream ss{timestamp};
     ss >> std::get_time(&time_date, "%Y-%m-%d %H:%M:%S");
+    if (ss.fail()) {
+        return std::nullopt;
+    }
     return std::chrono::system_clock::from_time_t(std::mktime(&time_date));
 }
 
@@ -734,9 +738,19 @@ auto MySqlMetadataStorage::get_job_metadata(boost::uuids::uuid id, JobMetadata* 
         }
         res->next();
         boost::uuids::uuid const client_id = read_id(res->getBinaryStream("client_id"));
-        std::chrono::system_clock::time_point const creation_time
+        std::optional<std::chrono::system_clock::time_point> const optional_creation_time
                 = parse_timestamp(res->getString("creation_time").c_str());
-        *job = JobMetadata{id, client_id, creation_time};
+        if (false == optional_creation_time.has_value()) {
+            m_conn->rollback();
+            return StorageErr{
+                    StorageErrType::OtherErr,
+                    fmt::format(
+                            "Cannot parse timestamp {}",
+                            res->getString("creation_time").c_str()
+                    )
+            };
+        }
+        *job = JobMetadata{id, client_id, optional_creation_time.value()};
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
