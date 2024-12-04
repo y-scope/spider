@@ -1,9 +1,9 @@
 #include "FifoPolicy.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <optional>
-#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -13,6 +13,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 
+#include "../core/Data.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
