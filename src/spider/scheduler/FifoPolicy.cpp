@@ -28,9 +28,9 @@ auto task_locality_satisfied(
         boost::uuids::uuid const data_id = optional_data_id.value();
         spider::core::Data data;
         if (false == data_store->get_data(data_id, &data).success()) {
-            throw std::runtime_error{
+            throw std::runtime_error(
                     fmt::format("Data with id {} not exists.", boost::uuids::to_string((data_id)))
-            };
+            );
         }
         if (false == data.is_hard_locality()) {
             continue;
@@ -43,6 +43,7 @@ auto task_locality_satisfied(
             return false;
         }
     }
+    return true;
 }
 
 }  // namespace
@@ -77,8 +78,10 @@ auto FifoPolicy::schedule_next(
                     job_id = m_task_job_map[task_id];
                 } else {
                     if (false == metadata_store->get_task_job_id(task_id, &job_id).success()) {
-                        throw std::runtime_error{fmt::format("Task with id {} not exists.", task_id)
-                        };
+                        throw std::runtime_error(fmt::format(
+                                "Task with id {} not exists.",
+                                boost::uuids::to_string(task_id)
+                        ));
                     }
                     m_task_job_map.emplace(task_id, job_id);
                 }
@@ -89,7 +92,10 @@ auto FifoPolicy::schedule_next(
 
                 core::JobMetadata job_metadata;
                 if (false == metadata_store->get_job_metadata(job_id, &job_metadata).success()) {
-                    throw std::runtime_error{fmt::format("Job with id {} not exists.", job_id)};
+                    throw std::runtime_error(fmt::format(
+                            "Job with id {} not exists.",
+                            boost::uuids::to_string(job_id)
+                    ));
                 }
                 m_job_time_map.emplace(job_id, job_metadata.get_creation_time());
                 return job_metadata.get_creation_time();
