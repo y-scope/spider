@@ -40,3 +40,19 @@ set correctly.
 ```c++
 REQUIRE( storage->connect(spider::test::cStorageUrl).success() )
 ```
+
+## Test tasks
+
+Three unit-test related tasks are added to taskfile.
+
+* `test:non-storage-unit-tests` runs all unit tests without `[storage]` tag, i.e. do not need a storage to run.
+* `test:storage-unit-tests` runs all unit tests that has `[storage]` tag.
+* `test:all` runs all unit tests.
+
+All unit-test related tasks build `spider_task_executor`, `unitTest` and `worker_test`, which are necessary to run unit
+tests.
+
+## GitHub test workflow
+
+A GitHub workflow `unit_tests.yaml` is set up to run unit test on push, pull request and every day. Currently, it only
+runs unit tests without storage requirement.
