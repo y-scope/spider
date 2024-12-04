@@ -220,6 +220,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph_res = spider::core::TaskGraph{};
     REQUIRE(storage->get_task_graph(job_id, &graph_res).success());
     REQUIRE(spider::test::task_graph_equal(graph, graph_res));
+    REQUIRE(storage->remove_job(job_id).success());
 }
 
 }  // namespace

@@ -40,13 +40,17 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::TaskGraph graph_1;
     graph_1.add_task(task_1);
     boost::uuids::uuid const job_id_1 = gen();
-    metadata_store->add_job(job_id_1, client_id, graph_1);
+    REQUIRE(metadata_store->add_job(job_id_1, client_id, graph_1).success());
+    REQUIRE(metadata_store->set_task_state(task_1.get_id(), spider::core::TaskState::Ready)
+                    .success());
     std::this_thread::sleep_for(std::chrono::seconds(1));
     spider::core::Task const task_2{"task_2"};
     spider::core::TaskGraph graph_2;
     graph_2.add_task(task_2);
     boost::uuids::uuid const job_id_2 = gen();
-    metadata_store->add_job(job_id_2, client_id, graph_2);
+    REQUIRE(metadata_store->add_job(job_id_2, client_id, graph_2).success());
+    REQUIRE(metadata_store->set_task_state(task_2.get_id(), spider::core::TaskState::Ready)
+                    .success());
 
     spider::scheduler::FifoPolicy policy;
 
@@ -58,6 +62,9 @@ TEMPLATE_LIST_TEST_CASE(
         boost::uuids::uuid const& task_id = optional_task_id.value();
         REQUIRE(task_id == task_1.get_id());
     }
+
+    REQUIRE(metadata_store->remove_job(job_id_1).success());
+    REQUIRE(metadata_store->remove_job(job_id_2).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -76,20 +83,23 @@ TEMPLATE_LIST_TEST_CASE(
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
     boost::uuids::random_generator gen;
+    boost::uuids::uuid const job_id = gen();
     // Submit task with hard locality
     spider::core::Task task{"task"};
-    spider::core::Data data;
+    spider::core::Data data{"value"};
     data.set_hard_locality(true);
     data.set_locality({"127.0.0.1"});
-    data_store->add_data(data);
+    auto err = data_store->add_data(data);
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
-    metadata_store->add_job(gen(), gen(), graph);
+    REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
+    REQUIRE(metadata_store->set_task_state(task.get_id(), spider::core::TaskState::Ready).success()
+    );
 
     spider::scheduler::FifoPolicy policy;
     // Schedule with wrong address
-    REQUIRE(false == policy.schedule_next(metadata_store, data_store, gen(), "").has_value());
+    REQUIRE_FALSE(policy.schedule_next(metadata_store, data_store, gen(), "").has_value());
     // Schedule with correct address
     std::optional<boost::uuids::uuid> const optional_task_id
             = policy.schedule_next(metadata_store, data_store, gen(), "127.0.0.1");
@@ -98,6 +108,8 @@ TEMPLATE_LIST_TEST_CASE(
         boost::uuids::uuid const& task_id = optional_task_id.value();
         REQUIRE(task_id == task.get_id());
     }
+
+    // REQUIRE(metadata_store->remove_job(job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -116,6 +128,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
     boost::uuids::random_generator gen;
+    boost::uuids::uuid const job_id = gen();
     // Submit task with hard locality
     spider::core::Task task{"task"};
     spider::core::Data data;
@@ -125,7 +138,9 @@ TEMPLATE_LIST_TEST_CASE(
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
-    metadata_store->add_job(gen(), gen(), graph);
+    REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
+    REQUIRE(metadata_store->set_task_state(task.get_id(), spider::core::TaskState::Ready).success()
+    );
 
     spider::scheduler::FifoPolicy policy;
     // Schedule with wrong address
@@ -136,6 +151,8 @@ TEMPLATE_LIST_TEST_CASE(
         boost::uuids::uuid const& task_id = optional_task_id.value();
         REQUIRE(task_id == task.get_id());
     }
+
+    REQUIRE(metadata_store->remove_job(job_id).success());
 }
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

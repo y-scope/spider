@@ -60,7 +60,7 @@ auto FifoPolicy::schedule_next(
     metadata_store->get_ready_tasks(&ready_tasks);
 
     std::erase_if(ready_tasks, [data_store, worker_addr](core::Task const& task) -> bool {
-        return task_locality_satisfied(data_store, task, worker_addr);
+        return !task_locality_satisfied(data_store, task, worker_addr);
     });
 
     if (ready_tasks.empty()) {

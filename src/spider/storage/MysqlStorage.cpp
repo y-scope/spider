@@ -138,7 +138,7 @@ char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
 
 char const* const cCreateDataLocalityTable = R"(CREATE TABLE IF NOT EXISTS `data_locality` (
     `id` BINARY(16) NOT NULL,
-    `address` INT UNSIGNED NOT NULL,
+    `address` VARCHAR(40) NOT NULL,
     KEY (`id`) USING BTREE,
     CONSTRAINT `locality_data_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
