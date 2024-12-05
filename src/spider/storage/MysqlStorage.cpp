@@ -1,10 +1,14 @@
 #include "MysqlStorage.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <deque>
+#include <iomanip>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -26,6 +30,7 @@
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
+#include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
 
@@ -46,7 +51,7 @@ namespace {
 char const* const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS `drivers` (
     `id` BINARY(16) NOT NULL,
     `address` VARCHAR(40) NOT NULL,
-    `heartbeat` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `heartbeat` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
 ))";
 
@@ -61,6 +66,7 @@ char const* const cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS `schedul
 char const* const cCreateJobTable = R"(CREATE TABLE IF NOT EXISTS jobs (
     `id` BINARY(16) NOT NULL,
     `client_id` BINARY(16) NOT NULL,
+    `creation_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY (`client_id`) USING BTREE,
     PRIMARY KEY (`id`)
 ))";
@@ -114,7 +120,7 @@ char const* const cCreateTaskDependencyTable = R"(CREATE TABLE IF NOT EXISTS `ta
 char const* const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS `task_instances` (
     `id` BINARY(16) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
-    `start_time` TIMESTAMP NOT NULL,
+    `start_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 ))";
@@ -132,7 +138,7 @@ char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
 
 char const* const cCreateDataLocalityTable = R"(CREATE TABLE IF NOT EXISTS `data_locality` (
     `id` BINARY(16) NOT NULL,
-    `address` INT UNSIGNED NOT NULL,
+    `address` VARCHAR(40) NOT NULL,
     KEY (`id`) USING BTREE,
     CONSTRAINT `locality_data_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
@@ -696,6 +702,62 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
     m_conn->commit();
     return StorageErr{};
 }
+}  // namespace spider::core
+
+namespace {
+
+auto parse_timestamp(std::string const& timestamp
+) -> std::optional<std::chrono::system_clock::time_point> {
+    std::tm time_date{};
+    std::stringstream ss{timestamp};
+    ss >> std::get_time(&time_date, "%Y-%m-%d %H:%M:%S");
+    if (ss.fail()) {
+        return std::nullopt;
+    }
+    return std::chrono::system_clock::from_time_t(std::mktime(&time_date));
+}
+
+}  // namespace
+
+namespace spider::core {
+
+auto MySqlMetadataStorage::get_job_metadata(boost::uuids::uuid id, JobMetadata* job) -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement{m_conn->prepareStatement(
+                "SELECT `client_id`, `creation_time` FROM `jobs` WHERE `id` = ?"
+        )};
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const res{statement->executeQuery()};
+        if (0 == res->rowsCount()) {
+            m_conn->commit();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("No job with id {} ", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        boost::uuids::uuid const client_id = read_id(res->getBinaryStream("client_id"));
+        std::optional<std::chrono::system_clock::time_point> const optional_creation_time
+                = parse_timestamp(res->getString("creation_time").c_str());
+        if (false == optional_creation_time.has_value()) {
+            m_conn->rollback();
+            return StorageErr{
+                    StorageErrType::OtherErr,
+                    fmt::format(
+                            "Cannot parse timestamp {}",
+                            res->getString("creation_time").c_str()
+                    )
+            };
+        }
+        *job = JobMetadata{id, client_id, optional_creation_time.value()};
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
 
 auto MySqlMetadataStorage::get_jobs_by_client_id(
         boost::uuids::uuid client_id,
@@ -779,6 +841,32 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
         }
         res->next();
         *task = fetch_full_task(res);
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id)
+        -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement(
+                m_conn->prepareStatement("SELECT `job_id` FROM `tasks` WHERE `id` = ?")
+        );
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
+        if (res->rowsCount() == 0) {
+            m_conn->commit();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("no task with id {}", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        *job_id = read_id(res->getBinaryStream("job_id"));
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

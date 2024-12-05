@@ -1,17 +1,18 @@
-#include "../../src/spider/core/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../../src/spider/worker/FunctionManager.hpp"
-#include "../../src/spider/worker/TaskExecutor.hpp"
+#include <cstdlib>
+#include <optional>
+#include <string>
+#include <tuple>
+#include <vector>
 
 #include <absl/container/flat_hash_map.h>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <cstdlib>
-#include <optional>
-#include <string>
-#include <tuple>
-#include <vector>
+
+#include "../../src/spider/core/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../../src/spider/worker/FunctionManager.hpp"
+#include "../../src/spider/worker/TaskExecutor.hpp"
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 

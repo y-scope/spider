@@ -1,11 +1,6 @@
 #include "CoreTaskUtils.hpp"
 
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-
-#include <absl/container/flat_hash_map.h>
 #include <algorithm>
-#include <boost/uuid/uuid.hpp>
 #include <cmath>
 #include <compare>
 #include <concepts>
@@ -14,6 +9,12 @@
 #include <numeric>
 #include <utility>
 #include <vector>
+
+#include <absl/container/flat_hash_map.h>
+#include <boost/uuid/uuid.hpp>
+
+#include "../../src/spider/core/Task.hpp"
+#include "../../src/spider/core/TaskGraph.hpp"
 
 namespace spider::test {
 

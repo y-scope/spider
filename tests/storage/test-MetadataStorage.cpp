@@ -1,22 +1,24 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
+#include <algorithm>
+#include <chrono>
+#include <memory>
+#include <thread>
+#include <vector>
+
+#include <absl/container/flat_hash_set.h>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <catch2/catch_template_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
+
 #include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/core/JobMetadata.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
 #include "../utils/CoreTaskUtils.hpp"
 #include "StorageTestHelper.hpp"
-
-#include <absl/container/flat_hash_set.h>
-#include <algorithm>
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid.hpp>
-#include <catch2/catch_template_test_macros.hpp>
-#include <catch2/catch_test_macros.hpp>
-#include <chrono>
-#include <memory>
-#include <thread>
-#include <vector>
 
 namespace {
 
@@ -142,6 +144,9 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(heads.contains(parent_1.get_id()));
     REQUIRE(heads.contains(parent_2.get_id()));
 
+    std::chrono::system_clock::time_point const job_creation_time
+            = std::chrono::system_clock::now();
+
     // Submit a simple job
     boost::uuids::uuid const simple_job_id = gen();
     spider::core::Task const simple_task{"simple"};
@@ -161,13 +166,22 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(storage->get_jobs_by_client_id(gen(), &job_ids).success());
     REQUIRE(job_ids.empty());
 
-    // Get job id for client id should get correct value;
+    // Get job id for client id should get correct value
     REQUIRE(storage->get_jobs_by_client_id(client_id, &job_ids).success());
     REQUIRE(2 == job_ids.size());
     REQUIRE(
             ((job_ids[0] == job_id && job_ids[1] == simple_job_id)
              || (job_ids[0] == simple_job_id && job_ids[1] == job_id))
     );
+
+    // Get job metadata should get correct value
+    spider::core::JobMetadata job_metadata{};
+    REQUIRE(storage->get_job_metadata(job_id, &job_metadata).success());
+    REQUIRE(job_id == job_metadata.get_id());
+    REQUIRE(client_id == job_metadata.get_client_id());
+    std::chrono::seconds const time_delta{1};
+    REQUIRE(job_creation_time + time_delta >= job_metadata.get_creation_time());
+    REQUIRE(job_creation_time - time_delta <= job_metadata.get_creation_time());
 
     // Get task graph should succeed
     spider::core::TaskGraph graph_res{};
@@ -206,6 +220,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph_res = spider::core::TaskGraph{};
     REQUIRE(storage->get_task_graph(job_id, &graph_res).success());
     REQUIRE(spider::test::task_graph_equal(graph, graph_res));
+    REQUIRE(storage->remove_job(job_id).success());
 }
 
 }  // namespace

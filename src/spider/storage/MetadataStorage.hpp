@@ -7,6 +7,7 @@
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Error.hpp"
+#include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
 
@@ -32,6 +33,7 @@ public:
     virtual auto
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
     ) -> StorageErr = 0;
+    virtual auto get_job_metadata(boost::uuids::uuid id, JobMetadata* job) -> StorageErr = 0;
     virtual auto get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph) -> StorageErr = 0;
     virtual auto get_jobs_by_client_id(
             boost::uuids::uuid client_id,
@@ -40,6 +42,8 @@ public:
     virtual auto remove_job(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(boost::uuids::uuid parent_id, Task const& child) -> StorageErr = 0;
     virtual auto get_task(boost::uuids::uuid id, Task* task) -> StorageErr = 0;
+    virtual auto get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id) -> StorageErr
+                                                                                       = 0;
     virtual auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr = 0;
     virtual auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr = 0;
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;

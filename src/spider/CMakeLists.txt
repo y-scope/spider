@@ -11,6 +11,7 @@ set(SPIDER_CORE_HEADERS
     core/Data.hpp
     core/Task.hpp
     core/TaskGraph.hpp
+    core/JobMetadata.hpp
     core/Serializer.hpp
     core/BoostAsio.hpp
     core/MsgPack.hpp
@@ -28,7 +29,7 @@ target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
 target_link_libraries(
     spider_core
     PUBLIC
-        Boost::boost
+        Boost::headers
         absl::flat_hash_map
         MariaDBClientCpp::MariaDBClientCpp
         msgpack-cxx
@@ -81,6 +82,25 @@ target_link_libraries(
         Boost::filesystem
         Boost::program_options
         Boost::system
+        spdlog::spdlog
+)
+
+set(SPIDER_SCHEDULER_SOURCES
+    scheduler/SchedulerPolicy.hpp
+    scheduler/FifoPolicy.cpp
+    scheduler/FifoPolicy.hpp
+    CACHE INTERNAL
+    "spider scheduler source files"
+)
+add_executable(spider_scheduler)
+target_sources(spider_scheduler PRIVATE ${SPIDER_SCHEDULER_SOURCES})
+target_sources(spider_scheduler PRIVATE scheduler/scheduler.cpp)
+target_link_libraries(spider_scheduler PRIVATE spider_core)
+target_link_libraries(
+    spider_scheduler
+    PRIVATE
+        Boost::headers
+        absl::flat_hash_map
         spdlog::spdlog
 )
 
