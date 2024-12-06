@@ -53,8 +53,8 @@ You can use the following tasks to run the set of unit tests that's appropriate.
 
 ## GitHub unit test workflow
 
-The [unit_tests.yaml][gh-workflow-unit-tests] GitHub workflow runs the unit tests on push, pull requests, and daily.
-Currently, it only runs unit tests that don't require a storage backend.
+The [unit_tests.yaml][gh-workflow-unit-tests] GitHub workflow runs the unit tests on push,
+pull requests, and daily. Currently, it only runs unit tests that don't require a storage backend.
 
 If any tests show error messages for the connection function below, revisit
 [setup section](#set-up-mysql-as-storage-backend) and verify that `cStorageUrl` was set correctly.
