@@ -15,6 +15,6 @@ tasks:
 
   clean:
     internal: true
-    deps: ["::config-cmake-project"]
+    deps: [":config-cmake-project"]
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
