@@ -12,9 +12,9 @@ set(SPIDER_CORE_HEADERS
     core/Task.hpp
     core/TaskGraph.hpp
     core/JobMetadata.hpp
-    core/Serializer.hpp
-    core/BoostAsio.hpp
-    core/MsgPack.hpp
+    utils/BoostAsio.hpp
+    utils/MsgPack.hpp
+    utils/Serializer.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp

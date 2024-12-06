@@ -15,7 +15,7 @@
 #include <absl/container/flat_hash_map.h>
 #include <fmt/format.h>
 
-#include "../core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../utils/MsgPack.hpp"  // IWYU pragma: keep
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)

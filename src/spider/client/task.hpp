@@ -3,7 +3,7 @@
 
 #include <functional>
 
-#include "../core/Serializer.hpp"
+#include "../utils/Serializer.hpp"
 #include "Data.hpp"
 #include "type_utils.hpp"
 

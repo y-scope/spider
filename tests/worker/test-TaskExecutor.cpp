@@ -10,7 +10,7 @@
 #include <boost/process/v2/environment.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../../src/spider/utils/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/TaskExecutor.hpp"
 

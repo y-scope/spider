@@ -6,7 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../../src/spider/utils/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 
 namespace {
