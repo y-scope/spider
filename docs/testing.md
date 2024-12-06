@@ -41,18 +41,26 @@ set correctly.
 REQUIRE( storage->connect(spider::test::cStorageUrl).success() )
 ```
 
-## Test tasks
+## Running tests
 
-Three unit-test related tasks are added to taskfile.
+You can use the following tasks to run the set of unit tests that's appropriate.
 
-* `test:non-storage-unit-tests` runs all unit tests without `[storage]` tag, i.e. do not need a storage to run.
-* `test:storage-unit-tests` runs all unit tests that has `[storage]` tag.
-* `test:all` runs all unit tests.
+| Task                          | Description                                                       |
+|-------------------------------|-------------------------------------------------------------------|
+| `test:all`                    | Runs all unit tests.                                              |
+| `test:non-storage-unit-tests` | Runs all unit tests which don't require a storage backend to run. |
+| `test:storage-unit-tests`     | Runs all unit tests which require a storage backend to run.       |
 
-All unit-test related tasks build `spider_task_executor`, `unitTest` and `worker_test`, which are necessary to run unit
-tests.
+## GitHub unit test workflow
 
-## GitHub test workflow
+The [unit_tests.yaml][gh-workflow-unit-tests] GitHub workflow runs the unit tests on push, pull requests, and daily.
+Currently, it only runs unit tests that don't require a storage backend.
 
-A GitHub workflow `unit_tests.yaml` is set up to run unit test on push, pull request and every day. Currently, it only
-runs unit tests without storage requirement.
+If any tests show error messages for the connection function below, revisit
+[setup section](#set-up-mysql-as-storage-backend) and verify that `cStorageUrl` was set correctly.
+
+```c++
+REQUIRE( storage->connect(spider::test::cStorageUrl).success() )
+```
+
+[gh-workflow-unit-tests]: ../.github/workflows/unit-tests.yaml
