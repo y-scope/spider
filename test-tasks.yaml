@@ -26,4 +26,5 @@ tasks:
     internal: true
     deps:
       - task: ":build:target"
-        vars: {TARGETS: ["spider_task_executor", "unitTest", "worker_test"]}
+        vars:
+          TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
