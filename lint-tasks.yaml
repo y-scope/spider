@@ -115,9 +115,11 @@ tasks:
           --strict \
           .gersemirc \
           .github/ \
-          lint-tasks.yaml \
+          build-tasks.yaml \
           dep-tasks.yaml \
-          taskfile.yaml
+          lint-tasks.yaml \
+          taskfile.yaml \
+          test-tasks.yaml
 
   clang-format:
     internal: true

@@ -1,4 +1,4 @@
-name: "code-linting-checks"
+name: "unit-tests"
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
+  non-storage-unit-tests:
     runs-on: "ubuntu-latest"
     steps:
       - uses: "actions/checkout@v4"
@@ -42,4 +42,4 @@ jobs:
         timeout-minutes: 10
         run: "task deps:lib_install"
 
-      - run: "task lint:check"
+      - run: "task test:non-storage-unit-tests"

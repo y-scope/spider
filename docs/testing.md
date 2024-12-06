@@ -23,20 +23,26 @@ require this storage backend.
 4. Set the `cStorageUrl` in `tests/storage/StorageTestHelper.hpp` to
    `jdbc:mariadb://localhost:3306/<db_name>?user=<usr>&password=<pwd>`.
 
-## Build and run unit tests
+## Running tests
 
-To build and run the unit tests, run the following commands in project root directory.
+You can use the following tasks to run the set of unit tests that's appropriate.
 
-```shell
-cmake -S . -B build
-cmake --build build --target unitTest --parallel
-./build/tests/unitTest
-```
+| Task                          | Description                                                       |
+|-------------------------------|-------------------------------------------------------------------|
+| `test:all`                    | Runs all unit tests.                                              |
+| `test:non-storage-unit-tests` | Runs all unit tests which don't require a storage backend to run. |
+| `test:storage-unit-tests`     | Runs all unit tests which require a storage backend to run.       |
 
-If the tests show error messages for connection functions below,
-revisit [Setup storage backend](#setup-storage-backend) section and double check if `cStorageUrl` is
-set correctly.
+If any tests show error messages for the connection function below, revisit the
+[setup section](#set-up-mysql-as-storage-backend) and verify that `cStorageUrl` was set correctly.
 
 ```c++
 REQUIRE( storage->connect(spider::test::cStorageUrl).success() )
 ```
+
+## GitHub unit test workflow
+
+The [unit_tests.yaml][gh-workflow-unit-tests] GitHub workflow runs the unit tests on push,
+pull requests, and daily. Currently, it only runs unit tests that don't require a storage backend.
+
+[gh-workflow-unit-tests]: ../.github/workflows/unit-tests.yaml
