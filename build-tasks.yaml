@@ -8,8 +8,11 @@ tasks:
         ref: "default (list \"all\") .TARGETS"
     deps: [":config-cmake-project"]
     cmds:
-      - "cmake --build {{.G_BUILD_SPIDER_DIR}} --parallel {{numCPU}}
-      --target {{trimPrefix \"[\" .TARGETS | trimSuffix \"]\"}}"
+      - >-
+        cmake
+        --build "{{.G_BUILD_SPIDER_DIR}}"
+        --parallel {{numCPU}}
+        --target {{range .TARGETS}}{{.}} {{end}}
 
   clean:
     internal: true
