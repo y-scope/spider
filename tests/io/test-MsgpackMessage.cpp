@@ -19,13 +19,12 @@ namespace {
 using namespace boost::asio::ip;
 
 constexpr std::array<size_t, 12> cBufferSizes{1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 257, 65'537};
-constexpr unsigned cPort = 6021;
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 TEST_CASE("Sync socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
-    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), cPort};
+    tcp::endpoint const local_endpoint{address::from_string("127.0.0.1"), 0};
     tcp::acceptor acceptor{context, local_endpoint};
 
     std::thread server_thread([&acceptor, &context]() {
@@ -52,7 +51,13 @@ TEST_CASE("Sync socket msgpack", "[io]") {
 
     // Create client socket
     tcp::socket socket(context);
-    boost::asio::connect(socket, std::vector{local_endpoint});
+    boost::asio::connect(
+            socket,
+            std::vector{tcp::endpoint{
+                    address::from_string("127.0.0.1"),
+                    acceptor.local_endpoint().port()
+            }}
+    );
 
     for (size_t const buffer_size : cBufferSizes) {
         msgpack::sbuffer buffer;
@@ -69,12 +74,18 @@ TEST_CASE("Sync socket msgpack", "[io]") {
 TEST_CASE("Async socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
-    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), cPort};
+    tcp::endpoint const local_endpoint{address::from_string("127.0.0.1"), 0};
     tcp::acceptor acceptor{context, local_endpoint};
 
     // Create client socket
     tcp::socket client_socket(context);
-    boost::asio::connect(client_socket, std::vector{local_endpoint});
+    boost::asio::connect(
+            client_socket,
+            std::vector{tcp::endpoint{
+                    address::from_string("127.0.0.1"),
+                    acceptor.local_endpoint().port()
+            }}
+    );
 
     // Create server socket
     tcp::socket server_socket{context};
