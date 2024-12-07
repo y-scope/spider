@@ -35,7 +35,7 @@ auto read_ext_type(char8_t const type) -> std::optional<std::pair<size_t, bool>>
         case 0xd5:
             return std::make_pair(3, false);
         case 0xd6:
-            return std::make_pair(7, false);
+            return std::make_pair(5, false);
         case 0xd7:
             return std::make_pair(9, false);
         case 0xd8:
@@ -122,7 +122,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
     std::pair<size_t, bool> const body_pair = optional_body_pair.value();
     std::vector<char8_t> body_size_vec(body_pair.first);
     boost::asio::read(socket, boost::asio::buffer(body_size_vec));
-    if (body_pair.second) {
+    if (false == body_pair.second) {
         // Entire body read with type. Validate type to be bin.
         if (body_size_vec[0] != msgpack::type::BIN) {
             return std::nullopt;
@@ -202,7 +202,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
     if (body_size_size != body_pair.first) {
         co_return std::nullopt;
     }
-    if (body_pair.second) {
+    if (false == body_pair.second) {
         // Entire body read with type. Validate type to be bin.
         if (body_size_vec[0] != msgpack::type::BIN) {
             co_return std::nullopt;
