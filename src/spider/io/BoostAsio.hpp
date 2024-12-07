@@ -19,6 +19,8 @@
 #include <boost/asio/posix/stream_descriptor.hpp>
 
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ip/address.hpp>
+#include <boost/asio/impl/connect.hpp>
 
 #include <boost/asio/detached.hpp>
 #include <boost/asio/impl/co_spawn.hpp>

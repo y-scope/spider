@@ -1,4 +1,8 @@
+#include <array>
 #include <bit>
+#include <chrono>
+#include <cstdint>
+#include <cstddef>
 #include <future>
 #include <optional>
 #include <thread>
@@ -17,6 +21,7 @@ using namespace boost::asio::ip;
 constexpr std::array<size_t, 12> cBufferSizes{1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 257, 65'537};
 constexpr unsigned cPort = 6021;
 
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 TEST_CASE("Sync socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
@@ -28,6 +33,7 @@ TEST_CASE("Sync socket msgpack", "[io]") {
         tcp::socket socket{context};
         acceptor.accept(socket);
 
+        // NOLINTBEGIN(clang-analyzer-unix.Malloc)
         for (size_t const buffer_size : cBufferSizes) {
             std::optional<msgpack::sbuffer> const optional_buffer
                     = spider::core::receive_message(socket);
@@ -36,10 +42,12 @@ TEST_CASE("Sync socket msgpack", "[io]") {
                 msgpack::sbuffer const& buffer = optional_buffer.value();
                 REQUIRE(buffer_size == buffer.size());
                 for (size_t i = 0; i < buffer.size(); ++i) {
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                     REQUIRE(i % 256 == std::bit_cast<uint8_t>(buffer.data()[i]));
                 }
             }
         }
+        // NOLINTEND(clang-analyzer-unix.Malloc)
     });
 
     // Create client socket
@@ -49,6 +57,7 @@ TEST_CASE("Sync socket msgpack", "[io]") {
     for (size_t const buffer_size : cBufferSizes) {
         msgpack::sbuffer buffer;
         for (size_t i = 0; i < buffer_size; ++i) {
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
             char const value = i % 256;
             buffer.write(&value, sizeof(value));
         }
@@ -74,6 +83,7 @@ TEST_CASE("Async socket msgpack", "[io]") {
     for (size_t const buffer_size : cBufferSizes) {
         msgpack::sbuffer client_buffer;
         for (size_t i = 0; i < buffer_size; ++i) {
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
             char const value = i % 256;
             client_buffer.write(&value, sizeof(value));
         }
@@ -100,10 +110,13 @@ TEST_CASE("Async socket msgpack", "[io]") {
             msgpack::sbuffer const& result_buffer = optional_result_buffer.value();
             REQUIRE(buffer_size == result_buffer.size());
             for (size_t i = 0; i < result_buffer.size(); ++i) {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 REQUIRE(i % 256 == std::bit_cast<uint8_t>(result_buffer.data()[i]));
             }
         }
     }
 }
+
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
 }  // namespace
