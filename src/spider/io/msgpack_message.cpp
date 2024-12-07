@@ -80,11 +80,18 @@ auto send_message(boost::asio::ip::tcp::socket& socket, msgpack::sbuffer const& 
     msgpack::packer packer{message_buffer};
     packer.pack_ext(buffer.size(), msgpack::type::BIN);
     packer.pack_ext_body(buffer.data(), buffer.size());
-    size_t const size = boost::asio::write(
-            socket,
-            boost::asio::buffer(message_buffer.data(), message_buffer.size())
-    );
-    return size == message_buffer.size();
+    try {
+        size_t const size = boost::asio::write(
+                socket,
+                boost::asio::buffer(message_buffer.data(), message_buffer.size())
+        );
+        return size == message_buffer.size();
+    } catch (boost::system::system_error& e) {
+        if (boost::asio::error::eof != e.code()) {
+            spdlog::error("Cannot send message to socket {}: {}", e.code(), e.what());
+        }
+        return false;
+    }
 }
 
 auto send_message_async(
@@ -110,44 +117,52 @@ auto send_message_async(
 }
 
 auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgpack::sbuffer> {
-    // Read header
-    char8_t header = 0;
-    boost::asio::read(socket, boost::asio::buffer(&header, sizeof(header)));
-    std::optional<std::pair<size_t, bool>> const optional_body_pair = read_ext_type(header);
-    if (false == optional_body_pair.has_value()) {
-        return std::nullopt;
-    }
+    try {
+        // Read header
+        char8_t header = 0;
+        boost::asio::read(socket, boost::asio::buffer(&header, sizeof(header)));
+        std::optional<std::pair<size_t, bool>> const optional_body_pair = read_ext_type(header);
+        if (false == optional_body_pair.has_value()) {
+            return std::nullopt;
+        }
 
-    // Read next
-    std::pair<size_t, bool> const body_pair = optional_body_pair.value();
-    std::vector<char8_t> body_size_vec(body_pair.first);
-    boost::asio::read(socket, boost::asio::buffer(body_size_vec));
-    if (false == body_pair.second) {
-        // Entire body read with type. Validate type to be bin.
-        if (body_size_vec[0] != msgpack::type::BIN) {
+        // Read next
+        std::pair<size_t, bool> const body_pair = optional_body_pair.value();
+        std::vector<char8_t> body_size_vec(body_pair.first);
+        boost::asio::read(socket, boost::asio::buffer(body_size_vec));
+        if (false == body_pair.second) {
+            // Entire body read with type. Validate type to be bin.
+            if (body_size_vec[0] != msgpack::type::BIN) {
+                return std::nullopt;
+            }
+            msgpack::sbuffer buffer;
+            buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
+            return buffer;
+        }
+        std::optional<size_t> const optional_body_size
+                = read_ext_body_size(std::u8string_view{body_size_vec.data(), body_size_vec.size()}
+                );
+        if (false == optional_body_size.has_value()) {
+            return std::nullopt;
+        }
+        size_t const body_size = optional_body_size.value();
+
+        // Read body
+        std::vector<char8_t> body_vec(body_size + 1);
+        boost::asio::read(socket, boost::asio::buffer(body_vec));
+        // Validate type to be bin
+        if (body_vec[0] != msgpack::type::BIN) {
             return std::nullopt;
         }
         msgpack::sbuffer buffer;
-        buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
+        buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
         return buffer;
-    }
-    std::optional<size_t> const optional_body_size
-            = read_ext_body_size(std::u8string_view{body_size_vec.data(), body_size_vec.size()});
-    if (false == optional_body_size.has_value()) {
+    } catch (boost::system::system_error& e) {
+        if (boost::asio::error::eof != e.code()) {
+            spdlog::error("Cannot read message from socket {}: {}", e.code(), e.what());
+        }
         return std::nullopt;
     }
-    size_t const body_size = optional_body_size.value();
-
-    // Read body
-    std::vector<char8_t> body_vec(body_size + 1);
-    boost::asio::read(socket, boost::asio::buffer(body_vec));
-    // Validate type to be bin
-    if (body_vec[0] != msgpack::type::BIN) {
-        return std::nullopt;
-    }
-    msgpack::sbuffer buffer;
-    buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
-    return buffer;
 }
 
 auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> socket
