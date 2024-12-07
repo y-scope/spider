@@ -88,7 +88,7 @@ auto send_message(boost::asio::ip::tcp::socket& socket, msgpack::sbuffer const& 
         return size == message_buffer.size();
     } catch (boost::system::system_error& e) {
         if (boost::asio::error::eof != e.code()) {
-            spdlog::error("Cannot send message to socket {}: {}", e.code(), e.what());
+            spdlog::error("Cannot send message to socket {}: {}", e.code().value(), e.what());
         }
         return false;
     }
@@ -159,7 +159,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
         return buffer;
     } catch (boost::system::system_error& e) {
         if (boost::asio::error::eof != e.code()) {
-            spdlog::error("Cannot read message from socket {}: {}", e.code(), e.what());
+            spdlog::error("Cannot read message from socket {}: {}", e.code().value(), e.what());
         }
         return std::nullopt;
     }
