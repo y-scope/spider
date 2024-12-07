@@ -19,12 +19,13 @@ namespace {
 using namespace boost::asio::ip;
 
 constexpr std::array<size_t, 12> cBufferSizes{1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 257, 65'537};
+constexpr unsigned cPort = 6021;
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 TEST_CASE("Sync socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
-    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), 0};
+    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), cPort};
     tcp::acceptor acceptor{context, local_endpoint};
 
     std::thread server_thread([&acceptor, &context]() {
@@ -68,7 +69,7 @@ TEST_CASE("Sync socket msgpack", "[io]") {
 TEST_CASE("Async socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
-    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), 0};
+    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), cPort};
     tcp::acceptor acceptor{context, local_endpoint};
 
     // Create client socket
