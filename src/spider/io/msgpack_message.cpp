@@ -49,14 +49,16 @@ auto read_ext_body_size(std::u8string_view const body_size) -> std::optional<siz
     switch (body_size.size()) {
         case 1:
             return std::bit_cast<std::uint8_t>(body_size[0]);
-        case 2:
+        case 2: {
             std::uint16_t body_size_16 = 0;
             memcpy(&body_size_16, body_size.data(), sizeof(std::uint16_t));
             return ntohs(body_size_16);
-        case 4:
+        }
+        case 4: {
             std::uint32_t body_size_32 = 0;
             memcpy(&body_size_32, body_size.data(), sizeof(std::uint32_t));
             return ntohl(body_size_32);
+        }
         default:
             return std::nullopt;
     }
@@ -86,8 +88,8 @@ auto send_message_async(
     msgpack::packer packer{message_buffer};
     packer.pack_ext(buffer.get().size(), msgpack::type::BIN);
     packer.pack_ext_body(buffer.get().data(), buffer.get().size());
-    auto& [ec, size] = co_await boost::asio::async_write(
-            socket,
+    auto const& [ec, size] = co_await boost::asio::async_write(
+            socket.get(),
             boost::asio::buffer(message_buffer.data(), message_buffer.size()),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
@@ -145,8 +147,8 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     // Read header
     char8_t header = 0;
-    auto& [header_ec, header_size] = co_await boost::asio::async_read(
-            socket,
+    auto const& [header_ec, header_size] = co_await boost::asio::async_read(
+            socket.get(),
             boost::asio::buffer(&header, sizeof(header)),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
@@ -171,8 +173,8 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
     // Read next
     std::pair<size_t, bool> const body_pair = optional_body_pair.value();
     std::vector<char8_t> body_size_vec(body_pair.first);
-    auto& [body_size_ec, body_size_size] = co_await boost::asio::async_read(
-            socket,
+    auto const& [body_size_ec, body_size_size] = co_await boost::asio::async_read(
+            socket.get(),
             boost::asio::buffer(body_size_vec),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
@@ -207,8 +209,8 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
 
     // Read body
     std::vector<char8_t> body_vec(body_size + 1);
-    auto& [body_ec, body_read_size] = co_await boost::asio::async_read(
-            socket,
+    auto const& [body_ec, body_read_size] = co_await boost::asio::async_read(
+            socket.get(),
             boost::asio::buffer(body_vec),
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
