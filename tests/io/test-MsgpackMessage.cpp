@@ -1,4 +1,6 @@
 #include <bit>
+#include <future>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -15,7 +17,7 @@ using namespace boost::asio::ip;
 constexpr std::array<size_t, 12> cBufferSizes{1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 257, 65'537};
 constexpr unsigned cPort = 6021;
 
-TEST_CASE("Synchronized socket io", "[io]") {
+TEST_CASE("Sync socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
     tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), cPort};
@@ -53,6 +55,55 @@ TEST_CASE("Synchronized socket io", "[io]") {
         REQUIRE(spider::core::send_message(socket, buffer));
     }
     server_thread.join();
+}
+
+TEST_CASE("Async socket msgpack", "[io]") {
+    boost::asio::io_context context;
+    // Create server acceptor
+    tcp::endpoint const local_endpoint{boost::asio::ip::address::from_string("127.0.0.1"), cPort};
+    tcp::acceptor acceptor{context, local_endpoint};
+
+    // Create client socket
+    tcp::socket client_socket(context);
+    boost::asio::connect(client_socket, std::vector{local_endpoint});
+
+    // Create server socket
+    tcp::socket server_socket{context};
+    acceptor.accept(server_socket);
+
+    for (size_t const buffer_size : cBufferSizes) {
+        msgpack::sbuffer client_buffer;
+        for (size_t i = 0; i < buffer_size; ++i) {
+            char const value = i % 256;
+            client_buffer.write(&value, sizeof(value));
+        }
+        std::future<bool> client_future = boost::asio::co_spawn(
+                context,
+                spider::core::send_message_async(client_socket, client_buffer),
+                boost::asio::use_future
+        );
+        std::future<std::optional<msgpack::sbuffer>> server_future = boost::asio::co_spawn(
+                context,
+                spider::core::receive_message_async(server_socket),
+                boost::asio::use_future
+        );
+
+        context.run();
+        REQUIRE(client_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+        REQUIRE(server_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+        context.restart();
+
+        REQUIRE(client_future.get());
+        std::optional<msgpack::sbuffer> const& optional_result_buffer = server_future.get();
+        REQUIRE(optional_result_buffer.has_value());
+        if (optional_result_buffer.has_value()) {
+            msgpack::sbuffer const& result_buffer = optional_result_buffer.value();
+            REQUIRE(buffer_size == result_buffer.size());
+            for (size_t i = 0; i < result_buffer.size(); ++i) {
+                REQUIRE(i % 256 == std::bit_cast<uint8_t>(result_buffer.data()[i]));
+            }
+        }
+    }
 }
 
 }  // namespace
