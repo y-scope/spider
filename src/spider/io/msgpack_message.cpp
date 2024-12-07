@@ -128,8 +128,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
             return std::nullopt;
         }
         msgpack::sbuffer buffer;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        buffer.write(reinterpret_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
+        buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
         return buffer;
     }
     std::optional<size_t> const optional_body_size
@@ -147,8 +146,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
         return std::nullopt;
     }
     msgpack::sbuffer buffer;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    buffer.write(reinterpret_cast<char*>(&body_vec[1]), body_vec.size() - 1);
+    buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
     return buffer;
 }
 
@@ -190,7 +188,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
     if (body_size_ec) {
-        if (boost::asio::error::eof != header_ec) {
+        if (boost::asio::error::eof != body_size_ec) {
             spdlog::error(
                     "Cannot read message body size or body from socket {}: {}",
                     body_size_ec.value(),
@@ -208,8 +206,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             co_return std::nullopt;
         }
         msgpack::sbuffer buffer;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        buffer.write(reinterpret_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
+        buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
         co_return buffer;
     }
     std::optional<size_t> const optional_body_size
@@ -227,7 +224,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
     if (body_ec) {
-        if (boost::asio::error::eof != header_ec) {
+        if (boost::asio::error::eof != body_size_ec) {
             spdlog::error(
                     "Cannot read message body size or body from socket {}: {}",
                     body_ec.value(),
@@ -245,8 +242,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
         co_return std::nullopt;
     }
     msgpack::sbuffer buffer;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    buffer.write(reinterpret_cast<char*>(&body_vec[1]), body_vec.size() - 1);
+    buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
     co_return buffer;
 }
 
