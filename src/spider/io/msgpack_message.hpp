@@ -2,6 +2,7 @@
 #define SPIDER_CORE_MSGPACKMESSAGE_HPP
 
 #include <functional>
+#include <optional>
 
 #include "BoostAsio.hpp"  // IWYU pragma: keep
 #include "MsgPack.hpp"  // IWYU pragma :keep

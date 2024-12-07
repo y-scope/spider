@@ -3,9 +3,14 @@
 #include <netinet/in.h>
 
 #include <bit>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <optional>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -23,6 +28,7 @@ namespace {
  * - True if next read reads only the body size, false otherwise
  */
 auto read_ext_type(char8_t const type) -> std::optional<std::pair<size_t, bool>> {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     switch (type) {
         case 0xd4:
             return std::make_pair(2, false);
@@ -43,6 +49,7 @@ auto read_ext_type(char8_t const type) -> std::optional<std::pair<size_t, bool>>
         default:
             return std::nullopt;
     }
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 }
 
 auto read_ext_body_size(std::u8string_view const body_size) -> std::optional<size_t> {
@@ -121,6 +128,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
             return std::nullopt;
         }
         msgpack::sbuffer buffer;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         buffer.write(reinterpret_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
         return buffer;
     }
@@ -139,6 +147,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
         return std::nullopt;
     }
     msgpack::sbuffer buffer;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     buffer.write(reinterpret_cast<char*>(&body_vec[1]), body_vec.size() - 1);
     return buffer;
 }
@@ -147,6 +156,8 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
 ) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     // Read header
     char8_t header = 0;
+    // Suppress clang-tidy warning inside boost asio
+    // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     auto const& [header_ec, header_size] = co_await boost::asio::async_read(
             socket.get(),
             boost::asio::buffer(&header, sizeof(header)),
@@ -197,6 +208,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             co_return std::nullopt;
         }
         msgpack::sbuffer buffer;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         buffer.write(reinterpret_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
         co_return buffer;
     }
@@ -233,6 +245,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
         co_return std::nullopt;
     }
     msgpack::sbuffer buffer;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     buffer.write(reinterpret_cast<char*>(&body_vec[1]), body_vec.size() - 1);
     co_return buffer;
 }
