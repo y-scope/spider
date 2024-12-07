@@ -6,8 +6,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/BoostAsio.hpp"
-#include "../../src/spider/core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../../src/spider/io/BoostAsio.hpp"
+#include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/message_pipe.hpp"
 #include "../../src/spider/worker/TaskExecutorMessage.hpp"

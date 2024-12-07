@@ -16,8 +16,8 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
-#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"

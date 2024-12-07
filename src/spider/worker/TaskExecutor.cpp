@@ -8,8 +8,8 @@
 #include <boost/process/v2/process.hpp>
 #include <fmt/format.h>
 
-#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
 #include "TaskExecutorMessage.hpp"

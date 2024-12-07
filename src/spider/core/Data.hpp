@@ -9,8 +9,8 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
-#include "MsgPack.hpp"  // IWYU pragma: keep
-#include "Serializer.hpp"  // IWYU pragma: keep
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/Serializer.hpp"  // IWYU pragma: keep
 
 namespace spider::core {
 class Data {

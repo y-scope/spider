@@ -11,8 +11,8 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-#include "../core/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../core/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
 
