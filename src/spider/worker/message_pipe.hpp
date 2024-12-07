@@ -4,8 +4,8 @@
 #include <functional>
 #include <optional>
 
-#include "../utils/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../utils/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
 

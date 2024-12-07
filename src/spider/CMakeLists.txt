@@ -2,7 +2,7 @@
 set(SPIDER_CORE_SOURCES
     storage/MysqlStorage.cpp
     worker/FunctionManager.cpp
-    utils/msgpack_message.cpp
+    io/msgpack_message.cpp
     CACHE INTERNAL
     "spider core source files"
 )
@@ -13,10 +13,10 @@ set(SPIDER_CORE_HEADERS
     core/Task.hpp
     core/TaskGraph.hpp
     core/JobMetadata.hpp
-    utils/BoostAsio.hpp
-    utils/MsgPack.hpp
-    utils/msgpack_message.hpp
-    utils/Serializer.hpp
+    io/BoostAsio.hpp
+    io/MsgPack.hpp
+    io/msgpack_message.hpp
+    io/Serializer.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp

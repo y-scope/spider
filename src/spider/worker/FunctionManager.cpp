@@ -6,7 +6,7 @@
 
 #include <boost/dll/alias.hpp>
 
-#include "../utils/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "TaskExecutorMessage.hpp"
 
 namespace spider::core {

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "../utils/Serializer.hpp"
+#include "../io/Serializer.hpp"
 
 namespace spider {
 class DataImpl;
