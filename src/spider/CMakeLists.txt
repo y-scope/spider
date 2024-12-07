@@ -91,6 +91,9 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerPolicy.hpp
     scheduler/FifoPolicy.cpp
     scheduler/FifoPolicy.hpp
+    scheduler/SchedulerMessage.hpp
+    scheduler/SchedulerServer.cpp
+    scheduler/SchedulerServer.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
