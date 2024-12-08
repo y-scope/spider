@@ -8,7 +8,8 @@ tasks:
     deps:
       - "build-unit-test"
     cmds:
-      - "{{.G_TEST_BINARY}} \"~[storage]\""
+      - "{{.G_TEST_BINARY}} \"[scheduler]\""
+      - "{{.G_TEST_BINARY}} \"~[scheduler][storage]\""
 
   storage-unit-tests:
     deps:

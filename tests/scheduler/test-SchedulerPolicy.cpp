@@ -44,16 +44,12 @@ TEMPLATE_LIST_TEST_CASE(
     graph_1.add_task(task_1);
     boost::uuids::uuid const job_id_1 = gen();
     REQUIRE(metadata_store->add_job(job_id_1, client_id, graph_1).success());
-    REQUIRE(metadata_store->set_task_state(task_1.get_id(), spider::core::TaskState::Ready)
-                    .success());
     std::this_thread::sleep_for(std::chrono::seconds(1));
     spider::core::Task const task_2{"task_2"};
     spider::core::TaskGraph graph_2;
     graph_2.add_task(task_2);
     boost::uuids::uuid const job_id_2 = gen();
     REQUIRE(metadata_store->add_job(job_id_2, client_id, graph_2).success());
-    REQUIRE(metadata_store->set_task_state(task_2.get_id(), spider::core::TaskState::Ready)
-                    .success());
 
     spider::scheduler::FifoPolicy policy;
 
@@ -97,8 +93,6 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::TaskGraph graph;
     graph.add_task(task);
     REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
-    REQUIRE(metadata_store->set_task_state(task.get_id(), spider::core::TaskState::Ready).success()
-    );
 
     spider::scheduler::FifoPolicy policy;
     // Schedule with wrong address
@@ -142,8 +136,6 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::TaskGraph graph;
     graph.add_task(task);
     REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
-    REQUIRE(metadata_store->set_task_state(task.get_id(), spider::core::TaskState::Ready).success()
-    );
 
     spider::scheduler::FifoPolicy policy;
     // Schedule with wrong address
