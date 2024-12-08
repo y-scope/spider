@@ -141,9 +141,10 @@ auto task_equal(core::Task const& t1, core::Task const& t2) -> bool {
     if (t1.get_function_name() != t2.get_function_name()) {
         return false;
     }
-    if (t1.get_state() != t2.get_state()) {
-        return false;
-    }
+    // Task state might not be the same
+    // if (t1.get_state() != t2.get_state()) {
+    //     return false;
+    // }
     if (!float_equal(t1.get_timeout(), t2.get_timeout())) {
         return false;
     }

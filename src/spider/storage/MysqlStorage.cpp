@@ -473,6 +473,17 @@ auto MySqlMetadataStorage::add_job(
             dep_statement->setBytes(2, &child_id_bytes);
             dep_statement->executeUpdate();
         }
+
+        // Mark head tasks as ready
+        for (boost::uuids::uuid const& task_id : task_graph.get_head_tasks()) {
+            std::unique_ptr<sql::PreparedStatement> statement(
+                    m_conn->prepareStatement("UPDATE `tasks` SET `state` = 'ready' WHERE `id` = ?")
+            );
+            sql::bytes task_id_bytes = uuid_get_bytes(task_id);
+            statement->setBytes(1, &task_id_bytes);
+            statement->executeUpdate();
+        }
+
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {

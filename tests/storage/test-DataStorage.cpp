@@ -91,7 +91,8 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Task const task{"func"};
     spider::core::TaskGraph graph;
     graph.add_task(task);
-    REQUIRE(metadata_storage->add_job(gen(), gen(), graph).success());
+    boost::uuids::uuid const job_id = gen();
+    REQUIRE(metadata_storage->add_job(job_id, gen(), graph).success());
 
     // Add task reference without data should fail.
     REQUIRE(!data_storage->add_task_reference(gen(), task.get_id()).success());
@@ -105,6 +106,9 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Remove task reference
     REQUIRE(data_storage->remove_task_reference(data.get_id(), task.get_id()).success());
+
+    // Remove job
+    REQUIRE(metadata_storage->remove_job(job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
