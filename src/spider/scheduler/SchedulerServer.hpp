@@ -30,6 +30,13 @@ public:
             std::shared_ptr<core::DataStorage> data_store
     );
 
+    /**
+     * Run the server loop. This function blocks until stop is called.
+     */
+    auto run() -> void;
+
+    auto stop() -> void;
+
 private:
     auto receive_message() -> boost::asio::awaitable<void>;
 

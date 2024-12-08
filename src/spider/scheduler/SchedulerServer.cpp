@@ -35,6 +35,16 @@ SchedulerServer::SchedulerServer(
     boost::asio::co_spawn(m_context, receive_message(), boost::asio::use_future);
 }
 
+auto SchedulerServer::run() -> void {
+    m_context.run();
+}
+
+auto SchedulerServer::stop() -> void {
+    std::lock_guard const lock{m_mutex};
+    m_stop = true;
+}
+
+
 auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
     while (!should_stop()) {
         // std::unique_ptr<boost::asio::ip::tcp::socket> socket
