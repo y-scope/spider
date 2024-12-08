@@ -40,10 +40,10 @@ auto SchedulerServer::run() -> void {
 }
 
 auto SchedulerServer::stop() -> void {
+    m_context.stop();
     std::lock_guard const lock{m_mutex};
     m_stop = true;
 }
-
 
 auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
     while (!should_stop()) {

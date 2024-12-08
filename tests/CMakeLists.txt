@@ -10,6 +10,7 @@ set(SPIDER_TEST_SOURCES
     worker/test-TaskExecutor.cpp
     io/test-MsgpackMessage.cpp
     scheduler/test-SchedulerPolicy.cpp
+    scheduler/test-SchedulerServer.cpp
     CACHE INTERNAL
     "spider test source files"
 )
