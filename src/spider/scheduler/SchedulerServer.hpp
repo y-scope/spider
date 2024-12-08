@@ -4,8 +4,6 @@
 #include <memory>
 #include <mutex>
 
-#include <boost/uuid/uuid.hpp>
-
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
@@ -36,8 +34,6 @@ private:
     auto receive_message() -> boost::asio::awaitable<void>;
 
     auto process_message(boost::asio::ip::tcp::socket socket) -> boost::asio::awaitable<void>;
-
-    auto submit_task(boost::uuids::uuid task_id, boost::uuids::uuid task_instance_id) -> void;
 
     auto should_stop() -> bool;
 

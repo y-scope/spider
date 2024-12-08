@@ -10,7 +10,6 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
@@ -91,10 +90,6 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
     }
     ScheduleTaskRequest const& request = optional_request.value();
 
-    if (request.is_task_complete()) {
-        submit_task(request.get_task_id(), request.get_task_instance_id());
-    }
-
     std::optional<boost::uuids::uuid> const task_id = m_policy->schedule_next(
             m_metadata_store,
             m_data_store,
@@ -117,14 +112,6 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
         );
     }
     co_return;
-}
-
-auto SchedulerServer::submit_task(
-        boost::uuids::uuid const task_id,
-        boost::uuids::uuid const task_instance_id
-) -> void {
-    core::TaskInstance const instance{task_instance_id, task_id};
-    m_metadata_store->task_finish(instance);
 }
 
 auto SchedulerServer::should_stop() -> bool {

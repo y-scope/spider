@@ -23,37 +23,15 @@ public:
             : m_worker_id{worker_id},
               m_worker_addr{std::move(addr)} {}
 
-    ScheduleTaskRequest(
-            boost::uuids::uuid const task_id,
-            boost::uuids::uuid const task_instance_id,
-            boost::uuids::uuid const worker_id,
-            std::string addr
-    )
-            : m_worker_id{worker_id},
-              m_worker_addr{std::move(addr)},
-              m_task{std::pair{task_id, task_instance_id}} {}
-
     [[nodiscard]] auto get_worker_id() const -> boost::uuids::uuid { return m_worker_id; }
 
     [[nodiscard]] auto get_worker_addr() const -> std::string const& { return m_worker_addr; }
 
-    [[nodiscard]] auto is_task_complete() const -> bool { return m_task.has_value(); }
-
-    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid { return m_task.value().first; }
-
-    [[nodiscard]] auto get_task_instance_id() const -> boost::uuids::uuid {
-        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-        return m_task.value().second;
-    }
-
-    MSGPACK_DEFINE_ARRAY(m_worker_id, m_worker_addr, m_task);
+    MSGPACK_DEFINE_ARRAY(m_worker_id, m_worker_addr);
 
 private:
     boost::uuids::uuid m_worker_id;
     std::string m_worker_addr;
-    // pair.first is task id, pair.second is task instance id
-    std::optional<std::pair<boost::uuids::uuid, boost::uuids::uuid>> m_task = std::nullopt;
 };
 
 class ScheduleTaskResponse {
