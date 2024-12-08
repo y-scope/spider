@@ -14,6 +14,11 @@ namespace spider::scheduler {
 
 class ScheduleTaskRequest {
 public:
+    /**
+     * Default constructor for msgpack. Do __not__ use it directly.
+     */
+    ScheduleTaskRequest() = default;
+
     ScheduleTaskRequest(boost::uuids::uuid const worker_id, std::string addr)
             : m_worker_id{worker_id},
               m_worker_addr{std::move(addr)} {}
@@ -53,14 +58,19 @@ private:
 
 class ScheduleTaskResponse {
 public:
+    ScheduleTaskResponse() = default;
+
     explicit ScheduleTaskResponse(boost::uuids::uuid const task_id) : m_task_id{task_id} {}
 
-    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid { return m_task_id; }
+    [[nodiscard]] auto has_task_id() const -> bool { return m_task_id.has_value(); }
+
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid { return m_task_id.value(); }
 
     MSGPACK_DEFINE_ARRAY(m_task_id);
 
 private:
-    boost::uuids::uuid m_task_id;
+    std::optional<boost::uuids::uuid> m_task_id = std::nullopt;
 };
 
 }  // namespace spider::scheduler
