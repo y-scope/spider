@@ -85,6 +85,7 @@ TEMPLATE_LIST_TEST_CASE(
         REQUIRE(res.has_task_id());
         REQUIRE(res.get_task_id() == parent_task.get_id());
     }
+    socket.close();
     server.stop();
     thread.join();
 }

@@ -56,6 +56,7 @@ auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
         );
         if (ec) {
             spdlog::error("Cannot accept connection {}: {}", ec.value(), ec.what());
+            continue;
         }
         // Ignore the returned future as we do not need its value
         boost::asio::co_spawn(

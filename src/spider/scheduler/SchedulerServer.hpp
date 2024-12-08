@@ -13,14 +13,11 @@ namespace spider::scheduler {
 
 class SchedulerServer {
 public:
-    // Delete copy constructor and copy assignment operator
+    // Delete copy & move constructor and assignment operator
     SchedulerServer(SchedulerServer const&) = delete;
     auto operator=(SchedulerServer const&) -> SchedulerServer& = delete;
-    // Default move constructor, move assignment operator and destructor
-    // NOLINTNEXTLINE(clang-diagnostic-defaulted-function-deleted)
-    SchedulerServer(SchedulerServer&&) = default;
-    // NOLINTNEXTLINE(clang-diagnostic-defaulted-function-deleted)
-    auto operator=(SchedulerServer&&) noexcept -> SchedulerServer& = default;
+    SchedulerServer(SchedulerServer&&) = delete;
+    auto operator=(SchedulerServer&&) noexcept -> SchedulerServer& = delete;
     ~SchedulerServer() = default;
 
     SchedulerServer(
