@@ -162,16 +162,14 @@ char const* const cCreateClientKVDataTable = R"(CREATE TABLE IF NOT EXISTS `clie
     `key` VARCHAR(64) NOT NULL,
     `value` VARCHAR(128) NOT NULL,
     `client_id` BINARY(16) NOT NULL,
-    PRIMARY KEY (`key`),
-    CONSTRAINT `kv_data_client_id` FOREIGN KEY (`client_id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
+    PRIMARY KEY (`client_id`, `key`)
 ))";
 
 char const* const cCreateTaskKVDataTable = R"(CREATE TABLE IF NOT EXISTS `task_kv_data` (
     `key` VARCHAR(64) NOT NULL,
     `value` VARCHAR(128) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
-    PRIMARY KEY (`key`),
-    CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
+    PRIMARY KEY (`task_id`, `key`)
 ))";
 
 std::array<char const* const, 14> const cCreateStorage = {
@@ -1430,7 +1428,7 @@ auto MySqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uui
 auto MySqlDataStorage::remove_dangling_data() -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement{m_conn->createStatement()};
-        statement->execute("DELETE FROM `data` WHERE NOT `id` NOT IN (SELECT driver_ref.`id` FROM "
+        statement->execute("DELETE FROM `data` WHERE `id` NOT IN (SELECT driver_ref.`id` FROM "
                            "`data_ref_driver` driver_ref) AND `id` NOT IN (SELECT task_ref.`id` "
                            "FROM `data_ref_task` task_ref)");
     } catch (sql::SQLException& e) {
@@ -1509,9 +1507,7 @@ auto MySqlDataStorage::get_client_kv_data(
             };
         }
         res->next();
-        if (res->isNull(2)) {
-            *value = res->getString(1);
-        }
+        *value = res->getString(1);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -1546,9 +1542,7 @@ auto MySqlDataStorage::get_task_kv_data(
             };
         }
         res->next();
-        if (res->isNull(2)) {
-            *value = res->getString(1);
-        }
+        *value = res->getString(1);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

@@ -83,16 +83,18 @@ TEMPLATE_LIST_TEST_CASE(
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
+    boost::uuids::uuid const client_id = gen();
     // Submit task with hard locality
     spider::core::Task task{"task"};
     spider::core::Data data{"value"};
     data.set_hard_locality(true);
     data.set_locality({"127.0.0.1"});
-    REQUIRE(data_store->add_data(data).success());
+    REQUIRE(metadata_store->add_driver(client_id, "127.0.0.1").success());
+    REQUIRE(data_store->add_driver_data(client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
-    REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
+    REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
 
     spider::scheduler::FifoPolicy policy;
     // Schedule with wrong address
@@ -124,18 +126,20 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<0>(storages));
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
+    // Add task
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
-    // Submit task with soft locality
+    boost::uuids::uuid const client_id = gen();
     spider::core::Task task{"task"};
     spider::core::Data data;
     data.set_hard_locality(false);
     data.set_locality({"127.0.0.1"});
-    REQUIRE(data_store->add_data(data).success());
+    REQUIRE(metadata_store->add_driver(client_id, "127.0.0.1").success());
+    REQUIRE(data_store->add_driver_data(client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
-    REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
+    REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
 
     spider::scheduler::FifoPolicy policy;
     // Schedule with wrong address
