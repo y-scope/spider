@@ -13,6 +13,7 @@
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
+#include "../core/KeyValueData.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
 #include "DataStorage.hpp"

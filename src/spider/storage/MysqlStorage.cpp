@@ -26,11 +26,11 @@
 #include <mariadb/conncpp/Properties.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 #include <mariadb/conncpp/Statement.hpp>
-#include <mariadb/conncpp/Types.hpp>
 
 #include "../core/Data.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
+#include "../core/KeyValueData.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
 
