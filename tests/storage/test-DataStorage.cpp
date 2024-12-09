@@ -1,5 +1,4 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-#include <memory>
 #include <tuple>
 
 #include <boost/uuid/random_generator.hpp>
@@ -12,7 +11,6 @@
 #include "../../src/spider/core/KeyValueData.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/storage/DataStorage.hpp"
 #include "../utils/CoreDataUtils.hpp"
 #include "StorageTestHelper.hpp"
 
@@ -107,9 +105,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(data.get_value() == value);
 
     // Clean up
-    auto err = metadata_storage->remove_job(job_id);
-    std::cerr << err.description << std::endl;
-    // REQUIRE(metadata_storage->remove_job(job_id).success());
+    REQUIRE(metadata_storage->remove_job(job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
