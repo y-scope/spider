@@ -1,16 +1,12 @@
 #ifndef SPIDER_CORE_DATA_HPP
 #define SPIDER_CORE_DATA_HPP
 
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
-
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/Serializer.hpp"  // IWYU pragma: keep
 
 namespace spider::core {
 class Data {
@@ -19,24 +15,11 @@ public:
 
     explicit Data(std::string value) : m_value(std::move(value)) { init_id(); }
 
-    Data(boost::uuids::uuid id, std::string value) : m_id(id), m_value(std::move(value)) {}
-
-    Data(std::string key, std::string value) : m_key(std::move(key)), m_value(std::move(value)) {
-        init_id();
-    }
-
-    Data(boost::uuids::uuid id, std::string key, std::string value)
-            : m_id(id),
-              m_key(std::move(key)),
-              m_value(std::move(value)) {}
-
-    MSGPACK_DEFINE(m_id, m_key, m_value, m_locality, m_hard_locality);
+    Data(boost::uuids::uuid const id, std::string value) : m_id(id), m_value(std::move(value)) {}
 
     static auto is_data() -> bool { return true; }
 
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
-
-    [[nodiscard]] auto get_key() const -> std::optional<std::string> { return m_key; }
 
     [[nodiscard]] auto get_value() const -> std::string { return m_value; }
 
@@ -48,11 +31,10 @@ public:
 
     void set_locality(std::vector<std::string> const& locality) { m_locality = locality; }
 
-    void set_hard_locality(bool hard) { m_hard_locality = hard; }
+    void set_hard_locality(bool const hard) { m_hard_locality = hard; }
 
 private:
     boost::uuids::uuid m_id;
-    std::optional<std::string> m_key;
     std::string m_value;
     std::vector<std::string> m_locality;
     bool m_hard_locality = false;

@@ -81,9 +81,9 @@ public:
     auto connect(std::string const& url) -> StorageErr override;
     void close() override;
     auto initialize() -> StorageErr override;
-    auto add_data(Data const& data) -> StorageErr override;
+    auto add_driver_data(boost::uuids::uuid driver_id, Data const& data) -> StorageErr override;
+    auto add_task_data(boost::uuids::uuid task_id, Data const& data) -> StorageErr override;
     auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr override;
-    auto get_data_by_key(std::string const& key, Data* data) -> StorageErr override;
     auto remove_data(boost::uuids::uuid id) -> StorageErr override;
     auto
     add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr override;
@@ -93,6 +93,18 @@ public:
             -> StorageErr override;
     auto remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id)
             -> StorageErr override;
+    auto add_client_kv_data(KeyValueData const& data) -> StorageErr override;
+    auto add_task_kv_data(KeyValueData const& data) -> StorageErr override;
+    auto get_client_kv_data(
+            boost::uuids::uuid const& client_id,
+            std::string const& key,
+            std::string* value
+    ) -> StorageErr override;
+    auto get_task_kv_data(
+            boost::uuids::uuid const& task_id,
+            std::string const& key,
+            std::string* value
+    ) -> StorageErr override;
 
 private:
     sql::Connection* m_conn = nullptr;
