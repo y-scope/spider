@@ -35,6 +35,7 @@ public:
     add_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) -> StorageErr = 0;
     virtual auto
     remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id) -> StorageErr = 0;
+    virtual auto remove_dangling_data() -> StorageErr = 0;
 
     virtual auto add_client_kv_data(KeyValueData const& data) -> StorageErr = 0;
     virtual auto add_task_kv_data(KeyValueData const& data) -> StorageErr = 0;

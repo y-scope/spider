@@ -93,6 +93,8 @@ public:
             -> StorageErr override;
     auto remove_driver_reference(boost::uuids::uuid id, boost::uuids::uuid driver_id)
             -> StorageErr override;
+    auto remove_dangling_data() -> StorageErr override;
+
     auto add_client_kv_data(KeyValueData const& data) -> StorageErr override;
     auto add_task_kv_data(KeyValueData const& data) -> StorageErr override;
     auto get_client_kv_data(

@@ -1427,6 +1427,20 @@ auto MySqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uui
     return StorageErr{};
 }
 
+auto MySqlDataStorage::remove_dangling_data() -> StorageErr {
+    try {
+        std::unique_ptr<sql::Statement> statement{m_conn->createStatement()};
+        statement->execute("DELETE FROM `data` WHERE NOT `id` NOT IN (SELECT driver_ref.`id` FROM "
+                           "`data_ref_driver` driver_ref) AND `id` NOT IN (SELECT task_ref.`id` "
+                           "FROM `data_ref_task` task_ref)");
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
 auto MySqlDataStorage::add_client_kv_data(KeyValueData const& data) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
