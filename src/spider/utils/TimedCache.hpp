@@ -27,7 +27,7 @@ public:
         return iter->second.second;
     }
 
-    auto put(Key const& key, Value const& value) {
+    auto put(Key const& key, Value const& value) -> void {
         auto iter = m_map.find(key);
         if (iter == m_map.end()) {
             m_map[key] = std::make_pair(std::chrono::steady_clock::now(), value);

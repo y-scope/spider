@@ -159,17 +159,18 @@ char const* const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS `data_
 ))";
 
 char const* const cCreateClientKVDataTable = R"(CREATE TABLE IF NOT EXISTS `client_kv_data` (
-    `key` VARCHAR(64) NOT NULL,
+    `kv_key` VARCHAR(64) NOT NULL,
     `value` VARCHAR(128) NOT NULL,
     `client_id` BINARY(16) NOT NULL,
-    PRIMARY KEY (`client_id`, `key`)
+    PRIMARY KEY (`client_id`, `kv_key`)
 ))";
 
 char const* const cCreateTaskKVDataTable = R"(CREATE TABLE IF NOT EXISTS `task_kv_data` (
-    `key` VARCHAR(64) NOT NULL,
+    `kv_key` VARCHAR(64) NOT NULL,
     `value` VARCHAR(128) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
-    PRIMARY KEY (`task_id`, `key`)
+    PRIMARY KEY (`task_id`, `kv_key`),
+    CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
 std::array<char const* const, 14> const cCreateStorage = {
@@ -1442,7 +1443,7 @@ auto MySqlDataStorage::remove_dangling_data() -> StorageErr {
 auto MySqlDataStorage::add_client_kv_data(KeyValueData const& data) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "INSERT INTO `client_kv_data` (`key`, `value`, `client_id`) VALUES(?, ?, ?)"
+                "INSERT INTO `client_kv_data` (`kv_key`, `value`, `client_id`) VALUES(?, ?, ?)"
         ));
         statement->setString(1, data.get_key());
         statement->setString(2, data.get_value());
@@ -1463,7 +1464,7 @@ auto MySqlDataStorage::add_client_kv_data(KeyValueData const& data) -> StorageEr
 auto MySqlDataStorage::add_task_kv_data(KeyValueData const& data) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
-                "INSERT INTO `task_kv_data` (`key`, `value`, `task_id`) VALUES(?, ?, ?)"
+                "INSERT INTO `task_kv_data` (`kv_key`, `value`, `task_id`) VALUES(?, ?, ?)"
         ));
         statement->setString(1, data.get_key());
         statement->setString(2, data.get_value());
@@ -1489,7 +1490,7 @@ auto MySqlDataStorage::get_client_kv_data(
     try {
         std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
                 "SELECT `value` "
-                "FROM `client_kv_data` WHERE `client_id` = ? AND `key` = ?"
+                "FROM `client_kv_data` WHERE `client_id` = ? AND `kv_key` = ?"
         ));
         sql::bytes id_bytes = uuid_get_bytes(client_id);
         statement->setBytes(1, &id_bytes);
@@ -1524,7 +1525,7 @@ auto MySqlDataStorage::get_task_kv_data(
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("SELECT `value` "
-                                         "FROM `task_kv_data` WHERE `task_id` = ? AND `key` = ?")
+                                         "FROM `task_kv_data` WHERE `task_id` = ? AND `kv_key` = ?")
         );
         sql::bytes id_bytes = uuid_get_bytes(task_id);
         statement->setBytes(1, &id_bytes);

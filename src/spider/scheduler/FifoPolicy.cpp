@@ -82,7 +82,8 @@ auto FifoPolicy::schedule_next(
              metadata_store](core::Task const& task) -> std::chrono::system_clock::time_point {
                 boost::uuids::uuid const task_id = task.get_id();
                 boost::uuids::uuid job_id;
-                std::optional<boost::uuids::uuid> optional_job_id;
+                std::optional<boost::uuids::uuid> const optional_job_id
+                        = m_task_job_cache.get(task_id);
                 if (optional_job_id.has_value()) {
                     job_id = optional_job_id.value();
                 } else {
@@ -95,9 +96,9 @@ auto FifoPolicy::schedule_next(
                     m_task_job_cache.put(task_id, job_id);
                 }
 
-                if (std::optional<std::chrono::system_clock::time_point> const optional_time;
-                    optional_time.has_value())
-                {
+                std::optional<std::chrono::system_clock::time_point> const optional_time
+                        = m_job_time_cache.get(job_id);
+                if (optional_time.has_value()) {
                     return optional_time.value();
                 }
 
@@ -118,7 +119,7 @@ auto FifoPolicy::schedule_next(
 
 auto FifoPolicy::cleanup() -> void {
     m_task_job_cache.cleanup();
-    m_task_job_cache.cleanup();
+    m_job_time_cache.cleanup();
 }
 
 }  // namespace spider::scheduler
