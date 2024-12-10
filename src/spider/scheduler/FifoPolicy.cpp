@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
@@ -83,8 +82,10 @@ auto FifoPolicy::schedule_next(
              metadata_store](core::Task const& task) -> std::chrono::system_clock::time_point {
                 boost::uuids::uuid const task_id = task.get_id();
                 boost::uuids::uuid job_id;
-                if (m_task_job_map.contains(task_id)) {
-                    job_id = m_task_job_map[task_id];
+                std::optional<boost::uuids::uuid> const optional_job_id
+                        = m_task_job_cache.get(task_id);
+                if (optional_job_id.has_value()) {
+                    job_id = optional_job_id.value();
                 } else {
                     if (false == metadata_store->get_task_job_id(task_id, &job_id).success()) {
                         throw std::runtime_error(fmt::format(
@@ -92,11 +93,13 @@ auto FifoPolicy::schedule_next(
                                 boost::uuids::to_string(task_id)
                         ));
                     }
-                    m_task_job_map.emplace(task_id, job_id);
+                    m_task_job_cache.put(task_id, job_id);
                 }
 
-                if (m_job_time_map.contains(job_id)) {
-                    return m_job_time_map[job_id];
+                std::optional<std::chrono::system_clock::time_point> const optional_time
+                        = m_job_time_cache.get(job_id);
+                if (optional_time.has_value()) {
+                    return optional_time.value();
                 }
 
                 core::JobMetadata job_metadata;
@@ -106,7 +109,7 @@ auto FifoPolicy::schedule_next(
                             boost::uuids::to_string(job_id)
                     ));
                 }
-                m_job_time_map.emplace(job_id, job_metadata.get_creation_time());
+                m_job_time_cache.put(job_id, job_metadata.get_creation_time());
                 return job_metadata.get_creation_time();
             }
     );
@@ -114,12 +117,9 @@ auto FifoPolicy::schedule_next(
     return earliest_task->get_id();
 }
 
-auto FifoPolicy::cleanup_job(boost::uuids::uuid const job_id) -> void {
-    absl::erase_if(m_task_job_map, [&job_id](auto const& item) -> bool {
-        auto const& [item_task_id, item_job_id] = item;
-        return item_job_id == job_id;
-    });
-    m_job_time_map.erase(job_id);
+auto FifoPolicy::cleanup() -> void {
+    m_task_job_cache.cleanup();
+    m_job_time_cache.cleanup();
 }
 
 }  // namespace spider::scheduler

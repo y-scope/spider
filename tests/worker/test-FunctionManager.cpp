@@ -5,7 +5,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 
@@ -18,13 +17,8 @@ auto tuple_ret_test(std::string const& str, int const x) -> std::tuple<std::stri
     return std::make_tuple(str, x);
 }
 
-auto data_test(spider::core::Data const& data) -> spider::core::Data {
-    return spider::core::Data{data.get_id(), data.get_value() + data.get_value()};
-}
-
 SPIDER_WORKER_REGISTER_TASK(int_test);
 SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
-SPIDER_WORKER_REGISTER_TASK(data_test);
 
 TEST_CASE("Register and run function with POD inputs", "[core]") {
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
@@ -73,24 +67,6 @@ TEST_CASE("Register and run function with tuple return", "[core]") {
             == spider::core::response_get_result<std::tuple<std::string, int>>(result).value_or(
                     std::make_tuple("", 0)
             ));
-}
-
-TEST_CASE("Register and run function with data", "[core]") {
-    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
-
-    spider::core::Function const* function = manager.get_function("data_test");
-
-    spider::core::Data data{"test"};
-    spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(data);
-    msgpack::sbuffer const result = (*function)(args_buffers);
-    std::optional<spider::core::Data> result_option
-            = spider::core::response_get_result<spider::core::Data>(result);
-    REQUIRE(result_option.has_value());
-    if (result_option.has_value()) {
-        spider::core::Data const& result_data = result_option.value();
-        REQUIRE(data.get_id() == result_data.get_id());
-        REQUIRE("testtest" == result_data.get_value());
-    }
 }
 
 }  // namespace

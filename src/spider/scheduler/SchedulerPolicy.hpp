@@ -27,7 +27,7 @@ public:
             std::string const& worker_addr
     ) -> std::optional<boost::uuids::uuid> = 0;
 
-    virtual auto cleanup_job(boost::uuids::uuid job_id) -> void = 0;
+    virtual auto cleanup() -> void = 0;
 };
 
 }  // namespace spider::scheduler

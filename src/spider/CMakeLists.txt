@@ -10,6 +10,7 @@ set(SPIDER_CORE_SOURCES
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
     core/Data.hpp
+    core/KeyValueData.hpp
     core/Task.hpp
     core/TaskGraph.hpp
     core/JobMetadata.hpp
@@ -17,6 +18,7 @@ set(SPIDER_CORE_HEADERS
     io/MsgPack.hpp
     io/msgpack_message.hpp
     io/Serializer.hpp
+    utils/TimedCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp

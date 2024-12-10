@@ -9,10 +9,6 @@ inline auto data_equal(core::Data const& d1, core::Data const& d2) -> bool {
         return false;
     }
 
-    if (d1.get_key() != d2.get_key()) {
-        return false;
-    }
-
     if (d1.get_locality() != d2.get_locality()) {
         return false;
     }

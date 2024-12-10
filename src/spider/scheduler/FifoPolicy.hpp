@@ -6,11 +6,11 @@
 #include <optional>
 #include <string>
 
-#include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../utils/TimedCache.hpp"
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
@@ -23,11 +23,11 @@ public:
             boost::uuids::uuid worker_id,
             std::string const& worker_addr
     ) -> std::optional<boost::uuids::uuid> override;
-    auto cleanup_job(boost::uuids::uuid job_id) -> void override;
+    auto cleanup() -> void override;
 
 private:
-    absl::flat_hash_map<boost::uuids::uuid, boost::uuids::uuid> m_task_job_map;
-    absl::flat_hash_map<boost::uuids::uuid, std::chrono::system_clock::time_point> m_job_time_map;
+    core::TimedCache<boost::uuids::uuid, boost::uuids::uuid> m_task_job_cache;
+    core::TimedCache<boost::uuids::uuid, std::chrono::system_clock::time_point> m_job_time_cache;
 };
 
 }  // namespace spider::scheduler
