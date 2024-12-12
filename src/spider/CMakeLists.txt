@@ -10,6 +10,7 @@ set(SPIDER_CORE_SOURCES
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
     core/Data.hpp
+    core/Driver.hpp
     core/KeyValueData.hpp
     core/Task.hpp
     core/TaskGraph.hpp

@@ -6,6 +6,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/Driver.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
@@ -25,10 +26,10 @@ public:
     virtual void close() = 0;
     virtual auto initialize() -> StorageErr = 0;
 
-    virtual auto add_driver(boost::uuids::uuid id, std::string const& addr) -> StorageErr = 0;
-    virtual auto add_driver(boost::uuids::uuid id, std::string const& addr, int port) -> StorageErr
-                                                                                         = 0;
+    virtual auto add_driver(Driver const& driver) -> StorageErr = 0;
+    virtual auto add_scheduler(Scheduler const& scheduler) -> StorageErr = 0;
     virtual auto get_driver(boost::uuids::uuid id, std::string* addr) -> StorageErr = 0;
+    virtual auto get_active_scheduler(std::vector<Scheduler>* schedulers) -> StorageErr = 0;
 
     virtual auto
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph

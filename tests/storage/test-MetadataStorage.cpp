@@ -12,6 +12,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/JobMetadata.hpp"
 #include "../../src/spider/core/Task.hpp"
@@ -31,7 +32,7 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
     // Add driver should succeed
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    REQUIRE(storage->add_driver(driver_id, "127.0.0.1").success());
+    REQUIRE(storage->add_driver(spider::core::Driver{driver_id, "127.0.0.1"}).success());
 
     std::string addr;
     REQUIRE(storage->get_driver(driver_id, &addr).success());
@@ -77,7 +78,8 @@ TEMPLATE_LIST_TEST_CASE(
     constexpr int cPort = 3306;
 
     // Add scheduler should succeed
-    REQUIRE(storage->add_driver(scheduler_id, "127.0.0.1", cPort).success());
+    REQUIRE(storage->add_scheduler(spider::core::Scheduler{scheduler_id, "127.0.0.1", cPort})
+                    .success());
 
     // Get scheduler addr should succeed
     std::string addr_res;

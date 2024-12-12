@@ -1,8 +1,8 @@
 #ifndef SPIDER_WORKER_WORKERCLIENT_HPP
 #define SPIDER_WORKER_WORKERCLIENT_HPP
 
-#include <future>
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -23,6 +23,8 @@ public:
     ~WorkerClient() = default;
 
     WorkerClient(
+            boost::uuids::uuid worker_id,
+            std::string worker_addr,
             std::shared_ptr<core::DataStorage> data_store,
             std::shared_ptr<core::MetadataStorage> metadata_store
     );
@@ -30,9 +32,12 @@ public:
     auto task_finish(
             core::TaskInstance const& instance,
             std::vector<std::variant<std::string, boost::uuids::uuid>> const& outputs
-    ) -> std::future<boost::uuids::uuid>;
+    ) -> std::optional<boost::uuids::uuid>;
 
 private:
+    boost::uuids::uuid m_worker_id;
+    std::string m_worker_addr;
+
     boost::asio::io_context m_context;
 
     std::shared_ptr<core::DataStorage> m_data_store;

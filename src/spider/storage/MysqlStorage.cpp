@@ -28,6 +28,7 @@
 #include <mariadb/conncpp/Statement.hpp>
 
 #include "../core/Data.hpp"
+#include "../core/Driver.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../core/KeyValueData.hpp"
@@ -274,15 +275,25 @@ auto MySqlMetadataStorage::initialize() -> StorageErr {
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr)
-        -> StorageErr {
+namespace {
+// NOLINTBEGIN
+auto read_id(std::istream* stream) -> boost::uuids::uuid {
+    std::uint8_t id_bytes[16];
+    stream->read((char*)id_bytes, 16);
+    return {id_bytes};
+}
+
+// NOLINTEND
+}  // namespace
+
+auto MySqlMetadataStorage::add_driver(Driver const& driver) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("INSERT INTO `drivers` (`id`, `address`) VALUES (?, ?)")
         );
-        sql::bytes id_bytes = uuid_get_bytes(id);
+        sql::bytes id_bytes = uuid_get_bytes(driver.get_id());
         statement->setBytes(1, &id_bytes);
-        statement->setString(2, addr);
+        statement->setString(2, driver.get_addr());
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -295,21 +306,20 @@ auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& 
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr, int port)
-        -> StorageErr {
+auto MySqlMetadataStorage::add_scheduler(Scheduler const& scheduler) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> driver_statement(
                 m_conn->prepareStatement("INSERT INTO `drivers` (`id`, `address`) VALUES (?, ?)")
         );
-        sql::bytes id_bytes = uuid_get_bytes(id);
+        sql::bytes id_bytes = uuid_get_bytes(scheduler.get_id());
         driver_statement->setBytes(1, &id_bytes);
-        driver_statement->setString(2, addr);
+        driver_statement->setString(2, scheduler.get_addr());
         driver_statement->executeUpdate();
         std::unique_ptr<sql::PreparedStatement> scheduler_statement(m_conn->prepareStatement(
                 "INSERT INTO `schedulers` (`id`, `port`, `state`) VALUES (?, ?, 'normal')"
         ));
         scheduler_statement->setBytes(1, &id_bytes);
-        scheduler_statement->setInt(2, port);
+        scheduler_statement->setInt(2, scheduler.get_port());
         scheduler_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -339,6 +349,27 @@ auto MySqlMetadataStorage::get_driver(boost::uuids::uuid id, std::string* addr) 
         }
         res->next();
         *addr = res->getString(1).c_str();
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::get_active_scheduler(std::vector<Scheduler>* schedulers) -> StorageErr {
+    try {
+        std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
+        std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
+                "SELECT `schedulers`.`id`, `address`, `port` FROM `schedulers` JOIN `drivers` ON "
+                "`schedulers`.`id` = `drivers`.`id` WHERE `state` = 'normal'"
+        ));
+        while (res->next()) {
+            boost::uuids::uuid id = read_id(res->getBinaryStream(1));
+            std::string addr = res->getString(2).c_str();
+            int port = res->getInt(3);
+            schedulers->emplace_back(id, addr, port);
+        }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -508,17 +539,6 @@ auto MySqlMetadataStorage::add_job(
     m_conn->commit();
     return StorageErr{};
 }
-
-namespace {
-// NOLINTBEGIN
-auto read_id(std::istream* stream) -> boost::uuids::uuid {
-    std::uint8_t id_bytes[16];
-    stream->read((char*)id_bytes, 16);
-    return {id_bytes};
-}
-
-// NOLINTEND
-}  // namespace
 
 namespace {
 
