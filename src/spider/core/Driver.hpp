@@ -2,6 +2,7 @@
 #define SPIDER_CORE_DRIVER_HPP
 
 #include <string>
+#include <utility>
 
 #include <boost/uuid/uuid.hpp>
 

@@ -1,16 +1,20 @@
 #include "WorkerClient.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/Driver.hpp"
 #include "../core/Task.hpp"
+#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
 #include "../scheduler/SchedulerMessage.hpp"
@@ -45,7 +49,8 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
     if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {
         return std::nullopt;
     }
-    std::default_random_engine rng;
+    std::random_device random_device;
+    std::default_random_engine rng{random_device()};
     std::ranges::shuffle(schedulers, rng);
 
     std::vector<boost::asio::ip::tcp::endpoint> endpoints;
@@ -86,7 +91,7 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
         return response.get_task_id();
     } catch (boost::system::system_error const& e) {
         return std::nullopt;
-    } catch (msgpack::unpack_error const& e) {
+    } catch (std::runtime_error const& e) {
         return std::nullopt;
     }
 }
