@@ -36,6 +36,10 @@ auto WorkerClient::task_finish(
 ) -> std::optional<boost::uuids::uuid> {
     m_metadata_store->task_finish(instance, outputs);
 
+    return get_next_task();
+}
+
+auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
     if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {

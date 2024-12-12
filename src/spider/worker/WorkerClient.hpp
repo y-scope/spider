@@ -35,6 +35,8 @@ public:
             std::vector<core::TaskOutput> const& outputs
     ) -> std::optional<boost::uuids::uuid>;
 
+    auto get_next_task() -> std::optional<boost::uuids::uuid>;
+
 private:
     boost::uuids::uuid m_worker_id;
     std::string m_worker_addr;
