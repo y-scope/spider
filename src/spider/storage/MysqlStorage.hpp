@@ -11,6 +11,7 @@
 #include <mariadb/conncpp/ResultSet.hpp>
 
 #include "../core/Data.hpp"
+#include "../core/Driver.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../core/KeyValueData.hpp"
@@ -31,10 +32,10 @@ public:
     auto connect(std::string const& url) -> StorageErr override;
     void close() override;
     auto initialize() -> StorageErr override;
-    auto add_driver(boost::uuids::uuid id, std::string const& addr) -> StorageErr override;
-    auto
-    add_driver(boost::uuids::uuid id, std::string const& addr, int port) -> StorageErr override;
+    auto add_driver(Driver const& driver) -> StorageErr override;
+    auto add_scheduler(Scheduler const& scheduler) -> StorageErr override;
     auto get_driver(boost::uuids::uuid id, std::string* addr) -> StorageErr override;
+    auto get_active_scheduler(std::vector<Scheduler>* schedulers) -> StorageErr override;
     auto
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
     ) -> StorageErr override;
@@ -51,7 +52,8 @@ public:
     auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr override;
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
-    auto task_finish(TaskInstance const& instance) -> StorageErr override;
+    auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
+            -> StorageErr override;
     auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
     auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;

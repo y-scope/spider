@@ -13,6 +13,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "../../src/spider/core/Data.hpp"
+#include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/scheduler/FifoPolicy.hpp"
@@ -89,7 +90,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data data{"value"};
     data.set_hard_locality(true);
     data.set_locality({"127.0.0.1"});
-    REQUIRE(metadata_store->add_driver(client_id, "127.0.0.1").success());
+    REQUIRE(metadata_store->add_driver(spider::core::Driver{client_id, "127.0.0.1"}).success());
     REQUIRE(data_store->add_driver_data(client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
@@ -134,7 +135,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data data;
     data.set_hard_locality(false);
     data.set_locality({"127.0.0.1"});
-    REQUIRE(metadata_store->add_driver(client_id, "127.0.0.1").success());
+    REQUIRE(metadata_store->add_driver(spider::core::Driver{client_id, "127.0.0.1"}).success());
     REQUIRE(data_store->add_driver_data(client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;

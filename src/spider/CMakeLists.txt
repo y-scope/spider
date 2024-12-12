@@ -10,6 +10,7 @@ set(SPIDER_CORE_SOURCES
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
     core/Data.hpp
+    core/Driver.hpp
     core/KeyValueData.hpp
     core/Task.hpp
     core/TaskGraph.hpp
@@ -48,6 +49,8 @@ set(SPIDER_WORKER_SOURCES
     worker/TaskExecutorMessage.hpp
     worker/message_pipe.cpp
     worker/message_pipe.hpp
+    worker/WorkerClient.hpp
+    worker/WorkerClient.cpp
     CACHE INTERNAL
     "spider worker source files"
 )

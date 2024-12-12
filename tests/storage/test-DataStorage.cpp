@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "../../src/spider/core/Data.hpp"
+#include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/KeyValueData.hpp"
 #include "../../src/spider/core/Task.hpp"
@@ -24,7 +25,7 @@ TEMPLATE_LIST_TEST_CASE("Add, get and remove data", "[storage]", spider::test::S
     spider::core::Data const data{"value"};
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    REQUIRE(metadata_storage->add_driver(driver_id, "127.0.0.1").success());
+    REQUIRE(metadata_storage->add_driver(spider::core::Driver{driver_id, "127.0.0.1"}).success());
     REQUIRE(data_storage->add_driver_data(driver_id, data).success());
 
     // Add data with same id again should fail
@@ -56,7 +57,7 @@ TEMPLATE_LIST_TEST_CASE(
     // Add driver
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    REQUIRE(metadata_storage->add_driver(driver_id, "127.0.0.1").success());
+    REQUIRE(metadata_storage->add_driver(spider::core::Driver{driver_id, "127.0.0.1"}).success());
 
     // Add data
     spider::core::KeyValueData const data{"key", "value", driver_id};
@@ -170,8 +171,8 @@ TEMPLATE_LIST_TEST_CASE(
     // Add driver
     boost::uuids::uuid const driver_id = gen();
     boost::uuids::uuid const driver_id_2 = gen();
-    REQUIRE(metadata_storage->add_driver(driver_id, "127.0.0.1").success());
-    REQUIRE(metadata_storage->add_driver(driver_id_2, "127.0.0.1").success());
+    REQUIRE(metadata_storage->add_driver(spider::core::Driver{driver_id, "127.0.0.1"}).success());
+    REQUIRE(metadata_storage->add_driver(spider::core::Driver{driver_id_2, "127.0.0.1"}).success());
 
     // Add driver reference without data should fail
     REQUIRE(!data_storage->add_driver_reference(gen(), driver_id).success());

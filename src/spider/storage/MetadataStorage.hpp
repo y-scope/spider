@@ -6,6 +6,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/Driver.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
@@ -25,10 +26,10 @@ public:
     virtual void close() = 0;
     virtual auto initialize() -> StorageErr = 0;
 
-    virtual auto add_driver(boost::uuids::uuid id, std::string const& addr) -> StorageErr = 0;
-    virtual auto add_driver(boost::uuids::uuid id, std::string const& addr, int port) -> StorageErr
-                                                                                         = 0;
+    virtual auto add_driver(Driver const& driver) -> StorageErr = 0;
+    virtual auto add_scheduler(Scheduler const& scheduler) -> StorageErr = 0;
     virtual auto get_driver(boost::uuids::uuid id, std::string* addr) -> StorageErr = 0;
+    virtual auto get_active_scheduler(std::vector<Scheduler>* schedulers) -> StorageErr = 0;
 
     virtual auto
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
@@ -47,7 +48,8 @@ public:
     virtual auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr = 0;
     virtual auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr = 0;
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;
-    virtual auto task_finish(TaskInstance const& instance) -> StorageErr = 0;
+    virtual auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
+            -> StorageErr = 0;
     virtual auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr = 0;
     virtual auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr
                                                                                         = 0;

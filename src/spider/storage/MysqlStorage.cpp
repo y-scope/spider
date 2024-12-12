@@ -26,8 +26,10 @@
 #include <mariadb/conncpp/Properties.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 #include <mariadb/conncpp/Statement.hpp>
+#include <mariadb/conncpp/Types.hpp>
 
 #include "../core/Data.hpp"
+#include "../core/Driver.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../core/KeyValueData.hpp"
@@ -274,15 +276,25 @@ auto MySqlMetadataStorage::initialize() -> StorageErr {
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr)
-        -> StorageErr {
+namespace {
+// NOLINTBEGIN
+auto read_id(std::istream* stream) -> boost::uuids::uuid {
+    std::uint8_t id_bytes[16];
+    stream->read((char*)id_bytes, 16);
+    return {id_bytes};
+}
+
+// NOLINTEND
+}  // namespace
+
+auto MySqlMetadataStorage::add_driver(Driver const& driver) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 m_conn->prepareStatement("INSERT INTO `drivers` (`id`, `address`) VALUES (?, ?)")
         );
-        sql::bytes id_bytes = uuid_get_bytes(id);
+        sql::bytes id_bytes = uuid_get_bytes(driver.get_id());
         statement->setBytes(1, &id_bytes);
-        statement->setString(2, addr);
+        statement->setString(2, driver.get_addr());
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -295,21 +307,20 @@ auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& 
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::add_driver(boost::uuids::uuid id, std::string const& addr, int port)
-        -> StorageErr {
+auto MySqlMetadataStorage::add_scheduler(Scheduler const& scheduler) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> driver_statement(
                 m_conn->prepareStatement("INSERT INTO `drivers` (`id`, `address`) VALUES (?, ?)")
         );
-        sql::bytes id_bytes = uuid_get_bytes(id);
+        sql::bytes id_bytes = uuid_get_bytes(scheduler.get_id());
         driver_statement->setBytes(1, &id_bytes);
-        driver_statement->setString(2, addr);
+        driver_statement->setString(2, scheduler.get_addr());
         driver_statement->executeUpdate();
         std::unique_ptr<sql::PreparedStatement> scheduler_statement(m_conn->prepareStatement(
                 "INSERT INTO `schedulers` (`id`, `port`, `state`) VALUES (?, ?, 'normal')"
         ));
         scheduler_statement->setBytes(1, &id_bytes);
-        scheduler_statement->setInt(2, port);
+        scheduler_statement->setInt(2, scheduler.get_port());
         scheduler_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -339,6 +350,27 @@ auto MySqlMetadataStorage::get_driver(boost::uuids::uuid id, std::string* addr) 
         }
         res->next();
         *addr = res->getString(1).c_str();
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::get_active_scheduler(std::vector<Scheduler>* schedulers) -> StorageErr {
+    try {
+        std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
+        std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
+                "SELECT `schedulers`.`id`, `address`, `port` FROM `schedulers` JOIN `drivers` ON "
+                "`schedulers`.`id` = `drivers`.`id` WHERE `state` = 'normal'"
+        ));
+        while (res->next()) {
+            boost::uuids::uuid const id = read_id(res->getBinaryStream(1));
+            std::string const addr = res->getString(2).c_str();
+            int const port = res->getInt(3);
+            schedulers->emplace_back(id, addr, port);
+        }
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -508,17 +540,6 @@ auto MySqlMetadataStorage::add_job(
     m_conn->commit();
     return StorageErr{};
 }
-
-namespace {
-// NOLINTBEGIN
-auto read_id(std::istream* stream) -> boost::uuids::uuid {
-    std::uint8_t id_bytes[16];
-    stream->read((char*)id_bytes, 16);
-    return {id_bytes};
-}
-
-// NOLINTEND
-}  // namespace
 
 namespace {
 
@@ -960,16 +981,87 @@ auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> St
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::task_finish(TaskInstance const& instance) -> StorageErr {
+auto MySqlMetadataStorage::task_finish(
+        TaskInstance const& instance,
+        std::vector<TaskOutput> const& outputs
+) -> StorageErr {
     try {
+        // Try to submit task instance
         std::unique_ptr<sql::PreparedStatement> const statement(m_conn->prepareStatement(
-                "UPDATE `tasks` SET `instance_id` = ? WHERE `id` = ? AND `instance_id` is NULL"
+                "UPDATE `tasks` SET `instance_id` = ?, `state` = 'success' WHERE `id` = ? AND "
+                "`instance_id` is NULL AND `state` = 'running'"
         ));
         sql::bytes id_bytes = uuid_get_bytes(instance.id);
         sql::bytes task_id_bytes = uuid_get_bytes(instance.task_id);
         statement->setBytes(1, &id_bytes);
         statement->setBytes(2, &task_id_bytes);
-        statement->executeUpdate();
+        int32_t const update_count = statement->executeUpdate();
+        if (update_count == 0) {
+            m_conn->commit();
+            return StorageErr{};
+        }
+
+        // Update task outputs
+        std::unique_ptr<sql::PreparedStatement> output_statement(m_conn->prepareStatement(
+                "UPDATE `task_outputs` SET `value` = ?, `data_id` = ? WHERE `task_id` = ? AND "
+                "`position` = ?"
+        ));
+        for (size_t i = 0; i < outputs.size(); ++i) {
+            TaskOutput const& output = outputs[i];
+            std::optional<std::string> const& value = output.get_value();
+            if (value.has_value()) {
+                output_statement->setString(1, value.value());
+            } else {
+                output_statement->setNull(1, sql::DataType::VARCHAR);
+            }
+            std::optional<boost::uuids::uuid> const& data_id = output.get_data_id();
+            if (data_id.has_value()) {
+                sql::bytes data_id_bytes = uuid_get_bytes(data_id.value());
+                output_statement->setBytes(2, &data_id_bytes);
+            } else {
+                output_statement->setNull(2, sql::DataType::BINARY);
+            }
+            output_statement->setBytes(3, &task_id_bytes);
+            output_statement->setUInt(4, i);
+            output_statement->executeUpdate();
+        }
+
+        // Update task inputs
+        std::unique_ptr<sql::PreparedStatement> input_statement(m_conn->prepareStatement(
+                "UPDATE `task_inputs` SET `value` = ?, `data_id` = ? WHERE `output_task_id` = ? "
+                "AND `output_task_position` = ?"
+        ));
+        for (size_t i = 0; i < outputs.size(); ++i) {
+            TaskOutput const& output = outputs[i];
+            std::optional<std::string> const& value = output.get_value();
+            if (value.has_value()) {
+                input_statement->setString(1, value.value());
+            } else {
+                input_statement->setNull(1, sql::DataType::VARCHAR);
+            }
+            std::optional<boost::uuids::uuid> const& data_id = output.get_data_id();
+            if (data_id.has_value()) {
+                sql::bytes data_id_bytes = uuid_get_bytes(data_id.value());
+                input_statement->setBytes(2, &data_id_bytes);
+            } else {
+                input_statement->setNull(2, sql::DataType::BINARY);
+            }
+            input_statement->setBytes(3, &task_id_bytes);
+            input_statement->setUInt(4, i);
+            input_statement->executeUpdate();
+        }
+
+        // Set task states to ready if all inputs are available
+        std::unique_ptr<sql::PreparedStatement> ready_statement(m_conn->prepareStatement(
+                "UPDATE `tasks` SET `state` = 'ready' WHERE `id` IN (SELECT `task_id` FROM "
+                "`task_inputs` WHERE `output_task_id` = ?) AND `state` = 'pending' AND NOT EXISTS "
+                "(SELECT `task_id` FROM `task_inputs` WHERE `task_id` IN (SELECT `task_id` FROM "
+                "`task_inputs` WHERE `output_task_id` = ?) AND `value` IS NULL AND `data_id` IS "
+                "NULL)"
+        ));
+        ready_statement->setBytes(1, &task_id_bytes);
+        ready_statement->setBytes(2, &task_id_bytes);
+        ready_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
