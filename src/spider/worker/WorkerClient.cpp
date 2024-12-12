@@ -1,12 +1,16 @@
 #include "WorkerClient.hpp"
 
+#include <memory>
 #include <optional>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Task.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/msgpack_message.hpp"
 #include "../scheduler/SchedulerMessage.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"

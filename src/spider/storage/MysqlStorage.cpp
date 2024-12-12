@@ -365,9 +365,9 @@ auto MySqlMetadataStorage::get_active_scheduler(std::vector<Scheduler>* schedule
                 "`schedulers`.`id` = `drivers`.`id` WHERE `state` = 'normal'"
         ));
         while (res->next()) {
-            boost::uuids::uuid id = read_id(res->getBinaryStream(1));
-            std::string addr = res->getString(2).c_str();
-            int port = res->getInt(3);
+            boost::uuids::uuid const id = read_id(res->getBinaryStream(1));
+            std::string const addr = res->getString(2).c_str();
+            int const port = res->getInt(3);
             schedulers->emplace_back(id, addr, port);
         }
     } catch (sql::SQLException& e) {

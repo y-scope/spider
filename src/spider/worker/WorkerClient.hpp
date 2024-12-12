@@ -5,9 +5,11 @@
 #include <optional>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
