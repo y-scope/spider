@@ -52,7 +52,8 @@ public:
     auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr override;
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
-    auto task_finish(TaskInstance const& instance) -> StorageErr override;
+    auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
+            -> StorageErr override;
     auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
     auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;

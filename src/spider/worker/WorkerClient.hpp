@@ -4,7 +4,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -33,7 +32,7 @@ public:
 
     auto task_finish(
             core::TaskInstance const& instance,
-            std::vector<std::variant<std::string, boost::uuids::uuid>> const& outputs
+            std::vector<core::TaskOutput> const& outputs
     ) -> std::optional<boost::uuids::uuid>;
 
 private:

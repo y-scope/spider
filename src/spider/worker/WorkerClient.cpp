@@ -30,9 +30,9 @@ WorkerClient::WorkerClient(
 
 auto WorkerClient::task_finish(
         core::TaskInstance const& instance,
-        std::vector<std::variant<std::string, boost::uuids::uuid>> const& outputs
+        std::vector<core::TaskOutput> const& outputs
 ) -> std::optional<boost::uuids::uuid> {
-    m_metadata_store->task_finish(instance);
+    m_metadata_store->task_finish(instance, outputs);
 
     scheduler::ScheduleTaskRequest const request{m_worker_id, m_worker_addr};
     msgpack::sbuffer request_buffer;
