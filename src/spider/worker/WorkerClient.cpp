@@ -49,6 +49,10 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
     if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {
         return std::nullopt;
     }
+    if (schedulers.empty()) {
+        return std::nullopt;
+    }
+
     std::random_device random_device;
     std::default_random_engine rng{random_device()};
     std::ranges::shuffle(schedulers, rng);

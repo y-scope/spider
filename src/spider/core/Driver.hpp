@@ -12,9 +12,9 @@ class Driver {
 public:
     Driver(boost::uuids::uuid const id, std::string addr) : m_id{id}, m_addr{std::move(addr)} {}
 
-    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid const& { return m_id; }
 
-    [[nodiscard]] auto get_addr() const -> std::string { return m_addr; }
+    [[nodiscard]] auto get_addr() const -> std::string const& { return m_addr; }
 
 private:
     boost::uuids::uuid m_id;
@@ -28,9 +28,9 @@ public:
               m_addr{std::move(addr)},
               m_port{port} {}
 
-    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid const& { return m_id; }
 
-    [[nodiscard]] auto get_addr() const -> std::string { return m_addr; }
+    [[nodiscard]] auto get_addr() const -> std::string const& { return m_addr; }
 
     [[nodiscard]] auto get_port() const -> int { return m_port; }
 
