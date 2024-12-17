@@ -33,13 +33,15 @@ In Spider, a task is C++ function that satisfies the following conditions:
   * all other parameters must have types that conform to the `Serializable` or `Data` interfaces.
 * It returns a value that conforms to the `Serializable` or `Data` interfaces.
 
-> [!NOTE] You don’t immediately need to understand the TaskContext, Serializable, or Data types as
-> we'll explain them in later sections.
+> [!NOTE]
+> You don’t immediately need to understand the TaskContext, Serializable, or Data types as we'll
+> explain them in later sections.
 
 For example, the task below computes and returns the sum of two integers.
 
-> [!NOTE] The task is split into a header file and an implementation file so that it can be loaded
-> as a library in the worker, as we'll see in later sections.
+> [!NOTE]
+> The task is split into a header file and an implementation file so that it can be loaded as a
+> library in the worker, as we'll see in later sections.
 
 _tasks.hpp_
 
@@ -155,7 +157,8 @@ auto main(int argc, char const* argv[]) -> int {
 When we submit a task to Spider, Spider returns a `Job` , which represents a scheduled, running, or
 completed task (or `TaskGraph`) in a Spider cluster.
 
-> [!NOTE] `Job`s and `TaskGraph`s will be explained in another guide.
+> [!NOTE]
+> `Job`s and `TaskGraph`s will be explained in another guide.
 
 # Building the client
 
@@ -190,8 +193,9 @@ docker run \
         --publish 3306:3306 mariadb:latest
 ```
 
-> [!WARNING] When the container above is stopped, the database will be deleted. In production, you
-> should set up a database instance with some form of data persistence.
+> [!WARNING]
+> When the container above is stopped, the database will be deleted. In production, you should set
+> up a database instance with some form of data persistence.
 
 Alternatively, if you have an existing MySQL/MariaDB instance, you can use that as well. Simply
 create a database and authorize a user to access it.
@@ -200,14 +204,14 @@ create a database and authorize a user to access it.
 
 To build the scheduler, run the following from the root of the project:
 
-```bash
+```shell
 cmake -S . -B build
 cmake --build build --parallel $(nproc) --target spider_scheduler
 ```
 
 To start the scheduler, run:
 
-```bash
+```shell
 build/src/spider/spider_schdeuler \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
@@ -224,14 +228,14 @@ NOTE:
 
 To build the worker, run the following from the root of the project:
 
-```bash
+```shell
 cmake -S . -B build
 cmake --build build --parallel $(nproc) --target spider_worker
 ```
 
 To start a worker, run:
 
-```bash
+```shell
 build/src/spider/spider_worker \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
@@ -243,14 +247,15 @@ NOTE:
 If you used a different set of arguments to set up the storage backend, ensure you update the
 `storage_url` argument in the command.
 
-> [!TIP] You can start multiple workers to increase the number of concurrent tasks that can be run
-> on the cluster.
+> [!TIP]
+> You can start multiple workers to increase the number of concurrent tasks that can be run on the
+> cluster.
 
 # Running the client
 
 To run the client:
 
-```bash
+```shell
 ./client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
 ```
 
