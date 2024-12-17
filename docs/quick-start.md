@@ -85,7 +85,28 @@ function should be treated as a task.
 In order for Spider to run a task, the task needs to be compiled into a shared library that Spider
 can load.
 
-TODO: Instructions and an example showing how to compile tasks into a shared library.
+Suppose that spider is added in subdirectory `spider`, we can set up the following `CMakeLists.txt`
+to build the task library:
+
+```cmake
+cmake_minimum_required(VERSION 3.22.1)
+project(spider_example)
+
+# Add spider library
+add_subdirectory(spider)
+
+# Add the task library
+add_library(tasks SHARED tasks.cpp tasks.hpp)
+# Link the spider library to the task library
+target_link_libraries(tasks PRIVATE spider::spider)
+```
+
+To build the shared library, run the following from the root of the project:
+
+```shell
+cmake -S . -B build
+cmake --build build --parallel $(nproc) --target tasks
+```
 
 # Writing a client to manage the task
 
@@ -165,7 +186,28 @@ completed task (or `TaskGraph`) in a Spider cluster.
 The client can be compiled like any normal C++ application except that we need to link it to the
 Spider client library.
 
-TODO: Instructions and an example for how to compile the client application.
+Again, suppose that spider is added in subdirectory `spider`, we can set up the following
+`CMakeLists.txt` to build the client program:
+
+```cmake
+cmake_minimum_required(VERSION 3.22.1)
+project(spider_example)
+
+# Add spider library
+add_subdirectory(spider)
+
+# Add the client
+add_executable(client client.cpp)
+# Link the spider library to the client
+target_link_libraries(client PRIVATE spider::spider)
+```
+
+To build the client executable, run the following from the root of the spider project:
+
+```shell
+cmake -S . -B build
+cmake --build build --parallel $(nproc) --target client
+```
 
 # Setting up a Spider cluster
 
