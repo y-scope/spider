@@ -1,6 +1,8 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
+#include <chrono>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
