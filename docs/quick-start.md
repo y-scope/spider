@@ -68,7 +68,7 @@ _tasks.cpp_
 
 // Task function implementation
 auto sum(spider::TaskContext& context, int x, int y) -> int {
-		return x + y;
+    return x + y;
 }
 
 // Register the task with Spider
