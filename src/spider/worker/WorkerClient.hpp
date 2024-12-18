@@ -41,8 +41,6 @@ private:
     boost::uuids::uuid m_worker_id;
     std::string m_worker_addr;
 
-    boost::asio::io_context m_context;
-
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
 };

@@ -1,6 +1,7 @@
 #ifndef SPIDER_WORKER_TASKEXECUTOR_HPP
 #define SPIDER_WORKER_TASKEXECUTOR_HPP
 
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -34,7 +35,7 @@ enum class TaskExecutorState : std::uint8_t {
 class TaskExecutor {
 public:
     template <class... Args>
-    explicit TaskExecutor(
+    TaskExecutor(
             boost::asio::io_context& context,
             std::string const& func_name,
             std::vector<std::string> const& libs,
@@ -67,7 +68,45 @@ public:
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
 
         // Send args
-        msgpack::sbuffer args_request = core::create_args_request(std::forward<Args>(args)...);
+        msgpack::sbuffer const args_request
+                = core::create_args_request(std::forward<Args>(args)...);
+        send_message(m_write_pipe, args_request);
+    }
+
+    TaskExecutor(
+            boost::asio::io_context& context,
+            std::string const& func_name,
+            std::vector<std::string> const& libs,
+            absl::flat_hash_map<
+                    boost::process::v2::environment::key,
+                    boost::process::v2::environment::value> const& environment,
+            std::vector<msgpack::sbuffer> const& args_buffers
+    )
+            : m_read_pipe(context),
+              m_write_pipe(context) {
+        std::vector<std::string> process_args{"--func", func_name, "--libs"};
+        process_args.insert(process_args.end(), libs.begin(), libs.end());
+        boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
+                "spider_task_executor",
+                environment
+        );
+        m_process = std::make_unique<boost::process::v2::process>(
+                context,
+                exe,
+                process_args,
+                boost::process::v2::process_stdio{
+                        .in = m_write_pipe,
+                        .out = m_read_pipe,
+                        .err = {/*stderr to default*/}
+                },
+                boost::process::v2::process_environment{environment}
+        );
+
+        // Set up handler for output file
+        boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
+
+        // Send args
+        msgpack::sbuffer const args_request = core::create_args_request(args_buffers);
         send_message(m_write_pipe, args_request);
     }
 
@@ -87,9 +126,11 @@ public:
     void cancel();
 
     template <class T>
-    auto get_result() -> std::optional<T> {
+    auto get_result() const -> std::optional<T> {
         return core::response_get_result<T>(m_result_buffer);
     }
+
+    [[nodiscard]] auto get_result_buffers() const -> std::optional<std::vector<msgpack::sbuffer>>;
 
     [[nodiscard]] auto get_error() const -> std::tuple<core::FunctionInvokeError, std::string>;
 
@@ -97,6 +138,7 @@ private:
     auto process_output_handler() -> boost::asio::awaitable<void>;
 
     std::mutex m_state_mutex;
+    std::condition_variable m_complete_cv;
     TaskExecutorState m_state = TaskExecutorState::Running;
 
     // Use `std::unique_ptr` to work around requirement of default constructor

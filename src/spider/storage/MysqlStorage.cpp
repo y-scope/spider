@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -27,6 +28,7 @@
 #include <mariadb/conncpp/ResultSet.hpp>
 #include <mariadb/conncpp/Statement.hpp>
 #include <mariadb/conncpp/Types.hpp>
+#include <spdlog/spdlog.h>
 
 #include "../core/Data.hpp"
 #include "../core/Driver.hpp"
@@ -241,11 +243,21 @@ auto string_to_task_state(std::string const& state) -> spider::core::TaskState {
 }  // namespace
 
 auto MySqlMetadataStorage::connect(std::string const& url) -> StorageErr {
+    // Parse jdbc url
+    std::regex const url_regex(R"(jdbc:mariadb://[^?]+(\?user=([^&]*)(&password=([^&]*))?)?)");
+    std::smatch match;
+    if (false == std::regex_match(url, match, url_regex)) {
+        return StorageErr{StorageErrType::OtherErr, "Invalid url"};
+    }
+    bool const credential = match[2].matched && match[4].matched;
     if (nullptr == m_conn) {
         try {
             sql::Driver* driver = sql::mariadb::get_driver_instance();
-            sql::Properties const properties;
-            m_conn = driver->connect(sql::SQLString(url), properties);
+            if (credential) {
+                m_conn = driver->connect(sql::SQLString(url), match[2].str(), match[4].str());
+            } else {
+                m_conn = driver->connect(sql::SQLString(url), sql::Properties{});
+            }
             m_conn->setAutoCommit(false);
         } catch (sql::SQLException& e) {
             return StorageErr{StorageErrType::ConnectionErr, e.what()};
@@ -1073,6 +1085,43 @@ auto MySqlMetadataStorage::task_finish(
     return StorageErr{};
 }
 
+auto MySqlMetadataStorage::task_fail(TaskInstance const& instance, std::string const& /*error*/)
+        -> StorageErr {
+    try {
+        // Remove task instance
+        std::unique_ptr<sql::PreparedStatement> const statement(
+                m_conn->prepareStatement("DELETE FROM `task_instances` WHERE `id` = ?")
+        );
+        sql::bytes instance_id_bytes = uuid_get_bytes(instance.id);
+        statement->setBytes(1, &instance_id_bytes);
+        statement->executeUpdate();
+
+        // Get number of remaining instances
+        std::unique_ptr<sql::PreparedStatement> const count_statement(m_conn->prepareStatement(
+                "SELECT COUNT(*) FROM `task_instances` WHERE `task_id` = ?"
+        ));
+        sql::bytes task_id_bytes = uuid_get_bytes(instance.task_id);
+        count_statement->setBytes(1, &task_id_bytes);
+        std::unique_ptr<sql::ResultSet> const count_res{count_statement->executeQuery()};
+        count_res->next();
+        int32_t const count = count_res->getInt(1);
+        if (count == 0) {
+            // Set the task fail if the last task instance fails
+            std::unique_ptr<sql::PreparedStatement> const task_statement(
+                    m_conn->prepareStatement("UPDATE `tasks` SET `state` = 'fail' WHERE `id` = ?")
+            );
+            task_statement->setBytes(1, &task_id_bytes);
+            task_statement->executeUpdate();
+        }
+    } catch (sql::SQLException& e) {
+        spdlog::error("Task fail error: {}", e.what());
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
 auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
@@ -1262,11 +1311,21 @@ auto MySqlMetadataStorage::set_scheduler_state(boost::uuids::uuid id, std::strin
 }
 
 auto MySqlDataStorage::connect(std::string const& url) -> StorageErr {
+    // Parse jdbc url
+    std::regex const url_regex(R"(jdbc:mariadb://[^?]+(\?user=([^&]*)(&password=([^&]*))?)?)");
+    std::smatch match;
+    if (false == std::regex_match(url, match, url_regex)) {
+        return StorageErr{StorageErrType::OtherErr, "Invalid url"};
+    }
+    bool const credential = match[2].matched && match[4].matched;
     if (nullptr == m_conn) {
         try {
             sql::Driver* driver = sql::mariadb::get_driver_instance();
-            sql::Properties const properties;
-            m_conn = driver->connect(sql::SQLString(url), properties);
+            if (credential) {
+                m_conn = driver->connect(sql::SQLString(url), match[2].str(), match[4].str());
+            } else {
+                m_conn = driver->connect(sql::SQLString(url), sql::Properties{});
+            }
             m_conn->setAutoCommit(false);
         } catch (sql::SQLException& e) {
             return StorageErr{StorageErrType::ConnectionErr, e.what()};

@@ -51,6 +51,7 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/StopToken.hpp
     CACHE INTERNAL
     "spider worker source files"
 )

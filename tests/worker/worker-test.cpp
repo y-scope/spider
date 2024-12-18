@@ -1,9 +1,11 @@
+#include <iostream>
 #include <stdexcept>
 
 #include "../../src/spider/worker/FunctionManager.hpp"
 
 namespace {
 auto sum_test(int const x, int const y) -> int {
+    std::cerr << x << " + " << y << " = " << x + y << "\n";
     return x + y;
 }
 

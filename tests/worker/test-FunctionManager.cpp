@@ -31,8 +31,11 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
 
     // Run function with two ints should succeed
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(2, 3);
+    constexpr int cExpected = 2 + 3;
     msgpack::sbuffer const result = (*function)(args_buffers);
-    REQUIRE(5 == spider::core::response_get_result<int>(result).value_or(0));
+    msgpack::sbuffer buffer{};
+    msgpack::pack(buffer, cExpected);
+    REQUIRE(cExpected == spider::core::response_get_result<int>(result).value_or(0));
 
     // Run function with wrong number of inputs should fail
     spider::core::ArgsBuffer wrong_args_buffers = spider::core::create_args_buffers(1);
@@ -64,7 +67,7 @@ TEST_CASE("Register and run function with tuple return", "[core]") {
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers("test", 3);
     msgpack::sbuffer const result = (*function)(args_buffers);
     REQUIRE(std::make_tuple("test", 3)
-            == spider::core::response_get_result<std::tuple<std::string, int>>(result).value_or(
+            == spider::core::response_get_result<std::string, int>(result).value_or(
                     std::make_tuple("", 0)
             ));
 }

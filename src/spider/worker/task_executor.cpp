@@ -57,6 +57,10 @@ auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_default_logger(spdlog::stderr_color_mt("stderr"));
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider][executor] %v");
+#ifndef NDEBUG
+    spdlog::set_level(spdlog::level::trace);
+#endif
 
     boost::program_options::variables_map const args = parse_arg(argc, argv);
 
@@ -82,6 +86,8 @@ auto main(int const argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
+    spdlog::debug("Function to run: {}", func_name);
+
     try {
         // Set up asio
         boost::asio::io_context context;
@@ -105,6 +111,7 @@ auto main(int const argc, char** argv) -> int {
         msgpack::sbuffer args_buffer;
         msgpack::packer packer{args_buffer};
         packer.pack(args_object);
+        spdlog::debug("Args buffer parsed");
 
         // Run function
         spider::core::Function const* function
@@ -120,6 +127,7 @@ auto main(int const argc, char** argv) -> int {
             return cResultSendErr;
         }
         msgpack::sbuffer const result_buffer = (*function)(args_buffer);
+        spdlog::debug("Function executed");
 
         // Write result buffer to stdout
         spider::worker::send_message(out, result_buffer);
