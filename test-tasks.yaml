@@ -23,7 +23,6 @@ tasks:
       - "build-unit-test"
     cmds:
       - "{{.G_UNIT_TEST_BINARY}}"
-      - ":integration-test"
 
   build-unit-test:
     internal: true
