@@ -23,7 +23,10 @@ require this storage backend.
 4. Set the `cStorageUrl` in `tests/storage/StorageTestHelper.hpp` to
    `jdbc:mariadb://localhost:3306/<db_name>?user=<usr>&password=<pwd>`.
 
-## Running tests
+5. Set the `storage_url` in `tests/integration/client.py` to
+   `jdbc:mariadb://localhost:3306/<db_name>?user=<usr>&password=<pwd>`.
+
+## Running unit tests
 
 You can use the following tasks to run the set of unit tests that's appropriate.
 
@@ -44,5 +47,14 @@ REQUIRE( storage->connect(spider::test::cStorageUrl).success() )
 
 The [unit_tests.yaml][gh-workflow-unit-tests] GitHub workflow runs the unit tests on push,
 pull requests, and daily. Currently, it only runs unit tests that don't require a storage backend.
+
+## Running integration tests
+
+You can use the following tasks to run integration tests.
+
+| Task                          | Description                                                       |
+|-------------------------------|-------------------------------------------------------------------|
+| `test:integration`            | Runs all integration tests.                                       |
+
 
 [gh-workflow-unit-tests]: ../.github/workflows/unit-tests.yaml
