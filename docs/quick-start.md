@@ -18,9 +18,9 @@ To get started with Spider, you’ll need to:
 
 To run through the guide below, you'll need:
 
-* CMake
+* CMake 3.22.1+
 * GCC 10+ or Clang 7+
-* [Docker]
+* [Docker] 20.10+
   * If you're not running as root, ensure `docker` can be run
     [without superuser privileges][docker-non-root].
 
