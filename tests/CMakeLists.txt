@@ -42,7 +42,18 @@ target_link_libraries(
         Boost::system
         spdlog::spdlog
 )
+add_dependencies(unitTest worker_test)
 
 add_library(worker_test SHARED)
 target_sources(worker_test PRIVATE worker/worker-test.cpp)
 target_link_libraries(worker_test PRIVATE spider_core)
+
+add_custom_target(integrationTest ALL)
+add_custom_command(
+    TARGET integrationTest
+    PRE_BUILD
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/integration
+        ${CMAKE_CURRENT_BINARY_DIR}/integration
+)
+add_dependencies(integrationTest worker_test)
