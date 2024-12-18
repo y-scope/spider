@@ -26,7 +26,7 @@ To run through the guide below, you'll need:
 
 # Writing a task
 
-In Spider, a task is C++ function that satisfies the following conditions:
+In Spider, a task is a C++ function that satisfies the following conditions:
 * It is a non-member function.
 * It takes one or more parameters:
   * the first parameter must be a `TaskContext`.
@@ -144,7 +144,9 @@ auto main(int argc, char const* argv[]) -> int {
     spider::Driver driver{storage_url};
     
     // Submit the task for execution
-    spider::Job<int> job = driver.start(sum, 2, 3);
+    int x = 2;
+    int y = 3;
+    spider::Job<int> job = driver.start(sum, x, y);
     
     // Wait for the job to complete
     job.wait_complete();
@@ -154,11 +156,12 @@ auto main(int argc, char const* argv[]) -> int {
     switch (job_status) {
         case JobStatus::Succeeded: {
             auto result = job_status.get_result();
-            if (result == job_status.get_result()) {
+            int expected = x + y;
+            if (expected == job_status.get_result()) {
                     return 0;
                 } else {
-                    std::cerr << "`sum` returned unexpected result. Expected: 5. Actual: " << result
-                            << '\n'.
+                    std::cerr << "`sum` returned unexpected result. Expected: " << expected
+                            << ". Actual: " << result << '\n';
                 return 1;
             }
         }
@@ -254,7 +257,7 @@ cmake --build build --parallel $(nproc) --target spider_scheduler
 To start the scheduler, run:
 
 ```shell
-build/src/spider/spider_schdeuler \
+build/src/spider/spider_scheduler \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --port 6000
