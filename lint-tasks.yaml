@@ -9,6 +9,7 @@ tasks:
     cmds:
       - task: "cmake-check"
       - task: "cpp-check"
+      - task: "py-check"
       - task: "yml-check"
 
   fix:
@@ -101,6 +102,34 @@ tasks:
           FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
           SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
           TEST_DIR: "{{.G_TEST_DIR}}"
+
+  py-check:
+    cmds:
+      - task: "py"
+        vars:
+          BLACK_FLAGS: "--check"
+          RUFF_FLAGS: ""
+
+  py-fix:
+    cmds:
+      - task: "py"
+        vars:
+          BLACK_FLAGS: ""
+          RUFF_FLAGS: "--fix"
+
+  py:
+    internal: true
+    requires:
+      vars: ["BLACK_FLAGS", "RUFF_FLAGS"]
+    deps: ["venv"]
+    cmds:
+      - for:
+          - "tests/integration"
+        cmd: |-
+          . "{{.G_LINT_VENV_DIR}}/bin/activate"
+          cd "{{.ITEM}}"
+          black --color --line-length 100 {{.BLACK_FLAGS}} .
+          ruff check {{.RUFF_FLAGS}} .
 
   yml:
     aliases:
