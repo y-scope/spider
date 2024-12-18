@@ -1,7 +1,6 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
 #include <memory>
 #include <optional>
-#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -22,6 +21,7 @@
 #include "../../src/spider/scheduler/SchedulerServer.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
@@ -44,10 +44,13 @@ TEMPLATE_LIST_TEST_CASE(
             = std::make_shared<spider::scheduler::FifoPolicy>();
 
     constexpr unsigned short cPort = 6021;
-    spider::scheduler::SchedulerServer server{cPort, policy, metadata_store, data_store};
+    spider::core::StopToken stop_token;
+    spider::scheduler::SchedulerServer
+            server{cPort, policy, metadata_store, data_store, stop_token};
 
-    // Start server in another thread
-    std::thread thread{[&]() { server.run(); }};
+    // Pause and resume server
+    server.pause();
+    server.resume();
 
     // Create client socket
     boost::asio::io_context context;
@@ -87,7 +90,6 @@ TEMPLATE_LIST_TEST_CASE(
     }
     socket.close();
     server.stop();
-    thread.join();
 }
 }  // namespace
 

@@ -3,10 +3,12 @@
 
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../utils/StopToken.hpp"
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
@@ -24,13 +26,12 @@ public:
             unsigned short port,
             std::shared_ptr<SchedulerPolicy> policy,
             std::shared_ptr<core::MetadataStorage> metadata_store,
-            std::shared_ptr<core::DataStorage> data_store
+            std::shared_ptr<core::DataStorage> data_store,
+            core::StopToken& stop_token
     );
 
-    /**
-     * Run the server loop. This function blocks until stop is called.
-     */
-    auto run() -> void;
+    auto pause() -> void;
+    auto resume() -> void;
 
     auto stop() -> void;
 
@@ -39,17 +40,17 @@ private:
 
     auto process_message(boost::asio::ip::tcp::socket socket) -> boost::asio::awaitable<void>;
 
-    auto should_stop() -> bool;
-
+    unsigned short m_port;
     std::shared_ptr<SchedulerPolicy> m_policy;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
 
     boost::asio::io_context m_context;
-    boost::asio::ip::tcp::acceptor m_acceptor;
 
     std::mutex m_mutex;
-    bool m_stop = false;
+    std::unique_ptr<std::thread> m_thread;
+
+    core::StopToken& m_stop_token;
 };
 
 }  // namespace spider::scheduler

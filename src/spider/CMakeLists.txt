@@ -99,6 +99,7 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    utils/StopToken.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
@@ -110,6 +111,7 @@ target_link_libraries(
     spider_scheduler
     PRIVATE
         Boost::headers
+        Boost::program_options
         absl::flat_hash_map
         spdlog::spdlog
 )
