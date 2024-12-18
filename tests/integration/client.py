@@ -57,10 +57,7 @@ def create_connection(storage_url: str):
 
 
 def is_head_task(task_id: uuid.UUID, dependencies: List[Tuple[uuid.UUID, uuid.UUID]]):
-    for dependency in dependencies:
-        if dependency[1] == task_id:
-            return False
-    return True
+    return not any(dependency[1] == task_id for dependency in dependencies)
 
 
 storage_url = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
