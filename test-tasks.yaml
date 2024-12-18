@@ -2,25 +2,28 @@ version: "3"
 
 vars:
   G_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/unitTest"
+  G_TEST_VENV_DIR: "{{.G_BUILD_DIR}}/test-venv"
+  G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
 
 tasks:
   non-storage-unit-tests:
     deps:
       - "build-unit-test"
     cmds:
-      - "{{.G_TEST_BINARY}} \"~[storage]\""
+      - "{{.G_UNIT_TEST_BINARY}} \"~[storage]\""
 
   storage-unit-tests:
     deps:
       - "build-unit-test"
     cmds:
-      - "{{.G_TEST_BINARY}} \"[storage]\""
+      - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
 
   all:
     deps:
       - "build-unit-test"
     cmds:
-      - "{{.G_TEST_BINARY}}"
+      - "{{.G_UNIT_TEST_BINARY}}"
+      - ":integration-test"
 
   build-unit-test:
     internal: true
@@ -28,3 +31,48 @@ tasks:
       - task: ":build:target"
         vars:
           TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
+
+  integration:
+    dir: "{{.G_BUILD_SPIDER_DIR}}"
+    deps:
+      - "venv"
+      - task: ":build:target"
+        vars:
+          TARGETS: [
+            "spider_task_executor",
+            "worker_test",
+            "spider_worker",
+            "spider_scheduler",
+            "integrationTest"]
+    cmd: |-
+      . ../test-venv/bin/activate
+      ../test-venv/bin/pytest tests/integration
+
+  venv:
+    internal: true
+    vars:
+      CHECKSUM_FILE: "{{.G_TEST_VENV_CHECKSUM_FILE}}"
+      OUTPUT_DIR: "{{.G_TEST_VENV_DIR}}"
+    sources:
+      - "{{.ROOT_DIR}}/taskfile.yaml"
+      - "{{.TASKFILE}}"
+      - "test-requirements.txt"
+    generates: ["{{.CHECKSUM_FILE}}"]
+    run: "once"
+    deps:
+      - ":init"
+      - task: ":utils:validate-checksum"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          DATA_DIR: "{{.OUTPUT_DIR}}"
+    cmds:
+      - task: ":utils:create-venv"
+        vars:
+          LABEL: "test"
+          OUTPUT_DIR: "{{.OUTPUT_DIR}}"
+          REQUIREMENTS_FILE: "test-requirements.txt"
+      # This command must be last
+      - task: ":utils:compute-checksum"
+        vars:
+          DATA_DIR: "{{.OUTPUT_DIR}}"
+          OUTPUT_FILE: "{{.CHECKSUM_FILE}}"
