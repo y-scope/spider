@@ -12,7 +12,7 @@ class TaskInput:
     type: str
     task_output: Optional[Tuple[uuid.UUID, int]] = None
     value: Optional[str] = None
-    data_id: Optional[Tuple[uuid.UUID]] = None
+    data_id: Optional[uuid.UUID] = None
 
 
 @dataclass
