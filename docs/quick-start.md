@@ -83,10 +83,8 @@ function should be treated as a task.
 # Building the task into a shared library
 
 In order for Spider to run a task, the task needs to be compiled into a shared library that Spider
-can load.
-
-Suppose that spider is added in subdirectory `spider`, we can set up the following `CMakeLists.txt`
-to build the task library:
+can load. To do so, first, place `tasks.hpp` and `task.cpp` in a directory along with the Spider
+directory. Then add the following `CMakeLists.txt` to the same directory.
 
 ```cmake
 cmake_minimum_required(VERSION 3.22.1)
@@ -97,6 +95,7 @@ add_subdirectory(spider)
 
 # Add the task library
 add_library(tasks SHARED tasks.cpp tasks.hpp)
+
 # Link the spider library to the task library
 target_link_libraries(tasks PRIVATE spider::spider)
 ```
@@ -187,20 +186,13 @@ completed task (or `TaskGraph`) in a Spider cluster.
 # Building the client
 
 The client can be compiled like any normal C++ application except that we need to link it to the
-Spider client library.
-
-Again, suppose that spider is added in subdirectory `spider`, we can set up the following
-`CMakeLists.txt` to build the client program:
+Spider client library. To do so, add `client.cpp` to the directory that contains the task source
+files. Then add the following to the `CMakeLists.txt`:
 
 ```cmake
-cmake_minimum_required(VERSION 3.22.1)
-project(spider_example)
-
-# Add spider library
-add_subdirectory(spider)
-
 # Add the client
 add_executable(client client.cpp)
+
 # Link the spider library to the client
 target_link_libraries(client PRIVATE spider::spider)
 ```
