@@ -1,6 +1,8 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
+#include <chrono>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -25,6 +27,9 @@
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
+
+constexpr int cServerWarmupTime = 5;
+
 TEMPLATE_LIST_TEST_CASE(
         "Scheduler server test",
         "[scheduler][server][storage]",
@@ -51,6 +56,8 @@ TEMPLATE_LIST_TEST_CASE(
     // Pause and resume server
     server.pause();
     server.resume();
+    // Sleep for a while to let the server start
+    std::this_thread::sleep_for(std::chrono::milliseconds(cServerWarmupTime));
 
     // Create client socket
     boost::asio::io_context context;
@@ -74,6 +81,11 @@ TEMPLATE_LIST_TEST_CASE(
     msgpack::sbuffer req_buffer;
     msgpack::pack(req_buffer, req);
     REQUIRE(spider::core::send_message(socket, req_buffer));
+
+    // Pause and resume server
+    server.pause();
+    server.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(cServerWarmupTime));
 
     // Get response should succeed and get child task
     std::optional<msgpack::sbuffer> const& res_buffer = spider::core::receive_message(socket);

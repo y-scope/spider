@@ -44,7 +44,7 @@ TEST_CASE("pipe message response", "[worker]") {
         REQUIRE(spider::worker::TaskExecutorResponseType::Result
                 == spider::worker::get_response_type(response_buffer));
         std::optional<std::tuple<std::string, int>> const parse_response
-                = spider::core::response_get_result<std::tuple<std::string, int>>(response_buffer);
+                = spider::core::response_get_result<std::string, int>(response_buffer);
         REQUIRE(parse_response.has_value());
         if (parse_response.has_value()) {
             std::tuple<std::string, int> result = parse_response.value();

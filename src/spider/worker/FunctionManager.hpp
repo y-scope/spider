@@ -11,11 +11,14 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <absl/container/flat_hash_map.h>
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/Serializer.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -102,7 +105,7 @@ void create_error_buffer(
         msgpack::sbuffer& buffer
 );
 
-template <class T>
+template <Serializable T>
 auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
@@ -119,20 +122,97 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
             return std::nullopt;
         }
 
-        return object.via.array.ptr[1].as<T>();
+        return std::make_optional(object.via.array.ptr[1].as<T>());
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-template <class T>
+template <Serializable... Ts>
+requires(sizeof...(Ts) > 1)
+auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<std::tuple<Ts...>> {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    try {
+        msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
+        msgpack::object const object = handle.get();
+
+        if (msgpack::type::ARRAY != object.type || sizeof...(Ts) + 1 != object.via.array.size) {
+            return std::nullopt;
+        }
+
+        if (worker::TaskExecutorResponseType::Result
+            != object.via.array.ptr[0].as<worker::TaskExecutorResponseType>())
+        {
+            return std::nullopt;
+        }
+
+        std::tuple<Ts...> result;
+        for_n<sizeof...(Ts)>([&](auto i) {
+            object.via.array.ptr[i.cValue + 1].convert(std::get<i.cValue>(result));
+        });
+        return std::make_optional(result);
+    } catch (msgpack::type_error& e) {
+        return std::nullopt;
+    }
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
+inline auto response_get_result_buffers(msgpack::sbuffer const& buffer
+) -> std::optional<std::vector<msgpack::sbuffer>> {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    try {
+        std::vector<msgpack::sbuffer> result_buffers;
+        msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
+        msgpack::object const object = handle.get();
+
+        if (msgpack::type::ARRAY != object.type || object.via.array.size < 2) {
+            spdlog::error("Cannot split result into buffers: Wrong type");
+            return std::nullopt;
+        }
+
+        if (worker::TaskExecutorResponseType::Result
+            != object.via.array.ptr[0].as<worker::TaskExecutorResponseType>())
+        {
+            spdlog::error(
+                    "Cannot split result into buffers: Wrong response type {}",
+                    static_cast<std::underlying_type_t<worker::TaskExecutorResponseType>>(
+                            object.via.array.ptr[0].as<worker::TaskExecutorResponseType>()
+                    )
+            );
+            return std::nullopt;
+        }
+
+        for (size_t i = 1; i < object.via.array.size; ++i) {
+            msgpack::object const& obj = object.via.array.ptr[i];
+            result_buffers.emplace_back();
+            msgpack::pack(result_buffers.back(), obj);
+        }
+        return result_buffers;
+    } catch (msgpack::type_error& e) {
+        spdlog::error("Cannot split result into buffers: {}", e.what());
+        return std::nullopt;
+    }
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
+template <Serializable T>
 auto create_result_response(T const& t) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorResponseType::Result);
     packer.pack(t);
+    return buffer;
+}
+
+template <Serializable... Values>
+auto create_result_response(std::tuple<Values...> const& t) -> msgpack::sbuffer {
+    msgpack::sbuffer buffer;
+    msgpack::packer packer{buffer};
+    packer.pack_array(sizeof...(Values) + 1);
+    packer.pack(worker::TaskExecutorResponseType::Result);
+    (..., packer.pack(std::get<Values>(t)));
     return buffer;
 }
 
@@ -154,6 +234,19 @@ auto create_args_request(Args&&... args) -> msgpack::sbuffer {
     packer.pack(worker::TaskExecutorRequestType::Arguments);
     packer.pack_array(sizeof...(args));
     ([&] { packer.pack(args); }(), ...);
+    return buffer;
+}
+
+inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers
+) -> msgpack::sbuffer {
+    msgpack::sbuffer buffer;
+    msgpack::packer packer{buffer};
+    packer.pack_array(2);
+    packer.pack(worker::TaskExecutorRequestType::Arguments);
+    packer.pack_array(args_buffers.size());
+    for (msgpack::sbuffer const& args_buffer : args_buffers) {
+        buffer.write(args_buffer.data(), args_buffer.size());
+    }
     return buffer;
 }
 

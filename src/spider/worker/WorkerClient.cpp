@@ -70,7 +70,8 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
     );
     try {
         // Create socket to scheduler
-        boost::asio::ip::tcp::socket socket(m_context);
+        boost::asio::io_context context;
+        boost::asio::ip::tcp::socket socket(context);
         boost::asio::connect(socket, endpoints);
 
         scheduler::ScheduleTaskRequest const request{m_worker_id, m_worker_addr};
@@ -92,6 +93,9 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
                 = msgpack::unpack(response_buffer.data(), response_buffer.size());
         response_handle.get().convert(response);
 
+        if (!response.has_task_id()) {
+            return std::nullopt;
+        }
         return response.get_task_id();
     } catch (boost::system::system_error const& e) {
         return std::nullopt;
