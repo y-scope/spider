@@ -296,7 +296,7 @@ auto task_loop(
 auto main(int argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider][worker] %v");
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
 #ifndef NDEBUG
     spdlog::set_level(spdlog::level::trace);
 #endif
