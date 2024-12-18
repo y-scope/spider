@@ -156,7 +156,7 @@ auto main(int argc, char const* argv[]) -> int {
         case JobStatus::Succeeded: {
             auto result = job_status.get_result();
             int expected = x + y;
-            if (expected == job_status.get_result()) {
+            if (expected == result) {
                     return 0;
                 } else {
                     std::cerr << "`sum` returned unexpected result. Expected: " << expected
@@ -258,7 +258,7 @@ build/src/spider/spider_scheduler \
 NOTE:
 
 * If you used a different set of arguments to set up the storage backend, ensure you update the
-  `storage_url` argument ihn the command.
+  `storage_url` argument in the command.
 * If the scheduler fails to bind to port `6000`, change the port in the command and try again.
 
 ## Setting up a worker
