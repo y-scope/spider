@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>
@@ -16,6 +17,7 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../utils/StopToken.hpp"
 #include "SchedulerMessage.hpp"
 #include "SchedulerPolicy.hpp"
 
@@ -25,47 +27,75 @@ SchedulerServer::SchedulerServer(
         unsigned short const port,
         std::shared_ptr<SchedulerPolicy> policy,
         std::shared_ptr<core::MetadataStorage> metadata_store,
-        std::shared_ptr<core::DataStorage> data_store
+        std::shared_ptr<core::DataStorage> data_store,
+        core::StopToken& stop_token
 )
-        : m_acceptor{m_context, {boost::asio::ip::tcp::v4(), port}},
+        : m_port{port},
           m_policy{std::move(policy)},
           m_metadata_store{std::move(metadata_store)},
-          m_data_store{std::move(data_store)} {
-    // Ignore the returned future as we do not need its value
-    boost::asio::co_spawn(m_context, receive_message(), boost::asio::use_future);
+          m_data_store{std::move(data_store)},
+          m_stop_token{stop_token} {
+    boost::asio::co_spawn(m_context, receive_message(), boost::asio::detached);
+    std::lock_guard const lock{m_mutex};
+    m_thread = std::make_unique<std::thread>([&] { m_context.run(); });
 }
 
-auto SchedulerServer::run() -> void {
-    m_context.run();
+auto SchedulerServer::pause() -> void {
+    std::lock_guard const lock{m_mutex};
+    if (m_thread == nullptr) {
+        return;
+    }
+    m_context.stop();
+    m_thread->join();
+    m_thread = nullptr;
+}
+
+auto SchedulerServer::resume() -> void {
+    std::lock_guard const lock{m_mutex};
+    if (m_thread != nullptr) {
+        return;
+    }
+    m_thread = std::make_unique<std::thread>([&] {
+        m_context.restart();
+        m_context.run();
+    });
 }
 
 auto SchedulerServer::stop() -> void {
-    m_context.stop();
     std::lock_guard const lock{m_mutex};
-    m_stop = true;
+    if (m_thread == nullptr) {
+        return;
+    }
+    m_context.stop();
+    m_thread->join();
+    m_thread = nullptr;
 }
 
 auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
-    while (!should_stop()) {
-        // std::unique_ptr<boost::asio::ip::tcp::socket> socket
-        //         = std::make_unique<boost::asio::ip::tcp::socket>(m_context);
-        boost::asio::ip::tcp::socket socket{m_context};
-        auto const& [ec] = co_await m_acceptor.async_accept(
-                socket,
-                boost::asio::as_tuple(boost::asio::use_awaitable)
-        );
-        if (ec) {
-            spdlog::error("Cannot accept connection {}: {}", ec.value(), ec.what());
-            continue;
+    try {
+        boost::asio::ip::tcp::acceptor acceptor{m_context, {boost::asio::ip::tcp::v4(), m_port}};
+        while (true) {
+            boost::asio::ip::tcp::socket socket{m_context};
+            auto const& [ec] = co_await acceptor.async_accept(
+                    socket,
+                    boost::asio::as_tuple(boost::asio::use_awaitable)
+            );
+            if (ec) {
+                spdlog::error("Cannot accept connection {}: {}", ec.value(), ec.what());
+                continue;
+            }
+            boost::asio::co_spawn(
+                    m_context,
+                    process_message(std::move(socket)),
+                    boost::asio::detached
+            );
         }
-        // Ignore the returned future as we do not need its value
-        boost::asio::co_spawn(
-                m_context,
-                process_message(std::move(socket)),
-                boost::asio::use_future
-        );
+        co_return;
+    } catch (boost::system::system_error& e) {
+        spdlog::error("Fail to accept connection: {}", e.what());
+        m_stop_token.request_stop();
+        co_return;
     }
-    co_return;
 }
 
 namespace {
@@ -123,11 +153,6 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
         );
     }
     co_return;
-}
-
-auto SchedulerServer::should_stop() -> bool {
-    std::lock_guard const lock{m_mutex};
-    return m_stop;
 }
 
 }  // namespace spider::scheduler
