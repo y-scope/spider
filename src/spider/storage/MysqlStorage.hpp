@@ -88,6 +88,7 @@ public:
     auto add_driver_data(boost::uuids::uuid driver_id, Data const& data) -> StorageErr override;
     auto add_task_data(boost::uuids::uuid task_id, Data const& data) -> StorageErr override;
     auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr override;
+    auto set_data_locality(Data const& data) -> StorageErr override;
     auto remove_data(boost::uuids::uuid id) -> StorageErr override;
     auto
     add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr override;

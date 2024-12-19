@@ -1475,6 +1475,36 @@ auto MySqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
     return StorageErr{};
 }
 
+auto MySqlDataStorage::set_data_locality(Data const& data) -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> const delete_statement(
+                m_conn->prepareStatement("DELETE FROM `data_locality` WHERE `id` = ?")
+        );
+        sql::bytes id_bytes = uuid_get_bytes(data.get_id());
+        delete_statement->setBytes(1, &id_bytes);
+        delete_statement->executeUpdate();
+        std::unique_ptr<sql::PreparedStatement> const insert_statement(m_conn->prepareStatement(
+                "INSERT INTO `data_locality` (`id`, `address`) VALUES(?, ?)"
+        ));
+        for (std::string const& addr : data.get_locality()) {
+            insert_statement->setBytes(1, &id_bytes);
+            insert_statement->setString(2, addr);
+            insert_statement->executeUpdate();
+        }
+        std::unique_ptr<sql::PreparedStatement> const hard_locality_statement(
+                m_conn->prepareStatement("UPDATE `data` SET `hard_locality` = ? WHERE `id` = ?")
+        );
+        hard_locality_statement->setBoolean(1, data.is_hard_locality());
+        hard_locality_statement->setBytes(2, &id_bytes);
+        hard_locality_statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
 auto MySqlDataStorage::remove_data(boost::uuids::uuid id) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(

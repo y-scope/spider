@@ -9,7 +9,11 @@
 #include "../io/Serializer.hpp"
 
 namespace spider {
-class DataImpl;
+
+namespace core {
+class Data;
+class DataStorage;
+}  // namespace core
 
 /**
  * A representation of data stored on external storage. This class allows the user to define:
@@ -72,10 +76,15 @@ public:
          * @throw spider::ConnectionException
          */
         auto build(T const& t) -> Data;
+
+    private:
+        std::vector<std::string> m_nodes;
+        bool m_hard_locality = false;
+        std::function<void(T const&)> m_cleanup_func;
     };
 
 private:
-    std::unique_ptr<DataImpl> m_impl;
+    std::unique_ptr<core::Data> m_impl;
 };
 }  // namespace spider
 

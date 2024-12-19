@@ -21,7 +21,7 @@ public:
 
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
-    [[nodiscard]] auto get_value() const -> std::string { return m_value; }
+    [[nodiscard]] auto get_value() const -> std::string const& { return m_value; }
 
     [[nodiscard]] auto get_locality() const -> std::vector<std::string> const& {
         return m_locality;
