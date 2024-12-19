@@ -60,7 +60,6 @@ For example, the task below computes and returns the sum of two integers.
  * @return The sum of x and y.
  */
 auto sum(spider::TaskContext& context, int x, int y) -> int;
-
 ```
 
 `src/tasks.cpp`:
@@ -77,7 +76,6 @@ auto sum(spider::TaskContext& context, int x, int y) -> int {
 
 // Register the task with Spider
 SPIDER_REGISTER_TASK(sum);
-
 ```
 
 The integer parameters and return value are `Serializable` values.
@@ -189,7 +187,6 @@ auto main(int argc, char const* argv[]) -> int {
             return 1;
     }
 }
-
 ```
 
 When we submit a task to Spider, Spider returns a `Job`, which represents a scheduled, running, or
