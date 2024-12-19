@@ -150,6 +150,7 @@ auto main(int argc, char const* argv[]) -> int {
     std::string storage_url{argv[1]};
     if (storage_url.empty()) {
         std::cerr << "storage-backend-url cannot be empty." << '\n';
+        return 1;
     }
 
     // Create a driver that connects to the Spider cluster
@@ -170,18 +171,19 @@ auto main(int argc, char const* argv[]) -> int {
             auto result = job_status.get_result();
             int expected = x + y;
             if (expected == result) {
-                    return 0;
-                } else {
-                    std::cerr << "`sum` returned unexpected result. Expected: " << expected
-                            << ". Actual: " << result << '\n';
+                return 0;
+            } else {
+                std::cerr << "`sum` returned unexpected result. Expected: " << expected
+                        << ". Actual: " << result << '\n';
                 return 1;
             }
         }
-        case JobStatus::Failed:
+        case JobStatus::Failed: {
             std::pair<std::string, std::string> error_and_fn_name = job.get_error();
             std::cerr << "Job failed in function " << error_and_fn_name.second << " - "
                    << error_and_fn_name.first << '\n';
             return 1;
+        }
         default:
             std::cerr << "Job is in unexpected state - " << job_status << '\n';
             return 1;
