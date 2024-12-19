@@ -31,7 +31,12 @@ endforeach()
 target_sources(unitTest PRIVATE ${SPIDER_TEST_SCHEDULER_SOURCES})
 
 target_link_libraries(unitTest PRIVATE Catch2::Catch2WithMain)
-target_link_libraries(unitTest PRIVATE spider_core)
+target_link_libraries(
+    unitTest
+    PRIVATE
+        spider_core
+        spider_client_lib
+)
 target_link_libraries(
     unitTest
     PRIVATE
@@ -46,7 +51,12 @@ add_dependencies(unitTest worker_test)
 
 add_library(worker_test SHARED)
 target_sources(worker_test PRIVATE worker/worker-test.cpp)
-target_link_libraries(worker_test PRIVATE spider_core)
+target_link_libraries(
+    worker_test
+    PRIVATE
+        spider_core
+        spider_client_lib
+)
 
 add_custom_target(integrationTest ALL)
 add_custom_command(

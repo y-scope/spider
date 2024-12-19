@@ -17,6 +17,8 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "../client/task.hpp"
+#include "../client/TaskContext.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "TaskExecutorMessage.hpp"
@@ -36,7 +38,7 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<ResultBuffer(ArgsBuffer const&)>;
+using Function = std::function<ResultBuffer(TaskContext context, ArgsBuffer const&)>;
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
 
@@ -255,12 +257,25 @@ inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffer
 template <class F>
 class FunctionInvoker {
 public:
-    static auto apply(F const& function, ArgsBuffer const& args_buffer) -> ResultBuffer {
+    static auto
+    apply(F const& function, TaskContext context, ArgsBuffer const& args_buffer) -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
 
-        ArgsTuple args_tuple{};
+        static_assert(TaskIo<ReturnType>, "Return type must be TaskIo");
+        static_assert(
+                std::is_same_v<TaskContext, std::tuple_element_t<0, ArgsTuple>>,
+                "First argument must be TaskContext"
+        );
+        for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
+            static_assert(
+                    TaskIo<std::tuple_element_t<i.cValue + 1, ArgsTuple>>,
+                    "Other arguments must be TaskIo"
+            );
+        });
+
+        ArgsTuple args_tuple;
         try {
             msgpack::object_handle const handle
                     = msgpack::unpack(args_buffer.data(), args_buffer.size());
@@ -273,7 +288,7 @@ public:
                 );
             }
 
-            if (std::tuple_size_v<ArgsTuple> != object.via.array.size) {
+            if (std::tuple_size_v<ArgsTuple> - 1 != object.via.array.size) {
                 return create_error_response(
                         FunctionInvokeError::WrongNumberOfArguments,
                         fmt::format(
@@ -284,10 +299,11 @@ public:
                 );
             }
 
-            for_n<std::tuple_size_v<ArgsTuple>>([&](auto i) {
+            std::get<0>(args_tuple) = context;
+            for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
                 msgpack::object arg = object.via.array.ptr[i.cValue];
-                std::get<i.cValue>(args_tuple)
-                        = arg.as<std::tuple_element_t<i.cValue, ArgsTuple>>();
+                std::get<i.cValue + 1>(args_tuple)
+                        = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();
             });
         } catch (msgpack::type_error& e) {
             return create_error_response(
@@ -334,7 +350,12 @@ public:
         return m_map
                 .emplace(
                         name,
-                        std::bind(&FunctionInvoker<F>::apply, std::move(f), std::placeholders::_1)
+                        std::bind(
+                                &FunctionInvoker<F>::apply,
+                                std::move(f),
+                                std::placeholders::_1,
+                                std::placeholders::_2
+                        )
                 )
                 .second;
     }

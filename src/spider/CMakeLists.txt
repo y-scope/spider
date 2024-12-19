@@ -83,7 +83,12 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
 
 add_executable(spider_task_executor)
 target_sources(spider_task_executor PRIVATE ${SPIDER_TASK_EXECUTOR_SOURCES})
-target_link_libraries(spider_task_executor PRIVATE spider_core)
+target_link_libraries(
+    spider_task_executor
+    PRIVATE
+        spider_core
+        spider_client_lib
+)
 target_link_libraries(
     spider_task_executor
     PRIVATE

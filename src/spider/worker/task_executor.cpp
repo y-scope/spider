@@ -16,6 +16,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
+#include "../client/TaskContext.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "DllLoader.hpp"
@@ -126,7 +127,8 @@ auto main(int const argc, char** argv) -> int {
             );
             return cResultSendErr;
         }
-        msgpack::sbuffer const result_buffer = (*function)(args_buffer);
+        spider::TaskContext task_context{};
+        msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 
         // Write result buffer to stdout

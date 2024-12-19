@@ -1,15 +1,16 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 
 namespace {
-auto sum_test(int const x, int const y) -> int {
+auto sum_test(spider::TaskContext /*context*/, int const x, int const y) -> int {
     std::cerr << x << " + " << y << " = " << x + y << "\n";
     return x + y;
 }
 
-auto error_test(int const /*x*/) -> int {
+auto error_test(spider::TaskContext /*context*/, int const /*x*/) -> int {
     throw std::runtime_error("Simulated error in worker");
 }
 }  // namespace
