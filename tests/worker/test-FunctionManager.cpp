@@ -32,7 +32,7 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     spider::core::Function const* function = manager.get_function("int_test");
     REQUIRE(nullptr != function);
 
-    spider::TaskContext context{};
+    spider::TaskContext const context{};
 
     // Run function with two ints should succeed
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(2, 3);
@@ -65,7 +65,7 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
 }
 
 TEST_CASE("Register and run function with tuple return", "[core]") {
-    spider::TaskContext context{};
+    spider::TaskContext const context{};
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 

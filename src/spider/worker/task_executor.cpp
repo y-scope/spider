@@ -127,7 +127,7 @@ auto main(int const argc, char** argv) -> int {
             );
             return cResultSendErr;
         }
-        spider::TaskContext task_context{};
+        spider::TaskContext const task_context{};
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 

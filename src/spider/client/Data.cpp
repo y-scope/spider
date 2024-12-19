@@ -6,7 +6,6 @@
 #include "../core/Data.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
-#include "../storage/DataStorage.hpp"
 
 namespace spider {
 
