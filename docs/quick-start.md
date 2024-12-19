@@ -3,9 +3,8 @@
 Spider is a distributed system for executing user-defined tasks. It is designed to achieve low
 latency, high throughput, and robust fault tolerance.
 
-The guide below briefly describes how to get started with running a task on Spider.
-
-To get started with Spider, you’ll need to:
+The guide below briefly describes how to get started with running a task on Spider. At a high-level,
+you'll need to:
 
 * Write a task
 * Build the task into a shared library
@@ -14,9 +13,13 @@ To get started with Spider, you’ll need to:
 * Set up a Spider cluster
 * Run the client
 
+> [!NOTE]
+> Each code example below is prefixed with a suggested file path that we then use when compiling.
+> If you choose different file paths, ensure you update the compilation commands to match.
+
 # Requirements
 
-To run through the guide below, you'll need:
+In the guide below, you'll need:
 
 * CMake 3.22.1+
 * GCC 10+ or Clang 7+
@@ -27,15 +30,16 @@ To run through the guide below, you'll need:
 # Writing a task
 
 In Spider, a task is a C++ function that satisfies the following conditions:
+
 * It is a non-member function.
 * It takes one or more parameters:
-  * the first parameter must be a `TaskContext`.
-  * all other parameters must have types that conform to the `Serializable` or `Data` interfaces.
+  * The first parameter must be a `TaskContext`.
+  * All other parameters must have types that conform to the `Serializable` or `Data` interfaces.
 * It returns a value that conforms to the `Serializable` or `Data` interfaces.
 
 > [!NOTE]
-> You don’t immediately need to understand the TaskContext, Serializable, or Data types as we'll
-> explain them in later sections.
+> You don't immediately need to understand the TaskContext, Serializable, or Data types as we'll
+> explain them in other guides.
 
 For example, the task below computes and returns the sum of two integers.
 
@@ -43,7 +47,7 @@ For example, the task below computes and returns the sum of two integers.
 > The task is split into a header file and an implementation file so that it can be loaded as a
 > library in the worker, as we'll see in later sections.
 
-_tasks.hpp_
+`src/tasks.hpp`:
 
 ```c++
 #include <spider/client/spider.hpp>
@@ -59,7 +63,7 @@ auto sum(spider::TaskContext& context, int x, int y) -> int;
 
 ```
 
-_tasks.cpp_
+`src/tasks.cpp`:
 
 ```c++
 #include "tasks.hpp"
@@ -77,26 +81,35 @@ SPIDER_REGISTER_TASK(sum);
 ```
 
 The integer parameters and return value are `Serializable` values.
-The `SPIDER_REGISTER_TASK` macro at the bottom of `tasks.cpp` is how we inform Spider that a
+The `SPIDER_REGISTER_TASK` macro at the bottom of `src/tasks.cpp` is how we inform Spider that a
 function should be treated as a task.
 
 # Building the task into a shared library
 
 In order for Spider to run a task, the task needs to be compiled into a shared library that Spider
-can load. To do so, first, place `tasks.hpp` and `task.cpp` in a directory along with the Spider
-directory. Then add the following `CMakeLists.txt` to the same directory.
+can load. To do so, first, copy the Spider project directory into the current directory to create
+the following directory structure:
+
+* `spider/`
+* `src/`
+  * `tasks.cpp`
+  * `tasks.hpp`
+
+Then add the following `CMakeLists.txt` to the same directory.
+
+`CMakelists.txt`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.22.1)
 project(spider_example)
 
-# Add spider library
+# Add the Spider library
 add_subdirectory(spider)
 
 # Add the task library
-add_library(tasks SHARED tasks.cpp tasks.hpp)
+add_library(tasks SHARED src/tasks.cpp src/tasks.hpp)
 
-# Link the spider library to the task library
+# Link the Spider library to the task library
 target_link_libraries(tasks PRIVATE spider::spider)
 ```
 
@@ -118,7 +131,7 @@ To make Spider to run a task, we first need to write a client application. Gener
 
 For example, the client below runs the `sum` task from the previous section and verifies its result.
 
-_client.cpp_
+`src/client.cpp`:
 
 ```c++
 #include <iostream>
@@ -177,7 +190,7 @@ auto main(int argc, char const* argv[]) -> int {
 
 ```
 
-When we submit a task to Spider, Spider returns a `Job` , which represents a scheduled, running, or
+When we submit a task to Spider, Spider returns a `Job`, which represents a scheduled, running, or
 completed task (or `TaskGraph`) in a Spider cluster.
 
 > [!NOTE]
@@ -186,18 +199,17 @@ completed task (or `TaskGraph`) in a Spider cluster.
 # Building the client
 
 The client can be compiled like any normal C++ application except that we need to link it to the
-Spider client library. To do so, add `client.cpp` to the directory that contains the task source
-files. Then add the following to the `CMakeLists.txt`:
+Spider client library. To do so, add the following to `CMakeLists.txt`:
 
 ```cmake
 # Add the client
-add_executable(client client.cpp)
+add_executable(client src/client.cpp)
 
 # Link the spider library to the client
 target_link_libraries(client PRIVATE spider::spider)
 ```
 
-To build the client executable, run the following from the root of the spider project:
+To build the client executable, run:
 
 ```shell
 cmake -S . -B build
@@ -234,22 +246,25 @@ docker run \
 > When the container above is stopped, the database will be deleted. In production, you should set
 > up a database instance with some form of data persistence.
 
+> [!WARNING]
+> The container above is using hardcoded default credentials that shouldn't be used in production.
+
 Alternatively, if you have an existing MySQL/MariaDB instance, you can use that as well. Simply
 create a database and authorize a user to access it.
 
 ## Setting up the scheduler
 
-To build the scheduler, run the following from the root of the project:
+To build the scheduler, run:
 
 ```shell
-cmake -S . -B build
-cmake --build build --parallel $(nproc) --target spider_scheduler
+cmake -S spider -B spider/build
+cmake --build spider/build --parallel $(nproc) --target spider_scheduler
 ```
 
 To start the scheduler, run:
 
 ```shell
-build/src/spider/spider_scheduler \
+spider/build/src/spider/spider_scheduler \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --port 6000
@@ -263,17 +278,17 @@ NOTE:
 
 ## Setting up a worker
 
-To build the worker, run the following from the root of the project:
+To build the worker, run:
 
 ```shell
-cmake -S . -B build
-cmake --build build --parallel $(nproc) --target spider_worker
+cmake -S spider -B build
+cmake --build spider/build --parallel $(nproc) --target spider_worker
 ```
 
 To start a worker, run:
 
 ```shell
-build/src/spider/spider_worker \
+spider/build/src/spider/spider_worker \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --port 6000
@@ -293,7 +308,7 @@ If you used a different set of arguments to set up the storage backend, ensure y
 To run the client:
 
 ```shell
-./client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
+build/client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
 ```
 
 NOTE:
