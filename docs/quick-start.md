@@ -198,7 +198,7 @@ completed task (or `TaskGraph`) in a Spider cluster.
 
 # Building the client
 
-The client can be compiled like any normal C++ application except that we need to link it to the
+The client can be compiled like any normal C++ application, except that we need to link it to the
 Spider client library. To do so, add the following to `CMakeLists.txt`:
 
 ```cmake
@@ -318,7 +318,7 @@ storage backend URL in the command.
 
 # Next steps
 
-In future guides, we'll explain how to write more complex tasks as well as how to leverage Spider's
+In future guides, we'll explain how to write more complex tasks, as well as how to leverage Spider's
 support for fault tolerance.
 
 [Docker]: https://docs.docker.com/engine/install/
