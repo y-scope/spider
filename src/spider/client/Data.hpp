@@ -83,6 +83,8 @@ public:
         std::function<void(T const&)> m_cleanup_func;
     };
 
+    auto get_impl() const -> std::unique_ptr<core::Data> const& { return m_impl; }
+
 private:
     std::unique_ptr<core::Data> m_impl;
 };
