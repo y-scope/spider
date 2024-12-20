@@ -4,7 +4,7 @@ set(SPIDER_CORE_SOURCES
     storage/MysqlStorage.cpp
     worker/FunctionManager.cpp
     io/msgpack_message.cpp
-        CACHE INTERNAL
+    CACHE INTERNAL
     "spider core source files"
 )
 
