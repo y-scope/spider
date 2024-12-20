@@ -16,6 +16,7 @@
 #include <boost/process/v2/environment.hpp>
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
+#include <boost/uuid/uuid.hpp>
 
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
@@ -37,6 +38,7 @@ public:
     template <class... Args>
     TaskExecutor(
             boost::asio::io_context& context,
+            boost::uuids::uuid task_id,
             std::string const& func_name,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
@@ -69,12 +71,13 @@ public:
 
         // Send args
         msgpack::sbuffer const args_request
-                = core::create_args_request(std::forward<Args>(args)...);
+                = core::create_args_request(task_id, std::forward<Args>(args)...);
         send_message(m_write_pipe, args_request);
     }
 
     TaskExecutor(
             boost::asio::io_context& context,
+            boost::uuids::uuid task_id,
             std::string const& func_name,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
@@ -106,7 +109,7 @@ public:
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
 
         // Send args
-        msgpack::sbuffer const args_request = core::create_args_request(args_buffers);
+        msgpack::sbuffer const args_request = core::create_args_request(task_id, args_buffers);
         send_message(m_write_pipe, args_request);
     }
 

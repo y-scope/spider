@@ -229,23 +229,27 @@ auto create_args_buffers(Args&&... args) -> ArgsBuffer {
 }
 
 template <class... Args>
-auto create_args_request(Args&&... args) -> msgpack::sbuffer {
+auto create_args_request(boost::uuids::uuid task_id, Args&&... args) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorRequestType::Arguments);
-    packer.pack_array(sizeof...(args));
+    packer.pack_array(sizeof...(args) + 1);
+    packer.pack(task_id);
     ([&] { packer.pack(args); }(), ...);
     return buffer;
 }
 
-inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers
+inline auto create_args_request(
+        boost::uuids::uuid task_id,
+        std::vector<msgpack::sbuffer> const& args_buffers
 ) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorRequestType::Arguments);
-    packer.pack_array(args_buffers.size());
+    packer.pack_array(args_buffers.size() + 1);
+    packer.pack(task_id);
     for (msgpack::sbuffer const& args_buffer : args_buffers) {
         buffer.write(args_buffer.data(), args_buffer.size());
     }
