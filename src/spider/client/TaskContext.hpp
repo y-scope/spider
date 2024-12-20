@@ -7,6 +7,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "Data.hpp"
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"
@@ -31,6 +32,12 @@ public:
      * @return ID of the current running task instance.
      */
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid;
+
+    /**
+     * @return Data builder.
+     */
+    template <Serializable T>
+    auto get_data_builder() -> Data<T>::Builder;
 
     /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.

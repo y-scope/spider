@@ -53,6 +53,12 @@ public:
     Driver(std::string const& storage_url, boost::uuids::uuid id);
 
     /**
+     * @return Data builder.
+     */
+    template <Serializable T>
+    auto get_data_builder() -> Data<T>::Builder;
+
+    /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.
      *
      * @param key
