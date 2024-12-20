@@ -20,6 +20,7 @@ set(SPIDER_CORE_HEADERS
     io/MsgPack.hpp
     io/msgpack_message.hpp
     io/Serializer.hpp
+    io/DataSerializer.hpp
     utils/TimedCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp

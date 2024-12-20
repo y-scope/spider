@@ -16,6 +16,7 @@ namespace spider {
 namespace core {
 class Data;
 class DataStorage;
+class DataSerializer;
 }  // namespace core
 
 /**
@@ -117,7 +118,7 @@ private:
     std::unique_ptr<core::Data> m_impl;
     std::shared_ptr<core::DataStorage> m_data_store;
 
-    friend class msgpack::adaptor::pack<Data>;
+    friend class core::DataSerializer;
 };
 }  // namespace spider
 
