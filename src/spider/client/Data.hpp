@@ -6,7 +6,10 @@
 #include <string>
 #include <vector>
 
+#include <boost/uuid/uuid.hpp>
+
 #include "../io/Serializer.hpp"
+#include "../storage/DataStorage.hpp"
 
 namespace spider {
 
@@ -44,6 +47,7 @@ public:
      * @param nodes
      * @param hard Whether the data is only accessible from the given nodes (i.e., the locality is a
      * hard requirement).
+     * @throw spider::ConnectionException
      */
     void set_locality(std::vector<std::string> const& nodes, bool hard);
 
@@ -78,15 +82,42 @@ public:
         auto build(T const& t) -> Data;
 
     private:
+        enum class DataSource {
+            Driver,
+            TaskContext
+        };
+        explicit Builder(
+                std::shared_ptr<core::DataStorage> data_store,
+                boost::uuids::uuid const source_id,
+                DataSource const data_source
+        )
+                : m_data_store{std::move(data_store)},
+                  m_source_id{source_id},
+                  m_data_source{data_source} {};
+
         std::vector<std::string> m_nodes;
         bool m_hard_locality = false;
         std::function<void(T const&)> m_cleanup_func;
+
+        std::shared_ptr<core::DataStorage> m_data_store;
+        boost::uuids::uuid m_source_id;
+        DataSource m_data_source;
+
+        friend class Driver;
+        friend class TaskContext;
     };
+
+private:
+    Data(std::unique_ptr<core::Data> impl, std::shared_ptr<core::DataStorage> data_store)
+            : m_impl{std::move(impl)},
+              m_data_store{std::move(data_store)} {}
 
     [[nodiscard]] auto get_impl() const -> std::unique_ptr<core::Data> const& { return m_impl; }
 
-private:
     std::unique_ptr<core::Data> m_impl;
+    std::shared_ptr<core::DataStorage> m_data_store;
+
+    friend class msgpack::adaptor::pack<Data>;
 };
 }  // namespace spider
 
