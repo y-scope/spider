@@ -38,6 +38,18 @@ class TaskGraph:
     dependencies: List[Tuple[uuid.UUID, uuid.UUID]]
 
 
+@dataclass
+class Driver:
+    id: uuid.UUID
+    addr: str
+
+
+@dataclass
+class Data:
+    id: uuid.UUID
+    value: str
+
+
 def create_connection(storage_url: str):
     pattern = re.compile(
         r"jdbc:mariadb://(?P<host>[^:/]+):(?P<port>\d+)/(?P<database>[^?]+)\?user=(?P<user>[^&]+)&password=(?P<password>[^&]+)"
@@ -153,5 +165,37 @@ def remove_job(conn, job_id: uuid.UUID):
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM jobs WHERE id = %s", (job_id.bytes,))
+    conn.commit()
+    cursor.close()
+
+
+def add_driver(conn, driver: Driver):
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO drivers (id, address) VALUES (%s, %s)", (driver.id.bytes, driver.addr)
+    )
+
+    conn.commit()
+    cursor.close()
+
+
+def add_driver_data(conn, driver: Driver, data: Data):
+    cursor = conn.cursor()
+
+    cursor.execute("INSERT INTO data (id, value) VALUES (%s, %s)", (data.id.bytes, data.value))
+    cursor.execute(
+        "INSERT INTO data_ref_driver (driver_id, id) VALUES (%s, %s)",
+        (driver.id.bytes, data.id.bytes),
+    )
+
+    conn.commit()
+    cursor.close()
+
+
+def remove_data(conn, data: Data):
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM data WHERE id = %s", (data.id.bytes,))
     conn.commit()
     cursor.close()
