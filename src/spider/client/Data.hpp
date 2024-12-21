@@ -8,8 +8,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../io/MsgPack.hpp"  // IWYU pragma: export
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
+#include "Exception.hpp"
 
 namespace spider {
 
@@ -40,7 +42,10 @@ public:
     /**
      * @return The stored value.
      */
-    auto get() -> T;
+    auto get() -> T {
+        std::string const& value = m_impl->get_value();
+        return msgpack::unpack(value.data(), value.size()).get().as<T>();
+    }
 
     /**
      * Sets the data's locality, indicated by the nodes that contain the data.
@@ -50,7 +55,11 @@ public:
      * hard requirement).
      * @throw spider::ConnectionException
      */
-    void set_locality(std::vector<std::string> const& nodes, bool hard);
+    void set_locality(std::vector<std::string> const& nodes, bool hard) {
+        m_impl->set_locality(nodes);
+        m_impl->set_hard_locality(hard);
+        m_data_store->set_data_locality(*m_impl);
+    }
 
     class Builder {
     public:
@@ -62,7 +71,11 @@ public:
          * is a hard requirement.
          * @return self
          */
-        auto set_locality(std::vector<std::string> const& nodes, bool hard) -> Builder&;
+        auto set_locality(std::vector<std::string> const& nodes, bool hard) -> Builder& {
+            m_nodes = nodes;
+            m_hard_locality = hard;
+            return *this;
+        }
 
         /**
          * Sets the cleanup function for the data. This function will be called when the data is no
@@ -71,7 +84,10 @@ public:
          * @param f
          * @return self
          */
-        auto set_cleanup_func(std::function<void(T const&)> const& f) -> Builder&;
+        auto set_cleanup_func(std::function<void(T const&)> const& f) -> Builder& {
+            m_cleanup_func = f;
+            return *this;
+        }
 
         /**
          * Builds the data object.
@@ -80,13 +96,36 @@ public:
          * @return The built object.
          * @throw spider::ConnectionException
          */
-        auto build(T const& t) -> Data;
+        auto build(T const& t) -> Data {
+            msgpack::sbuffer buffer;
+            msgpack::pack(buffer, t);
+            auto data = std::make_unique<core::Data>(std::string{buffer.data(), buffer.size()});
+            data->set_locality(m_nodes);
+            data->set_hard_locality(m_hard_locality);
+            core::StorageErr err;
+            switch (m_data_source) {
+                case DataSource::Driver:
+                    err = m_data_store->add_driver_data(m_source_id, *data);
+                    if (!err.success()) {
+                        throw ConnectionException(err.description);
+                    }
+                    break;
+                case DataSource::TaskContext:
+                    err = m_data_store->add_task_data(m_source_id, *data);
+                    if (!err.success()) {
+                        throw ConnectionException(err.description);
+                    }
+                    break;
+            }
+            return Data{data, m_data_store};
+        }
 
     private:
         enum class DataSource {
             Driver,
             TaskContext
         };
+
         explicit Builder(
                 std::shared_ptr<core::DataStorage> data_store,
                 boost::uuids::uuid const source_id,
@@ -94,7 +133,7 @@ public:
         )
                 : m_data_store{std::move(data_store)},
                   m_source_id{source_id},
-                  m_data_source{data_source} {};
+                  m_data_source{data_source} {}
 
         std::vector<std::string> m_nodes;
         bool m_hard_locality = false;

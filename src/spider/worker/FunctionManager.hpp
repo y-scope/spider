@@ -15,6 +15,8 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
@@ -309,29 +311,35 @@ public:
             }
 
             // Fill args_tuple
-            spider::core::StorageErr err;
+            StorageErr err;
             std::get<0>(args_tuple) = context;
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
+                if (!err.success()) {
+                    return;
+                }
                 using T = std::tuple_element_t<i.cValue + 1, ArgsTuple>;
                 msgpack::object arg = object.via.array.ptr[i.cValue];
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
-                    std::shared_ptr<Data> data;
+                    std::unique_ptr<Data> data = std::make_unique<Data>();
                     err = data_store->get_data(data_id, data.get());
                     if (!err.success()) {
-                        return create_error_response(
-                                FunctionInvokeError::ArgumentParsingError,
-                                fmt::format("Cannot get data from data storage.")
-                        );
+                        return;
                     }
 
-                    std::get<i.cValue + 1>(args_tuple)
-                            = DataImpl::create_data<TemplateParameterT<T>>(data, data_store);
+                    std::get<i.cValue + 1>(args_tuple
+                    ) = DataImpl::create_data<TemplateParameterT<T>>(std::move(data), data_store);
                 } else {
                     std::get<i.cValue + 1>(args_tuple)
                             = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();
                 }
             });
+            if (!err.success()) {
+                return create_error_response(
+                        FunctionInvokeError::ArgumentParsingError,
+                        fmt::format("Cannot parse arguments: {}.", err.description)
+                );
+            }
         } catch (msgpack::type_error& e) {
             return create_error_response(
                     FunctionInvokeError::ArgumentParsingError,

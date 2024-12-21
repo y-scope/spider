@@ -1,17 +1,18 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+#include <memory>
 #include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
 
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/client/Data.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../storage/StorageTestHelper.hpp"
@@ -26,8 +27,13 @@ auto tuple_ret_test(spider::TaskContext /*context*/, std::string const& str, int
     return std::make_tuple(str, x);
 }
 
+auto data_test(spider::TaskContext /*context*/, spider::Data<int>& data) -> int {
+    return data.get();
+}
+
 SPIDER_WORKER_REGISTER_TASK(int_test);
 SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
+SPIDER_WORKER_REGISTER_TASK(data_test);
 
 TEMPLATE_LIST_TEST_CASE(
         "Register and run function with POD inputs",
@@ -104,6 +110,40 @@ TEMPLATE_LIST_TEST_CASE(
             ));
 }
 
+TEMPLATE_LIST_TEST_CASE(
+        "Register and run function with data inputs",
+        "[core][storage]",
+        spider::test::StorageTypeList
+) {
+    auto [unique_metadata_storage, unique_data_storage] = spider::test::
+            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+
+    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+            = std::move(unique_metadata_storage);
+    std::shared_ptr<spider::core::DataStorage> data_storage = std::move(unique_data_storage);
+
+    msgpack::sbuffer buffer;
+    msgpack::pack(buffer, 3);
+    spider::core::Data data{std::string{buffer.data(), buffer.size()}};
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const driver_id = gen();
+    spider::core::Driver driver{driver_id, "127.0.0.1"};
+    REQUIRE(metadata_storage->add_driver(driver).success());
+    REQUIRE(data_storage->add_driver_data(driver_id, data).success());
+
+    spider::TaskContext context
+            = spider::core::TaskContextImpl::create_task_context(data_storage, metadata_storage);
+
+    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
+
+    spider::core::Function const* function = manager.get_function("data_test");
+
+    spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(data.get_id());
+    msgpack::sbuffer const result = (*function)(context, args_buffers);
+    REQUIRE(3 == spider::core::response_get_result<int>(result).value_or(0));
+
+    REQUIRE(data_storage->remove_data(data.get_id()).success());
+}
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

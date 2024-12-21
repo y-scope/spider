@@ -1,6 +1,5 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
-    client/Data.cpp
     storage/MysqlStorage.cpp
     worker/FunctionManager.cpp
     io/msgpack_message.cpp
