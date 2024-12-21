@@ -17,8 +17,6 @@ public:
 
     Data(boost::uuids::uuid const id, std::string value) : m_id(id), m_value(std::move(value)) {}
 
-    static auto is_data() -> bool { return true; }
-
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
     [[nodiscard]] auto get_value() const -> std::string const& { return m_value; }

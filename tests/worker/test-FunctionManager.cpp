@@ -2,12 +2,19 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 
+#include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "../../src/spider/client/TaskContext.hpp"
+#include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/core/Task.hpp"
+#include "../../src/spider/core/TaskContextImpl.hpp"
+#include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
+#include "../storage/StorageTestHelper.hpp"
 
 namespace {
 auto int_test(spider::TaskContext /*context*/, int const x, int const y) -> int {
@@ -22,7 +29,18 @@ auto tuple_ret_test(spider::TaskContext /*context*/, std::string const& str, int
 SPIDER_WORKER_REGISTER_TASK(int_test);
 SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
 
-TEST_CASE("Register and run function with POD inputs", "[core]") {
+TEMPLATE_LIST_TEST_CASE(
+        "Register and run function with POD inputs",
+        "[core][storage]",
+        spider::test::StorageTypeList
+) {
+    auto [metadata_storage, data_storage] = spider::test::
+            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+    spider::TaskContext const context = spider::core::TaskContextImpl::create_task_context(
+            std::move(data_storage),
+            std::move(metadata_storage)
+    );
+
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 
     // Get the function that has not been registered should return nullptr
@@ -31,8 +49,6 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     // Get the registered function should succeed
     spider::core::Function const* function = manager.get_function("int_test");
     REQUIRE(nullptr != function);
-
-    spider::TaskContext const context{};
 
     // Run function with two ints should succeed
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(2, 3);
@@ -64,8 +80,17 @@ TEST_CASE("Register and run function with POD inputs", "[core]") {
     }
 }
 
-TEST_CASE("Register and run function with tuple return", "[core]") {
-    spider::TaskContext const context{};
+TEMPLATE_LIST_TEST_CASE(
+        "Register and run function with tuple return",
+        "[core][storage]",
+        spider::test::StorageTypeList
+) {
+    auto [metadata_storage, data_storage] = spider::test::
+            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+    spider::TaskContext const context = spider::core::TaskContextImpl::create_task_context(
+            std::move(data_storage),
+            std::move(metadata_storage)
+    );
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 

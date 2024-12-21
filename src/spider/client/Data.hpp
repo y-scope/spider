@@ -16,7 +16,7 @@ namespace spider {
 namespace core {
 class Data;
 class DataStorage;
-class DataSerializer;
+class DataImpl;
 }  // namespace core
 
 /**
@@ -108,6 +108,8 @@ public:
         friend class TaskContext;
     };
 
+    Data() = default;
+
 private:
     Data(std::unique_ptr<core::Data> impl, std::shared_ptr<core::DataStorage> data_store)
             : m_impl{std::move(impl)},
@@ -118,7 +120,7 @@ private:
     std::unique_ptr<core::Data> m_impl;
     std::shared_ptr<core::DataStorage> m_data_store;
 
-    friend class core::DataSerializer;
+    friend class core::DataImpl;
 };
 }  // namespace spider
 

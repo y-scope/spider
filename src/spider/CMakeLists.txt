@@ -11,16 +11,17 @@ set(SPIDER_CORE_SOURCES
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
     core/Data.hpp
+    core/DataImpl.hpp
     core/Driver.hpp
     core/KeyValueData.hpp
     core/Task.hpp
+    core/TaskContextImpl.hpp
     core/TaskGraph.hpp
     core/JobMetadata.hpp
     io/BoostAsio.hpp
     io/MsgPack.hpp
     io/msgpack_message.hpp
     io/Serializer.hpp
-    io/DataSerializer.hpp
     utils/TimedCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp

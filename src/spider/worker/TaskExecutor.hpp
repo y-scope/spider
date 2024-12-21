@@ -16,7 +16,6 @@
 #include <boost/process/v2/environment.hpp>
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
-#include <boost/uuid/uuid.hpp>
 
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
@@ -38,8 +37,8 @@ public:
     template <class... Args>
     TaskExecutor(
             boost::asio::io_context& context,
-            boost::uuids::uuid task_id,
             std::string const& func_name,
+            std::string const& storage_url,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
@@ -48,7 +47,8 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
-        std::vector<std::string> process_args{"--func", func_name, "--libs"};
+        std::vector<std::string>
+                process_args{"--func", func_name, "--storage_url", storage_url, "--libs"};
         process_args.insert(process_args.end(), libs.begin(), libs.end());
         boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
                 "spider_task_executor",
@@ -71,14 +71,14 @@ public:
 
         // Send args
         msgpack::sbuffer const args_request
-                = core::create_args_request(task_id, std::forward<Args>(args)...);
+                = core::create_args_request(std::forward<Args>(args)...);
         send_message(m_write_pipe, args_request);
     }
 
     TaskExecutor(
             boost::asio::io_context& context,
-            boost::uuids::uuid task_id,
             std::string const& func_name,
+            std::string const& storage_url,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
@@ -87,7 +87,8 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
-        std::vector<std::string> process_args{"--func", func_name, "--libs"};
+        std::vector<std::string>
+                process_args{"--func", func_name, "--storage_url", storage_url, "--libs"};
         process_args.insert(process_args.end(), libs.begin(), libs.end());
         boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
                 "spider_task_executor",
@@ -109,7 +110,7 @@ public:
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
 
         // Send args
-        msgpack::sbuffer const args_request = core::create_args_request(task_id, args_buffers);
+        msgpack::sbuffer const args_request = core::create_args_request(args_buffers);
         send_message(m_write_pipe, args_request);
     }
 

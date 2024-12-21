@@ -6,6 +6,7 @@
 #include <exception>
 #include <functional>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -19,8 +20,12 @@
 
 #include "../client/task.hpp"
 #include "../client/TaskContext.hpp"
+#include "../core/DataImpl.hpp"
+#include "../core/TaskContextImpl.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
+#include "../storage/DataStorage.hpp"
+#include "../storage/MetadataStorage.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -42,6 +47,17 @@ using Function = std::function<ResultBuffer(TaskContext context, ArgsBuffer cons
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
 
+template <class T>
+struct TemplateParameter;
+
+template <template <class...> class T, class Param>
+struct TemplateParameter<T<Param>> {
+    using type = Param;
+};
+
+template <class T>
+using TemplateParameterT = typename TemplateParameter<T>::type;
+
 template <class Sig>
 struct signature;
 
@@ -56,15 +72,6 @@ struct signature<R (*)(Args...)> {
     using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
-
-template <class, class = void>
-struct IsDataT : std::false_type {};
-
-template <class T>
-struct IsDataT<T, std::void_t<decltype(std::declval<T>().is_data())>> : std::true_type {};
-
-template <class T>
-constexpr auto cIsDataV = IsDataT<T>::value;
 
 template <std::size_t n>
 struct Num {
@@ -229,27 +236,23 @@ auto create_args_buffers(Args&&... args) -> ArgsBuffer {
 }
 
 template <class... Args>
-auto create_args_request(boost::uuids::uuid task_id, Args&&... args) -> msgpack::sbuffer {
+auto create_args_request(Args&&... args) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorRequestType::Arguments);
-    packer.pack_array(sizeof...(args) + 1);
-    packer.pack(task_id);
+    packer.pack_array(sizeof...(args));
     ([&] { packer.pack(args); }(), ...);
     return buffer;
 }
 
-inline auto create_args_request(
-        boost::uuids::uuid task_id,
-        std::vector<msgpack::sbuffer> const& args_buffers
+inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers
 ) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorRequestType::Arguments);
-    packer.pack_array(args_buffers.size() + 1);
-    packer.pack(task_id);
+    packer.pack_array(args_buffers.size());
     for (msgpack::sbuffer const& args_buffer : args_buffers) {
         buffer.write(args_buffer.data(), args_buffer.size());
     }
@@ -279,13 +282,15 @@ public:
             );
         });
 
+        std::shared_ptr<DataStorage> data_store = TaskContextImpl::get_data_store(context);
+
         ArgsTuple args_tuple;
         try {
             msgpack::object_handle const handle
                     = msgpack::unpack(args_buffer.data(), args_buffer.size());
             msgpack::object const object = handle.get();
 
-            if (msgpack::type::ARRAY != object.type) {
+            if (msgpack::type::ARRAY != object.type && object.via.array.size < 1) {
                 return create_error_response(
                         FunctionInvokeError::ArgumentParsingError,
                         fmt::format("Cannot parse arguments.")
@@ -303,11 +308,29 @@ public:
                 );
             }
 
+            // Fill args_tuple
+            spider::core::StorageErr err;
             std::get<0>(args_tuple) = context;
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
+                using T = std::tuple_element_t<i.cValue + 1, ArgsTuple>;
                 msgpack::object arg = object.via.array.ptr[i.cValue];
-                std::get<i.cValue + 1>(args_tuple)
-                        = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();
+                if constexpr (cIsSpecializationV<T, spider::Data>) {
+                    boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
+                    std::shared_ptr<Data> data;
+                    err = data_store->get_data(data_id, data.get());
+                    if (!err.success()) {
+                        return create_error_response(
+                                FunctionInvokeError::ArgumentParsingError,
+                                fmt::format("Cannot get data from data storage.")
+                        );
+                    }
+
+                    std::get<i.cValue + 1>(args_tuple)
+                            = DataImpl::create_data<TemplateParameterT<T>>(data, data_store);
+                } else {
+                    std::get<i.cValue + 1>(args_tuple)
+                            = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();
+                }
             });
         } catch (msgpack::type_error& e) {
             return create_error_response(
