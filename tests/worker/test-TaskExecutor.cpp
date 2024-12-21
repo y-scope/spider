@@ -8,6 +8,7 @@
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
+#include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -116,6 +117,55 @@ TEST_CASE("Task execute fail", "[worker][storage]") {
     std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
     REQUIRE(spider::core::FunctionInvokeError::FunctionExecutionError == std::get<0>(error));
 }
+
+TEMPLATE_LIST_TEST_CASE(
+        "Task execute data argument",
+        "[worker][storage]",
+        spider::test::StorageTypeList
+) {
+    auto [unique_metadata_storage, unique_data_storage] = spider::test::
+            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+            = std::move(unique_metadata_storage);
+    std::shared_ptr<spider::core::DataStorage> data_storage = std::move(unique_data_storage);
+
+    // Create driver and data
+    msgpack::sbuffer buffer;
+    msgpack::pack(buffer, 3);
+    spider::core::Data data{std::string{buffer.data(), buffer.size()}};
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const driver_id = gen();
+    spider::core::Driver driver{driver_id, "127.0.0.1"};
+    REQUIRE(metadata_storage->add_driver(driver).success());
+    REQUIRE(data_storage->add_driver_data(driver_id, data).success());
+
+    absl::flat_hash_map<
+            boost::process::v2::environment::key,
+            boost::process::v2::environment::value> const environment_variable
+            = get_environment_variable();
+
+    boost::asio::io_context context;
+
+    spider::worker::TaskExecutor executor{
+            context,
+            "data_test",
+            spider::test::cStorageUrl,
+            get_libraries(),
+            environment_variable,
+            data.get_id()
+    };
+    context.run();
+    executor.wait();
+    REQUIRE(executor.succeed());
+    REQUIRE(executor.get_result<int>().has_value());
+    if (executor.get_result<int>().has_value()) {
+        REQUIRE(3 == executor.get_result<int>().value());
+    }
+
+    // Clean up
+    REQUIRE(data_storage->remove_data(data.get_id()).success());
+}
+
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
