@@ -7,7 +7,9 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
+#include "Data.hpp"
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"
@@ -51,6 +53,12 @@ public:
      * @throw spider::DriverIdInUseException
      */
     Driver(std::string const& storage_url, boost::uuids::uuid id);
+
+    /**
+     * @return Data builder.
+     */
+    template <Serializable T>
+    auto get_data_builder() -> Data<T>::Builder;
 
     /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.

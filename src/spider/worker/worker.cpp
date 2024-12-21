@@ -195,6 +195,7 @@ auto parse_outputs(
 auto task_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::worker::WorkerClient& client,
+        std::string const& storage_url,
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
@@ -236,8 +237,14 @@ auto task_loop(
         std::vector<msgpack::sbuffer> const& args_buffers = optional_args_buffers.value();
 
         // Execute task
-        spider::worker::TaskExecutor
-                executor{context, task.get_function_name(), libs, environment, args_buffers};
+        spider::worker::TaskExecutor executor{
+                context,
+                task.get_function_name(),
+                storage_url,
+                libs,
+                environment,
+                args_buffers
+        };
 
         context.run();
         executor.wait();
@@ -374,6 +381,7 @@ auto main(int argc, char** argv) -> int {
             task_loop,
             std::cref(metadata_store),
             std::ref(client),
+            std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
             std::cref(stop_token),

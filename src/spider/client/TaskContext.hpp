@@ -1,17 +1,27 @@
 #ifndef SPIDER_CLIENT_TASKCONTEXT_HPP
 #define SPIDER_CLIENT_TASKCONTEXT_HPP
 
+#include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../io/Serializer.hpp"
+#include "Data.hpp"
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"
 
 namespace spider {
+namespace core {
+class DataStorage;
+class MetadataStorage;
+class TaskContextImpl;
+}  // namespace core
+
 /**
  * TaskContext provides a task with all Spider functionalities, e.g. getting task instance id,
  * accessing data storage, creating and waiting for new jobs, etc.
@@ -31,6 +41,12 @@ public:
      * @return ID of the current running task instance.
      */
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid;
+
+    /**
+     * @return Data builder.
+     */
+    template <Serializable T>
+    auto get_data_builder() -> Data<T>::Builder;
 
     /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.
@@ -111,6 +127,25 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
+
+    TaskContext() = default;
+
+private:
+    TaskContext(
+            std::shared_ptr<core::DataStorage> data_store,
+            std::shared_ptr<core::MetadataStorage> metadata_store
+    )
+            : m_data_store{std::move(data_store)},
+              m_metadata_store{std::move(metadata_store)} {}
+
+    auto get_data_store() -> std::shared_ptr<core::DataStorage> { return m_data_store; }
+
+    auto get_metadata_store() -> std::shared_ptr<core::MetadataStorage> { return m_metadata_store; }
+
+    std::shared_ptr<core::DataStorage> m_data_store;
+    std::shared_ptr<core::MetadataStorage> m_metadata_store;
+
+    friend class core::TaskContextImpl;
 };
 }  // namespace spider
 

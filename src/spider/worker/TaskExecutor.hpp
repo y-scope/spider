@@ -38,6 +38,7 @@ public:
     TaskExecutor(
             boost::asio::io_context& context,
             std::string const& func_name,
+            std::string const& storage_url,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
@@ -46,7 +47,8 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
-        std::vector<std::string> process_args{"--func", func_name, "--libs"};
+        std::vector<std::string>
+                process_args{"--func", func_name, "--storage_url", storage_url, "--libs"};
         process_args.insert(process_args.end(), libs.begin(), libs.end());
         boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
                 "spider_task_executor",
@@ -76,6 +78,7 @@ public:
     TaskExecutor(
             boost::asio::io_context& context,
             std::string const& func_name,
+            std::string const& storage_url,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
@@ -84,7 +87,8 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
-        std::vector<std::string> process_args{"--func", func_name, "--libs"};
+        std::vector<std::string>
+                process_args{"--func", func_name, "--storage_url", storage_url, "--libs"};
         process_args.insert(process_args.end(), libs.begin(), libs.end());
         boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
                 "spider_task_executor",

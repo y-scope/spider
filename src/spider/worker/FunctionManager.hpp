@@ -6,6 +6,7 @@
 #include <exception>
 #include <functional>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -14,11 +15,19 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "../client/Data.hpp"
+#include "../client/task.hpp"
+#include "../client/TaskContext.hpp"
+#include "../core/DataImpl.hpp"
+#include "../core/Error.hpp"
+#include "../core/TaskContextImpl.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
+#include "../storage/DataStorage.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -36,9 +45,20 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<ResultBuffer(ArgsBuffer const&)>;
+using Function = std::function<ResultBuffer(TaskContext context, ArgsBuffer const&)>;
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
+
+template <class T>
+struct TemplateParameter;
+
+template <template <class...> class t, class Param>
+struct TemplateParameter<t<Param>> {
+    using Type = Param;
+};
+
+template <class T>
+using TemplateParameterT = typename TemplateParameter<T>::Type;
 
 template <class Sig>
 struct signature;
@@ -54,15 +74,6 @@ struct signature<R (*)(Args...)> {
     using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
-
-template <class, class = void>
-struct IsDataT : std::false_type {};
-
-template <class T>
-struct IsDataT<T, std::void_t<decltype(std::declval<T>().is_data())>> : std::true_type {};
-
-template <class T>
-constexpr auto cIsDataV = IsDataT<T>::value;
 
 template <std::size_t n>
 struct Num {
@@ -255,25 +266,40 @@ inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffer
 template <class F>
 class FunctionInvoker {
 public:
-    static auto apply(F const& function, ArgsBuffer const& args_buffer) -> ResultBuffer {
+    static auto
+    apply(F const& function, TaskContext context, ArgsBuffer const& args_buffer) -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
 
-        ArgsTuple args_tuple{};
+        static_assert(TaskIo<ReturnType>, "Return type must be TaskIo");
+        static_assert(
+                std::is_same_v<TaskContext, std::tuple_element_t<0, ArgsTuple>>,
+                "First argument must be TaskContext"
+        );
+        for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
+            static_assert(
+                    TaskIo<std::tuple_element_t<i.cValue + 1, ArgsTuple>>,
+                    "Other arguments must be TaskIo"
+            );
+        });
+
+        std::shared_ptr<DataStorage> data_store = TaskContextImpl::get_data_store(context);
+
+        ArgsTuple args_tuple;
         try {
             msgpack::object_handle const handle
                     = msgpack::unpack(args_buffer.data(), args_buffer.size());
             msgpack::object const object = handle.get();
 
-            if (msgpack::type::ARRAY != object.type) {
+            if (msgpack::type::ARRAY != object.type && object.via.array.size < 1) {
                 return create_error_response(
                         FunctionInvokeError::ArgumentParsingError,
                         fmt::format("Cannot parse arguments.")
                 );
             }
 
-            if (std::tuple_size_v<ArgsTuple> != object.via.array.size) {
+            if (std::tuple_size_v<ArgsTuple> - 1 != object.via.array.size) {
                 return create_error_response(
                         FunctionInvokeError::WrongNumberOfArguments,
                         fmt::format(
@@ -284,11 +310,36 @@ public:
                 );
             }
 
-            for_n<std::tuple_size_v<ArgsTuple>>([&](auto i) {
+            // Fill args_tuple
+            StorageErr err;
+            std::get<0>(args_tuple) = context;
+            for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
+                if (!err.success()) {
+                    return;
+                }
+                using T = std::tuple_element_t<i.cValue + 1, ArgsTuple>;
                 msgpack::object arg = object.via.array.ptr[i.cValue];
-                std::get<i.cValue>(args_tuple)
-                        = arg.as<std::tuple_element_t<i.cValue, ArgsTuple>>();
+                if constexpr (cIsSpecializationV<T, spider::Data>) {
+                    boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
+                    std::unique_ptr<Data> data = std::make_unique<Data>();
+                    err = data_store->get_data(data_id, data.get());
+                    if (!err.success()) {
+                        return;
+                    }
+
+                    std::get<i.cValue + 1>(args_tuple
+                    ) = DataImpl::create_data<TemplateParameterT<T>>(std::move(data), data_store);
+                } else {
+                    std::get<i.cValue + 1>(args_tuple)
+                            = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();
+                }
             });
+            if (!err.success()) {
+                return create_error_response(
+                        FunctionInvokeError::ArgumentParsingError,
+                        fmt::format("Cannot parse arguments: {}.", err.description)
+                );
+            }
         } catch (msgpack::type_error& e) {
             return create_error_response(
                     FunctionInvokeError::ArgumentParsingError,
@@ -334,7 +385,12 @@ public:
         return m_map
                 .emplace(
                         name,
-                        std::bind(&FunctionInvoker<F>::apply, std::move(f), std::placeholders::_1)
+                        std::bind(
+                                &FunctionInvoker<F>::apply,
+                                std::move(f),
+                                std::placeholders::_1,
+                                std::placeholders::_2
+                        )
                 )
                 .second;
     }

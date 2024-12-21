@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 #include <exception>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -16,8 +17,13 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
+#include "../client/TaskContext.hpp"
+#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
+#include "../storage/DataStorage.hpp"
+#include "../storage/MetadataStorage.hpp"
+#include "../storage/MysqlStorage.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
@@ -34,6 +40,11 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
             boost::program_options::value<std::vector<std::string>>(),
             "dynamic libraries that include the spider tasks"
     );
+    desc.add_options()(
+            "storage_url",
+            boost::program_options::value<std::string>(),
+            "storage server url"
+    );
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
@@ -48,10 +59,11 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cDllErr = 2;
-constexpr int cFuncArgParseErr = 3;
-constexpr int cResultSendErr = 4;
-constexpr int cOtherErr = 5;
+constexpr int cStorageErr = 2;
+constexpr int cDllErr = 3;
+constexpr int cFuncArgParseErr = 4;
+constexpr int cResultSendErr = 5;
+constexpr int cOtherErr = 6;
 
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
@@ -65,11 +77,16 @@ auto main(int const argc, char** argv) -> int {
     boost::program_options::variables_map const args = parse_arg(argc, argv);
 
     std::string func_name;
+    std::string storage_url;
     try {
         if (!args.contains("func")) {
             return cCmdArgParseErr;
         }
         func_name = args["func"].as<std::string>();
+        if (!args.contains("storage_url")) {
+            return cCmdArgParseErr;
+        }
+        storage_url = args["storage_url"].as<std::string>();
         if (!args.contains("libs")) {
             return cCmdArgParseErr;
         }
@@ -89,6 +106,22 @@ auto main(int const argc, char** argv) -> int {
     spdlog::debug("Function to run: {}", func_name);
 
     try {
+        // Set up storage
+        std::shared_ptr<spider::core::MetadataStorage> const metadata_store
+                = std::make_shared<spider::core::MySqlMetadataStorage>();
+        std::shared_ptr<spider::core::DataStorage> const data_store
+                = std::make_shared<spider::core::MySqlDataStorage>();
+        spider::core::StorageErr err = metadata_store->connect(storage_url);
+        if (!err.success()) {
+            spdlog::error("Failed to connect to storage {}", storage_url);
+            return cStorageErr;
+        }
+        err = data_store->connect(storage_url);
+        if (!err.success()) {
+            spdlog::error("Failed to connect to storage {}", storage_url);
+            return cStorageErr;
+        }
+
         // Set up asio
         boost::asio::io_context context;
         boost::asio::posix::stream_descriptor in(context, dup(STDIN_FILENO));
@@ -126,7 +159,9 @@ auto main(int const argc, char** argv) -> int {
             );
             return cResultSendErr;
         }
-        msgpack::sbuffer const result_buffer = (*function)(args_buffer);
+        spider::TaskContext const task_context
+                = spider::core::TaskContextImpl::create_task_context(data_store, metadata_store);
+        msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 
         // Write result buffer to stdout
