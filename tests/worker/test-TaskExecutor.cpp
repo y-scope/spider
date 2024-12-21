@@ -14,6 +14,8 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/core/Data.hpp"
+#include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/storage/DataStorage.hpp"
@@ -22,7 +24,7 @@
 #include "../../src/spider/worker/TaskExecutor.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
-// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+// NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-unix.BlockInCriticalSection)
 
 namespace {
 auto get_environment_variable() -> absl::flat_hash_map<
@@ -175,4 +177,4 @@ TEMPLATE_LIST_TEST_CASE(
 
 }  // namespace
 
-// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+// NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arraysclang-analyzer-unix.BlockInCriticalSection)
