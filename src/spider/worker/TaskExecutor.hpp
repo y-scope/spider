@@ -34,6 +34,7 @@ enum class TaskExecutorState : std::uint8_t {
 
 class TaskExecutor {
 public:
+    // NOLINTBEGIN(clang-analyzer-unix.BlockInCriticalSection)
     template <class... Args>
     TaskExecutor(
             boost::asio::io_context& context,
@@ -113,6 +114,8 @@ public:
         msgpack::sbuffer const args_request = core::create_args_request(args_buffers);
         send_message(m_write_pipe, args_request);
     }
+
+    // NOLINTEND(clang-analyzer-unix.BlockInCriticalSection)
 
     TaskExecutor(TaskExecutor const&) = delete;
     auto operator=(TaskExecutor const&) -> TaskExecutor& = delete;

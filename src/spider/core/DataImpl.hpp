@@ -2,6 +2,7 @@
 #define SPIDER_CORE_DATAIMPL_HPP
 
 #include <memory>
+#include <utility>
 
 #include "../client/Data.hpp"
 #include "../core/Data.hpp"

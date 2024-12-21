@@ -1,14 +1,17 @@
 #ifndef SPIDER_CLIENT_DATA_HPP
 #define SPIDER_CLIENT_DATA_HPP
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../io/MsgPack.hpp"  // IWYU pragma: export
+#include "../core/Error.hpp"
+#include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
 #include "Exception.hpp"
@@ -121,7 +124,7 @@ public:
         }
 
     private:
-        enum class DataSource {
+        enum class DataSource : std::uint8_t {
             Driver,
             TaskContext
         };

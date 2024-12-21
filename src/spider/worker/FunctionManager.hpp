@@ -16,18 +16,18 @@
 
 #include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "../client/Data.hpp"
 #include "../client/task.hpp"
 #include "../client/TaskContext.hpp"
 #include "../core/DataImpl.hpp"
+#include "../core/Error.hpp"
 #include "../core/TaskContextImpl.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -52,13 +52,13 @@ using FunctionMap = absl::flat_hash_map<std::string, Function>;
 template <class T>
 struct TemplateParameter;
 
-template <template <class...> class T, class Param>
-struct TemplateParameter<T<Param>> {
-    using type = Param;
+template <template <class...> class t, class Param>
+struct TemplateParameter<t<Param>> {
+    using Type = Param;
 };
 
 template <class T>
-using TemplateParameterT = typename TemplateParameter<T>::type;
+using TemplateParameterT = typename TemplateParameter<T>::Type;
 
 template <class Sig>
 struct signature;

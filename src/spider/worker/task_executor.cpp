@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 #include <exception>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../client/TaskContext.hpp"
+#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
@@ -105,9 +107,9 @@ auto main(int const argc, char** argv) -> int {
 
     try {
         // Set up storage
-        std::shared_ptr<spider::core::MetadataStorage> metadata_store
+        std::shared_ptr<spider::core::MetadataStorage> const metadata_store
                 = std::make_shared<spider::core::MySqlMetadataStorage>();
-        std::shared_ptr<spider::core::DataStorage> data_store
+        std::shared_ptr<spider::core::DataStorage> const data_store
                 = std::make_shared<spider::core::MySqlDataStorage>();
         spider::core::StorageErr err = metadata_store->connect(storage_url);
         if (!err.success()) {

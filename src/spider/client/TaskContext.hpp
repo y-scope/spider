@@ -1,12 +1,15 @@
 #ifndef SPIDER_CLIENT_TASKCONTEXT_HPP
 #define SPIDER_CLIENT_TASKCONTEXT_HPP
 
+#include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../io/Serializer.hpp"
 #include "Data.hpp"
 #include "Job.hpp"
 #include "task.hpp"

@@ -6,16 +6,16 @@
 #include "../../src/spider/worker/FunctionManager.hpp"
 
 namespace {
-auto sum_test(spider::TaskContext /*context*/, int const x, int const y) -> int {
+auto sum_test(spider::TaskContext const& /*context*/, int const x, int const y) -> int {
     std::cerr << x << " + " << y << " = " << x + y << "\n";
     return x + y;
 }
 
-auto error_test(spider::TaskContext /*context*/, int const /*x*/) -> int {
+auto error_test(spider::TaskContext const& /*context*/, int const /*x*/) -> int {
     throw std::runtime_error("Simulated error in worker");
 }
 
-auto data_test(spider::TaskContext /*context*/, spider::Data<int>& data) -> int {
+auto data_test(spider::TaskContext const& /*context*/, spider::Data<int>& data) -> int {
     return data.get();
 }
 }  // namespace

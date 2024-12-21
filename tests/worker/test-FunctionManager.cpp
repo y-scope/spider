@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "../../src/spider/client/Data.hpp"
+#include "../../src/spider/client/Driver.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
@@ -18,16 +19,16 @@
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
-auto int_test(spider::TaskContext /*context*/, int const x, int const y) -> int {
+auto int_test(spider::TaskContext const& /*context*/, int const x, int const y) -> int {
     return x + y;
 }
 
-auto tuple_ret_test(spider::TaskContext /*context*/, std::string const& str, int const x)
+auto tuple_ret_test(spider::TaskContext const& /*context*/, std::string const& str, int const x)
         -> std::tuple<std::string, int> {
     return std::make_tuple(str, x);
 }
 
-auto data_test(spider::TaskContext /*context*/, spider::Data<int>& data) -> int {
+auto data_test(spider::TaskContext const& /*context*/, spider::Data<int>& data) -> int {
     return data.get();
 }
 
@@ -118,20 +119,20 @@ TEMPLATE_LIST_TEST_CASE(
     auto [unique_metadata_storage, unique_data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
 
-    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+    std::shared_ptr<spider::core::MetadataStorage> const metadata_storage
             = std::move(unique_metadata_storage);
-    std::shared_ptr<spider::core::DataStorage> data_storage = std::move(unique_data_storage);
+    std::shared_ptr<spider::core::DataStorage> const data_storage = std::move(unique_data_storage);
 
     msgpack::sbuffer buffer;
     msgpack::pack(buffer, 3);
-    spider::core::Data data{std::string{buffer.data(), buffer.size()}};
+    spider::core::Data const data{std::string{buffer.data(), buffer.size()}};
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    spider::core::Driver driver{driver_id, "127.0.0.1"};
+    spider::core::Driver const driver{driver_id, "127.0.0.1"};
     REQUIRE(metadata_storage->add_driver(driver).success());
     REQUIRE(data_storage->add_driver_data(driver_id, data).success());
 
-    spider::TaskContext context
+    spider::TaskContext const context
             = spider::core::TaskContextImpl::create_task_context(data_storage, metadata_storage);
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
