@@ -855,6 +855,38 @@ auto MySqlMetadataStorage::remove_job(boost::uuids::uuid id) -> StorageErr {
     return StorageErr{};
 }
 
+auto MySqlMetadataStorage::reset_job(boost::uuids::uuid id) -> StorageErr {
+    try {
+        // Reset states for all tasks
+        std::unique_ptr<sql::PreparedStatement> state_statement(
+                m_conn->prepareStatement("UPDATE `tasks` SET `state` = 'ready' WHERE `job_id` = ?")
+        );
+        sql::bytes job_id_bytes = uuid_get_bytes(id);
+        state_statement->setBytes(1, &job_id_bytes);
+        state_statement->executeUpdate();
+        // Clear outputs for all tasks
+        std::unique_ptr<sql::PreparedStatement> output_statement(m_conn->prepareStatement(
+                "UPDATE `task_outputs` SET `value` = NULL, `data_id` = NULL "
+                "WHERE `task_id` IN (SELECT `id` FROM `tasks` WHERE `job_id` = ?)"
+        ));
+        output_statement->setBytes(1, &job_id_bytes);
+        output_statement->executeUpdate();
+        // Clear inputs for non-head tasks
+        std::unique_ptr<sql::PreparedStatement> input_statement(m_conn->prepareStatement(
+                "UPDATE `task_inputs` SET `value` = NULL, `data_id` = NULL "
+                "WHERE `task_id` IN (SELECT `id` FROM `tasks` WHERE `job_id` = ?) "
+                "AND `output_task_id` IS NOT NULL"
+        ));
+        input_statement->setBytes(1, &job_id_bytes);
+        input_statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        m_conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    m_conn->commit();
+    return StorageErr{};
+}
+
 auto MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task const& child)
         -> StorageErr {
     try {

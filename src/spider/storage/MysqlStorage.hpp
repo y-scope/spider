@@ -46,6 +46,7 @@ public:
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr override;
     auto remove_job(boost::uuids::uuid id) -> StorageErr override;
+    auto reset_job(boost::uuids::uuid id) -> StorageErr override;
     auto add_child(boost::uuids::uuid parent_id, Task const& child) -> StorageErr override;
     auto get_task(boost::uuids::uuid id, Task* task) -> StorageErr override;
     auto get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id) -> StorageErr override;
