@@ -967,11 +967,13 @@ auto MySqlMetadataStorage::get_task_job_id(boost::uuids::uuid id, boost::uuids::
 
 auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageErr {
     try {
+        // Get all ready tasks from job that has not failed or cancelled
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
-        std::unique_ptr<sql::ResultSet> const res(
-                statement->executeQuery("SELECT `id`, `func_name`, `state`, `timeout` "
-                                        "FROM `tasks` WHERE `state` = 'ready'")
-        );
+        std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
+                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `state` = 'ready' "
+                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'failed' OR "
+                "`state` = 'cancelled')"
+        ));
         while (res->next()) {
             tasks->emplace_back(fetch_full_task(res));
         }
