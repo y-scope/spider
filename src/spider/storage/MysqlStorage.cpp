@@ -405,7 +405,7 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     task_statement->setString(3, task.get_function_name());
     task_statement->setString(4, task_state_to_string(task.get_state()));
     task_statement->setFloat(5, task.get_timeout());
-    task_statement->setUInt(6, task.get_max_retires());
+    task_statement->setUInt(6, task.get_max_retries());
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement->executeUpdate();
 
@@ -992,8 +992,7 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
                 "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `state` = 'ready' "
-                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'failed' OR "
-                "`state` = 'cancelled')"
+                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel')"
         ));
         while (res->next()) {
             tasks->emplace_back(fetch_full_task(res));
