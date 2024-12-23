@@ -303,6 +303,9 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::MetadataStorageT
     child_task.add_input(spider::core::TaskInput{parent_1.get_id(), 0, "float"});
     child_task.add_input(spider::core::TaskInput{parent_2.get_id(), 0, "int"});
     child_task.add_output(spider::core::TaskOutput{"float"});
+    parent_1.set_max_retries(1);
+    parent_2.set_max_retries(1);
+    child_task.set_max_retries(1);
     spider::core::TaskGraph graph;
     // Add task and dependencies to task graph in wrong order
     graph.add_task(child_task);

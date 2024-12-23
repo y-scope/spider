@@ -82,6 +82,7 @@ char const* const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `state` ENUM('pending', 'ready', 'running', 'success', 'cancel', 'fail') NOT NULL,
     `timeout` FLOAT,
     `max_retry` INT UNSIGNED DEFAULT 0,
+    `retry` INT UNSIGNED DEFAULT 0,
     `instance_id` BINARY(16),
     CONSTRAINT `task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
@@ -395,7 +396,7 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     // Add task
     std::unique_ptr<sql::PreparedStatement> task_statement(
             m_conn->prepareStatement("INSERT INTO `tasks` (`id`, `job_id`, `func_name`, `state`, "
-                                     "`timeout`) VALUES (?, ?, ?, ?, ?)")
+                                     "`timeout`, `max_retry`) VALUES (?, ?, ?, ?, ?, ?)")
     );
     sql::bytes task_id_bytes = uuid_get_bytes(task.get_id());
     // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
@@ -404,6 +405,7 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     task_statement->setString(3, task.get_function_name());
     task_statement->setString(4, task_state_to_string(task.get_state()));
     task_statement->setFloat(5, task.get_timeout());
+    task_statement->setUInt(6, task.get_max_retires());
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement->executeUpdate();
 
@@ -857,13 +859,29 @@ auto MySqlMetadataStorage::remove_job(boost::uuids::uuid id) -> StorageErr {
 
 auto MySqlMetadataStorage::reset_job(boost::uuids::uuid const id) -> StorageErr {
     try {
+        // Check for retry count on all tasks
+        std::unique_ptr<sql::PreparedStatement> retry_statement(m_conn->prepareStatement(
+                "SELECT `id` FROM `tasks` WHERE `job_id` = ? AND `retry` >= `max_retry`"
+        ));
+        sql::bytes job_id_bytes = uuid_get_bytes(id);
+        retry_statement->setBytes(1, &job_id_bytes);
+        std::unique_ptr<sql::ResultSet> const res(retry_statement->executeQuery());
+        if (res->rowsCount() > 0) {
+            m_conn->commit();
+            return StorageErr{StorageErrType::Success, "Some tasks have reached max retry count"};
+        }
+        // Increment the retry count for all tasks
+        std::unique_ptr<sql::PreparedStatement> increment_statement(m_conn->prepareStatement(
+                "UPDATE `tasks` SET `retry` = `retry` + 1 WHERE `job_id` = ?"
+        ));
+        increment_statement->setBytes(1, &job_id_bytes);
+        increment_statement->executeUpdate();
         // Reset states for all tasks. Head tasks should be ready and other tasks should be pending
         std::unique_ptr<sql::PreparedStatement> state_statement(m_conn->prepareStatement(
                 "UPDATE `tasks` SET `state` = IF(`id` NOT IN (SELECT `task_id` FROM `task_inputs` "
                 "WHERE `task_id` IN (SELECT `id` FROM `tasks` WHERE `job_id` = ?) AND "
                 "`output_task_id` IS NOT NULL), 'ready', 'pending') WHERE job_id = ?"
         ));
-        sql::bytes job_id_bytes = uuid_get_bytes(id);
         state_statement->setBytes(1, &job_id_bytes);
         state_statement->setBytes(2, &job_id_bytes);
         state_statement->executeUpdate();

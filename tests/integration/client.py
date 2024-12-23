@@ -29,6 +29,7 @@ class Task:
     inputs: List[TaskInput]
     outputs: List[TaskOutput]
     timeout: float = 0.0
+    max_retries: int = 0
 
 
 @dataclass
@@ -95,8 +96,15 @@ def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph):
         else:
             state = "pending"
         cursor.execute(
-            "INSERT INTO tasks (id, job_id, func_name, state, timeout) VALUES (%s, %s, %s, %s, %s)",
-            (task.id.bytes, graph.id.bytes, task.function_name, state, task.timeout),
+            "INSERT INTO tasks (id, job_id, func_name, state, timeout, max_retry) VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                task.id.bytes,
+                graph.id.bytes,
+                task.function_name,
+                state,
+                task.timeout,
+                task.max_retries,
+            ),
         )
 
         for i, task_input in enumerate(task.inputs):

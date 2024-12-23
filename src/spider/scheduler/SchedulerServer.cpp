@@ -135,17 +135,18 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
     if (request.has_task_id()) {
         boost::uuids::uuid job_id;
         core::StorageErr err = m_metadata_store->get_task_job_id(request.get_task_id(), &job_id);
+        // It is possible the job is deleted, so we don't need to reset it
         if (!err.success()) {
             spdlog::error(
                     "Cannot get job id for task {}",
                     boost::uuids::to_string(request.get_task_id())
             );
-            co_return;
-        }
-        err = m_metadata_store->reset_job(job_id);
-        if (!err.success()) {
-            spdlog::error("Cannot reset job {}", boost::uuids::to_string(job_id));
-            co_return;
+        } else {
+            err = m_metadata_store->reset_job(job_id);
+            if (!err.success()) {
+                spdlog::error("Cannot reset job {}", boost::uuids::to_string(job_id));
+                co_return;
+            }
         }
     }
 

@@ -122,7 +122,7 @@ constexpr int cFetchTaskTimeout = 100;
 
 auto fetch_task(
         spider::worker::WorkerClient& client,
-        std::optional<boost::uuids::uuid> const& fail_task_id
+        std::optional<boost::uuids::uuid> fail_task_id
 ) -> boost::uuids::uuid {
     spdlog::debug("Fetching task");
     while (true) {
@@ -131,6 +131,8 @@ auto fetch_task(
         if (optional_task_id.has_value()) {
             return optional_task_id.value();
         }
+        // If the first request succeeds, later requests should not include the failed task id
+        fail_task_id = std::nullopt;
         std::this_thread::sleep_for(std::chrono::milliseconds(cFetchTaskTimeout));
     }
 }

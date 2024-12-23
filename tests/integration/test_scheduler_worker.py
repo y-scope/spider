@@ -59,8 +59,8 @@ def scheduler_worker(storage):
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=storage_url, scheduler_port=scheduler_port
     )
-    # Wait for 1 second to make sure the scheduler and worker are started
-    time.sleep(1)
+    # Wait for 5 second to make sure the scheduler and worker are started
+    time.sleep(5)
     yield
     scheduler_process.kill()
     worker_process.kill()
@@ -180,6 +180,7 @@ def random_fail_job(storage):
         function_name="random_fail_test",
         inputs=[TaskInput(type="int", value=msgpack.packb(20))],
         outputs=[TaskOutput(type="int")],
+        max_retries=5,
     )
     graph = TaskGraph(
         tasks={task.id: task},
@@ -222,8 +223,7 @@ class TestSchedulerWorker:
         # Wait for 2 seconds and check task output
         time.sleep(2)
         state = get_task_state(storage, task.id)
-        # With failure recovery, the task is either retired or failed
-        assert state == "fail" or state == "ready" or state == "running"
+        assert state == "fail"
 
     def test_data_job(self, scheduler_worker, storage, data_job):
         task = data_job
