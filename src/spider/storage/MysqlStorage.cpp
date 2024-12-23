@@ -992,7 +992,8 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
         std::unique_ptr<sql::Statement> statement(m_conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
                 "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `state` = 'ready' "
-                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel')"
+                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
+                "`state` = 'cancel')"
         ));
         while (res->next()) {
             tasks->emplace_back(fetch_full_task(res));
