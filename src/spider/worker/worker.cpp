@@ -120,10 +120,14 @@ auto heartbeat_loop(
 
 constexpr int cFetchTaskTimeout = 100;
 
-auto fetch_task(spider::worker::WorkerClient& client) -> boost::uuids::uuid {
+auto fetch_task(
+        spider::worker::WorkerClient& client,
+        std::optional<boost::uuids::uuid> const& fail_task_id
+) -> boost::uuids::uuid {
     spdlog::debug("Fetching task");
     while (true) {
-        std::optional<boost::uuids::uuid> const optional_task_id = client.get_next_task();
+        std::optional<boost::uuids::uuid> const optional_task_id
+                = client.get_next_task(fail_task_id);
         if (optional_task_id.has_value()) {
             return optional_task_id.value();
         }
@@ -202,10 +206,12 @@ auto task_loop(
                 boost::process::v2::environment::value> const& environment,
         spider::core::StopToken const& stop_token
 ) -> void {
+    std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
-        boost::uuids::uuid const task_id = fetch_task(client);
+        boost::uuids::uuid const task_id = fetch_task(client, fail_task_id);
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
+        fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
         spider::core::StorageErr err = metadata_store->get_task(task_id, &task);
@@ -255,6 +261,7 @@ auto task_loop(
                     instance,
                     fmt::format("Task {} failed", task.get_function_name())
             );
+            fail_task_id = task_id;
             continue;
         }
 
@@ -270,6 +277,7 @@ auto task_loop(
                             task.get_function_name()
                     )
             );
+            fail_task_id = task_id;
             continue;
         }
         std::vector<msgpack::sbuffer> const& result_buffers = optional_result_buffers.value();
@@ -283,6 +291,7 @@ auto task_loop(
                             task.get_function_name()
                     )
             );
+            fail_task_id = task_id;
             continue;
         }
         std::vector<spider::core::TaskOutput> const& outputs = optional_outputs.value();

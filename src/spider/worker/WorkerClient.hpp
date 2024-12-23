@@ -30,12 +30,8 @@ public:
             std::shared_ptr<core::MetadataStorage> metadata_store
     );
 
-    auto task_finish(
-            core::TaskInstance const& instance,
-            std::vector<core::TaskOutput> const& outputs
+    auto get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
     ) -> std::optional<boost::uuids::uuid>;
-
-    auto get_next_task() -> std::optional<boost::uuids::uuid>;
 
 private:
     boost::uuids::uuid m_worker_id;
