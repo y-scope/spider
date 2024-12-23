@@ -163,6 +163,37 @@ def data_job(storage):
     remove_data(storage, data)
 
 
+@pytest.fixture(scope="function")
+def random_fail_job(storage):
+    data = Data(
+        id=uuid.uuid4(),
+        value=msgpack.packb(2),
+    )
+    driver = Driver(id=uuid.uuid4(), addr="127.0.0.1")
+    add_driver(storage, driver)
+    add_driver_data(storage, driver, data)
+
+    task = Task(
+        id=uuid.uuid4(),
+        function_name="random_fail_test",
+        inputs=[TaskInput(type="int", value=msgpack.packb(20))],
+        outputs=[TaskOutput(type="int")],
+    )
+    graph = TaskGraph(
+        tasks={task.id: task},
+        dependencies=[],
+        id=uuid.uuid4(),
+    )
+
+    submit_job(storage, uuid.uuid4(), graph)
+    print("random fail job task id:", task.id)
+
+    yield task
+
+    remove_job(storage, graph.id)
+    remove_data(storage, data)
+
+
 class TestSchedulerWorker:
     def test_job_success(self, scheduler_worker, storage, success_job):
         graph, parent_1, parent_2, child = success_job
@@ -200,3 +231,10 @@ class TestSchedulerWorker:
         outputs = get_task_outputs(storage, task.id)
         assert len(outputs) == 1
         assert outputs[0].value == msgpack.packb(2).decode("utf-8")
+
+    def test_random_fail_job(self, scheduler_worker, storage, random_fail_job):
+        task = random_fail_job
+        # Wait for 2 seconds and check task output
+        time.sleep(2)
+        state = get_task_state(storage, task.id)
+        assert state == "success"
