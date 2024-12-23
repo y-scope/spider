@@ -13,7 +13,6 @@
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Driver.hpp"
-#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"

@@ -34,6 +34,7 @@ public:
 
     [[nodiscard]] auto has_task_id() const -> bool { return m_task_id.has_value(); }
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid { return m_task_id.value(); }
 
     [[nodiscard]] auto get_worker_id() const -> boost::uuids::uuid { return m_worker_id; }
