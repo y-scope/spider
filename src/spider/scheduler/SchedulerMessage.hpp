@@ -40,7 +40,7 @@ public:
 
     [[nodiscard]] auto get_worker_addr() const -> std::string const& { return m_worker_addr; }
 
-    MSGPACK_DEFINE_ARRAY(m_worker_id, m_worker_addr);
+    MSGPACK_DEFINE_ARRAY(m_worker_id, m_worker_addr, m_task_id);
 
 private:
     boost::uuids::uuid m_worker_id;

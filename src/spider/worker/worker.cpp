@@ -298,6 +298,7 @@ auto task_loop(
         // Submit result
         spdlog::debug("Submitting result for task {}", boost::uuids::to_string(task_id));
         err = metadata_store->task_finish(instance, outputs);
+        fail_task_id = std::nullopt;
         if (!err.success()) {
             spdlog::error("Submit task {} fails: {}", task.get_function_name(), err.description);
         }
