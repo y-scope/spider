@@ -23,15 +23,31 @@ public:
             : m_worker_id{worker_id},
               m_worker_addr{std::move(addr)} {}
 
+    ScheduleTaskRequest(
+            boost::uuids::uuid const worker_id,
+            std::string addr,
+            boost::uuids::uuid const task_id
+    )
+            : m_worker_id{worker_id},
+              m_worker_addr{std::move(addr)},
+              m_task_id{task_id} {}
+
+    [[nodiscard]] auto has_task_id() const -> bool { return m_task_id.has_value(); }
+
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid { return m_task_id.value(); }
+
     [[nodiscard]] auto get_worker_id() const -> boost::uuids::uuid { return m_worker_id; }
 
     [[nodiscard]] auto get_worker_addr() const -> std::string const& { return m_worker_addr; }
 
-    MSGPACK_DEFINE_ARRAY(m_worker_id, m_worker_addr);
+    MSGPACK_DEFINE_ARRAY(m_worker_id, m_worker_addr, m_task_id);
 
 private:
     boost::uuids::uuid m_worker_id;
     std::string m_worker_addr;
+    // Optional task id if the task fails
+    std::optional<boost::uuids::uuid> m_task_id = std::nullopt;
 };
 
 class ScheduleTaskResponse {

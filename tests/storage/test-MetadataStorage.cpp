@@ -283,6 +283,88 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::MetadataStorag
     REQUIRE(storage->remove_job(job_id).success());
 }
 
+TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::MetadataStorageTypeList) {
+    std::unique_ptr<spider::core::MetadataStorage> storage
+            = spider::test::create_metadata_storage<TestType>();
+
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const job_id = gen();
+
+    // Create a complicated task graph
+    spider::core::Task child_task{"child"};
+    spider::core::Task parent_1{"p1"};
+    spider::core::Task parent_2{"p2"};
+    parent_1.add_input(spider::core::TaskInput{"1", "float"});
+    parent_1.add_input(spider::core::TaskInput{"2", "float"});
+    parent_2.add_input(spider::core::TaskInput{"3", "int"});
+    parent_2.add_input(spider::core::TaskInput{"4", "int"});
+    parent_1.add_output(spider::core::TaskOutput{"float"});
+    parent_2.add_output(spider::core::TaskOutput{"int"});
+    child_task.add_input(spider::core::TaskInput{parent_1.get_id(), 0, "float"});
+    child_task.add_input(spider::core::TaskInput{parent_2.get_id(), 0, "int"});
+    child_task.add_output(spider::core::TaskOutput{"float"});
+    parent_1.set_max_retries(1);
+    parent_2.set_max_retries(1);
+    child_task.set_max_retries(1);
+    spider::core::TaskGraph graph;
+    // Add task and dependencies to task graph in wrong order
+    graph.add_task(child_task);
+    graph.add_task(parent_1);
+    graph.add_task(parent_2);
+    graph.add_dependency(parent_2.get_id(), child_task.get_id());
+    graph.add_dependency(parent_1.get_id(), child_task.get_id());
+    // Submit job should success
+    REQUIRE(storage->add_job(job_id, gen(), graph).success());
+
+    // Task finish for parent 1 should succeed
+    spider::core::TaskInstance const parent_1_instance{gen(), parent_1.get_id()};
+    REQUIRE(storage->set_task_state(parent_1.get_id(), spider::core::TaskState::Running).success());
+    REQUIRE(storage->task_finish(parent_1_instance, {spider::core::TaskOutput{"1.1", "float"}})
+                    .success());
+    // Task finish for parent 2 should success
+    spider::core::TaskInstance const parent_2_instance{gen(), parent_2.get_id()};
+    REQUIRE(storage->set_task_state(parent_2.get_id(), spider::core::TaskState::Running).success());
+    REQUIRE(storage->task_finish(parent_2_instance, {spider::core::TaskOutput{"2", "int"}})
+                    .success());
+    // Task finish for child should success
+    spider::core::TaskInstance const child_instance{gen(), child_task.get_id()};
+    REQUIRE(storage->set_task_state(child_task.get_id(), spider::core::TaskState::Running).success()
+    );
+    REQUIRE(storage->task_finish(child_instance, {spider::core::TaskOutput{"3.3", "float"}})
+                    .success());
+
+    // Job reset
+    REQUIRE(storage->reset_job(job_id).success());
+    // Parent tasks states should be ready and child task state should be waiting
+    // Parent tasks inputs should be available and child task inputs should be empty
+    // All tasks output should be empty
+    spider::core::Task res_task{""};
+    REQUIRE(storage->get_task(parent_1.get_id(), &res_task).success());
+    REQUIRE(res_task.get_state() == spider::core::TaskState::Ready);
+    REQUIRE(res_task.get_num_inputs() == 2);
+    REQUIRE(res_task.get_input(0).get_value() == "1");
+    REQUIRE(res_task.get_input(1).get_value() == "2");
+    REQUIRE(res_task.get_num_outputs() == 1);
+    REQUIRE(!res_task.get_output(0).get_value().has_value());
+    REQUIRE(storage->get_task(parent_2.get_id(), &res_task).success());
+    REQUIRE(res_task.get_state() == spider::core::TaskState::Ready);
+    REQUIRE(res_task.get_num_inputs() == 2);
+    REQUIRE(res_task.get_input(0).get_value() == "3");
+    REQUIRE(res_task.get_input(1).get_value() == "4");
+    REQUIRE(res_task.get_num_outputs() == 1);
+    REQUIRE(!res_task.get_output(0).get_value().has_value());
+    REQUIRE(storage->get_task(child_task.get_id(), &res_task).success());
+    REQUIRE(res_task.get_state() == spider::core::TaskState::Pending);
+    REQUIRE(res_task.get_num_inputs() == 2);
+    REQUIRE(!res_task.get_input(0).get_value().has_value());
+    REQUIRE(!res_task.get_input(1).get_value().has_value());
+    REQUIRE(res_task.get_num_outputs() == 1);
+    REQUIRE(!res_task.get_output(0).get_value().has_value());
+
+    // Clean up
+    REQUIRE(storage->remove_job(job_id).success());
+}
+
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

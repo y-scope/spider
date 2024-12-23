@@ -113,6 +113,8 @@ public:
               m_state(state),
               m_timeout(timeout) {}
 
+    void set_max_retries(unsigned int num_retries) { m_max_tries = num_retries; }
+
     void add_input(TaskInput const& input) { m_inputs.emplace_back(input); }
 
     void add_output(TaskOutput const& output) { m_outputs.emplace_back(output); }
@@ -124,6 +126,8 @@ public:
     [[nodiscard]] auto get_state() const -> TaskState { return m_state; }
 
     [[nodiscard]] auto get_timeout() const -> float { return m_timeout; }
+
+    [[nodiscard]] auto get_max_retries() const -> unsigned int { return m_max_tries; }
 
     [[nodiscard]] auto get_num_inputs() const -> size_t { return m_inputs.size(); }
 
@@ -142,6 +146,7 @@ private:
     std::string m_function_name;
     TaskState m_state = TaskState::Pending;
     float m_timeout = 0;
+    unsigned int m_max_tries = 0;
     std::vector<TaskInput> m_inputs;
     std::vector<TaskOutput> m_outputs;
 };

@@ -11,6 +11,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <spdlog/spdlog.h>
 
+#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
@@ -130,6 +131,25 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
         co_return;
     }
     ScheduleTaskRequest const& request = optional_request.value();
+
+    // Reset the whole job if the task fails
+    if (request.has_task_id()) {
+        boost::uuids::uuid job_id;
+        core::StorageErr err = m_metadata_store->get_task_job_id(request.get_task_id(), &job_id);
+        // It is possible the job is deleted, so we don't need to reset it
+        if (!err.success()) {
+            spdlog::error(
+                    "Cannot get job id for task {}",
+                    boost::uuids::to_string(request.get_task_id())
+            );
+        } else {
+            err = m_metadata_store->reset_job(job_id);
+            if (!err.success()) {
+                spdlog::error("Cannot reset job {}", boost::uuids::to_string(job_id));
+                co_return;
+            }
+        }
+    }
 
     std::optional<boost::uuids::uuid> const task_id = m_policy->schedule_next(
             m_metadata_store,
