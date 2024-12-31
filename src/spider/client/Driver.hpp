@@ -64,7 +64,10 @@ public:
      * @return Data builder.
      */
     template <Serializable T>
-    auto get_data_builder() -> Data<T>::Builder;
+    auto get_data_builder() -> Data<T>::Builder {
+        typedef typename Data<T>::Builder DataBuilder;
+        return DataBuilder{m_data_storage, m_id, DataBuilder::Driver};
+    }
 
     /**
      * Inserts the given key-value pair into the key-value store, overwriting any existing value.

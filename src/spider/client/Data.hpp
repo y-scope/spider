@@ -23,6 +23,8 @@ class Data;
 class DataStorage;
 class DataImpl;
 }  // namespace core
+class Driver;
+class TaskContext;
 
 /**
  * A representation of data stored on external storage. This class allows the user to define:
@@ -129,11 +131,9 @@ public:
             TaskContext
         };
 
-        explicit Builder(
-                std::shared_ptr<core::DataStorage> data_store,
+        Builder(std::shared_ptr<core::DataStorage> data_store,
                 boost::uuids::uuid const source_id,
-                DataSource const data_source
-        )
+                DataSource const data_source)
                 : m_data_store{std::move(data_store)},
                   m_source_id{source_id},
                   m_data_source{data_source} {}
