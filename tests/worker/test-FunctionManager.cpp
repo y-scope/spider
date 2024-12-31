@@ -32,9 +32,23 @@ auto data_test(spider::TaskContext const& /*context*/, spider::Data<int>& data) 
     return data.get();
 }
 
+auto not_registered(spider::TaskContext const& /*context*/) -> int {
+    return 0;
+}
+
 SPIDER_WORKER_REGISTER_TASK(int_test);
 SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
 SPIDER_WORKER_REGISTER_TASK(data_test);
+
+TEST_CASE("Register and get function name", "[core]") {
+    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
+
+    // Get the function name of non-registered function should return std::nullopt
+    REQUIRE(!manager.get_function_name(reinterpret_cast<void*>(not_registered)).has_value());
+    // get the function name of registered function should return the name
+    REQUIRE("int_test" == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or("")
+    );
+}
 
 TEMPLATE_LIST_TEST_CASE(
         "Register and run function with POD inputs",

@@ -1,8 +1,10 @@
 #ifndef SPIDER_CLIENT_DRIVER_HPP
 #define SPIDER_CLIENT_DRIVER_HPP
 
+#include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -31,6 +33,10 @@
 #define SPIDER_REGISTER_TASK_TIMEOUT(func, timeout) SPIDER_WORKER_REGISTER_TASK(func)
 
 namespace spider {
+namespace core {
+class MetadataStorage;
+class DataStorage;
+}  // namespace core
 
 /**
  * An interface for a client to interact with Spider and create jobs, access the kv-store, etc.
@@ -141,6 +147,12 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid>;
+
+private:
+    boost::uuids::uuid m_id;
+    std::shared_ptr<core::MetadataStorage> m_metadata_storage;
+    std::shared_ptr<core::DataStorage> m_data_storage;
+    std::thread m_heartbeat_thread;
 };
 }  // namespace spider
 
