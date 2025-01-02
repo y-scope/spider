@@ -55,7 +55,7 @@ auto get_libraries() -> std::vector<std::string> {
     return {lib_path.string()};
 }
 
-TEST_CASE("Task execute success", "[worker]") {
+TEST_CASE("Task execute success", "[worker][storage]") {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
@@ -80,7 +80,7 @@ TEST_CASE("Task execute success", "[worker]") {
     REQUIRE(5 == result_option.value_or(0));
 }
 
-TEST_CASE("Task execute wrong number of arguments", "[worker]") {
+TEST_CASE("Task execute wrong number of arguments", "[worker][storage]") {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
@@ -103,7 +103,7 @@ TEST_CASE("Task execute wrong number of arguments", "[worker]") {
     REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments == std::get<0>(error));
 }
 
-TEST_CASE("Task execute fail", "[worker]") {
+TEST_CASE("Task execute fail", "[worker][storage]") {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
