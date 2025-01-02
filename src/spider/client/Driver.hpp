@@ -8,8 +8,11 @@
 #include <thread>
 #include <vector>
 
+#include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <fmt/format.h>
 
+#include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
@@ -39,6 +42,8 @@ namespace spider {
 namespace core {
 class MetadataStorage;
 class DataStorage;
+class Task;
+class TaskGraph;
 }  // namespace core
 
 /**
@@ -133,7 +138,28 @@ public:
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
-    start(TaskFunction<ReturnType, Params...> const& task, Params&&... inputs) -> Job<ReturnType>;
+    start(TaskFunction<ReturnType, Params...> const& task, Params&&... inputs) -> Job<ReturnType> {
+        std::optional<core::Task> optional_task = core::TaskGraphImpl::create_task(task);
+        if (!optional_task.has_value()) {
+            throw std::invalid_argument("Failed to create task.");
+        }
+        core::Task const& new_task = optional_task.value();
+        if (!core::TaskGraphImpl::task_add_input(new_task, inputs...)) {
+            throw std::invalid_argument("Failed to add inputs to task.");
+        }
+        boost::uuids::random_generator gen;
+        boost::uuids::uuid const job_id = gen();
+        core::TaskGraph graph;
+        graph.add_task(new_task);
+        graph.add_input_task(new_task.get_id());
+        graph.add_output_task(new_task.get_id());
+        core::StorageErr err = m_metadata_storage->add_job(job_id, m_id, graph);
+        if (!err.success()) {
+            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        }
+
+        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+    }
 
     /**
      * Starts running a task graph with the given inputs on Spider.
@@ -147,7 +173,22 @@ public:
      */
     template <TaskIo ReturnType, TaskIo... Params>
     auto
-    start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
+    start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType> {
+        if (!graph.m_impl->add_inputs(std::forward<Params>(inputs)...)) {
+            throw std::invalid_argument("Failed to add inputs to task graph.");
+        }
+        // Reset ids in case the same graph is submitted before
+        graph.m_impl->reset_ids();
+        boost::uuids::random_generator gen;
+        boost::uuids::uuid const job_id = gen();
+        core::StorageErr const err
+                = m_metadata_storage->add_job(job_id, m_id, graph.m_impl->get_graph());
+        if (!err.success()) {
+            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        }
+
+        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+    }
 
     /**
      * Gets all scheduled and running jobs started by drivers with the current client's ID.
@@ -157,7 +198,14 @@ public:
      * @return IDs of the jobs.
      * @throw spider::ConnectionException
      */
-    auto get_jobs() -> std::vector<boost::uuids::uuid>;
+    auto get_jobs() -> std::vector<boost::uuids::uuid> {
+        std::vector<boost::uuids::uuid> job_ids;
+        core::StorageErr const err = m_metadata_storage->get_jobs_by_client_id(m_id, &job_ids);
+        if (!err.success()) {
+            throw ConnectionException("Failed to get jobs.");
+        }
+        return job_ids;
+    }
 
 private:
     boost::uuids::uuid m_id;
