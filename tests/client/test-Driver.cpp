@@ -41,13 +41,11 @@ SPIDER_REGISTER_TASK(sum);
 TEST_CASE("Driver bind task", "[client][storage]") {
     spider::Driver driver{spider::test::cStorageUrl};
 
-    auto test = driver.bind(&sum, 0, 0);
-    spdlog::error("{}", typeid(test).name());
-    // spider::TaskGraph<int, int, int> graph_1 = driver.bind(sum_func, sum_func, 0);
-    // spider::Data<int> data = driver.get_data_builder<int>().build(1);
-    // spider::TaskGraph<int, int, int> graph_2 = driver.bind(sum_func, sum_func, data);
-    // spider::TaskGraph<int, int, int, int, int> graph_3 = driver.bind(sum_func, sum_func, sum);
-    // spider::TaskGraph<int, int, int, int, int> graph_4 = driver.bind(sum_func, graph_1, graph_2);
+    spider::TaskGraph<int, int, int> graph_1 = driver.bind(&sum, &sum, 0);
+    spider::Data<int> data = driver.get_data_builder<int>().build(1);
+    spider::TaskGraph<int, int, int> graph_2 = driver.bind(&sum, &sum, data);
+    spider::TaskGraph<int, int, int, int, int> graph_3 = driver.bind(&sum, &sum, &sum);
+    spider::TaskGraph<int, int, int, int, int> graph_4 = driver.bind(&sum, graph_1, graph_2);
 }
 }  // namespace
 
