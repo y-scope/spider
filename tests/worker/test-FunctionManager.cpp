@@ -14,25 +14,26 @@
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
+#include "../../src/spider/core/TaskGraphImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
-auto int_test(spider::TaskContext const& /*context*/, int const x, int const y) -> int {
+auto int_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
     return x + y;
 }
 
-auto tuple_ret_test(spider::TaskContext const& /*context*/, std::string const& str, int const x)
+auto tuple_ret_test(spider::TaskContext& /*context*/, std::string const& str, int const x)
         -> std::tuple<std::string, int> {
     return std::make_tuple(str, x);
 }
 
-auto data_test(spider::TaskContext const& /*context*/, spider::Data<int>& data) -> int {
+auto data_test(spider::TaskContext& /*context*/, spider::Data<int>& data) -> int {
     return data.get();
 }
 
-auto not_registered(spider::TaskContext const& /*context*/) -> int {
+auto not_registered(spider::TaskContext& /*context*/) -> int {
     return 0;
 }
 

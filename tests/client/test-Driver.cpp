@@ -36,11 +36,12 @@ auto sum(spider::TaskContext&, int x, int y) -> int {
     return x + y;
 }
 
+SPIDER_REGISTER_TASK(sum);
+
 TEST_CASE("Driver bind task", "[client][storage]") {
     spider::Driver driver{spider::test::cStorageUrl};
 
-    std::function sum_func{sum};
-    auto test = driver.bind(sum_func, 0, 0);
+    auto test = driver.bind(&sum, 0, 0);
     spdlog::error("{}", typeid(test).name());
     // spider::TaskGraph<int, int, int> graph_1 = driver.bind(sum_func, sum_func, 0);
     // spider::Data<int> data = driver.get_data_builder<int>().build(1);

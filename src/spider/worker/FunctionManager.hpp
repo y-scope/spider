@@ -412,6 +412,10 @@ public:
 
     [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
 
+    [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
+        return m_name_map;
+    }
+
 private:
     FunctionManager() = default;
 

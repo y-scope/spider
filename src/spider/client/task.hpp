@@ -28,7 +28,7 @@ class TaskContext;
  * @tparam TaskParams
  */
 template <TaskIo ReturnType, TaskIo... TaskParams>
-using TaskFunction = std::function<ReturnType(TaskContext&, TaskParams...)>;
+using TaskFunction = ReturnType (*)(TaskContext&, TaskParams...);
 
 // Forward declare `TaskGraph` since `Runnable` takes `TaskGraph` as a param, and `TaskGraph` uses
 // `TaskIo` defined in this header as its template params.

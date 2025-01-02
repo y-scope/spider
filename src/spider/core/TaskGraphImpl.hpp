@@ -14,12 +14,6 @@
 
 namespace spider::core {
 
-template <TaskIo ReturnType, TaskIo... TaskParams>
-auto get_function_ptr(TaskFunction<ReturnType, TaskParams...> const& function) -> void const* {
-    typedef ReturnType (*FunctionPtr)(TaskContext, TaskParams...);
-    return function.template target<FunctionPtr>();
-}
-
 class TaskGraphImpl {
 public:
     template <TaskIo ReturnType, TaskIo... TaskParams, RunnableOrTaskIo... Inputs>
@@ -106,7 +100,8 @@ private:
     static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function
     ) -> std::optional<Task> {
         std::optional<std::string> const function_name
-                = FunctionManager::get_instance().get_function_name(get_function_ptr(task_function)
+                = FunctionManager::get_instance().get_function_name(
+                        reinterpret_cast<void const*>(task_function)
                 );
         if (!function_name.has_value()) {
             return std::nullopt;
