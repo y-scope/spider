@@ -48,8 +48,8 @@ Driver::Driver(std::string const& storage_url) {
     }
 
     // Start a thread to send heartbeats
-    m_heartbeat_thread = std::thread([this]() {
-        while (true) {
+    m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
+        while (!stoken.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             core::StorageErr err = m_metadata_storage->update_heartbeat(m_id);
             if (!err.success()) {
@@ -85,8 +85,8 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     }
 
     // Start a thread to send heartbeats
-    m_heartbeat_thread = std::thread([this]() {
-        while (true) {
+    m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
+        while (!stoken.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             core::StorageErr err = m_metadata_storage->update_heartbeat(m_id);
             if (!err.success()) {
@@ -96,7 +96,7 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     });
 }
 
-auto Driver::kv_store_insert(std::string const& key, std::string const& value) {
+auto Driver::kv_store_insert(std::string const& key, std::string const& value) -> void {
     core::KeyValueData const kv_data{key, value, m_id};
     core::StorageErr const err = m_data_storage->add_client_kv_data(kv_data);
     if (!err.success()) {

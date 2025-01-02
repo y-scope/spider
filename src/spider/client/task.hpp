@@ -28,7 +28,7 @@ class TaskContext;
  * @tparam TaskParams
  */
 template <TaskIo ReturnType, TaskIo... TaskParams>
-using TaskFunction = std::function<ReturnType(TaskContext, TaskParams...)>;
+using TaskFunction = std::function<ReturnType(TaskContext&, TaskParams...)>;
 
 // Forward declare `TaskGraph` since `Runnable` takes `TaskGraph` as a param, and `TaskGraph` uses
 // `TaskIo` defined in this header as its template params.
@@ -45,6 +45,52 @@ concept Runnable = cIsSpecializationV<T, TaskFunction> || cIsSpecializationV<T, 
 
 template <typename T>
 concept RunnableOrTaskIo = Runnable<T> || TaskIo<T>;
+
+template <class...>
+struct ConcatTaskGraphType;
+
+template <TaskIo GraphReturnType, TaskIo... GraphParams>
+struct ConcatTaskGraphType<TaskGraph<GraphReturnType, GraphParams...>> {
+    using type = TaskGraph<GraphReturnType, GraphParams...>;
+};
+
+template <TaskIo GraphReturnType, TaskIo... GraphParams, class Type>
+struct ConcatTaskGraphType<TaskGraph<GraphReturnType, GraphParams...>, Type> {
+    using type = TaskGraph<GraphReturnType, GraphParams...>;
+};
+
+template <TaskIo GraphReturnType, TaskIo... GraphParams, TaskIo ReturnType, TaskIo... TaskParams>
+struct ConcatTaskGraphType<
+        TaskGraph<GraphReturnType, GraphParams...>,
+        TaskFunction<ReturnType, TaskParams...>> {
+    using type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
+};
+
+template <TaskIo GraphReturnType, TaskIo... GraphParams, TaskIo ReturnType, TaskIo... TaskParams>
+struct ConcatTaskGraphType<
+        TaskGraph<GraphReturnType, GraphParams...>,
+        TaskGraph<ReturnType, TaskParams...>> {
+    using type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
+};
+
+template <class...>
+struct MergeTaskGraphTypes;
+
+template <TaskIo GraphReturnType, TaskIo... GraphParams>
+struct MergeTaskGraphTypes<TaskGraph<GraphReturnType, GraphParams...>> {
+    using type = TaskGraph<GraphReturnType, GraphParams...>;
+};
+
+template <TaskIo ReturnType, TaskIo... GraphParams, class Type, RunnableOrTaskIo... Inputs>
+struct MergeTaskGraphTypes<TaskGraph<ReturnType, GraphParams...>, Type, Inputs...> {
+    using type = typename MergeTaskGraphTypes<
+            typename ConcatTaskGraphType<TaskGraph<ReturnType, GraphParams...>, Type>::type,
+            Inputs...>::type;
+};
+
+template <TaskIo ReturnType, RunnableOrTaskIo... Inputs>
+using TaskGraphType = typename MergeTaskGraphTypes<TaskGraph<ReturnType>, Inputs...>::type;
+
 }  // namespace spider
 
 #endif  // SPIDER_CLIENT_TASK_HPP

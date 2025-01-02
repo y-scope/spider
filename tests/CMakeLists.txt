@@ -11,6 +11,7 @@ set(SPIDER_TEST_SOURCES
     io/test-MsgpackMessage.cpp
     scheduler/test-SchedulerPolicy.cpp
     scheduler/test-SchedulerServer.cpp
+    client/test-Driver.cpp
     CACHE INTERNAL
     "spider test source files"
 )

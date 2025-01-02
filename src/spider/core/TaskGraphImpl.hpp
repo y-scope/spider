@@ -15,7 +15,7 @@
 namespace spider::core {
 
 template <TaskIo ReturnType, TaskIo... TaskParams>
-auto get_function_ptr(TaskFunction<ReturnType, TaskParams...> const& function) -> void* {
+auto get_function_ptr(TaskFunction<ReturnType, TaskParams...> const& function) -> void const* {
     typedef ReturnType (*FunctionPtr)(TaskContext, TaskParams...);
     return function.template target<FunctionPtr>();
 }
@@ -26,11 +26,19 @@ public:
     static auto
     bind(TaskFunction<ReturnType, TaskParams...> const& task_function,
          Inputs&&... inputs) -> std::optional<TaskGraphImpl> {
-        Task task = create_task(task_function);
+        std::optional<Task> optional_task = create_task(task_function);
+        if (!optional_task.has_value()) {
+            return std::nullopt;
+        }
+        Task& task = optional_task.value();
         TaskGraphImpl graph;
 
         uint64_t position = 0;
+        bool fail = false;
         for_n<sizeof...(Inputs)>([&](auto i) {
+            if (fail) {
+                return;
+            }
             using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
             if constexpr (cIsSpecializationV<InputType, TaskFunction>) {
                 std::optional<Task> optional_parent = add_task_input(
@@ -39,7 +47,7 @@ public:
                         position
                 );
                 if (!optional_parent.has_value()) {
-                    return std::nullopt;
+                    fail = true;
                 }
                 graph.m_graph.add_task(optional_parent.value());
                 graph.m_graph.add_input_task(optional_parent.value().get_id());
@@ -49,7 +57,7 @@ public:
                                   .m_graph;
                 parent_graph.reset_ids();
                 if (!add_graph_input(task, parent_graph, position)) {
-                    return std::nullopt;
+                    fail = true;
                 }
                 for (boost::uuids::uuid const& intput_task_id : parent_graph.get_input_tasks()) {
                     graph.m_graph.add_input_task(intput_task_id);
@@ -57,27 +65,31 @@ public:
                 for (auto const& [task_id, task] : parent_graph.get_tasks()) {
                     graph.m_graph.add_task(task);
                 }
-            } else {
+            } else if constexpr (TaskIo<InputType>) {
                 if (position >= task.get_num_inputs()) {
-                    return std::nullopt;
+                    fail = true;
                 }
                 TaskInput& input = task.get_input_ref(position);
                 position++;
                 // Check type match
                 if (input.get_type() != typeid(InputType).name()) {
-                    return std::nullopt;
+                    fail = true;
                 }
                 if constexpr (cIsSpecializationV<InputType, spider::Data>) {
                     input.set_data_id(std::get<i.cValue>(std::forward_as_tuple(inputs...))
                                               .get_impl()
                                               ->get_id());
                 } else {
-                    std::string value;
-                    msgpack::pack(value, input);
+                    msgpack::sbuffer buffer;
+                    msgpack::pack(buffer, std::get<i.cValue>(std::forward_as_tuple(inputs...)));
+                    std::string const value(buffer.data(), buffer.size());
                     input.set_value(value);
                 }
             }
         });
+        if (fail) {
+            return std::nullopt;
+        }
 
         // Check all inputs are consumed
         if (position != task.get_num_inputs()) {
@@ -91,11 +103,15 @@ public:
 
 private:
     template <TaskIo ReturnType, TaskIo... TaskParams>
-    static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function) -> Task {
-        std::string const function_name
+    static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function
+    ) -> std::optional<Task> {
+        std::optional<std::string> const function_name
                 = FunctionManager::get_instance().get_function_name(get_function_ptr(task_function)
                 );
-        Task task{function_name};
+        if (!function_name.has_value()) {
+            return std::nullopt;
+        }
+        Task task{function_name.value()};
         // Add task inputs
         ((task.add_input(TaskInput{typeid(TaskParams).name()})), ...);
         // Add task outputs
@@ -116,7 +132,11 @@ private:
             TaskFunction<ReturnType, TaskParams...> const& task_function,
             uint64_t& position
     ) -> std::optional<Task> {
-        Task parent = create_task(task_function);
+        std::optional<Task> const optional_parent = create_task(task_function);
+        if (!optional_parent.has_value()) {
+            return std::nullopt;
+        }
+        Task const& parent = optional_parent.value();
         if constexpr (cIsSpecializationV<ReturnType, std::tuple>) {
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
                 if (position >= sizeof...(TaskParams)) {

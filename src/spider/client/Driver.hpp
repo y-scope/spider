@@ -16,6 +16,7 @@
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"
+#include "utility"
 
 /**
  * Registers a Task function with Spider
@@ -67,7 +68,7 @@ public:
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
         typedef typename Data<T>::Builder DataBuilder;
-        return DataBuilder{m_data_storage, m_id, DataBuilder::Driver};
+        return DataBuilder{m_data_storage, m_id, DataBuilder::DataSource::Driver};
     }
 
     /**
@@ -77,7 +78,7 @@ public:
      * @param value
      * @throw spider::ConnectionException
      */
-    auto kv_store_insert(std::string const& key, std::string const& value);
+    auto kv_store_insert(std::string const& key, std::string const& value) -> void;
 
     /**
      * Gets the value corresponding to the given key.
@@ -100,19 +101,14 @@ public:
      * @tparam ReturnType Return type for both the task and the resulting `TaskGraph`.
      * @tparam TaskParams
      * @tparam Inputs
-     * @tparam GraphParams
      * @param task
      * @param inputs Inputs to bind to `task`. If an input is a `Task` or `TaskGraph`, their
      * outputs will be bound to the inputs of `task`.
      * @return  A `TaskGraph` of the inputs bound to `task`.
      */
-    template <
-            TaskIo ReturnType,
-            TaskIo... TaskParams,
-            RunnableOrTaskIo... Inputs,
-            TaskIo... GraphParams>
+    template <TaskIo ReturnType, TaskIo... TaskParams, RunnableOrTaskIo... Inputs>
     auto bind(TaskFunction<ReturnType, TaskParams...> const& task, Inputs&&... inputs)
-            -> TaskGraph<ReturnType(GraphParams...)> {
+            -> TaskGraphType<ReturnType, Inputs...> {
         std::optional<core::TaskGraphImpl> optional_graph
                 = core::TaskGraphImpl::bind(task, std::forward<Inputs>(inputs)...);
         if (!optional_graph.has_value()) {
@@ -120,7 +116,8 @@ public:
         }
         std::unique_ptr<core::TaskGraphImpl> graph
                 = std::make_unique<core::TaskGraphImpl>(std::move(optional_graph.value()));
-        return TaskGraph<ReturnType(GraphParams...)>{graph};
+
+        return TaskGraphType<ReturnType, Inputs...>{std::move(graph)};
     }
 
     /**
@@ -165,7 +162,7 @@ private:
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
-    std::thread m_heartbeat_thread;
+    std::jthread m_heartbeat_thread;
 };
 }  // namespace spider
 

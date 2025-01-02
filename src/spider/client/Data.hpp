@@ -123,7 +123,7 @@ public:
                     }
                     break;
             }
-            return Data{data, m_data_store};
+            return Data{std::move(data), m_data_store};
         }
 
     private:
