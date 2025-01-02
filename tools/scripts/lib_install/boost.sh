@@ -34,7 +34,7 @@ echo "Downloading boost source..."
 tar_filename=boost_${version_with_underscores}.tar.gz
 curl -fsSL https://archives.boost.io/release/${version}/source/${tar_file} -o ${tar_filename}
 echo "Extracting boost source..."
-tar xf ${tar_filename}
+tar -xf ${tar_filename}
 echo "Extracted boost source"
 cd boost_${version_with_underscores}
 
