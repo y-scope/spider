@@ -22,7 +22,10 @@ namespace core {
 class Data;
 class DataStorage;
 class DataImpl;
+class TaskGraphImpl;
 }  // namespace core
+class Driver;
+class TaskContext;
 
 /**
  * A representation of data stored on external storage. This class allows the user to define:
@@ -120,7 +123,7 @@ public:
                     }
                     break;
             }
-            return Data{data, m_data_store};
+            return Data{std::move(data), m_data_store};
         }
 
     private:
@@ -129,11 +132,9 @@ public:
             TaskContext
         };
 
-        explicit Builder(
-                std::shared_ptr<core::DataStorage> data_store,
+        Builder(std::shared_ptr<core::DataStorage> data_store,
                 boost::uuids::uuid const source_id,
-                DataSource const data_source
-        )
+                DataSource const data_source)
                 : m_data_store{std::move(data_store)},
                   m_source_id{source_id},
                   m_data_source{data_source} {}
@@ -163,6 +164,7 @@ private:
     std::shared_ptr<core::DataStorage> m_data_store;
 
     friend class core::DataImpl;
+    friend class core::TaskGraphImpl;
 };
 }  // namespace spider
 

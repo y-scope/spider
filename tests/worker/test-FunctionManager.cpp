@@ -19,22 +19,38 @@
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
-auto int_test(spider::TaskContext const& /*context*/, int const x, int const y) -> int {
+auto int_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
     return x + y;
 }
 
-auto tuple_ret_test(spider::TaskContext const& /*context*/, std::string const& str, int const x)
+auto tuple_ret_test(spider::TaskContext& /*context*/, std::string const& str, int const x)
         -> std::tuple<std::string, int> {
     return std::make_tuple(str, x);
 }
 
-auto data_test(spider::TaskContext const& /*context*/, spider::Data<int>& data) -> int {
+auto data_test(spider::TaskContext& /*context*/, spider::Data<int>& data) -> int {
     return data.get();
+}
+
+auto not_registered(spider::TaskContext& /*context*/) -> int {
+    return 0;
 }
 
 SPIDER_WORKER_REGISTER_TASK(int_test);
 SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
 SPIDER_WORKER_REGISTER_TASK(data_test);
+
+TEST_CASE("Register and get function name", "[core]") {
+    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
+
+    // Get the function name of non-registered function should return std::nullopt
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    REQUIRE(!manager.get_function_name(reinterpret_cast<void*>(not_registered)).has_value());
+    // Get the function name of registered function should return the name
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    REQUIRE("int_test" == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or("")
+    );
+}
 
 TEMPLATE_LIST_TEST_CASE(
         "Register and run function with POD inputs",

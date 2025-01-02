@@ -88,6 +88,8 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Task const task{"func"};
     spider::core::TaskGraph graph;
     graph.add_task(task);
+    graph.add_input_task(task.get_id());
+    graph.add_output_task(task.get_id());
     boost::uuids::uuid const job_id = gen();
     REQUIRE(metadata_storage->add_job(job_id, gen(), graph).success());
 
@@ -127,6 +129,9 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::TaskGraph graph;
     graph.add_task(task);
     graph.add_task(task_2);
+    graph.add_dependency(task.get_id(), task_2.get_id());
+    graph.add_input_task(task.get_id());
+    graph.add_output_task(task_2.get_id());
     boost::uuids::uuid const job_id = gen();
     REQUIRE(metadata_storage->add_job(job_id, gen(), graph).success());
 

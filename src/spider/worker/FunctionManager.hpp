@@ -49,6 +49,8 @@ using Function = std::function<ResultBuffer(TaskContext context, ArgsBuffer cons
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
 
+using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
+
 template <class T>
 struct TemplateParameter;
 
@@ -382,7 +384,12 @@ public:
 
     template <class F>
     auto register_function(std::string const& name, F f) -> bool {
-        return m_map
+        if (m_function_map.contains(name)) {
+            return false;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        m_name_map.emplace(reinterpret_cast<void*>(f), name);
+        return m_function_map
                 .emplace(
                         name,
                         std::bind(
@@ -396,19 +403,27 @@ public:
     }
 
     auto register_function_invoker(std::string const& name, Function f) -> bool {
-        return m_map.emplace(name, f).second;
+        return m_function_map.emplace(name, f).second;
     }
 
     [[nodiscard]] auto get_function(std::string const& name) const -> Function const*;
 
-    [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_map; }
+    [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_function_map; }
+
+    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
+
+    [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
+        return m_name_map;
+    }
 
 private:
     FunctionManager() = default;
 
     ~FunctionManager() = default;
 
-    FunctionMap m_map;
+    FunctionMap m_function_map;
+
+    FunctionNameMap m_name_map;
 };
 }  // namespace spider::core
 

@@ -30,10 +30,11 @@ mkdir -p $temp_dir
 cd $temp_dir
 
 # Download source
-tar_filename=boost_${version_with_underscores}.tar.gz
-curl -fsSL https://boostorg.jfrog.io/artifactory/main/release/${version}/source/${tar_filename} -o ${tar_filename}
-tar xzf ${tar_filename}
-cd boost_${version_with_underscores}
+boost_source_dir=boost_${version_with_underscores}
+git clone https://github.com/boostorg/boost.git ${boost_source_dir}
+cd ${boost_source_dir}
+git checkout boost-${version}
+git submodule update --init --recursive
 
 # Build
 ./bootstrap.sh --with-libraries=filesystem,iostreams,process,program_options,regex,system

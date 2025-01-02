@@ -43,12 +43,16 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Task const task_1{"task_1"};
     spider::core::TaskGraph graph_1;
     graph_1.add_task(task_1);
+    graph_1.add_input_task(task_1.get_id());
+    graph_1.add_output_task(task_1.get_id());
     boost::uuids::uuid const job_id_1 = gen();
     REQUIRE(metadata_store->add_job(job_id_1, client_id, graph_1).success());
     std::this_thread::sleep_for(std::chrono::seconds(1));
     spider::core::Task const task_2{"task_2"};
     spider::core::TaskGraph graph_2;
     graph_2.add_task(task_2);
+    graph_2.add_input_task(task_2.get_id());
+    graph_2.add_output_task(task_2.get_id());
     boost::uuids::uuid const job_id_2 = gen();
     REQUIRE(metadata_store->add_job(job_id_2, client_id, graph_2).success());
 
@@ -95,6 +99,8 @@ TEMPLATE_LIST_TEST_CASE(
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
+    graph.add_input_task(task.get_id());
+    graph.add_output_task(task.get_id());
     REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
 
     spider::scheduler::FifoPolicy policy;
@@ -140,6 +146,8 @@ TEMPLATE_LIST_TEST_CASE(
     task.add_input(spider::core::TaskInput{data.get_id(), "int"});
     spider::core::TaskGraph graph;
     graph.add_task(task);
+    graph.add_input_task(task.get_id());
+    graph.add_output_task(task.get_id());
     REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
 
     spider::scheduler::FifoPolicy policy;

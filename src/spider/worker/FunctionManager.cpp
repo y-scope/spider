@@ -61,10 +61,17 @@ void create_error_buffer(
 }
 
 auto FunctionManager::get_function(std::string const& name) const -> Function const* {
-    if (auto const func_iter = m_map.find(name); func_iter != m_map.end()) {
+    if (auto const func_iter = m_function_map.find(name); func_iter != m_function_map.end()) {
         return &(func_iter->second);
     }
     return nullptr;
+}
+
+auto FunctionManager::get_function_name(void const* ptr) const -> std::optional<std::string> {
+    if (auto const name_iter = m_name_map.find(ptr); name_iter != m_name_map.end()) {
+        return name_iter->second;
+    }
+    return std::nullopt;
 }
 
 }  // namespace spider::core

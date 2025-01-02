@@ -15,6 +15,8 @@
 namespace spider::core {
 class TaskInput {
 public:
+    explicit TaskInput(std::string type) : m_type(std::move(type)) {};
+
     TaskInput(boost::uuids::uuid output_task_id, std::uint8_t position, std::string type)
             : m_task_output({output_task_id, position}),
               m_type(std::move(type)) {};
@@ -41,6 +43,11 @@ public:
     void set_value(std::string const& value) { m_value = value; }
 
     void set_data_id(boost::uuids::uuid data_id) { m_data_id = data_id; }
+
+    void
+    set_output(boost::uuids::uuid const output_task_id, std::uint8_t const output_task_position) {
+        m_task_output = {output_task_id, output_task_position};
+    }
 
 private:
     std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> m_task_output;
@@ -113,6 +120,8 @@ public:
               m_state(state),
               m_timeout(timeout) {}
 
+    void set_id(boost::uuids::uuid const id) { m_id = id; }
+
     void set_max_retries(unsigned int num_retries) { m_max_tries = num_retries; }
 
     void add_input(TaskInput const& input) { m_inputs.emplace_back(input); }
@@ -134,6 +143,8 @@ public:
     [[nodiscard]] auto get_num_outputs() const -> size_t { return m_outputs.size(); }
 
     [[nodiscard]] auto get_input(uint64_t index) const -> TaskInput { return m_inputs[index]; }
+
+    [[nodiscard]] auto get_input_ref(uint64_t index) -> TaskInput& { return m_inputs[index]; }
 
     [[nodiscard]] auto get_output(uint64_t index) const -> TaskOutput { return m_outputs[index]; }
 

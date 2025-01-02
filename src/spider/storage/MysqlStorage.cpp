@@ -486,7 +486,11 @@ auto MySqlMetadataStorage::add_job(
         }
 
         // Tasks must be added in graph order to avoid the dangling reference.
-        absl::flat_hash_set<boost::uuids::uuid> heads = task_graph.get_head_tasks();
+        std::vector<boost::uuids::uuid> const& inputs = task_graph.get_input_tasks();
+        absl::flat_hash_set<boost::uuids::uuid> heads;
+        for (boost::uuids::uuid const task_id : inputs) {
+            heads.insert(task_id);
+        }
         std::deque<boost::uuids::uuid> queue;
         // First go over all heads
         for (boost::uuids::uuid const task_id : heads) {
@@ -535,7 +539,7 @@ auto MySqlMetadataStorage::add_job(
         }
 
         // Mark head tasks as ready
-        for (boost::uuids::uuid const& task_id : task_graph.get_head_tasks()) {
+        for (boost::uuids::uuid const& task_id : task_graph.get_input_tasks()) {
             std::unique_ptr<sql::PreparedStatement> statement(
                     m_conn->prepareStatement("UPDATE `tasks` SET `state` = 'ready' WHERE `id` = ?")
             );

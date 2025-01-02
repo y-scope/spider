@@ -6,7 +6,6 @@
 #include <thread>
 #include <vector>
 
-#include <absl/container/flat_hash_set.h>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <catch2/catch_template_test_macros.hpp>
@@ -139,12 +138,15 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_task(parent_2);
     graph.add_dependency(parent_2.get_id(), child_task.get_id());
     graph.add_dependency(parent_1.get_id(), child_task.get_id());
+    graph.add_input_task(parent_1.get_id());
+    graph.add_input_task(parent_2.get_id());
+    graph.add_output_task(child_task.get_id());
 
     // Get head tasks should succeed
-    absl::flat_hash_set<boost::uuids::uuid> heads = graph.get_head_tasks();
+    std::vector<boost::uuids::uuid> heads = graph.get_input_tasks();
     REQUIRE(2 == heads.size());
-    REQUIRE(heads.contains(parent_1.get_id()));
-    REQUIRE(heads.contains(parent_2.get_id()));
+    REQUIRE(heads[0] == parent_1.get_id());
+    REQUIRE(heads[1] == parent_2.get_id());
 
     std::chrono::system_clock::time_point const job_creation_time
             = std::chrono::system_clock::now();
@@ -154,10 +156,12 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Task const simple_task{"simple"};
     spider::core::TaskGraph simple_graph;
     simple_graph.add_task(simple_task);
+    simple_graph.add_input_task(simple_task.get_id());
+    simple_graph.add_output_task(simple_task.get_id());
 
-    heads = simple_graph.get_head_tasks();
+    heads = simple_graph.get_input_tasks();
     REQUIRE(1 == heads.size());
-    REQUIRE(heads.contains(simple_task.get_id()));
+    REQUIRE(heads[0] == simple_task.get_id());
 
     // Submit job should success
     REQUIRE(storage->add_job(job_id, client_id, graph).success());
@@ -252,6 +256,9 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::MetadataStorag
     graph.add_task(parent_2);
     graph.add_dependency(parent_2.get_id(), child_task.get_id());
     graph.add_dependency(parent_1.get_id(), child_task.get_id());
+    graph.add_input_task(parent_1.get_id());
+    graph.add_input_task(parent_2.get_id());
+    graph.add_output_task(child_task.get_id());
     // Submit job should success
     REQUIRE(storage->add_job(job_id, gen(), graph).success());
 
@@ -313,6 +320,9 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::MetadataStorageT
     graph.add_task(parent_2);
     graph.add_dependency(parent_2.get_id(), child_task.get_id());
     graph.add_dependency(parent_1.get_id(), child_task.get_id());
+    graph.add_input_task(parent_1.get_id());
+    graph.add_input_task(parent_2.get_id());
+    graph.add_output_task(child_task.get_id());
     // Submit job should success
     REQUIRE(storage->add_job(job_id, gen(), graph).success());
 

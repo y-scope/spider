@@ -10,11 +10,9 @@ set(SPIDER_CORE_SOURCES
 set(SPIDER_CORE_HEADERS
     core/Error.hpp
     core/Data.hpp
-    core/DataImpl.hpp
     core/Driver.hpp
     core/KeyValueData.hpp
     core/Task.hpp
-    core/TaskContextImpl.hpp
     core/TaskGraph.hpp
     core/JobMetadata.hpp
     io/BoostAsio.hpp
@@ -124,7 +122,11 @@ target_link_libraries(
         spdlog::spdlog
 )
 
-set(SPIDER_CLIENT_SHARED_SOURCES CACHE INTERNAL "spider client shared source files")
+set(SPIDER_CLIENT_SHARED_SOURCES
+    client/Driver.cpp
+    CACHE INTERNAL
+    "spider client shared source files"
+)
 
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
@@ -134,6 +136,9 @@ set(SPIDER_CLIENT_SHARED_HEADERS
     client/TaskGraph.hpp
     client/type_utils.hpp
     client/Exception.hpp
+    core/DataImpl.hpp
+    core/TaskContextImpl.hpp
+    core/TaskGraphImpl.hpp
     CACHE INTERNAL
     "spider client shared header files"
 )
