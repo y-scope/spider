@@ -1,7 +1,7 @@
 #ifndef SPIDER_CLIENT_TASK_HPP
 #define SPIDER_CLIENT_TASK_HPP
 
-#include <functional>
+#include <type_traits>
 
 #include "../io/Serializer.hpp"
 #include "Data.hpp"
@@ -51,26 +51,26 @@ struct ConcatTaskGraphType;
 
 template <TaskIo GraphReturnType, TaskIo... GraphParams>
 struct ConcatTaskGraphType<TaskGraph<GraphReturnType, GraphParams...>> {
-    using type = TaskGraph<GraphReturnType, GraphParams...>;
+    using Type = TaskGraph<GraphReturnType, GraphParams...>;
 };
 
-template <TaskIo GraphReturnType, TaskIo... GraphParams, class Type>
-struct ConcatTaskGraphType<TaskGraph<GraphReturnType, GraphParams...>, Type> {
-    using type = TaskGraph<GraphReturnType, GraphParams...>;
+template <TaskIo GraphReturnType, TaskIo... GraphParams, class InputType>
+struct ConcatTaskGraphType<TaskGraph<GraphReturnType, GraphParams...>, InputType> {
+    using Type = TaskGraph<GraphReturnType, GraphParams...>;
 };
 
 template <TaskIo GraphReturnType, TaskIo... GraphParams, TaskIo ReturnType, TaskIo... TaskParams>
 struct ConcatTaskGraphType<
         TaskGraph<GraphReturnType, GraphParams...>,
         TaskFunction<ReturnType, TaskParams...>> {
-    using type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
+    using Type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
 };
 
 template <TaskIo GraphReturnType, TaskIo... GraphParams, TaskIo ReturnType, TaskIo... TaskParams>
 struct ConcatTaskGraphType<
         TaskGraph<GraphReturnType, GraphParams...>,
         TaskGraph<ReturnType, TaskParams...>> {
-    using type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
+    using Type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
 };
 
 template <class...>
@@ -78,20 +78,20 @@ struct MergeTaskGraphTypes;
 
 template <TaskIo GraphReturnType, TaskIo... GraphParams>
 struct MergeTaskGraphTypes<TaskGraph<GraphReturnType, GraphParams...>> {
-    using type = TaskGraph<GraphReturnType, GraphParams...>;
+    using Type = TaskGraph<GraphReturnType, GraphParams...>;
 };
 
-template <TaskIo ReturnType, TaskIo... GraphParams, class Type, RunnableOrTaskIo... Inputs>
-struct MergeTaskGraphTypes<TaskGraph<ReturnType, GraphParams...>, Type, Inputs...> {
-    using type = typename MergeTaskGraphTypes<
+template <TaskIo ReturnType, TaskIo... GraphParams, class InputType, RunnableOrTaskIo... Inputs>
+struct MergeTaskGraphTypes<TaskGraph<ReturnType, GraphParams...>, InputType, Inputs...> {
+    using Type = typename MergeTaskGraphTypes<
             typename ConcatTaskGraphType<
                     TaskGraph<ReturnType, GraphParams...>,
-                    std::remove_cvref_t<Type>>::type,
-            Inputs...>::type;
+                    std::remove_cvref_t<InputType>>::Type,
+            Inputs...>::Type;
 };
 
 template <TaskIo ReturnType, RunnableOrTaskIo... Inputs>
-using TaskGraphType = typename MergeTaskGraphTypes<TaskGraph<ReturnType>, Inputs...>::type;
+using TaskGraphType = typename MergeTaskGraphTypes<TaskGraph<ReturnType>, Inputs...>::Type;
 
 }  // namespace spider
 

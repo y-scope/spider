@@ -2,20 +2,28 @@
 #define SPIDER_CORE_TASKGRAPHIMPL_HPP
 
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <tuple>
+#include <type_traits>
 
+#include <boost/uuid/uuid.hpp>
+
+#include "../client/Data.hpp"
 #include "../client/task.hpp"
 #include "../client/TaskContext.hpp"
 #include "../client/type_utils.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
+#include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../worker/FunctionManager.hpp"
 
 namespace spider::core {
 
 class TaskGraphImpl {
 public:
+    // NOLINTBEGIN(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
     template <TaskIo ReturnType, TaskIo... TaskParams, RunnableOrTaskIo... Inputs>
     static auto
     bind(TaskFunction<ReturnType, TaskParams...> const& task_function,
@@ -97,14 +105,18 @@ public:
         return graph;
     }
 
+    // NOLINTEND(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
+
 private:
     template <TaskIo ReturnType, TaskIo... TaskParams>
     static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function
     ) -> std::optional<Task> {
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
         std::optional<std::string> const function_name
                 = FunctionManager::get_instance().get_function_name(
                         reinterpret_cast<void const*>(task_function)
                 );
+        // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
         if (!function_name.has_value()) {
             return std::nullopt;
         }

@@ -2,6 +2,7 @@
 #define SPIDER_CLIENT_TASKGRAPH_HPP
 
 #include <memory>
+#include <utility>
 
 #include "task.hpp"
 
@@ -24,7 +25,7 @@ class TaskGraph {
 private:
     explicit TaskGraph(std::unique_ptr<core::TaskGraphImpl> impl) : m_impl{std::move(impl)} {}
 
-    auto get_impl() const -> core::TaskGraphImpl const& { return *m_impl; }
+    [[nodiscard]] auto get_impl() const -> core::TaskGraphImpl const& { return *m_impl; }
 
     std::unique_ptr<core::TaskGraphImpl> m_impl;
 

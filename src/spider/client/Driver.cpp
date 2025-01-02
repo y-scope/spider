@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <thread>
 
@@ -12,8 +13,6 @@
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
 #include "../storage/MysqlStorage.hpp"
 #include "Exception.hpp"
 
@@ -48,10 +47,11 @@ Driver::Driver(std::string const& storage_url) {
     }
 
     // Start a thread to send heartbeats
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
         while (!stoken.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            core::StorageErr err = m_metadata_storage->update_heartbeat(m_id);
+            core::StorageErr const err = m_metadata_storage->update_heartbeat(m_id);
             if (!err.success()) {
                 throw ConnectionException(err.description);
             }
@@ -85,10 +85,11 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     }
 
     // Start a thread to send heartbeats
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
         while (!stoken.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            core::StorageErr err = m_metadata_storage->update_heartbeat(m_id);
+            core::StorageErr const err = m_metadata_storage->update_heartbeat(m_id);
             if (!err.success()) {
                 throw ConnectionException(err.description);
             }

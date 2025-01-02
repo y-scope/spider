@@ -45,8 +45,10 @@ TEST_CASE("Register and get function name", "[core]") {
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 
     // Get the function name of non-registered function should return std::nullopt
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     REQUIRE(!manager.get_function_name(reinterpret_cast<void*>(not_registered)).has_value());
-    // get the function name of registered function should return the name
+    // Get the function name of registered function should return the name
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     REQUIRE("int_test" == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or("")
     );
 }

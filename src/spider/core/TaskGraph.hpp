@@ -1,6 +1,7 @@
 #ifndef SPIDER_CORE_TASKGRAPH_HPP
 #define SPIDER_CORE_TASKGRAPH_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -124,7 +125,7 @@ public:
                 std::optional<std::tuple<boost::uuids::uuid, uint8_t>> const& optional_task_output
                         = input.get_task_output();
                 if (optional_task_output.has_value()) {
-                    boost::uuids::uuid task_id = std::get<0>(optional_task_output.value());
+                    boost::uuids::uuid const task_id = std::get<0>(optional_task_output.value());
                     input.set_output(
                             new_id_map.at(task_id),
                             std::get<1>(optional_task_output.value())
@@ -136,17 +137,17 @@ public:
         m_tasks = std::move(new_tasks);
 
         // Replace all id in dependencies
-        for (size_t i = 0; i < m_dependencies.size(); i++) {
-            m_dependencies[i].first = new_id_map.at(m_dependencies[i].first);
-            m_dependencies[i].second = new_id_map.at(m_dependencies[i].second);
+        for (auto& dep : m_dependencies) {
+            dep.first = new_id_map.at(dep.first);
+            dep.second = new_id_map.at(dep.second);
         }
 
         // Replace all id in input and output tasks
-        for (size_t i = 0; i < m_input_tasks.size(); i++) {
-            m_input_tasks[i] = new_id_map.at(m_input_tasks[i]);
+        for (auto& task : m_input_tasks) {
+            task = new_id_map.at(task);
         }
-        for (size_t i = 0; i < m_output_tasks.size(); i++) {
-            m_output_tasks[i] = new_id_map.at(m_output_tasks[i]);
+        for (auto& task : m_output_tasks) {
+            task = new_id_map.at(task);
         }
     }
 

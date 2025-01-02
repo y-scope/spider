@@ -388,7 +388,7 @@ public:
             return false;
         }
         m_name_map.emplace(reinterpret_cast<void*>(f), name);
-        m_function_map
+        return m_function_map
                 .emplace(
                         name,
                         std::bind(
@@ -399,7 +399,6 @@ public:
                         )
                 )
                 .second;
-        return true;
     }
 
     auto register_function_invoker(std::string const& name, Function f) -> bool {
@@ -421,9 +420,9 @@ private:
 
     ~FunctionManager() = default;
 
-    FunctionMap m_function_map = {};
+    FunctionMap m_function_map;
 
-    FunctionNameMap m_name_map = {};
+    FunctionNameMap m_name_map;
 };
 }  // namespace spider::core
 

@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -67,7 +68,7 @@ public:
      */
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
-        typedef typename Data<T>::Builder DataBuilder;
+        using DataBuilder = typename Data<T>::Builder;
         return DataBuilder{m_data_storage, m_id, DataBuilder::DataSource::Driver};
     }
 
