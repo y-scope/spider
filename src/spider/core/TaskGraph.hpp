@@ -1,12 +1,14 @@
 #ifndef SPIDER_CORE_TASKGRAPH_HPP
 #define SPIDER_CORE_TASKGRAPH_HPP
 
+#include <cstdint>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
-#include <absl/container/flat_hash_set.h>
+#include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
 #include "Task.hpp"
@@ -88,25 +90,72 @@ public:
         return m_tasks;
     }
 
-    [[nodiscard]] auto get_head_tasks() const -> absl::flat_hash_set<boost::uuids::uuid> {
-        absl::flat_hash_set<boost::uuids::uuid> heads;
-        for (auto const& pair : m_tasks) {
-            heads.emplace(pair.first);
-        }
-        for (auto const& pair : m_dependencies) {
-            heads.erase(pair.second);
-        }
-        return heads;
+    [[nodiscard]] auto get_input_tasks() const -> std::vector<boost::uuids::uuid> const& {
+        return m_input_tasks;
     }
+
+    [[nodiscard]] auto get_output_tasks() const -> std::vector<boost::uuids::uuid> const& {
+        return m_output_tasks;
+    }
+
+    auto add_input_task(boost::uuids::uuid id) -> void { m_input_tasks.emplace_back(id); }
+
+    auto add_output_task(boost::uuids::uuid id) -> void { m_output_tasks.emplace_back(id); }
 
     [[nodiscard]] auto get_dependencies(
     ) const -> std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> const& {
         return m_dependencies;
     }
 
+    auto reset_ids() -> void {
+        absl::flat_hash_map<boost::uuids::uuid, boost::uuids::uuid> new_id_map;
+        boost::uuids::random_generator gen;
+        for (auto const& [old_id, task] : m_tasks) {
+            boost::uuids::uuid new_id = gen();
+            new_id_map.emplace(old_id, new_id);
+        }
+        // Replace all id in task map and task
+        absl::flat_hash_map<boost::uuids::uuid, Task> new_tasks;
+        for (auto& [old_id, task] : m_tasks) {
+            boost::uuids::uuid new_id = new_id_map.at(old_id);
+            task.set_id(new_id);
+            for (size_t i = 0; i < task.get_num_inputs(); i++) {
+                TaskInput& input = task.get_input_ref(i);
+                std::optional<std::tuple<boost::uuids::uuid, uint8_t>> const& optional_task_output
+                        = input.get_task_output();
+                if (optional_task_output.has_value()) {
+                    boost::uuids::uuid task_id = std::get<0>(optional_task_output.value());
+                    input.set_output(
+                            new_id_map.at(task_id),
+                            std::get<1>(optional_task_output.value())
+                    );
+                }
+            }
+            new_tasks.emplace(new_id, std::move(task));
+        }
+        m_tasks = std::move(new_tasks);
+
+        // Replace all id in dependencies
+        for (size_t i = 0; i < m_dependencies.size(); i++) {
+            m_dependencies[i].first = new_id_map.at(m_dependencies[i].first);
+            m_dependencies[i].second = new_id_map.at(m_dependencies[i].second);
+        }
+
+        // Replace all id in input and output tasks
+        for (size_t i = 0; i < m_input_tasks.size(); i++) {
+            m_input_tasks[i] = new_id_map.at(m_input_tasks[i]);
+        }
+        for (size_t i = 0; i < m_output_tasks.size(); i++) {
+            m_output_tasks[i] = new_id_map.at(m_output_tasks[i]);
+        }
+    }
+
 private:
     absl::flat_hash_map<boost::uuids::uuid, Task> m_tasks;
     std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> m_dependencies;
+
+    std::vector<boost::uuids::uuid> m_input_tasks;
+    std::vector<boost::uuids::uuid> m_output_tasks;
 };
 }  // namespace spider::core
 

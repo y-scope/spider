@@ -22,6 +22,7 @@ namespace core {
 class Data;
 class DataStorage;
 class DataImpl;
+class TaskGraphImpl;
 }  // namespace core
 class Driver;
 class TaskContext;
@@ -163,6 +164,7 @@ private:
     std::shared_ptr<core::DataStorage> m_data_store;
 
     friend class core::DataImpl;
+    friend class core::TaskGraphImpl;
 };
 }  // namespace spider
 

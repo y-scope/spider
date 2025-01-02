@@ -124,7 +124,6 @@ target_link_libraries(
 
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Driver.cpp
-    core/TaskGraphImpl.cpp
     CACHE INTERNAL
     "spider client shared source files"
 )

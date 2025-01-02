@@ -9,6 +9,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "Data.hpp"
@@ -111,7 +112,16 @@ public:
             RunnableOrTaskIo... Inputs,
             TaskIo... GraphParams>
     auto bind(TaskFunction<ReturnType, TaskParams...> const& task, Inputs&&... inputs)
-            -> TaskGraph<ReturnType(GraphParams...)>;
+            -> TaskGraph<ReturnType(GraphParams...)> {
+        std::optional<core::TaskGraphImpl> optional_graph
+                = core::TaskGraphImpl::bind(task, std::forward<Inputs>(inputs)...);
+        if (!optional_graph.has_value()) {
+            throw std::invalid_argument("Failed to bind inputs to task.");
+        }
+        std::unique_ptr<core::TaskGraphImpl> graph
+                = std::make_unique<core::TaskGraphImpl>(std::move(optional_graph.value()));
+        return TaskGraph<ReturnType(GraphParams...)>{graph};
+    }
 
     /**
      * Starts running a task with the given inputs on Spider.

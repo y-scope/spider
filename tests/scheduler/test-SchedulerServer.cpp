@@ -72,6 +72,8 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_task(parent_task);
     graph.add_task(child_task);
     graph.add_dependency(parent_task.get_id(), child_task.get_id());
+    graph.add_input_task(parent_task.get_id());
+    graph.add_output_task(child_task.get_id());
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
     REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
