@@ -30,9 +30,12 @@ mkdir -p $temp_dir
 cd $temp_dir
 
 # Download source
+echo "Downloading boost source..."
 tar_filename=boost_${version_with_underscores}.tar.gz
 curl -fsSL https://archives.boost.io/release/${version}/source/${tar_file} -o ${tar_filename}
+echo "Extracting boost source..."
 tar xzf ${tar_filename}
+echo "Extracted boost source"
 cd boost_${version_with_underscores}
 
 # Build
