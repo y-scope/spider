@@ -33,8 +33,11 @@ public:
             if (fail) {
                 return;
             }
-            using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
-            if constexpr (cIsSpecializationV<InputType, TaskFunction>) {
+            using InputType
+                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Inputs...>>>;
+            if constexpr (std::is_pointer_v<InputType>
+                          && std::is_function_v<std::remove_pointer_t<InputType>>)
+            {
                 std::optional<Task> optional_parent = add_task_input(
                         task,
                         std::get<i.cValue>(std::forward_as_tuple(inputs...)),
@@ -47,8 +50,7 @@ public:
                 graph.m_graph.add_input_task(optional_parent.value().get_id());
             } else if constexpr (cIsSpecializationV<InputType, spider::TaskGraph>) {
                 TaskGraph parent_graph
-                        = (*std::get<i.cValue>(std::forward_as_tuple(inputs...)).get_impl())
-                                  .m_graph;
+                        = std::get<i.cValue>(std::forward_as_tuple(inputs...)).get_impl().m_graph;
                 parent_graph.reset_ids();
                 if (!add_graph_input(task, parent_graph, position)) {
                     fail = true;
@@ -73,7 +75,7 @@ public:
                     input.set_data_id(std::get<i.cValue>(std::forward_as_tuple(inputs...))
                                               .get_impl()
                                               ->get_id());
-                } else {
+                } else if constexpr (Serializable<InputType>) {
                     msgpack::sbuffer buffer;
                     msgpack::pack(buffer, std::get<i.cValue>(std::forward_as_tuple(inputs...)));
                     std::string const value(buffer.data(), buffer.size());

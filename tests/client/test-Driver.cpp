@@ -36,17 +36,29 @@ auto sum(spider::TaskContext&, int x, int y) -> int {
     return x + y;
 }
 
+auto test_driver(spider::TaskContext&, spider::Data<int>& x) -> int {
+    return x.get();
+}
+
 SPIDER_REGISTER_TASK(sum);
+SPIDER_REGISTER_TASK(test_driver);
 
 TEST_CASE("Driver bind task", "[client][storage]") {
     spider::Driver driver{spider::test::cStorageUrl};
 
     spider::TaskGraph<int, int, int> graph_1 = driver.bind(&sum, &sum, 0);
-    spider::Data<int> data = driver.get_data_builder<int>().build(1);
-    spider::TaskGraph<int, int, int> graph_2 = driver.bind(&sum, &sum, data);
     spider::TaskGraph<int, int, int, int, int> graph_3 = driver.bind(&sum, &sum, &sum);
-    spider::TaskGraph<int, int, int, int, int> graph_4 = driver.bind(&sum, graph_1, graph_2);
+    spider::TaskGraph<int, int, int, int, int> graph_4 = driver.bind(&sum, graph_1, graph_1);
 }
+
+TEST_CASE("Driver bind task with data", "[client][storage]") {
+    spider::Driver driver{spider::test::cStorageUrl};
+
+    spider::Data<int> data = driver.get_data_builder<int>().build(5);
+    spider::TaskGraph<int> graph_1 = driver.bind(&test_driver, data);
+    spider::TaskGraph<int, int, int> graph_2 = driver.bind(&sum, &sum, graph_1);
+}
+
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
