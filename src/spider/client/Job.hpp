@@ -6,6 +6,8 @@
 #include <string>
 #include <utility>
 
+#include <boost/uuid/uuid.hpp>
+
 #include "task.hpp"
 
 namespace spider {
@@ -78,7 +80,7 @@ private:
     Job(boost::uuids::uuid id,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
         std::shared_ptr<core::DataStorage> data_storage)
-            : m_id{std::move(id)},
+            : m_id{id},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)} {}
 

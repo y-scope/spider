@@ -1,11 +1,13 @@
 #ifndef SPIDER_CORE_TASKGRAPHIMPL_HPP
 #define SPIDER_CORE_TASKGRAPHIMPL_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -106,8 +108,9 @@ public:
 
     // NOLINTEND(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
 
+    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
     template <TaskIo... Params>
-    auto task_add_input(Task& task, Params&&... params) -> bool {
+    static auto task_add_input(Task& task, Params&&... params) -> bool {
         if (task.get_num_inputs() != sizeof...(Params)) {
             return false;
         }
@@ -176,6 +179,8 @@ public:
         // Check all inputs are consumed
         return input_task_index == input_task_ids.size() && task_input_index == 0;
     }
+
+    // NOLINTEND(cppcoreguidelines-missing-std-forward)
 
     auto reset_ids() -> void { m_graph.reset_ids(); }
 

@@ -17,6 +17,7 @@
 #include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "Data.hpp"
+#include "Exception.hpp"
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"
@@ -144,7 +145,7 @@ public:
             throw std::invalid_argument("Failed to create task.");
         }
         core::Task const& new_task = optional_task.value();
-        if (!core::TaskGraphImpl::task_add_input(new_task, inputs...)) {
+        if (!core::TaskGraphImpl::task_add_input(new_task, std::forward<Params>(inputs)...)) {
             throw std::invalid_argument("Failed to add inputs to task.");
         }
         boost::uuids::random_generator gen;
