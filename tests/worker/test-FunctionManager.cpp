@@ -14,7 +14,6 @@
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
-#include "../../src/spider/core/TaskGraphImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../storage/StorageTestHelper.hpp"

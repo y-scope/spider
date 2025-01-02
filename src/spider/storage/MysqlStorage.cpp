@@ -486,7 +486,7 @@ auto MySqlMetadataStorage::add_job(
         }
 
         // Tasks must be added in graph order to avoid the dangling reference.
-        std::vector<boost::uuids::uuid> inputs = task_graph.get_input_tasks();
+        std::vector<boost::uuids::uuid> const& inputs = task_graph.get_input_tasks();
         absl::flat_hash_set<boost::uuids::uuid> heads;
         for (boost::uuids::uuid const task_id : inputs) {
             heads.insert(task_id);

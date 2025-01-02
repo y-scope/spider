@@ -387,6 +387,7 @@ public:
         if (m_function_map.contains(name)) {
             return false;
         }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         m_name_map.emplace(reinterpret_cast<void*>(f), name);
         return m_function_map
                 .emplace(

@@ -11,7 +11,6 @@
 
 #include "../client/Data.hpp"
 #include "../client/task.hpp"
-#include "../client/TaskContext.hpp"
 #include "../client/type_utils.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"

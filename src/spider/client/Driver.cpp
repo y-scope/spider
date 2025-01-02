@@ -1,5 +1,6 @@
 #include "Driver.hpp"
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <stop_token>
