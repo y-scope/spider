@@ -30,7 +30,7 @@ mkdir -p $temp_dir
 cd $temp_dir
 
 # Download source
-boost_source_dir=/boost_${version_with_underscores}
+boost_source_dir=boost_${version_with_underscores}
 git clone https://github.com/boostorg/boost.git ${boost_source_dir}
 cd ${boost_source_dir}
 git checkout boost-${version}
