@@ -34,6 +34,7 @@ boost_source_dir=boost_${version_with_underscores}
 git clone https://github.com/boostorg/boost.git ${boost_source_dir}
 cd ${boost_source_dir}
 git checkout boost-${version}
+git submodule update --init --recursive
 
 # Build
 ./bootstrap.sh --with-libraries=filesystem,iostreams,process,program_options,regex,system
