@@ -95,6 +95,9 @@ public:
             case core::JobStatus::Cancelled:
                 return JobStatus::Cancelled;
         }
+        throw ConnectionException{
+                fmt::format("Unknown job status: {}", static_cast<uint8_t>(status))
+        };
     }
 
     /**

@@ -151,6 +151,7 @@ target_sources(spider_client PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
 target_link_libraries(
     spider_client
     PUBLIC
+        spider_core
         Boost::boost
         absl::flat_hash_map
 )

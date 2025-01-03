@@ -4,12 +4,12 @@
 #include "../../src/spider/client/Driver.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
 
-auto sum_test(spider::TaskContext const& /*context*/, int const x, int const y) -> int;
+auto sum_test(spider::TaskContext& /*context*/, int const x, int const y) -> int;
 
-auto error_test(spider::TaskContext const& /*context*/, int const /*x*/) -> int;
+auto error_test(spider::TaskContext& /*context*/, int const /*x*/) -> int;
 
-auto data_test(spider::TaskContext const& /*context*/, spider::Data<int>& data) -> int;
+auto data_test(spider::TaskContext& /*context*/, spider::Data<int>& data) -> int;
 
-auto random_fail_test(spider::TaskContext const& /*context*/, int fail_rate) -> int;
+auto random_fail_test(spider::TaskContext& /*context*/, int fail_rate) -> int;
 
 #endif

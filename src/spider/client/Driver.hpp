@@ -132,20 +132,37 @@ public:
      *
      * @tparam ReturnType
      * @tparam Params
+     * @tparam Inputs
      * @param task
      * @param inputs
      * @return A job representing the running task.
      * @throw spider::ConnectionException
      */
-    template <TaskIo ReturnType, TaskIo... Params>
+    template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
     auto
-    start(TaskFunction<ReturnType, Params...> const& task, Params&&... inputs) -> Job<ReturnType> {
+    start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs) -> Job<ReturnType> {
+        // Check input type
+        static_assert(
+                sizeof...(Inputs) == sizeof...(Params),
+                "Number of inputs must match number of parameters."
+        );
+        for_n<sizeof...(Inputs)>([&](auto i) {
+            using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
+            using ParamType = std::tuple_element_t<i.cValue, std::tuple<Params...>>;
+            if constexpr (!std::is_same_v<
+                                  std::remove_cvref_t<InputType>,
+                                  std::remove_cvref_t<ParamType>>)
+            {
+                throw std::invalid_argument("Input type does not match parameter type.");
+            }
+        });
+
         std::optional<core::Task> optional_task = core::TaskGraphImpl::create_task(task);
         if (!optional_task.has_value()) {
             throw std::invalid_argument("Failed to create task.");
         }
-        core::Task const& new_task = optional_task.value();
-        if (!core::TaskGraphImpl::task_add_input(new_task, std::forward<Params>(inputs)...)) {
+        core::Task& new_task = optional_task.value();
+        if (!core::TaskGraphImpl::task_add_input(new_task, std::forward<Inputs>(inputs)...)) {
             throw std::invalid_argument("Failed to add inputs to task.");
         }
         boost::uuids::random_generator gen;
@@ -167,15 +184,32 @@ public:
      *
      * @tparam ReturnType
      * @tparam Params
+     * @tparam Inputs
      * @param graph
      * @param inputs
      * @return A job representing the running task graph.
      * @throw spider::ConnectionException
      */
-    template <TaskIo ReturnType, TaskIo... Params>
+    template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
     auto
-    start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType> {
-        if (!graph.m_impl->add_inputs(std::forward<Params>(inputs)...)) {
+    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+        // Check input type
+        static_assert(
+                sizeof...(Inputs) == sizeof...(Params),
+                "Number of inputs must match number of parameters."
+        );
+        for_n<sizeof...(Inputs)>([&](auto i) {
+            using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
+            using ParamType = std::tuple_element_t<i.cValue, std::tuple<Params...>>;
+            if constexpr (!std::is_same_v<
+                                  std::remove_cvref_t<InputType>,
+                                  std::remove_cvref_t<ParamType>>)
+            {
+                throw std::invalid_argument("Input type does not match parameter type.");
+            }
+        });
+
+        if (!graph.m_impl->add_inputs(std::forward<Inputs>(inputs)...)) {
             throw std::invalid_argument("Failed to add inputs to task graph.");
         }
         // Reset ids in case the same graph is submitted before

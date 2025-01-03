@@ -108,85 +108,6 @@ public:
 
     // NOLINTEND(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
 
-    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
-    template <TaskIo... Params>
-    static auto task_add_input(Task& task, Params&&... params) -> bool {
-        if (task.get_num_inputs() != sizeof...(Params)) {
-            return false;
-        }
-        for_n<sizeof...(Params)>([&](auto i) {
-            using ParamType
-                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
-            ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
-            TaskInput& task_input = task.get_input_ref(i.cValue);
-            // Check type match
-            if (task_input.get_type() != typeid(ParamType).name()) {
-                return false;
-            }
-            if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
-                task_input.set_data_id(param.get_impl()->get_id());
-            } else if constexpr (Serializable<ParamType>) {
-                msgpack::sbuffer buffer;
-                msgpack::pack(buffer, param);
-                std::string const value(buffer.data(), buffer.size());
-                task_input.set_value(value);
-            }
-        });
-        return true;
-    }
-
-    template <TaskIo... Params>
-    auto add_inputs(Params&&... params) -> bool {
-        size_t input_task_index = 0;
-        size_t task_input_index = 0;
-
-        std::vector<boost::uuids::uuid> const& input_task_ids = m_graph.get_input_tasks();
-        for_n<sizeof...(Params)>([&](auto i) {
-            using ParamType
-                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
-            ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
-            if (input_task_index >= input_task_ids.size()) {
-                return false;
-            }
-            boost::uuids::uuid const& input_task_id = input_task_ids[input_task_index];
-            std::optional<Task*> optional_input_task = m_graph.get_task(input_task_id);
-            if (!optional_input_task.has_value()) {
-                return false;
-            }
-            Task& input_task = *optional_input_task.value();
-            if (task_input_index >= input_task.get_num_inputs()) {
-                return false;
-            }
-            TaskInput& task_input = input_task.get_input_ref(task_input_index);
-            task_input_index++;
-            if (task_input_index >= input_task.get_num_inputs()) {
-                input_task_index++;
-                task_input_index = 0;
-            }
-            // Check type
-            if (task_input.get_type() != typeid(ParamType).name()) {
-                return false;
-            }
-            if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
-                task_input.set_data_id(param.get_impl()->get_id());
-            } else if constexpr (Serializable<ParamType>) {
-                msgpack::sbuffer buffer;
-                msgpack::pack(buffer, param);
-                std::string const value(buffer.data(), buffer.size());
-                task_input.set_value(value);
-            }
-        });
-        // Check all inputs are consumed
-        return input_task_index == input_task_ids.size() && task_input_index == 0;
-    }
-
-    // NOLINTEND(cppcoreguidelines-missing-std-forward)
-
-    auto reset_ids() -> void { m_graph.reset_ids(); }
-
-    auto get_graph() -> TaskGraph& { return m_graph; }
-
-private:
     template <TaskIo ReturnType, TaskIo... TaskParams>
     static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function
     ) -> std::optional<Task> {
@@ -214,6 +135,101 @@ private:
         return task;
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
+    template <TaskIo... Params>
+    static auto task_add_input(Task& task, Params&&... params) -> bool {
+        if (task.get_num_inputs() != sizeof...(Params)) {
+            return false;
+        }
+        bool fail = false;
+        for_n<sizeof...(Params)>([&](auto i) {
+            if (fail) {
+                return;
+            }
+            using ParamType
+                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
+            ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
+            TaskInput& task_input = task.get_input_ref(i.cValue);
+            // Check type match
+            if (task_input.get_type() != typeid(ParamType).name()) {
+                fail = true;
+                return;
+            }
+            if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
+                task_input.set_data_id(param.get_impl()->get_id());
+            } else if constexpr (Serializable<ParamType>) {
+                msgpack::sbuffer buffer;
+                msgpack::pack(buffer, param);
+                std::string const value(buffer.data(), buffer.size());
+                task_input.set_value(value);
+            }
+        });
+        return !fail;
+    }
+
+    template <TaskIo... Params>
+    auto add_inputs(Params&&... params) -> bool {
+        size_t input_task_index = 0;
+        size_t task_input_index = 0;
+
+        std::vector<boost::uuids::uuid> const& input_task_ids = m_graph.get_input_tasks();
+        bool fail = false;
+        for_n<sizeof...(Params)>([&](auto i) {
+            if (fail) {
+                return;
+            }
+            using ParamType
+                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
+            ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
+            if (input_task_index >= input_task_ids.size()) {
+                fail = true;
+                return;
+            }
+            boost::uuids::uuid const& input_task_id = input_task_ids[input_task_index];
+            std::optional<Task*> optional_input_task = m_graph.get_task(input_task_id);
+            if (!optional_input_task.has_value()) {
+                fail = true;
+                return;
+            }
+            Task& input_task = *optional_input_task.value();
+            if (task_input_index >= input_task.get_num_inputs()) {
+                fail = true;
+                return;
+            }
+            TaskInput& task_input = input_task.get_input_ref(task_input_index);
+            task_input_index++;
+            if (task_input_index >= input_task.get_num_inputs()) {
+                input_task_index++;
+                task_input_index = 0;
+            }
+            // Check type
+            if (task_input.get_type() != typeid(ParamType).name()) {
+                fail = true;
+                return;
+            }
+            if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
+                task_input.set_data_id(param.get_impl()->get_id());
+            } else if constexpr (Serializable<ParamType>) {
+                msgpack::sbuffer buffer;
+                msgpack::pack(buffer, param);
+                std::string const value(buffer.data(), buffer.size());
+                task_input.set_value(value);
+            }
+        });
+        if (fail) {
+            return false;
+        }
+        // Check all inputs are consumed
+        return input_task_index == input_task_ids.size() && task_input_index == 0;
+    }
+
+    // NOLINTEND(cppcoreguidelines-missing-std-forward)
+
+    auto reset_ids() -> void { m_graph.reset_ids(); }
+
+    auto get_graph() -> TaskGraph& { return m_graph; }
+
+private:
     template <class ReturnType, class... TaskParams>
     static auto add_task_input(
             Task& task,
