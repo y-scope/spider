@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
-#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>

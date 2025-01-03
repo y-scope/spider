@@ -1,5 +1,6 @@
 #include "MysqlStorage.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -490,6 +491,7 @@ void MySqlMetadataStorage::add_task(sql::bytes job_id, Task const& task) {
     }
 }
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 auto MySqlMetadataStorage::add_job(
         boost::uuids::uuid job_id,
         boost::uuids::uuid client_id,
@@ -622,6 +624,8 @@ auto MySqlMetadataStorage::add_job(
     m_conn->commit();
     return StorageErr{};
 }
+
+// NOLINTEND(readability-function-cognitive-complexity)
 
 namespace {
 

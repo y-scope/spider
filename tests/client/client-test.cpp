@@ -1,3 +1,5 @@
+#include <string>
+
 #include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
 #include <boost/program_options/options_description.hpp>
@@ -7,6 +9,10 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
+#include "../../src/spider/client/Data.hpp"
+#include "../../src/spider/client/Driver.hpp"
+#include "../../src/spider/client/Job.hpp"
+#include "../../src/spider/client/TaskGraph.hpp"
 #include "../worker/worker-test.hpp"
 
 namespace {
@@ -34,6 +40,7 @@ constexpr int cJobFailed = 2;
 
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
@@ -61,8 +68,8 @@ auto main(int argc, char** argv) -> int {
     spdlog::debug("Driver created");
 
     // Run a complicated graph that should succeed
-    spider::TaskGraph left = driver.bind(&sum_test, &data_test, &data_test);
-    spider::TaskGraph graph = driver.bind(&sum_test, left, &sum_test);
+    spider::TaskGraph const left = driver.bind(&sum_test, &data_test, &data_test);
+    spider::TaskGraph const graph = driver.bind(&sum_test, left, &sum_test);
     spdlog::debug("Graph created");
     spider::Data<int> d1 = driver.get_data_builder<int>().build(1);
     spider::Data<int> d2 = driver.get_data_builder<int>().build(2);
@@ -75,7 +82,8 @@ auto main(int argc, char** argv) -> int {
         spdlog::error("Job failed");
         return cJobFailed;
     }
-    if (job.get_result() != 10) {
+    constexpr int cExpectedResult = 10;
+    if (job.get_result() != cExpectedResult) {
         spdlog::error("Wrong job result. Get {}. Expect 10", job.get_result());
         return cJobFailed;
     }
@@ -91,8 +99,8 @@ auto main(int argc, char** argv) -> int {
     }
 
     // Run random fail job
-    constexpr int fail_rate = 5;
-    spider::Job random_fail_job = driver.start(&random_fail_test, fail_rate);
+    constexpr int cFailRate = 5;
+    spider::Job random_fail_job = driver.start(&random_fail_test, cFailRate);
     spdlog::debug("Random fail job started");
     random_fail_job.wait_complete();
     spdlog::debug("Random fail job completed");

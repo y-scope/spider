@@ -4,6 +4,7 @@
 #include <random>
 #include <stdexcept>
 
+#include "../../src/spider/client/Data.hpp"
 #include "../../src/spider/client/Driver.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
 

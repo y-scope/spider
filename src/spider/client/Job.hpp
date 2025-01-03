@@ -2,18 +2,25 @@
 #define SPIDER_CLIENT_JOB_HPP
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 #include <boost/uuid/uuid.hpp>
+#include <fmt/format.h>
 
 #include "../core/DataImpl.hpp"
+#include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
+#include "Data.hpp"
 #include "task.hpp"
 #include "type_utils.hpp"
 
@@ -22,6 +29,8 @@ namespace core {
 class Data;
 class DataStorage;
 class MetadataStorage;
+class Task;
+class TaskOutput;
 }  // namespace core
 class Driver;
 
@@ -58,7 +67,8 @@ public:
             };
         }
         while (!complete) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            constexpr int cSleepMs = 10;
+            std::this_thread::sleep_for(std::chrono::milliseconds(cSleepMs));
             err = m_metadata_storage->get_job_complete(m_id, &complete);
             if (!err.success()) {
                 throw ConnectionException{
@@ -80,7 +90,7 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_status() -> JobStatus {
-        core::JobStatus status;
+        core::JobStatus status = core::JobStatus::Running;
         core::StorageErr const err = m_metadata_storage->get_job_status(m_id, &status);
         if (!err.success()) {
             throw ConnectionException{fmt::format("Failed to get job status: {}", err.description)};
@@ -100,6 +110,7 @@ public:
         };
     }
 
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
     /**
      * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeeded`
      * state.
@@ -230,6 +241,8 @@ public:
             }
         }
     }
+
+    // NOLINTEND(readability-function-cognitive-complexity)
 
     /**
      * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`

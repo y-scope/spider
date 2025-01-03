@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <type_traits>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
