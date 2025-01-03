@@ -6,7 +6,6 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../client/Job.hpp"
 #include "../core/Driver.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"

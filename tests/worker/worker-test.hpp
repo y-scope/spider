@@ -1,12 +1,13 @@
+#ifndef SPIDER_TEST_WORKER_TEST_HPP
+#define SPIDER_TEST_WORKER_TEST_HPP
+
 #include <iostream>
 #include <random>
 #include <stdexcept>
 
-#include "../../src/spider/client/Data.hpp"
+#include "../../src/spider/client/Driver.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
-#include "../../src/spider/worker/FunctionManager.hpp"
 
-namespace {
 auto sum_test(spider::TaskContext const& /*context*/, int const x, int const y) -> int {
     std::cerr << x << " + " << y << " = " << x + y << "\n";
     return x + y;
@@ -33,11 +34,12 @@ auto random_fail_test(spider::TaskContext const& /*context*/, int fail_rate) -> 
     }
     return 0;
 }
-}  // namespace
 
 // NOLINTBEGIN(cert-err58-cpp)
-SPIDER_WORKER_REGISTER_TASK(sum_test);
-SPIDER_WORKER_REGISTER_TASK(error_test);
-SPIDER_WORKER_REGISTER_TASK(data_test);
-SPIDER_WORKER_REGISTER_TASK(random_fail_test);
+SPIDER_REGISTER_TASK(sum_test);
+SPIDER_REGISTER_TASK(error_test);
+SPIDER_REGISTER_TASK(data_test);
+SPIDER_REGISTER_TASK(random_fail_test);
 // NOLINTEND(cert-err58-cpp)
+
+#endif

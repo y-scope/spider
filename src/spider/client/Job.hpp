@@ -11,6 +11,7 @@
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/DataImpl.hpp"
+#include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
 #include "task.hpp"
@@ -79,12 +80,21 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_status() -> JobStatus {
-        JobStatus status;
+        core::JobStatus status;
         core::StorageErr const err = m_metadata_storage->get_job_status(m_id, &status);
         if (!err.success()) {
             throw ConnectionException{fmt::format("Failed to get job status: {}", err.description)};
         }
-        return status;
+        switch (status) {
+            case core::JobStatus::Running:
+                return JobStatus::Running;
+            case core::JobStatus::Succeeded:
+                return JobStatus::Succeeded;
+            case core::JobStatus::Failed:
+                return JobStatus::Failed;
+            case core::JobStatus::Cancelled:
+                return JobStatus::Cancelled;
+        }
     }
 
     /**

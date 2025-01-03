@@ -30,7 +30,6 @@
 #include <mariadb/conncpp/Types.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../client/Job.hpp"
 #include "../core/Data.hpp"
 #include "../core/Driver.hpp"
 #include "../core/Error.hpp"

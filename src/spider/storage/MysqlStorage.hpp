@@ -10,7 +10,6 @@
 #include <mariadb/conncpp/Connection.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 
-#include "../client/Job.hpp"
 #include "../core/Data.hpp"
 #include "../core/Driver.hpp"
 #include "../core/Error.hpp"

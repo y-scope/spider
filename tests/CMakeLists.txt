@@ -51,12 +51,23 @@ target_link_libraries(
 add_dependencies(unitTest worker_test)
 
 add_library(worker_test SHARED)
-target_sources(worker_test PRIVATE worker/worker-test.cpp)
+target_sources(worker_test PUBLIC worker/worker-test.hpp)
 target_link_libraries(
     worker_test
     PRIVATE
         spider_core
         spider_client_lib
+)
+
+add_executable(client_test)
+target_sources(client_test PRIVATE client/client-test.cpp)
+target_link_libraries(
+    client_test
+    PRIVATE
+        spider_core
+        spider_client_lib
+        spider_client
+        worker_test
 )
 
 add_custom_target(integrationTest ALL)
