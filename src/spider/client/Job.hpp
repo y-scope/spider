@@ -33,6 +33,7 @@ class Task;
 class TaskOutput;
 }  // namespace core
 class Driver;
+class TaskContext;
 
 // TODO: Use std::expected or Boost's outcome so that the user can get the result of the job in one
 // call rather than the current error-prone approach which requires that the user check the job's
@@ -150,10 +151,10 @@ public:
                     throw ConnectionException{fmt::format("Not enough outputs for task")};
                 }
                 core::TaskOutput const& output = task.get_output(output_index);
-                if (output.get_type() != typeid(T).name()) {
-                    throw ConnectionException{fmt::format("Output type mismatch")};
-                }
                 if constexpr (cIsSpecializationV<T, Data>) {
+                    if (output.get_type() != typeid(core::Data).name()) {
+                        throw ConnectionException{fmt::format("Output type mismatch")};
+                    }
                     using DataType = ExtractTemplateParamT<T>;
                     core::Data data;
                     std::optional<boost::uuids::uuid> const optional_data_id = output.get_data_id();
@@ -171,6 +172,9 @@ public:
                             m_data_storage
                     );
                 } else {
+                    if (output.get_type() != typeid(T).name()) {
+                        throw ConnectionException{fmt::format("Output type mismatch")};
+                    }
                     std::optional<std::string> const optional_value = output.get_value();
                     if (!optional_value.has_value()) {
                         throw ConnectionException{fmt::format("Output value is missing")};
@@ -205,10 +209,10 @@ public:
                 throw ConnectionException{fmt::format("Expected one output for task")};
             }
             core::TaskOutput const& output = task.get_output(0);
-            if (output.get_type() != typeid(ReturnType).name()) {
-                throw ConnectionException{fmt::format("Output type mismatch")};
-            }
             if constexpr (cIsSpecializationV<ReturnType, Data>) {
+                if (output.get_type() != typeid(core::Data).name()) {
+                    throw ConnectionException{fmt::format("Output type mismatch")};
+                }
                 using DataType = ExtractTemplateParamT<ReturnType>;
                 core::Data data;
                 std::optional<boost::uuids::uuid> const optional_data_id = output.get_data_id();
@@ -225,6 +229,9 @@ public:
                         m_data_storage
                 );
             } else {
+                if (output.get_type() != typeid(ReturnType).name()) {
+                    throw ConnectionException{fmt::format("Output type mismatch")};
+                }
                 std::optional<std::string> const optional_value = output.get_value();
                 if (!optional_value.has_value()) {
                     throw ConnectionException{fmt::format("Output value is missing")};
@@ -268,6 +275,7 @@ private:
     std::shared_ptr<core::DataStorage> m_data_storage;
 
     friend class Driver;
+    friend class TaskContext;
 };
 }  // namespace spider
 

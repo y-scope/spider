@@ -21,6 +21,7 @@
 #include "../worker/FunctionNameManager.hpp"
 
 namespace spider::core {
+class Data;
 
 class TaskGraphImpl {
 public:
@@ -86,16 +87,19 @@ public:
                 }
                 TaskInput& input = task.get_input_ref(position);
                 position++;
-                // Check type match
-                if (input.get_type() != typeid(InputType).name()) {
-                    fail = true;
-                    return;
-                }
                 if constexpr (cIsSpecializationV<InputType, spider::Data>) {
+                    if (input.get_type() != typeid(spider::core::Data).name()) {
+                        fail = true;
+                        return;
+                    }
                     input.set_data_id(std::get<i.cValue>(std::forward_as_tuple(inputs...))
                                               .get_impl()
                                               ->get_id());
                 } else if constexpr (Serializable<InputType>) {
+                    if (input.get_type() != typeid(InputType).name()) {
+                        fail = true;
+                        return;
+                    }
                     msgpack::sbuffer buffer;
                     msgpack::pack(buffer, std::get<i.cValue>(std::forward_as_tuple(inputs...)));
                     std::string const value(buffer.data(), buffer.size());
@@ -133,15 +137,31 @@ public:
         }
         Task task{function_name.value()};
         // Add task inputs
-        ((task.add_input(TaskInput{typeid(TaskParams).name()})), ...);
+        for_n<sizeof...(TaskParams)>([&](auto i) {
+            using T = std::remove_cvref_t<
+                    std::tuple_element_t<i.cValue, std::tuple<TaskParams...>>>;
+            if constexpr (cIsSpecializationV<T, spider::Data>) {
+                task.add_input(TaskInput{typeid(spider::core::Data).name()});
+            } else {
+                task.add_input(TaskInput{typeid(T).name()});
+            }
+        });
         // Add task outputs
         if constexpr (cIsSpecializationV<ReturnType, std::tuple>) {
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
-                task.add_output(TaskOutput{typeid(std::tuple_element_t<i.cValue, ReturnType>).name()
-                });
+                using T = std::remove_cvref_t<std::tuple_element_t<i.cValue, ReturnType>>;
+                if constexpr (cIsSpecializationV<T, spider::Data>) {
+                    task.add_output(TaskOutput{typeid(spider::core::Data).name()});
+                } else {
+                    task.add_output(TaskOutput{typeid(T).name()});
+                }
             });
         } else {
-            task.add_output(TaskOutput{typeid(ReturnType).name()});
+            if constexpr (cIsSpecializationV<ReturnType, spider::Data>) {
+                task.add_output(TaskOutput{typeid(spider::core::Data).name()});
+            } else {
+                task.add_output(TaskOutput{typeid(ReturnType).name()});
+            }
         }
         return task;
     }
@@ -161,14 +181,18 @@ public:
                     = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
             ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
             TaskInput& task_input = task.get_input_ref(i.cValue);
-            // Check type match
-            if (task_input.get_type() != typeid(ParamType).name()) {
-                fail = true;
-                return;
-            }
+
             if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
+                if (task_input.get_type() != typeid(spider::core::Data).name()) {
+                    fail = true;
+                    return;
+                }
                 task_input.set_data_id(param.get_impl()->get_id());
             } else if constexpr (Serializable<ParamType>) {
+                if (task_input.get_type() != typeid(ParamType).name()) {
+                    fail = true;
+                    return;
+                }
                 msgpack::sbuffer buffer;
                 msgpack::pack(buffer, param);
                 std::string const value(buffer.data(), buffer.size());
@@ -213,14 +237,18 @@ public:
                 input_task_index++;
                 task_input_index = 0;
             }
-            // Check type
-            if (task_input.get_type() != typeid(ParamType).name()) {
-                fail = true;
-                return;
-            }
+
             if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
+                if (task_input.get_type() != typeid(spider::core::Data).name()) {
+                    fail = true;
+                    return;
+                }
                 task_input.set_data_id(param.get_impl()->get_id());
             } else if constexpr (Serializable<ParamType>) {
+                if (task_input.get_type() != typeid(ParamType).name()) {
+                    fail = true;
+                    return;
+                }
                 msgpack::sbuffer buffer;
                 msgpack::pack(buffer, param);
                 std::string const value(buffer.data(), buffer.size());

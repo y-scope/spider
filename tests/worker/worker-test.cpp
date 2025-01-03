@@ -7,6 +7,7 @@
 #include "../../src/spider/client/Data.hpp"
 #include "../../src/spider/client/Driver.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
+#include "../../src/spider/client/TaskGraph.hpp"
 
 auto sum_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
     std::cerr << x << " + " << y << " = " << x + y << "\n";
@@ -35,9 +36,26 @@ auto random_fail_test(spider::TaskContext& /*context*/, int fail_rate) -> int {
     return 0;
 }
 
+auto create_data_test(spider::TaskContext& context, int x) -> spider::Data<int> {
+    spider::Data<int> data = context.get_data_builder<int>().build(x);
+    return data;
+}
+
+auto create_task_test(spider::TaskContext& context, int x, int y) -> int {
+    spider::TaskGraph const graph = context.bind(&sum_test, 0, &sum_test);
+    spider::Job job = context.start(graph, x, y);
+    job.wait_complete();
+    if (job.get_status() != spider::JobStatus::Succeeded) {
+        throw std::runtime_error("Job failed");
+    }
+    return job.get_result();
+}
+
 // NOLINTBEGIN(cert-err58-cpp)
 SPIDER_REGISTER_TASK(sum_test);
 SPIDER_REGISTER_TASK(error_test);
 SPIDER_REGISTER_TASK(data_test);
 SPIDER_REGISTER_TASK(random_fail_test);
+SPIDER_REGISTER_TASK(create_data_test);
+SPIDER_REGISTER_TASK(create_task_test);
 // NOLINTEND(cert-err58-cpp)

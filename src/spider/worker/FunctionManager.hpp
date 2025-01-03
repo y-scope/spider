@@ -117,7 +117,12 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
             return std::nullopt;
         }
 
-        return std::make_optional(object.via.array.ptr[1].as<T>());
+        if constexpr (cIsSpecializationV<T, spider::Data>) {
+            static_assert("Not implemented");
+            return std::make_optional(object.via.array.ptr[1].as<T>().get_id());
+        } else {
+            return std::make_optional(object.via.array.ptr[1].as<T>());
+        }
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
@@ -144,6 +149,10 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<std::t
 
         std::tuple<Ts...> result;
         for_n<sizeof...(Ts)>([&](auto i) {
+            using T = std::tuple_element_t<i.cValue, std::tuple<Ts...>>;
+            if constexpr (cIsSpecializationV<T, spider::Data>) {
+                static_assert("Not implemented");
+            }
             object.via.array.ptr[i.cValue + 1].convert(std::get<i.cValue>(result));
         });
         return std::make_optional(result);
@@ -191,23 +200,35 @@ inline auto response_get_result_buffers(msgpack::sbuffer const& buffer
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-template <Serializable T>
+template <TaskIo T>
 auto create_result_response(T const& t) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorResponseType::Result);
-    packer.pack(t);
+    if constexpr (cIsSpecializationV<T, spider::Data>) {
+        packer.pack(DataImpl::get_impl(t)->get_id());
+    } else {
+        packer.pack(t);
+    }
     return buffer;
 }
 
-template <Serializable... Values>
+template <TaskIo... Values>
 auto create_result_response(std::tuple<Values...> const& t) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(sizeof...(Values) + 1);
     packer.pack(worker::TaskExecutorResponseType::Result);
-    (..., packer.pack(std::get<Values>(t)));
+    for_n<sizeof...(Values)>([&](auto i) {
+        using T = std::tuple_element_t<i.cValue, std::tuple<Values...>>;
+        if constexpr (cIsSpecializationV<T, spider::Data>) {
+            T const& data = std::get<i.cValue>(t);
+            packer.pack(DataImpl::get_impl(data)->get_id());
+        } else {
+            packer.pack(std::get<i.cValue>(t));
+        }
+    });
     return buffer;
 }
 

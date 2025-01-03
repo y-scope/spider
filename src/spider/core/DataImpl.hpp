@@ -18,7 +18,7 @@ public:
     }
 
     template <class T>
-    static auto get_impl(spider::Data<T> const& data) -> std::shared_ptr<DataStorage> {
+    static auto get_impl(spider::Data<T> const& data) -> std::unique_ptr<Data> const& {
         return data.get_impl();
     }
 };

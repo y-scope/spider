@@ -180,7 +180,7 @@ auto parse_outputs(
                 msgpack::object const obj = handle.get();
                 boost::uuids::uuid data_id;
                 obj.convert(data_id);
-                outputs.emplace_back(data_id, type);
+                outputs.emplace_back(data_id);
             } catch (std::runtime_error const& e) {
                 spdlog::error(
                         "Task {} failed to parse result as data id",

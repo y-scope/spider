@@ -652,7 +652,7 @@ auto fetch_task_input(Task* task, std::unique_ptr<sql::ResultSet> const& res) {
     } else if (!res->isNull(6)) {
         task->add_input(TaskInput(res->getString(6).c_str(), type));
     } else if (!res->isNull(7)) {
-        task->add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
+        task->add_input(TaskInput(read_id(res->getBinaryStream(7))));
     }
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 }
@@ -692,7 +692,7 @@ auto fetch_task_graph_task_input(TaskGraph* task_graph, std::unique_ptr<sql::Res
     } else if (!res->isNull(6)) {
         task->add_input(TaskInput(res->getString(6).c_str(), type));
     } else if (!res->isNull(7)) {
-        task->add_input(TaskInput(read_id(res->getBinaryStream(7)), type));
+        task->add_input(TaskInput(read_id(res->getBinaryStream(7))));
     }
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     return true;

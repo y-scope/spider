@@ -51,7 +51,7 @@ public:
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
-        return DataBuilder{m_data_store, m_task_id, DataBuilder::DataSource::Task};
+        return DataBuilder{m_data_store, m_task_id, DataBuilder::DataSource::TaskContext};
     }
 
     /**
@@ -96,7 +96,7 @@ public:
             RunnableOrTaskIo... Inputs,
             TaskIo... GraphParams>
     auto bind(TaskFunction<ReturnType, TaskParams...> const& task, Inputs&&... inputs)
-            -> TaskGraph<ReturnType(GraphParams...)> {
+            -> TaskGraphType<ReturnType, Inputs...> {
         std::optional<core::TaskGraphImpl> optional_graph
                 = core::TaskGraphImpl::bind(task, std::forward<Inputs>(inputs)...);
         if (!optional_graph.has_value()) {
@@ -173,7 +173,7 @@ public:
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
     auto
-    start(TaskGraph<ReturnType(Params...)> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
