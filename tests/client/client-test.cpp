@@ -58,14 +58,19 @@ auto main(int argc, char** argv) -> int {
 
     // Create driver
     spider::Driver driver{storage_url};
+    spdlog::debug("Driver created");
 
     // Run a complicated graph that should succeed
     spider::TaskGraph left = driver.bind(&sum_test, &data_test, &data_test);
     spider::TaskGraph graph = driver.bind(&sum_test, left, &sum_test);
+    spdlog::debug("Graph created");
     spider::Data<int> d1 = driver.get_data_builder<int>().build(1);
     spider::Data<int> d2 = driver.get_data_builder<int>().build(2);
+    spdlog::debug("Data created");
     spider::Job<int> job = driver.start(graph, d1, d2, 3, 4);
+    spdlog::debug("Job started");
     job.wait_complete();
+    spdlog::debug("Job completed");
     if (job.get_status() != spider::JobStatus::Succeeded) {
         spdlog::error("Job failed");
         return cJobFailed;
@@ -77,7 +82,9 @@ auto main(int argc, char** argv) -> int {
 
     // Run fail job
     spider::Job fail_job = driver.start(&error_test, 1);
+    spdlog::debug("Fail job started");
     fail_job.wait_complete();
+    spdlog::debug("Fail job completed");
     if (fail_job.get_status() != spider::JobStatus::Failed) {
         spdlog::error("Job should fail");
         return cJobFailed;
@@ -86,7 +93,9 @@ auto main(int argc, char** argv) -> int {
     // Run random fail job
     constexpr int fail_rate = 5;
     spider::Job random_fail_job = driver.start(&random_fail_test, fail_rate);
+    spdlog::debug("Random fail job started");
     random_fail_job.wait_complete();
+    spdlog::debug("Random fail job completed");
     if (random_fail_job.get_status() != spider::JobStatus::Succeeded) {
         spdlog::error("Random fail job failed");
         return cJobFailed;

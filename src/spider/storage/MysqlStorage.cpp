@@ -524,7 +524,13 @@ auto MySqlMetadataStorage::add_job(
             Task const* task = task_option.value();
             this->add_task(job_id_bytes, *task);
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
-                queue.push_back(id);
+                std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
+                if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
+                        return heads.contains(parent);
+                    }))
+                {
+                    queue.push_back(id);
+                }
             }
         }
         // Then go over all tasks in queue
@@ -541,7 +547,13 @@ auto MySqlMetadataStorage::add_job(
                 Task const* task = task_option.value();
                 this->add_task(job_id_bytes, *task);
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
-                    queue.push_back(id);
+                    std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
+                    if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
+                            return heads.contains(parent);
+                        }))
+                    {
+                        queue.push_back(id);
+                    }
                 }
             }
         }
@@ -574,6 +586,12 @@ auto MySqlMetadataStorage::add_job(
         // Add output tasks
         std::vector<boost::uuids::uuid> const& output_task_ids = task_graph.get_output_tasks();
         for (size_t i = 0; i < output_task_ids.size(); i++) {
+            if (!task_graph.get_tasks().contains(output_task_ids[i])) {
+                spdlog::error(
+                        "Task graph inconsistent: {} not in task graph",
+                        to_string(output_task_ids[i])
+                );
+            }
             std::unique_ptr<sql::PreparedStatement> output_statement{m_conn->prepareStatement(
                     "INSERT INTO `output_tasks` (`job_id`, `task_id`, `position`) VALUES (?, ?, ?)"
             )};

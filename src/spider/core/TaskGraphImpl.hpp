@@ -54,8 +54,10 @@ public:
                 );
                 if (!optional_parent.has_value()) {
                     fail = true;
+                    return;
                 }
                 graph.m_graph.add_task(optional_parent.value());
+                graph.m_graph.add_dependency(optional_parent.value().get_id(), task.get_id());
                 graph.m_graph.add_input_task(optional_parent.value().get_id());
             } else if constexpr (cIsSpecializationV<InputType, spider::TaskGraph>) {
                 TaskGraph parent_graph
@@ -63,6 +65,7 @@ public:
                 parent_graph.reset_ids();
                 if (!add_graph_input(task, parent_graph, position)) {
                     fail = true;
+                    return;
                 }
                 for (boost::uuids::uuid const& intput_task_id : parent_graph.get_input_tasks()) {
                     graph.m_graph.add_input_task(intput_task_id);
@@ -70,15 +73,23 @@ public:
                 for (auto const& [task_id, task] : parent_graph.get_tasks()) {
                     graph.m_graph.add_task(task);
                 }
+                for (auto const& [parent, child] : parent_graph.get_dependencies()) {
+                    graph.m_graph.add_dependency(parent, child);
+                }
+                for (boost::uuids::uuid const& output_task_id : parent_graph.get_output_tasks()) {
+                    graph.m_graph.add_dependency(output_task_id, task.get_id());
+                }
             } else if constexpr (TaskIo<InputType>) {
                 if (position >= task.get_num_inputs()) {
                     fail = true;
+                    return;
                 }
                 TaskInput& input = task.get_input_ref(position);
                 position++;
                 // Check type match
                 if (input.get_type() != typeid(InputType).name()) {
                     fail = true;
+                    return;
                 }
                 if constexpr (cIsSpecializationV<InputType, spider::Data>) {
                     input.set_data_id(std::get<i.cValue>(std::forward_as_tuple(inputs...))
@@ -243,7 +254,7 @@ private:
         Task const& parent = optional_parent.value();
         if constexpr (cIsSpecializationV<ReturnType, std::tuple>) {
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
-                if (position >= sizeof...(TaskParams)) {
+                if (position >= task.get_num_inputs()) {
                     return std::nullopt;
                 }
                 TaskInput& input = task.get_input_ref(position);
@@ -251,7 +262,7 @@ private:
                 input.set_output(parent.get_id(), i.cValue);
             });
         } else {
-            if (position >= sizeof...(TaskParams)) {
+            if (position >= task.get_num_inputs()) {
                 return std::nullopt;
             }
             TaskInput& input = task.get_input_ref(position);
