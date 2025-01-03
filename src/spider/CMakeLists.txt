@@ -87,7 +87,7 @@ target_link_libraries(
     spider_task_executor
     PRIVATE
         spider_core
-        spider_client_lib
+        spider_client
 )
 target_link_libraries(
     spider_task_executor
@@ -133,6 +133,7 @@ set(SPIDER_CLIENT_SHARED_HEADERS
     client/Driver.hpp
     client/Job.hpp
     client/task.hpp
+    client/spider.hpp
     client/TaskContext.hpp
     client/TaskGraph.hpp
     client/type_utils.hpp
@@ -144,23 +145,12 @@ set(SPIDER_CLIENT_SHARED_HEADERS
     "spider client shared header files"
 )
 
-add_library(spider_client_lib)
-target_sources(spider_client_lib PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
-target_sources(spider_client_lib PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
+add_library(spider_client)
+target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
+target_sources(spider_client PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
 target_link_libraries(
-    spider_client_lib
+    spider_client
     PUBLIC
         Boost::boost
         absl::flat_hash_map
 )
-
-set(SPIDER_CLIENT_SOURCES CACHE INTERNAL "spider client source files")
-
-set(SPIDER_CLIENT_HEADERS client/spider.hpp CACHE INTERNAL "spider client header files")
-
-add_library(spider_client)
-target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SOURCES})
-target_sources(spider_client PUBLIC ${SPIDER_CLIENT_HEADERS})
-target_link_libraries(spider_client PRIVATE spider_core)
-target_link_libraries(spider_client PUBLIC spider_client_lib)
-add_library(spider::spider ALIAS spider_client)
