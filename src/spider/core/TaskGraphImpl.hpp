@@ -18,7 +18,7 @@
 #include "../core/TaskGraph.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
-#include "../worker/FunctionManager.hpp"
+#include "../worker/FunctionNameManager.hpp"
 
 namespace spider::core {
 
@@ -124,7 +124,7 @@ public:
     ) -> std::optional<Task> {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
         std::optional<std::string> const function_name
-                = FunctionManager::get_instance().get_function_name(
+                = FunctionNameManager::get_instance().get_function_name(
                         reinterpret_cast<void const*>(task_function)
                 );
         // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)

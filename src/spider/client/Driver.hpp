@@ -18,6 +18,7 @@
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
+#include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "Job.hpp"
@@ -30,7 +31,8 @@
  * @param func
  */
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SPIDER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK(func)
+#define SPIDER_REGISTER_TASK(func) \
+    SPIDER_WORKER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK_NAME(func)
 
 /**
  * Registers a timed Task function with Spider

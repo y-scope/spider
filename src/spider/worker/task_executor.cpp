@@ -13,6 +13,8 @@
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
+#include <boost/uuid/string_generator.hpp>
+#include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
@@ -35,6 +37,11 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider task executor");
     desc.add_options()("func", boost::program_options::value<std::string>(), "function to run");
+    desc.add_options()(
+            "task_id",
+            boost::program_options::value<std::string>(),
+            "task id of the function"
+    );
     desc.add_options()(
             "libs",
             boost::program_options::value<std::vector<std::string>>(),
@@ -78,14 +85,20 @@ auto main(int const argc, char** argv) -> int {
 
     std::string func_name;
     std::string storage_url;
+    std::string task_id_string;
     try {
         if (!args.contains("func")) {
             return cCmdArgParseErr;
         }
         func_name = args["func"].as<std::string>();
+        if (!args.contains("task_id")) {
+            return cCmdArgParseErr;
+        }
+        task_id_string = args["task_id"].as<std::string>();
         if (!args.contains("storage_url")) {
             return cCmdArgParseErr;
         }
+        task_id_string = args["task_id"].as<std::string>();
         storage_url = args["storage_url"].as<std::string>();
         if (!args.contains("libs")) {
             return cCmdArgParseErr;
@@ -106,6 +119,10 @@ auto main(int const argc, char** argv) -> int {
     spdlog::debug("Function to run: {}", func_name);
 
     try {
+        // Parse task id
+        boost::uuids::string_generator gen;
+        boost::uuids::uuid const task_id = gen(task_id_string);
+
         // Set up storage
         std::shared_ptr<spider::core::MetadataStorage> const metadata_store
                 = std::make_shared<spider::core::MySqlMetadataStorage>();
@@ -159,8 +176,11 @@ auto main(int const argc, char** argv) -> int {
             );
             return cResultSendErr;
         }
-        spider::TaskContext const task_context
-                = spider::core::TaskContextImpl::create_task_context(data_store, metadata_store);
+        spider::TaskContext task_context = spider::core::TaskContextImpl::create_task_context(
+                task_id,
+                data_store,
+                metadata_store
+        );
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 

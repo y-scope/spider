@@ -63,9 +63,12 @@ TEST_CASE("Task execute success", "[worker][storage]") {
 
     boost::asio::io_context context;
 
+    boost::uuids::random_generator gen;
+
     spider::worker::TaskExecutor executor{
             context,
             "sum_test",
+            gen(),
             spider::test::cStorageUrl,
             get_libraries(),
             environment_variable,
@@ -88,9 +91,12 @@ TEST_CASE("Task execute wrong number of arguments", "[worker][storage]") {
 
     boost::asio::io_context context;
 
+    boost::uuids::random_generator gen;
+
     spider::worker::TaskExecutor executor{
             context,
             "sum_test",
+            gen(),
             spider::test::cStorageUrl,
             get_libraries(),
             environment_variable,
@@ -111,9 +117,12 @@ TEST_CASE("Task execute fail", "[worker][storage]") {
 
     boost::asio::io_context context;
 
+    boost::uuids::random_generator gen;
+
     spider::worker::TaskExecutor executor{
             context,
             "error_test",
+            gen(),
             spider::test::cStorageUrl,
             get_libraries(),
             environment_variable,
@@ -157,6 +166,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::worker::TaskExecutor executor{
             context,
             "data_test",
+            gen(),
             spider::test::cStorageUrl,
             get_libraries(),
             environment_variable,

@@ -16,6 +16,7 @@
 #include "../../src/spider/core/TaskContextImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/worker/FunctionManager.hpp"
+#include "../../src/spider/worker/FunctionNameManager.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
@@ -39,9 +40,13 @@ auto not_registered(spider::TaskContext& /*context*/) -> int {
 SPIDER_WORKER_REGISTER_TASK(int_test);
 SPIDER_WORKER_REGISTER_TASK(tuple_ret_test);
 SPIDER_WORKER_REGISTER_TASK(data_test);
+SPIDER_WORKER_REGISTER_TASK_NAME(int_test);
+SPIDER_WORKER_REGISTER_TASK_NAME(tuple_ret_test);
+SPIDER_WORKER_REGISTER_TASK_NAME(data_test);
 
 TEST_CASE("Register and get function name", "[core]") {
-    spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
+    spider::core::FunctionNameManager const& manager
+            = spider::core::FunctionNameManager::get_instance();
 
     // Get the function name of non-registered function should return std::nullopt
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -59,7 +64,9 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     auto [metadata_storage, data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
-    spider::TaskContext const context = spider::core::TaskContextImpl::create_task_context(
+    boost::uuids::random_generator gen;
+    spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
+            gen(),
             std::move(data_storage),
             std::move(metadata_storage)
     );
@@ -110,7 +117,9 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     auto [metadata_storage, data_storage] = spider::test::
             create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
-    spider::TaskContext const context = spider::core::TaskContextImpl::create_task_context(
+    boost::uuids::random_generator gen;
+    spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
+            gen(),
             std::move(data_storage),
             std::move(metadata_storage)
     );
@@ -148,8 +157,11 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(metadata_storage->add_driver(driver).success());
     REQUIRE(data_storage->add_driver_data(driver_id, data).success());
 
-    spider::TaskContext const context
-            = spider::core::TaskContextImpl::create_task_context(data_storage, metadata_storage);
+    spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
+            gen(),
+            data_storage,
+            metadata_storage
+    );
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
 

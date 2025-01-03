@@ -248,6 +248,7 @@ auto task_loop(
         spider::worker::TaskExecutor executor{
                 context,
                 task.get_function_name(),
+                task.get_id(),
                 storage_url,
                 libs,
                 environment,

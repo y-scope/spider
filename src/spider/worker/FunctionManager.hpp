@@ -44,11 +44,9 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<ResultBuffer(TaskContext context, ArgsBuffer const&)>;
+using Function = std::function<ResultBuffer(TaskContext& context, ArgsBuffer const&)>;
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
-
-using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
 
 template <class T>
 struct TemplateParameter;
@@ -253,7 +251,7 @@ template <class F>
 class FunctionInvoker {
 public:
     static auto
-    apply(F const& function, TaskContext context, ArgsBuffer const& args_buffer) -> ResultBuffer {
+    apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer) -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
@@ -371,8 +369,6 @@ public:
         if (m_function_map.contains(name)) {
             return false;
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        m_name_map.emplace(reinterpret_cast<void*>(f), name);
         return m_function_map
                 .emplace(
                         name,
@@ -394,20 +390,12 @@ public:
 
     [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_function_map; }
 
-    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
-
-    [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
-        return m_name_map;
-    }
-
 private:
     FunctionManager() = default;
 
     ~FunctionManager() = default;
 
     FunctionMap m_function_map;
-
-    FunctionNameMap m_name_map;
 };
 }  // namespace spider::core
 
