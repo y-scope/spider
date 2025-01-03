@@ -155,3 +155,5 @@ target_link_libraries(
         Boost::boost
         absl::flat_hash_map
 )
+
+add_library(spider::spider ALIAS spider_client)
