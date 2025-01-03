@@ -80,4 +80,8 @@ add_custom_command(
         ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/integration
         ${CMAKE_CURRENT_BINARY_DIR}/integration
 )
-add_dependencies(integrationTest worker_test)
+add_dependencies(
+    integrationTest
+    worker_test
+    client_test
+)
