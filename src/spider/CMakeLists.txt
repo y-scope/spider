@@ -131,6 +131,7 @@ set(SPIDER_CLIENT_SHARED_SOURCES
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
     client/Driver.hpp
+    client/Job.hpp
     client/task.hpp
     client/TaskContext.hpp
     client/TaskGraph.hpp
@@ -155,12 +156,7 @@ target_link_libraries(
 
 set(SPIDER_CLIENT_SOURCES CACHE INTERNAL "spider client source files")
 
-set(SPIDER_CLIENT_HEADERS
-    client/spider.hpp
-    client/Job.hpp
-    CACHE INTERNAL
-    "spider client header files"
-)
+set(SPIDER_CLIENT_HEADERS client/spider.hpp CACHE INTERNAL "spider client header files")
 
 add_library(spider_client)
 target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SOURCES})

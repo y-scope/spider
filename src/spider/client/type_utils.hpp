@@ -27,5 +27,34 @@ struct IsSpecialization<type<TypeParams...>, type> : public std::true_type {};
 
 template <class Type, template <typename...> class template_type>
 inline constexpr bool cIsSpecializationV = IsSpecialization<Type, template_type>::value;
+
+template <std::size_t n>
+struct Num {
+    static constexpr auto cValue = n;
+};
+
+template <class F, std::size_t... is>
+void for_n(F func, std::index_sequence<is...>) {
+    (void)std::initializer_list{0, ((void)func(Num<is>{}), 0)...};
+}
+
+template <std::size_t n, typename F>
+void for_n(F func) {
+    for_n(func, std::make_index_sequence<n>());
+}
+
+template <class T>
+struct ExtractTemplateParam {
+    using type = T;
+};
+
+template <template <class> class T, class P>
+struct ExtractTemplateParam<T<P>> {
+    using type = P;
+};
+
+template <class T>
+using ExtractTemplateParamT = typename ExtractTemplateParam<T>::type;
+
 }  // namespace spider
 #endif  // SPIDER_CLIENT_TYPE_UTILS_HPP
