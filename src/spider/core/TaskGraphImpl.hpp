@@ -1,11 +1,13 @@
 #ifndef SPIDER_CORE_TASKGRAPHIMPL_HPP
 #define SPIDER_CORE_TASKGRAPHIMPL_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -52,8 +54,10 @@ public:
                 );
                 if (!optional_parent.has_value()) {
                     fail = true;
+                    return;
                 }
                 graph.m_graph.add_task(optional_parent.value());
+                graph.m_graph.add_dependency(optional_parent.value().get_id(), task.get_id());
                 graph.m_graph.add_input_task(optional_parent.value().get_id());
             } else if constexpr (cIsSpecializationV<InputType, spider::TaskGraph>) {
                 TaskGraph parent_graph
@@ -61,6 +65,7 @@ public:
                 parent_graph.reset_ids();
                 if (!add_graph_input(task, parent_graph, position)) {
                     fail = true;
+                    return;
                 }
                 for (boost::uuids::uuid const& intput_task_id : parent_graph.get_input_tasks()) {
                     graph.m_graph.add_input_task(intput_task_id);
@@ -68,15 +73,23 @@ public:
                 for (auto const& [task_id, task] : parent_graph.get_tasks()) {
                     graph.m_graph.add_task(task);
                 }
+                for (auto const& [parent, child] : parent_graph.get_dependencies()) {
+                    graph.m_graph.add_dependency(parent, child);
+                }
+                for (boost::uuids::uuid const& output_task_id : parent_graph.get_output_tasks()) {
+                    graph.m_graph.add_dependency(output_task_id, task.get_id());
+                }
             } else if constexpr (TaskIo<InputType>) {
                 if (position >= task.get_num_inputs()) {
                     fail = true;
+                    return;
                 }
                 TaskInput& input = task.get_input_ref(position);
                 position++;
                 // Check type match
                 if (input.get_type() != typeid(InputType).name()) {
                     fail = true;
+                    return;
                 }
                 if constexpr (cIsSpecializationV<InputType, spider::Data>) {
                     input.set_data_id(std::get<i.cValue>(std::forward_as_tuple(inputs...))
@@ -106,7 +119,6 @@ public:
 
     // NOLINTEND(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
 
-private:
     template <TaskIo ReturnType, TaskIo... TaskParams>
     static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function
     ) -> std::optional<Task> {
@@ -134,6 +146,101 @@ private:
         return task;
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
+    template <TaskIo... Params>
+    static auto task_add_input(Task& task, Params&&... params) -> bool {
+        if (task.get_num_inputs() != sizeof...(Params)) {
+            return false;
+        }
+        bool fail = false;
+        for_n<sizeof...(Params)>([&](auto i) {
+            if (fail) {
+                return;
+            }
+            using ParamType
+                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
+            ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
+            TaskInput& task_input = task.get_input_ref(i.cValue);
+            // Check type match
+            if (task_input.get_type() != typeid(ParamType).name()) {
+                fail = true;
+                return;
+            }
+            if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
+                task_input.set_data_id(param.get_impl()->get_id());
+            } else if constexpr (Serializable<ParamType>) {
+                msgpack::sbuffer buffer;
+                msgpack::pack(buffer, param);
+                std::string const value(buffer.data(), buffer.size());
+                task_input.set_value(value);
+            }
+        });
+        return !fail;
+    }
+
+    template <TaskIo... Params>
+    auto add_inputs(Params&&... params) -> bool {
+        size_t input_task_index = 0;
+        size_t task_input_index = 0;
+
+        std::vector<boost::uuids::uuid> const& input_task_ids = m_graph.get_input_tasks();
+        bool fail = false;
+        for_n<sizeof...(Params)>([&](auto i) {
+            if (fail) {
+                return;
+            }
+            using ParamType
+                    = std::remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<Params...>>>;
+            ParamType const& param = std::get<i.cValue>(std::forward_as_tuple(params...));
+            if (input_task_index >= input_task_ids.size()) {
+                fail = true;
+                return;
+            }
+            boost::uuids::uuid const& input_task_id = input_task_ids[input_task_index];
+            std::optional<Task*> optional_input_task = m_graph.get_task(input_task_id);
+            if (!optional_input_task.has_value()) {
+                fail = true;
+                return;
+            }
+            Task& input_task = *optional_input_task.value();
+            if (task_input_index >= input_task.get_num_inputs()) {
+                fail = true;
+                return;
+            }
+            TaskInput& task_input = input_task.get_input_ref(task_input_index);
+            task_input_index++;
+            if (task_input_index >= input_task.get_num_inputs()) {
+                input_task_index++;
+                task_input_index = 0;
+            }
+            // Check type
+            if (task_input.get_type() != typeid(ParamType).name()) {
+                fail = true;
+                return;
+            }
+            if constexpr (cIsSpecializationV<ParamType, spider::Data>) {
+                task_input.set_data_id(param.get_impl()->get_id());
+            } else if constexpr (Serializable<ParamType>) {
+                msgpack::sbuffer buffer;
+                msgpack::pack(buffer, param);
+                std::string const value(buffer.data(), buffer.size());
+                task_input.set_value(value);
+            }
+        });
+        if (fail) {
+            return false;
+        }
+        // Check all inputs are consumed
+        return input_task_index == input_task_ids.size() && task_input_index == 0;
+    }
+
+    // NOLINTEND(cppcoreguidelines-missing-std-forward)
+
+    auto reset_ids() -> void { m_graph.reset_ids(); }
+
+    auto get_graph() -> TaskGraph& { return m_graph; }
+
+private:
     template <class ReturnType, class... TaskParams>
     static auto add_task_input(
             Task& task,
@@ -147,7 +254,7 @@ private:
         Task const& parent = optional_parent.value();
         if constexpr (cIsSpecializationV<ReturnType, std::tuple>) {
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
-                if (position >= sizeof...(TaskParams)) {
+                if (position >= task.get_num_inputs()) {
                     return std::nullopt;
                 }
                 TaskInput& input = task.get_input_ref(position);
@@ -155,7 +262,7 @@ private:
                 input.set_output(parent.get_id(), i.cValue);
             });
         } else {
-            if (position >= sizeof...(TaskParams)) {
+            if (position >= task.get_num_inputs()) {
                 return std::nullopt;
             }
             TaskInput& input = task.get_input_ref(position);

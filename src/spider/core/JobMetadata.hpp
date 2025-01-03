@@ -2,6 +2,7 @@
 #define SPIDER_CORE_JOBMETADATA_HPP
 
 #include <chrono>
+#include <cstdint>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -32,6 +33,13 @@ private:
     boost::uuids::uuid m_id;
     boost::uuids::uuid m_client_id;
     std::chrono::system_clock::time_point m_creation_time;
+};
+
+enum class JobStatus : std::uint8_t {
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled
 };
 
 }  // namespace spider::core

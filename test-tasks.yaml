@@ -40,6 +40,7 @@ tasks:
           TARGETS: [
             "spider_task_executor",
             "worker_test",
+            "client_test",
             "spider_worker",
             "spider_scheduler",
             "integrationTest"]

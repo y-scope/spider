@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
-#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -76,21 +75,6 @@ struct signature<R (*)(Args...)> {
     using args_t = std::tuple<std::decay_t<Args>...>;
     using ret_t = R;
 };
-
-template <std::size_t n>
-struct Num {
-    static constexpr auto cValue = n;
-};
-
-template <class F, std::size_t... is>
-void for_n(F func, std::index_sequence<is...>) {
-    (void)std::initializer_list{0, ((void)func(Num<is>{}), 0)...};
-}
-
-template <std::size_t n, typename F>
-void for_n(F func) {
-    for_n(func, std::make_index_sequence<n>());
-}
 
 enum class FunctionInvokeError : std::uint8_t {
     Success = 0,

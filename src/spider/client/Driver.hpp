@@ -6,14 +6,20 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <type_traits>
 #include <vector>
 
+#include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <fmt/format.h>
 
+#include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "Data.hpp"
+#include "Exception.hpp"
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"
@@ -39,6 +45,8 @@ namespace spider {
 namespace core {
 class MetadataStorage;
 class DataStorage;
+class Task;
+class TaskGraph;
 }  // namespace core
 
 /**
@@ -126,28 +134,98 @@ public:
      *
      * @tparam ReturnType
      * @tparam Params
+     * @tparam Inputs
      * @param task
      * @param inputs
      * @return A job representing the running task.
      * @throw spider::ConnectionException
      */
-    template <TaskIo ReturnType, TaskIo... Params>
+    template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
     auto
-    start(TaskFunction<ReturnType, Params...> const& task, Params&&... inputs) -> Job<ReturnType>;
+    start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs) -> Job<ReturnType> {
+        // Check input type
+        static_assert(
+                sizeof...(Inputs) == sizeof...(Params),
+                "Number of inputs must match number of parameters."
+        );
+        for_n<sizeof...(Inputs)>([&](auto i) {
+            using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
+            using ParamType = std::tuple_element_t<i.cValue, std::tuple<Params...>>;
+            if constexpr (!std::is_same_v<
+                                  std::remove_cvref_t<InputType>,
+                                  std::remove_cvref_t<ParamType>>)
+            {
+                throw std::invalid_argument("Input type does not match parameter type.");
+            }
+        });
+
+        std::optional<core::Task> optional_task = core::TaskGraphImpl::create_task(task);
+        if (!optional_task.has_value()) {
+            throw std::invalid_argument("Failed to create task.");
+        }
+        core::Task& new_task = optional_task.value();
+        if (!core::TaskGraphImpl::task_add_input(new_task, std::forward<Inputs>(inputs)...)) {
+            throw std::invalid_argument("Failed to add inputs to task.");
+        }
+        boost::uuids::random_generator gen;
+        boost::uuids::uuid const job_id = gen();
+        core::TaskGraph graph;
+        graph.add_task(new_task);
+        graph.add_input_task(new_task.get_id());
+        graph.add_output_task(new_task.get_id());
+        core::StorageErr err = m_metadata_storage->add_job(job_id, m_id, graph);
+        if (!err.success()) {
+            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        }
+
+        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+    }
 
     /**
      * Starts running a task graph with the given inputs on Spider.
      *
      * @tparam ReturnType
      * @tparam Params
+     * @tparam Inputs
      * @param graph
      * @param inputs
      * @return A job representing the running task graph.
      * @throw spider::ConnectionException
      */
-    template <TaskIo ReturnType, TaskIo... Params>
+    template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
     auto
-    start(TaskGraph<ReturnType(Params...)> const& graph, Params&&... inputs) -> Job<ReturnType>;
+    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+        // Check input type
+        static_assert(
+                sizeof...(Inputs) == sizeof...(Params),
+                "Number of inputs must match number of parameters."
+        );
+        for_n<sizeof...(Inputs)>([&](auto i) {
+            using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
+            using ParamType = std::tuple_element_t<i.cValue, std::tuple<Params...>>;
+            if constexpr (!std::is_same_v<
+                                  std::remove_cvref_t<InputType>,
+                                  std::remove_cvref_t<ParamType>>)
+            {
+                throw std::invalid_argument("Input type does not match parameter type.");
+            }
+        });
+
+        if (!graph.m_impl->add_inputs(std::forward<Inputs>(inputs)...)) {
+            throw std::invalid_argument("Failed to add inputs to task graph.");
+        }
+        // Reset ids in case the same graph is submitted before
+        graph.m_impl->reset_ids();
+        boost::uuids::random_generator gen;
+        boost::uuids::uuid const job_id = gen();
+        core::StorageErr const err
+                = m_metadata_storage->add_job(job_id, m_id, graph.m_impl->get_graph());
+        if (!err.success()) {
+            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        }
+
+        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+    }
 
     /**
      * Gets all scheduled and running jobs started by drivers with the current client's ID.
@@ -157,7 +235,14 @@ public:
      * @return IDs of the jobs.
      * @throw spider::ConnectionException
      */
-    auto get_jobs() -> std::vector<boost::uuids::uuid>;
+    auto get_jobs() -> std::vector<boost::uuids::uuid> {
+        std::vector<boost::uuids::uuid> job_ids;
+        core::StorageErr const err = m_metadata_storage->get_jobs_by_client_id(m_id, &job_ids);
+        if (!err.success()) {
+            throw ConnectionException("Failed to get jobs.");
+        }
+        return job_ids;
+    }
 
 private:
     boost::uuids::uuid m_id;
