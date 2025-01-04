@@ -204,6 +204,8 @@ public:
                 msgpack::pack(buffer, param);
                 std::string const value(buffer.data(), buffer.size());
                 task_input.set_value(value);
+            } else {
+                fail = true;
             }
         });
         return !fail;

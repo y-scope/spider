@@ -140,7 +140,9 @@ auto fetch_task(
 auto get_args_buffers(spider::core::Task const& task
 ) -> std::optional<std::vector<msgpack::sbuffer>> {
     std::vector<msgpack::sbuffer> args_buffers;
-    for (spider::core::TaskInput const& input : task.get_inputs()) {
+    size_t const num_inputs = task.get_num_inputs();
+    for (size_t i = 0; i < num_inputs; ++i) {
+        spider::core::TaskInput const& input = task.get_input(i);
         std::optional<std::string> const optional_value = input.get_value();
         if (optional_value.has_value()) {
             std::string const& value = optional_value.value();
@@ -156,9 +158,10 @@ auto get_args_buffers(spider::core::Task const& task
             continue;
         }
         spdlog::error(
-                "Task {} {} input has no value or data id",
+                "Task {} {} input {} has no value or data id",
                 task.get_function_name(),
-                boost::uuids::to_string(task.get_id())
+                boost::uuids::to_string(task.get_id()),
+                i
         );
         return std::nullopt;
     }
@@ -223,9 +226,9 @@ auto task_loop(
         }
 
         // Update task status to running
-        err = metadata_store->set_task_state(task_id, spider::core::TaskState::Running);
+        err = metadata_store->set_task_running(task_id);
         if (!err.success()) {
-            spdlog::error("Failed to update task status to running: {}", err.description);
+            spdlog::debug("Failed to update task status to running: {}", err.description);
             continue;
         }
         spider::core::TaskInstance const instance{task_id};
@@ -240,6 +243,10 @@ auto task_loop(
         std::optional<std::vector<msgpack::sbuffer>> const optional_args_buffers
                 = get_args_buffers(task);
         if (!optional_args_buffers.has_value()) {
+            metadata_store->task_fail(
+                    instance,
+                    fmt::format("Task {} failed to parse results", task.get_function_name())
+            );
             continue;
         }
         std::vector<msgpack::sbuffer> const& args_buffers = optional_args_buffers.value();
