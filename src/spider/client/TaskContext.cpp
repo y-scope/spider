@@ -1,5 +1,7 @@
 #include "TaskContext.hpp"
 
+#include <optional>
+#include <string>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>

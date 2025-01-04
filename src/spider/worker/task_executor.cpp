@@ -120,7 +120,7 @@ auto main(int const argc, char** argv) -> int {
 
     try {
         // Parse task id
-        boost::uuids::string_generator gen;
+        boost::uuids::string_generator const gen;
         boost::uuids::uuid const task_id = gen(task_id_string);
 
         // Set up storage

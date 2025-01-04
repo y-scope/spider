@@ -5,15 +5,21 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <fmt/format.h>
 
+#include "../core/Error.hpp"
+#include "../core/TaskGraph.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "Data.hpp"
+#include "Exception.hpp"
 #include "Job.hpp"
 #include "task.hpp"
 #include "TaskGraph.hpp"

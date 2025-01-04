@@ -6,6 +6,7 @@
 
 #include "../../src/spider/client/Data.hpp"
 #include "../../src/spider/client/Driver.hpp"
+#include "../../src/spider/client/Job.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/client/TaskGraph.hpp"
 
@@ -49,7 +50,7 @@ auto create_task_test(spider::TaskContext& context, int x, int y) -> int {
     job.wait_complete();
     std::cerr << "Job completed\n";
     if (job.get_status() != spider::JobStatus::Succeeded) {
-        spdlog::error("Job failed");
+        std::cerr << "Job failed\n";
         throw std::runtime_error("Job failed");
     }
     return job.get_result();

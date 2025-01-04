@@ -1,6 +1,7 @@
 #ifndef SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 #define SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 
+#include <optional>
 #include <string>
 
 #include <absl/container/flat_hash_map.h>
