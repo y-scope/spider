@@ -89,11 +89,11 @@ auto operator<=>(
     return std::strong_ordering::equal;
 }
 
-template <class K, class V>
+template <class K, class V, class Hash>
 requires std::equality_comparable<K>
 auto hash_map_equal(
-        absl::flat_hash_map<K, V> const& map_1,
-        absl::flat_hash_map<K, V> const& map_2,
+        absl::flat_hash_map<K, V, Hash> const& map_1,
+        absl::flat_hash_map<K, V, Hash> const& map_2,
         std::function<bool(V const&, V const&)> const& value_equal
 ) -> bool {
     if (map_1.size() != map_2.size()) {
@@ -116,7 +116,7 @@ auto hash_map_equal(
 }  // namespace
 
 auto task_graph_equal(core::TaskGraph const& graph_1, core::TaskGraph const& graph_2) -> bool {
-    if (!hash_map_equal<boost::uuids::uuid, core::Task>(
+    if (!hash_map_equal<boost::uuids::uuid, core::Task, std::hash<boost::uuids::uuid>>(
                 graph_1.get_tasks(),
                 graph_2.get_tasks(),
                 task_equal

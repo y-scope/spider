@@ -57,9 +57,13 @@ public:
                     fail = true;
                     return;
                 }
-                graph.m_graph.add_task(optional_parent.value());
-                graph.m_graph.add_dependency(optional_parent.value().get_id(), task.get_id());
-                graph.m_graph.add_input_task(optional_parent.value().get_id());
+                Task const& parent = optional_parent.value();
+                if (!graph.m_graph.add_task(parent)) {
+                    fail = true;
+                    return;
+                }
+                graph.m_graph.add_dependency(parent.get_id(), task.get_id());
+                graph.m_graph.add_input_task(parent.get_id());
             } else if constexpr (cIsSpecializationV<InputType, spider::TaskGraph>) {
                 TaskGraph parent_graph
                         = std::get<i.cValue>(std::forward_as_tuple(inputs...)).get_impl().m_graph;
@@ -72,7 +76,10 @@ public:
                     graph.m_graph.add_input_task(intput_task_id);
                 }
                 for (auto const& [task_id, task] : parent_graph.get_tasks()) {
-                    graph.m_graph.add_task(task);
+                    if (!graph.m_graph.add_task(task)) {
+                        fail = true;
+                        return;
+                    }
                 }
                 for (auto const& [parent, child] : parent_graph.get_dependencies()) {
                     graph.m_graph.add_dependency(parent, child);

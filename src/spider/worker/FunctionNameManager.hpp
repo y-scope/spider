@@ -40,13 +40,7 @@ public:
         return m_name_map.emplace(reinterpret_cast<void*>(function_pointer), name).second;
     }
 
-    [[nodiscard]] auto get_function_name(void const* function_pointer
-    ) const -> std::optional<std::string> {
-        if (auto it = m_name_map.find(function_pointer); it != m_name_map.end()) {
-            return it->second;
-        }
-        return std::nullopt;
-    }
+    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
 
     [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
         return m_name_map;

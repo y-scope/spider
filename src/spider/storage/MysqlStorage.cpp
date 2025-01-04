@@ -521,7 +521,10 @@ auto MySqlMetadataStorage::add_job(
             std::optional<Task const*> const task_option = task_graph.get_task(task_id);
             if (!task_option.has_value()) {
                 m_conn->rollback();
-                return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
+                return StorageErr{
+                        StorageErrType::KeyNotFoundErr,
+                        "Task graph inconsistent: head task not found"
+                };
             }
             Task const* task = task_option.value();
             this->add_task(job_id_bytes, *task);
@@ -588,12 +591,6 @@ auto MySqlMetadataStorage::add_job(
         // Add output tasks
         std::vector<boost::uuids::uuid> const& output_task_ids = task_graph.get_output_tasks();
         for (size_t i = 0; i < output_task_ids.size(); i++) {
-            if (!task_graph.get_tasks().contains(output_task_ids[i])) {
-                spdlog::error(
-                        "Task graph inconsistent: {} not in task graph",
-                        to_string(output_task_ids[i])
-                );
-            }
             std::unique_ptr<sql::PreparedStatement> output_statement{m_conn->prepareStatement(
                     "INSERT INTO `output_tasks` (`job_id`, `task_id`, `position`) VALUES (?, ?, ?)"
             )};

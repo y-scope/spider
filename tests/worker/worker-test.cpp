@@ -42,10 +42,14 @@ auto create_data_test(spider::TaskContext& context, int x) -> spider::Data<int> 
 }
 
 auto create_task_test(spider::TaskContext& context, int x, int y) -> int {
-    spider::TaskGraph const graph = context.bind(&sum_test, 0, &sum_test);
+    spider::TaskGraph const graph = context.bind(&sum_test, &sum_test, 0);
+    std::cerr << "Create task test\n";
     spider::Job job = context.start(graph, x, y);
+    std::cerr << "Job started\n";
     job.wait_complete();
+    std::cerr << "Job completed\n";
     if (job.get_status() != spider::JobStatus::Succeeded) {
+        spdlog::error("Job failed");
         throw std::runtime_error("Job failed");
     }
     return job.get_result();
