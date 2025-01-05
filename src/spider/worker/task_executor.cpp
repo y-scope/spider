@@ -98,7 +98,6 @@ auto main(int const argc, char** argv) -> int {
         if (!args.contains("storage_url")) {
             return cCmdArgParseErr;
         }
-        task_id_string = args["task_id"].as<std::string>();
         storage_url = args["storage_url"].as<std::string>();
         if (!args.contains("libs")) {
             return cCmdArgParseErr;

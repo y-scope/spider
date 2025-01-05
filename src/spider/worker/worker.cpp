@@ -245,7 +245,7 @@ auto task_loop(
         if (!optional_args_buffers.has_value()) {
             metadata_store->task_fail(
                     instance,
-                    fmt::format("Task {} failed to parse results", task.get_function_name())
+                    fmt::format("Task {} failed to parse arguments", task.get_function_name())
             );
             continue;
         }
