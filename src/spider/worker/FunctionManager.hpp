@@ -44,11 +44,9 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<ResultBuffer(TaskContext context, ArgsBuffer const&)>;
+using Function = std::function<ResultBuffer(TaskContext& context, ArgsBuffer const&)>;
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
-
-using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
 
 template <class T>
 struct TemplateParameter;
@@ -119,7 +117,12 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<T> {
             return std::nullopt;
         }
 
-        return std::make_optional(object.via.array.ptr[1].as<T>());
+        if constexpr (cIsSpecializationV<T, spider::Data>) {
+            static_assert("Not implemented");
+            return std::make_optional(object.via.array.ptr[1].as<T>().get_id());
+        } else {
+            return std::make_optional(object.via.array.ptr[1].as<T>());
+        }
     } catch (msgpack::type_error& e) {
         return std::nullopt;
     }
@@ -146,6 +149,10 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<std::t
 
         std::tuple<Ts...> result;
         for_n<sizeof...(Ts)>([&](auto i) {
+            using T = std::tuple_element_t<i.cValue, std::tuple<Ts...>>;
+            if constexpr (cIsSpecializationV<T, spider::Data>) {
+                static_assert("Not implemented");
+            }
             object.via.array.ptr[i.cValue + 1].convert(std::get<i.cValue>(result));
         });
         return std::make_optional(result);
@@ -193,23 +200,35 @@ inline auto response_get_result_buffers(msgpack::sbuffer const& buffer
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-template <Serializable T>
+template <TaskIo T>
 auto create_result_response(T const& t) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
     packer.pack(worker::TaskExecutorResponseType::Result);
-    packer.pack(t);
+    if constexpr (cIsSpecializationV<T, spider::Data>) {
+        packer.pack(DataImpl::get_impl(t)->get_id());
+    } else {
+        packer.pack(t);
+    }
     return buffer;
 }
 
-template <Serializable... Values>
+template <TaskIo... Values>
 auto create_result_response(std::tuple<Values...> const& t) -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(sizeof...(Values) + 1);
     packer.pack(worker::TaskExecutorResponseType::Result);
-    (..., packer.pack(std::get<Values>(t)));
+    for_n<sizeof...(Values)>([&](auto i) {
+        using T = std::tuple_element_t<i.cValue, std::tuple<Values...>>;
+        if constexpr (cIsSpecializationV<T, spider::Data>) {
+            T const& data = std::get<i.cValue>(t);
+            packer.pack(DataImpl::get_impl(data)->get_id());
+        } else {
+            packer.pack(std::get<i.cValue>(t));
+        }
+    });
     return buffer;
 }
 
@@ -253,7 +272,7 @@ template <class F>
 class FunctionInvoker {
 public:
     static auto
-    apply(F const& function, TaskContext context, ArgsBuffer const& args_buffer) -> ResultBuffer {
+    apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer) -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
@@ -371,8 +390,6 @@ public:
         if (m_function_map.contains(name)) {
             return false;
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        m_name_map.emplace(reinterpret_cast<void*>(f), name);
         return m_function_map
                 .emplace(
                         name,
@@ -394,20 +411,12 @@ public:
 
     [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_function_map; }
 
-    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
-
-    [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
-        return m_name_map;
-    }
-
 private:
     FunctionManager() = default;
 
     ~FunctionManager() = default;
 
     FunctionMap m_function_map;
-
-    FunctionNameMap m_name_map;
 };
 }  // namespace spider::core
 

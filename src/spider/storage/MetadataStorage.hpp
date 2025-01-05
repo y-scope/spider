@@ -54,6 +54,7 @@ public:
                                                                                        = 0;
     virtual auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr = 0;
     virtual auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr = 0;
+    virtual auto set_task_running(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;
     virtual auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr = 0;

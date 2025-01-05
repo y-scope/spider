@@ -11,9 +11,9 @@ from .client import (
 )
 
 
-def start_scheduler_worker(
+def start_scheduler_workers(
     storage_url: str, scheduler_port: int
-) -> Tuple[subprocess.Popen, subprocess.Popen]:
+) -> Tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
     dir_path = dir_path / ".." / ".." / "src" / "spider"
@@ -32,8 +32,9 @@ def start_scheduler_worker(
         "--libs",
         "tests/libworker_test.so",
     ]
-    worker_process = subprocess.Popen(worker_cmds)
-    return scheduler_process, worker_process
+    worker_process_0 = subprocess.Popen(worker_cmds)
+    worker_process_1 = subprocess.Popen(worker_cmds)
+    return scheduler_process, worker_process_0, worker_process_1
 
 
 scheduler_port = 6103
@@ -41,14 +42,15 @@ scheduler_port = 6103
 
 @pytest.fixture(scope="class")
 def scheduler_worker(storage):
-    scheduler_process, worker_process = start_scheduler_worker(
+    scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
         storage_url=storage_url, scheduler_port=scheduler_port
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
     yield
     scheduler_process.kill()
-    worker_process.kill()
+    worker_process_0.kill()
+    worker_process_1.kill()
 
 
 class TestClient:
@@ -60,5 +62,5 @@ class TestClient:
             "--storage_url",
             storage_url,
         ]
-        p = subprocess.run(client_cmds)
+        p = subprocess.run(client_cmds, timeout=20)
         assert p.returncode == 0

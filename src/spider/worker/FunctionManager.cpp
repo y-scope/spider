@@ -67,13 +67,6 @@ auto FunctionManager::get_function(std::string const& name) const -> Function co
     return nullptr;
 }
 
-auto FunctionManager::get_function_name(void const* ptr) const -> std::optional<std::string> {
-    if (auto const name_iter = m_name_map.find(ptr); name_iter != m_name_map.end()) {
-        return name_iter->second;
-    }
-    return std::nullopt;
-}
-
 }  // namespace spider::core
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

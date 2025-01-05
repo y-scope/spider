@@ -2,6 +2,7 @@
 set(SPIDER_CORE_SOURCES
     storage/MysqlStorage.cpp
     worker/FunctionManager.cpp
+    worker/FunctionNameManager.cpp
     io/msgpack_message.cpp
     CACHE INTERNAL
     "spider core source files"
@@ -24,6 +25,7 @@ set(SPIDER_CORE_HEADERS
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
     worker/FunctionManager.hpp
+    worker/FunctionNameManager.hpp
     CACHE INTERNAL
     "spider core header files"
 )
@@ -124,6 +126,7 @@ target_link_libraries(
 
 set(SPIDER_CLIENT_SHARED_SOURCES
     client/Driver.cpp
+    client/TaskContext.cpp
     CACHE INTERNAL
     "spider client shared source files"
 )

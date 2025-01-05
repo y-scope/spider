@@ -87,9 +87,13 @@ public:
         return parents;
     }
 
-    [[nodiscard]] auto get_tasks() const -> absl::flat_hash_map<boost::uuids::uuid, Task> const& {
+    // NOLINTBEGIN(misc-include-cleaner)
+    [[nodiscard]] auto get_tasks(
+    ) const -> absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> const& {
         return m_tasks;
     }
+
+    // NOLINTEND(misc-include-cleaner)
 
     [[nodiscard]] auto get_input_tasks() const -> std::vector<boost::uuids::uuid> const& {
         return m_input_tasks;
@@ -116,7 +120,8 @@ public:
             new_id_map.emplace(old_id, new_id);
         }
         // Replace all id in task map and task
-        absl::flat_hash_map<boost::uuids::uuid, Task> new_tasks;
+        // NOLINTNEXTLINE(misc-include-cleaner)
+        absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> new_tasks;
         for (auto& [old_id, task] : m_tasks) {
             boost::uuids::uuid new_id = new_id_map.at(old_id);
             task.set_id(new_id);
@@ -152,7 +157,8 @@ public:
     }
 
 private:
-    absl::flat_hash_map<boost::uuids::uuid, Task> m_tasks;
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> m_tasks;
     std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> m_dependencies;
 
     std::vector<boost::uuids::uuid> m_input_tasks;

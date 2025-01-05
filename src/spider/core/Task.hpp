@@ -12,6 +12,8 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
+#include "Data.hpp"
+
 namespace spider::core {
 class TaskInput {
 public:
@@ -23,9 +25,9 @@ public:
     TaskInput(std::string value, std::string type)
             : m_value(std::move(value)),
               m_type(std::move(type)) {};
-    TaskInput(boost::uuids::uuid data_id, std::string type)
+    explicit TaskInput(boost::uuids::uuid data_id)
             : m_data_id(data_id),
-              m_type(std::move(type)) {};
+              m_type(typeid(spider::core::Data).name()) {};
 
     [[nodiscard]] auto get_task_output(
     ) const -> std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> {
@@ -64,9 +66,9 @@ public:
             : m_value(std::move(value)),
               m_type(std::move(type)) {}
 
-    TaskOutput(boost::uuids::uuid data_id, std::string type)
+    explicit TaskOutput(boost::uuids::uuid data_id)
             : m_data_id(data_id),
-              m_type(std::move(type)) {}
+              m_type(typeid(spider::core::Data).name()) {}
 
     [[nodiscard]] auto get_value() const -> std::optional<std::string> { return m_value; }
 

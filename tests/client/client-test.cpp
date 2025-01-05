@@ -109,5 +109,34 @@ auto main(int argc, char** argv) -> int {
         return cJobFailed;
     }
 
+    // Run task that creates data
+    spider::Job create_data_job = driver.start(&create_data_test, 1);
+    spdlog::debug("Create data job started");
+    create_data_job.wait_complete();
+    spdlog::debug("Create data job completed");
+    if (create_data_job.get_status() != spider::JobStatus::Succeeded) {
+        spdlog::error("Create data job failed");
+        return cJobFailed;
+    }
+    spider::Data<int> data_result = create_data_job.get_result();
+    if (data_result.get() != 1) {
+        spdlog::error("Create data job failed");
+        return cJobFailed;
+    }
+
+    // Run task that creates task
+    spider::Job create_task_job = driver.start(&create_task_test, 1, 2);
+    spdlog::debug("Create task job started");
+    create_task_job.wait_complete();
+    spdlog::debug("Create task job completed");
+    if (create_task_job.get_status() != spider::JobStatus::Succeeded) {
+        spdlog::error("Create task job failed");
+        return cJobFailed;
+    }
+    if (create_task_job.get_result() != 3) {
+        spdlog::error("Create task job failed");
+        return cJobFailed;
+    }
+
     return 0;
 }

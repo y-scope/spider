@@ -96,7 +96,7 @@ TEMPLATE_LIST_TEST_CASE(
     data.set_locality({"127.0.0.1"});
     REQUIRE(metadata_store->add_driver(spider::core::Driver{client_id, "127.0.0.1"}).success());
     REQUIRE(data_store->add_driver_data(client_id, data).success());
-    task.add_input(spider::core::TaskInput{data.get_id(), "int"});
+    task.add_input(spider::core::TaskInput{data.get_id()});
     spider::core::TaskGraph graph;
     graph.add_task(task);
     graph.add_input_task(task.get_id());
@@ -143,7 +143,7 @@ TEMPLATE_LIST_TEST_CASE(
     data.set_locality({"127.0.0.1"});
     REQUIRE(metadata_store->add_driver(spider::core::Driver{client_id, "127.0.0.1"}).success());
     REQUIRE(data_store->add_driver_data(client_id, data).success());
-    task.add_input(spider::core::TaskInput{data.get_id(), "int"});
+    task.add_input(spider::core::TaskInput{data.get_id()});
     spider::core::TaskGraph graph;
     graph.add_task(task);
     graph.add_input_task(task.get_id());

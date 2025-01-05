@@ -18,6 +18,7 @@
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "../worker/FunctionManager.hpp"
+#include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "Job.hpp"
@@ -30,7 +31,8 @@
  * @param func
  */
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SPIDER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK(func)
+#define SPIDER_REGISTER_TASK(func) \
+    SPIDER_WORKER_REGISTER_TASK(func) SPIDER_WORKER_REGISTER_TASK_NAME(func)
 
 /**
  * Registers a timed Task function with Spider
@@ -151,12 +153,10 @@ public:
         for_n<sizeof...(Inputs)>([&](auto i) {
             using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
             using ParamType = std::tuple_element_t<i.cValue, std::tuple<Params...>>;
-            if constexpr (!std::is_same_v<
-                                  std::remove_cvref_t<InputType>,
-                                  std::remove_cvref_t<ParamType>>)
-            {
-                throw std::invalid_argument("Input type does not match parameter type.");
-            }
+            static_assert(
+                    std::is_same_v<std::remove_cvref_t<InputType>, std::remove_cvref_t<ParamType>>,
+                    "Input type does not match parameter type."
+            );
         });
 
         std::optional<core::Task> optional_task = core::TaskGraphImpl::create_task(task);
@@ -203,12 +203,10 @@ public:
         for_n<sizeof...(Inputs)>([&](auto i) {
             using InputType = std::tuple_element_t<i.cValue, std::tuple<Inputs...>>;
             using ParamType = std::tuple_element_t<i.cValue, std::tuple<Params...>>;
-            if constexpr (!std::is_same_v<
-                                  std::remove_cvref_t<InputType>,
-                                  std::remove_cvref_t<ParamType>>)
-            {
-                throw std::invalid_argument("Input type does not match parameter type.");
-            }
+            static_assert(
+                    std::is_same_v<std::remove_cvref_t<InputType>, std::remove_cvref_t<ParamType>>,
+                    "Input type does not match parameter type."
+            );
         });
 
         if (!graph.m_impl->add_inputs(std::forward<Inputs>(inputs)...)) {

@@ -12,4 +12,8 @@ auto data_test(spider::TaskContext& /*context*/, spider::Data<int>& data) -> int
 
 auto random_fail_test(spider::TaskContext& /*context*/, int fail_rate) -> int;
 
+auto create_data_test(spider::TaskContext& context, int x) -> spider::Data<int>;
+
+auto create_task_test(spider::TaskContext& context, int x, int y) -> int;
+
 #endif
