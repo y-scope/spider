@@ -13,9 +13,11 @@ you'll need to:
 * Set up a Spider cluster
 * Run the client
 
-> [!NOTE]
-> Each code example below is prefixed with a suggested file path that we then use when compiling.
-> If you choose different file paths, ensure you update the compilation commands to match.
+The example source code for this guide is in `examples/quick-start`.
+
+> [!NOTE] In the rest of this guide:
+> 1. we specify source file paths relative to `examples/quick-start`.
+> 2. all CMake commands should be run from inside `examples/quick-start`.
 
 # Requirements
 
@@ -41,77 +43,23 @@ In Spider, a task is a C++ function that satisfies the following conditions:
 > You don't immediately need to understand the TaskContext, Serializable, or Data types as we'll
 > explain them in other guides.
 
-For example, the task below computes and returns the sum of two integers.
+For example, the task in `src/tasks.cpp` computes and returns the sum of two integers.
 
 > [!NOTE]
 > The task is split into a header file and an implementation file so that it can be loaded as a
 > library in the worker, as we'll see in later sections.
 
-`src/tasks.hpp`:
-
-```c++
-#include <spider/client/spider.hpp>
-
-// Task function prototype
-/**
- * @param context
- * @param x
- * @param y
- * @return The sum of x and y.
- */
-auto sum(spider::TaskContext& context, int x, int y) -> int;
-```
-
-`src/tasks.cpp`:
-
-```c++
-#include "tasks.hpp"
-
-#include <spider/client/spider.hpp>
-
-// Task function implementation
-auto sum(spider::TaskContext& context, int x, int y) -> int {
-    return x + y;
-}
-
-// Register the task with Spider
-SPIDER_REGISTER_TASK(sum);
-```
-
 The integer parameters and return value are `Serializable` values.
+
 The `SPIDER_REGISTER_TASK` macro at the bottom of `src/tasks.cpp` is how we inform Spider that a
 function should be treated as a task.
 
 # Building the task into a shared library
 
 In order for Spider to run a task, the task needs to be compiled into a shared library that Spider
-can load. To do so, first, copy the Spider project directory into the current directory to create
-the following directory structure:
+can load. The example's `CMakeLists.txt` demonstrates how to do this.
 
-* `spider/`
-* `src/`
-  * `tasks.cpp`
-  * `tasks.hpp`
-
-Then add the following `CMakeLists.txt` to the same directory.
-
-`CMakelists.txt`:
-
-```cmake
-cmake_minimum_required(VERSION 3.22.1)
-project(spider_example)
-
-# Add the Spider library
-add_subdirectory(spider)
-
-# Add the task library
-add_library(tasks SHARED src/tasks.cpp src/tasks.hpp)
-
-# Link the Spider library to the task library
-target_link_libraries(tasks PRIVATE spider::spider)
-```
-
-To build the shared library, run the following from the root of the project:
+To build the shared library, run:
 
 ```shell
 cmake -S . -B build
@@ -127,67 +75,8 @@ To make Spider to run a task, we first need to write a client application. Gener
 3. waits for its completion—whether it succeeds or fails;
 4. and then handles the result.
 
-For example, the client below runs the `sum` task from the previous section and verifies its result.
-
-`src/client.cpp`:
-
-```c++
-#include <iostream>
-#include <string>
-
-#include <spider/client/spider.hpp>
-
-#include "tasks.hpp"
-
-auto main(int argc, char const* argv[]) -> int {
-    // Parse the storage backend URL from the command line arguments
-    if (argc < 2) {
-        std::cerr << "Usage: ./client <storage-backend-url>" << '\n';
-        return 1;
-    }
-    std::string storage_url{argv[1]};
-    if (storage_url.empty()) {
-        std::cerr << "storage-backend-url cannot be empty." << '\n';
-        return 1;
-    }
-
-    // Create a driver that connects to the Spider cluster
-    spider::Driver driver{storage_url};
-    
-    // Submit the task for execution
-    int x = 2;
-    int y = 3;
-    spider::Job<int> job = driver.start(sum, x, y);
-    
-    // Wait for the job to complete
-    job.wait_complete();
-    
-    // Handle the job's success/failure
-    auto job_status = job.get_status();
-    switch (job_status) {
-        case JobStatus::Succeeded: {
-            auto result = job_status.get_result();
-            int expected = x + y;
-            if (expected == result) {
-                return 0;
-            } else {
-                std::cerr << "`sum` returned unexpected result. Expected: " << expected
-                        << ". Actual: " << result << '\n';
-                return 1;
-            }
-        }
-        case JobStatus::Failed: {
-            std::pair<std::string, std::string> error_and_fn_name = job.get_error();
-            std::cerr << "Job failed in function " << error_and_fn_name.second << " - "
-                   << error_and_fn_name.first << '\n';
-            return 1;
-        }
-        default:
-            std::cerr << "Job is in unexpected state - " << job_status << '\n';
-            return 1;
-    }
-}
-```
+For example, the client in `src/client.cpp` runs the `sum` task from the previous section and
+verifies its result.
 
 When we submit a task to Spider, Spider returns a `Job`, which represents a scheduled, running, or
 completed task (or `TaskGraph`) in a Spider cluster.
@@ -198,20 +87,12 @@ completed task (or `TaskGraph`) in a Spider cluster.
 # Building the client
 
 The client can be compiled like any normal C++ application, except that we need to link it to the
-Spider client library. To do so, add the following to `CMakeLists.txt`:
-
-```cmake
-# Add the client
-add_executable(client src/client.cpp)
-
-# Link the spider library to the client
-target_link_libraries(client PRIVATE spider::spider)
-```
+Spider client library and the `tasks` library. The example's `CMakeLists.txt` demonstrates how to do
+this.
 
 To build the client executable, run:
 
 ```shell
-cmake -S . -B build
 cmake --build build --parallel $(nproc) --target client
 ```
 
@@ -256,14 +137,13 @@ create a database and authorize a user to access it.
 To build the scheduler, run:
 
 ```shell
-cmake -S spider -B spider/build
-cmake --build spider/build --parallel $(nproc) --target spider_scheduler
+cmake --build build --parallel $(nproc) --target spider_scheduler
 ```
 
 To start the scheduler, run:
 
 ```shell
-spider/build/src/spider/spider_scheduler \
+build/spider/src/spider/spider_scheduler \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --port 6000
@@ -280,14 +160,13 @@ NOTE:
 To build the worker, run:
 
 ```shell
-cmake -S spider -B build
-cmake --build spider/build --parallel $(nproc) --target spider_worker
+cmake --build build --parallel $(nproc) --target spider_worker
 ```
 
 To start a worker, run:
 
 ```shell
-spider/build/src/spider/spider_worker \
+build/spider/src/spider/spider_worker \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --port 6000
