@@ -4,11 +4,11 @@
 #include <random>
 #include <stdexcept>
 
-#include "../../src/spider/client/Data.hpp"
-#include "../../src/spider/client/Driver.hpp"
-#include "../../src/spider/client/Job.hpp"
-#include "../../src/spider/client/TaskContext.hpp"
-#include "../../src/spider/client/TaskGraph.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/Driver.hpp>
+#include <spider/client/Job.hpp>
+#include <spider/client/TaskContext.hpp>
+#include <spider/client/TaskGraph.hpp>
 
 auto sum_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
     std::cerr << x << " + " << y << " = " << x + y << "\n";
