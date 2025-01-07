@@ -35,21 +35,31 @@ public:
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
     ) -> StorageErr = 0;
     virtual auto get_job_metadata(boost::uuids::uuid id, JobMetadata* job) -> StorageErr = 0;
+    virtual auto get_job_complete(boost::uuids::uuid id, bool* complete) -> StorageErr = 0;
+    virtual auto get_job_status(boost::uuids::uuid id, JobStatus* status) -> StorageErr = 0;
+    virtual auto get_job_output_tasks(
+            boost::uuids::uuid id,
+            std::vector<boost::uuids::uuid>* task_ids
+    ) -> StorageErr = 0;
     virtual auto get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph) -> StorageErr = 0;
     virtual auto get_jobs_by_client_id(
             boost::uuids::uuid client_id,
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr = 0;
     virtual auto remove_job(boost::uuids::uuid id) -> StorageErr = 0;
+    virtual auto reset_job(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(boost::uuids::uuid parent_id, Task const& child) -> StorageErr = 0;
     virtual auto get_task(boost::uuids::uuid id, Task* task) -> StorageErr = 0;
     virtual auto get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id) -> StorageErr
                                                                                        = 0;
     virtual auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr = 0;
     virtual auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr = 0;
+    virtual auto set_task_running(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;
     virtual auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr = 0;
+    virtual auto task_fail(TaskInstance const& instance, std::string const& error) -> StorageErr
+                                                                                      = 0;
     virtual auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr = 0;
     virtual auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr
                                                                                         = 0;

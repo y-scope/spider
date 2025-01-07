@@ -41,12 +41,15 @@ struct msgpack::adaptor::pack<boost::uuids::uuid> {
     }
 };
 
-template <class T>
-concept SerializableImpl = requires(T t) {
+template <class Buffer, class T>
+concept Packable = requires(Buffer buffer, T t) {
     {
-        msgpack::pack(msgpack::sbuffer{}, t)
+        msgpack::pack(buffer, t)
     };
 };
+
+template <class T>
+concept SerializableImpl = Packable<msgpack::sbuffer, T>;
 
 template <class T>
 concept DeSerializableImpl = requires(T t) {

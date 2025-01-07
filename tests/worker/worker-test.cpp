@@ -1,18 +1,66 @@
+#include "worker-test.hpp"
+
+#include <iostream>
+#include <random>
 #include <stdexcept>
 
-#include "../../src/spider/worker/FunctionManager.hpp"
+#include "../../src/spider/client/Data.hpp"
+#include "../../src/spider/client/Driver.hpp"
+#include "../../src/spider/client/Job.hpp"
+#include "../../src/spider/client/TaskContext.hpp"
+#include "../../src/spider/client/TaskGraph.hpp"
 
-namespace {
-auto sum_test(int const x, int const y) -> int {
+auto sum_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
+    std::cerr << x << " + " << y << " = " << x + y << "\n";
     return x + y;
 }
 
-auto error_test(int const /*x*/) -> int {
+auto error_test(spider::TaskContext& /*context*/, int const /*x*/) -> int {
     throw std::runtime_error("Simulated error in worker");
 }
-}  // namespace
+
+auto data_test(spider::TaskContext& /*context*/, spider::Data<int>& data) -> int {
+    return data.get();
+}
+
+auto random_fail_test(spider::TaskContext& /*context*/, int fail_rate) -> int {
+    std::random_device rd;
+    std::mt19937 gen{rd()};
+    constexpr int cMaxFailRate = 100;
+    std::uniform_int_distribution dis{1, cMaxFailRate};
+    int const random_number = dis(gen);
+    std::cerr << "Fail rate: " << fail_rate << "\n";
+    std::cerr << "Random number: " << random_number << "\n";
+    if (random_number < fail_rate) {
+        throw std::runtime_error("Simulated error in worker");
+    }
+    return 0;
+}
+
+auto create_data_test(spider::TaskContext& context, int x) -> spider::Data<int> {
+    spider::Data<int> data = context.get_data_builder<int>().build(x);
+    return data;
+}
+
+auto create_task_test(spider::TaskContext& context, int x, int y) -> int {
+    spider::TaskGraph const graph = context.bind(&sum_test, &sum_test, 0);
+    std::cerr << "Create task test\n";
+    spider::Job job = context.start(graph, x, y);
+    std::cerr << "Job started\n";
+    job.wait_complete();
+    std::cerr << "Job completed\n";
+    if (job.get_status() != spider::JobStatus::Succeeded) {
+        std::cerr << "Job failed\n";
+        throw std::runtime_error("Job failed");
+    }
+    return job.get_result();
+}
 
 // NOLINTBEGIN(cert-err58-cpp)
-SPIDER_WORKER_REGISTER_TASK(sum_test);
-SPIDER_WORKER_REGISTER_TASK(error_test);
+SPIDER_REGISTER_TASK(sum_test);
+SPIDER_REGISTER_TASK(error_test);
+SPIDER_REGISTER_TASK(data_test);
+SPIDER_REGISTER_TASK(random_fail_test);
+SPIDER_REGISTER_TASK(create_data_test);
+SPIDER_REGISTER_TASK(create_task_test);
 // NOLINTEND(cert-err58-cpp)

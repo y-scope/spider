@@ -26,6 +26,7 @@ public:
     virtual auto add_driver_data(boost::uuids::uuid driver_id, Data const& data) -> StorageErr = 0;
     virtual auto add_task_data(boost::uuids::uuid task_id, Data const& data) -> StorageErr = 0;
     virtual auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr = 0;
+    virtual auto set_data_locality(Data const& data) -> StorageErr = 0;
     virtual auto remove_data(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr
                                                                                           = 0;

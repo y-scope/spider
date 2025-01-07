@@ -61,7 +61,7 @@ void create_error_buffer(
 }
 
 auto FunctionManager::get_function(std::string const& name) const -> Function const* {
-    if (auto const func_iter = m_map.find(name); func_iter != m_map.end()) {
+    if (auto const func_iter = m_function_map.find(name); func_iter != m_function_map.end()) {
         return &(func_iter->second);
     }
     return nullptr;

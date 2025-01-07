@@ -13,7 +13,6 @@
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Driver.hpp"
-#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
@@ -34,16 +33,8 @@ WorkerClient::WorkerClient(
           m_data_store(std::move(data_store)),
           m_metadata_store(std::move(metadata_store)) {}
 
-auto WorkerClient::task_finish(
-        core::TaskInstance const& instance,
-        std::vector<core::TaskOutput> const& outputs
+auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
 ) -> std::optional<boost::uuids::uuid> {
-    m_metadata_store->task_finish(instance, outputs);
-
-    return get_next_task();
-}
-
-auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
     if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {
@@ -70,10 +61,18 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
     );
     try {
         // Create socket to scheduler
-        boost::asio::ip::tcp::socket socket(m_context);
+        boost::asio::io_context context;
+        boost::asio::ip::tcp::socket socket(context);
         boost::asio::connect(socket, endpoints);
 
-        scheduler::ScheduleTaskRequest const request{m_worker_id, m_worker_addr};
+        scheduler::ScheduleTaskRequest request{m_worker_id, m_worker_addr};
+        if (fail_task_id.has_value()) {
+            request = scheduler::ScheduleTaskRequest{
+                    m_worker_id,
+                    m_worker_addr,
+                    fail_task_id.value()
+            };
+        }
         msgpack::sbuffer request_buffer;
         msgpack::pack(request_buffer, request);
 
@@ -92,6 +91,9 @@ auto WorkerClient::get_next_task() -> std::optional<boost::uuids::uuid> {
                 = msgpack::unpack(response_buffer.data(), response_buffer.size());
         response_handle.get().convert(response);
 
+        if (!response.has_task_id()) {
+            return std::nullopt;
+        }
         return response.get_task_id();
     } catch (boost::system::system_error const& e) {
         return std::nullopt;

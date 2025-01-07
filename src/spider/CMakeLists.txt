@@ -2,6 +2,7 @@
 set(SPIDER_CORE_SOURCES
     storage/MysqlStorage.cpp
     worker/FunctionManager.cpp
+    worker/FunctionNameManager.cpp
     io/msgpack_message.cpp
     CACHE INTERNAL
     "spider core source files"
@@ -24,6 +25,7 @@ set(SPIDER_CORE_HEADERS
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
     worker/FunctionManager.hpp
+    worker/FunctionNameManager.hpp
     CACHE INTERNAL
     "spider core header files"
 )
@@ -51,6 +53,7 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/StopToken.hpp
     CACHE INTERNAL
     "spider worker source files"
 )
@@ -82,7 +85,12 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
 
 add_executable(spider_task_executor)
 target_sources(spider_task_executor PRIVATE ${SPIDER_TASK_EXECUTOR_SOURCES})
-target_link_libraries(spider_task_executor PRIVATE spider_core)
+target_link_libraries(
+    spider_task_executor
+    PRIVATE
+        spider_core
+        spider_client
+)
 target_link_libraries(
     spider_task_executor
     PRIVATE
@@ -99,6 +107,7 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    utils/StopToken.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
@@ -110,46 +119,44 @@ target_link_libraries(
     spider_scheduler
     PRIVATE
         Boost::headers
+        Boost::program_options
         absl::flat_hash_map
         spdlog::spdlog
 )
 
-set(SPIDER_CLIENT_SHARED_SOURCES CACHE INTERNAL "spider client shared source files")
+set(SPIDER_CLIENT_SHARED_SOURCES
+    client/Driver.cpp
+    client/TaskContext.cpp
+    CACHE INTERNAL
+    "spider client shared source files"
+)
 
 set(SPIDER_CLIENT_SHARED_HEADERS
     client/Data.hpp
     client/Driver.hpp
+    client/Job.hpp
     client/task.hpp
+    client/spider.hpp
     client/TaskContext.hpp
     client/TaskGraph.hpp
     client/type_utils.hpp
     client/Exception.hpp
+    core/DataImpl.hpp
+    core/TaskContextImpl.hpp
+    core/TaskGraphImpl.hpp
     CACHE INTERNAL
     "spider client shared header files"
 )
 
-add_library(spider_client_lib)
-target_sources(spider_client_lib PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
-target_sources(spider_client_lib PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
+add_library(spider_client)
+target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
+target_sources(spider_client PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
 target_link_libraries(
-    spider_client_lib
+    spider_client
     PUBLIC
+        spider_core
         Boost::boost
         absl::flat_hash_map
 )
 
-set(SPIDER_CLIENT_SOURCES CACHE INTERNAL "spider client source files")
-
-set(SPIDER_CLIENT_HEADERS
-    client/spider.hpp
-    client/Job.hpp
-    CACHE INTERNAL
-    "spider client header files"
-)
-
-add_library(spider_client)
-target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SOURCES})
-target_sources(spider_client PUBLIC ${SPIDER_CLIENT_HEADERS})
-target_link_libraries(spider_client PRIVATE spider_core)
-target_link_libraries(spider_client PUBLIC spider_client_lib)
 add_library(spider::spider ALIAS spider_client)

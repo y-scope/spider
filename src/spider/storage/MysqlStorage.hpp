@@ -40,20 +40,27 @@ public:
     add_job(boost::uuids::uuid job_id, boost::uuids::uuid client_id, TaskGraph const& task_graph
     ) -> StorageErr override;
     auto get_job_metadata(boost::uuids::uuid id, JobMetadata* job) -> StorageErr override;
+    auto get_job_complete(boost::uuids::uuid id, bool* complete) -> StorageErr override;
+    auto get_job_status(boost::uuids::uuid id, JobStatus* status) -> StorageErr override;
+    auto get_job_output_tasks(boost::uuids::uuid id, std::vector<boost::uuids::uuid>* task_ids)
+            -> StorageErr override;
     auto get_task_graph(boost::uuids::uuid id, TaskGraph* task_graph) -> StorageErr override;
     auto get_jobs_by_client_id(
             boost::uuids::uuid client_id,
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr override;
     auto remove_job(boost::uuids::uuid id) -> StorageErr override;
+    auto reset_job(boost::uuids::uuid id) -> StorageErr override;
     auto add_child(boost::uuids::uuid parent_id, Task const& child) -> StorageErr override;
     auto get_task(boost::uuids::uuid id, Task* task) -> StorageErr override;
     auto get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id) -> StorageErr override;
     auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr override;
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
+    auto set_task_running(boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
     auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr override;
+    auto task_fail(TaskInstance const& instance, std::string const& error) -> StorageErr override;
     auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
     auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;
@@ -87,6 +94,7 @@ public:
     auto add_driver_data(boost::uuids::uuid driver_id, Data const& data) -> StorageErr override;
     auto add_task_data(boost::uuids::uuid task_id, Data const& data) -> StorageErr override;
     auto get_data(boost::uuids::uuid id, Data* data) -> StorageErr override;
+    auto set_data_locality(Data const& data) -> StorageErr override;
     auto remove_data(boost::uuids::uuid id) -> StorageErr override;
     auto
     add_task_reference(boost::uuids::uuid id, boost::uuids::uuid task_id) -> StorageErr override;

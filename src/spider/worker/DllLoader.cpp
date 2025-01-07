@@ -9,6 +9,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../worker/FunctionManager.hpp"
+#include "../worker/FunctionNameManager.hpp"
 
 namespace spider::worker {
 
@@ -33,6 +34,21 @@ auto DllLoader::load_dll(std::string const& path_str) -> bool {
             core::FunctionManager::get_instance().register_function_invoker(
                     func_iter.first,
                     func_iter.second
+            );
+        }
+
+        auto const function_name_manager_func
+                = boost::dll::import_alias<core::FunctionNameManager&()>(
+                        library,
+                        "function_name_manager_get_instance"
+                );
+        core::FunctionNameManager const& function_name_manager = function_name_manager_func();
+        core::FunctionNameMap const& function_name_map
+                = function_name_manager.get_function_name_map();
+        for (auto const& func_name_iter : function_name_map) {
+            core::FunctionNameManager::get_instance().register_function(
+                    func_name_iter.second,
+                    func_name_iter.first
             );
         }
 

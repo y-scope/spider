@@ -4,11 +4,9 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
@@ -30,18 +28,12 @@ public:
             std::shared_ptr<core::MetadataStorage> metadata_store
     );
 
-    auto task_finish(
-            core::TaskInstance const& instance,
-            std::vector<core::TaskOutput> const& outputs
+    auto get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
     ) -> std::optional<boost::uuids::uuid>;
-
-    auto get_next_task() -> std::optional<boost::uuids::uuid>;
 
 private:
     boost::uuids::uuid m_worker_id;
     std::string m_worker_addr;
-
-    boost::asio::io_context m_context;
 
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;

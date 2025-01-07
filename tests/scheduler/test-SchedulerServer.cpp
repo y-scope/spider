@@ -1,4 +1,5 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -22,9 +23,13 @@
 #include "../../src/spider/scheduler/SchedulerServer.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
+
+constexpr int cServerWarmupTime = 5;
+
 TEMPLATE_LIST_TEST_CASE(
         "Scheduler server test",
         "[scheduler][server][storage]",
@@ -44,10 +49,15 @@ TEMPLATE_LIST_TEST_CASE(
             = std::make_shared<spider::scheduler::FifoPolicy>();
 
     constexpr unsigned short cPort = 6021;
-    spider::scheduler::SchedulerServer server{cPort, policy, metadata_store, data_store};
+    spider::core::StopToken stop_token;
+    spider::scheduler::SchedulerServer
+            server{cPort, policy, metadata_store, data_store, stop_token};
 
-    // Start server in another thread
-    std::thread thread{[&]() { server.run(); }};
+    // Pause and resume server
+    server.pause();
+    server.resume();
+    // Sleep for a while to let the server start
+    std::this_thread::sleep_for(std::chrono::milliseconds(cServerWarmupTime));
 
     // Create client socket
     boost::asio::io_context context;
@@ -62,6 +72,8 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_task(parent_task);
     graph.add_task(child_task);
     graph.add_dependency(parent_task.get_id(), child_task.get_id());
+    graph.add_input_task(parent_task.get_id());
+    graph.add_output_task(child_task.get_id());
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
     REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
@@ -71,6 +83,11 @@ TEMPLATE_LIST_TEST_CASE(
     msgpack::sbuffer req_buffer;
     msgpack::pack(req_buffer, req);
     REQUIRE(spider::core::send_message(socket, req_buffer));
+
+    // Pause and resume server
+    server.pause();
+    server.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(cServerWarmupTime));
 
     // Get response should succeed and get child task
     std::optional<msgpack::sbuffer> const& res_buffer = spider::core::receive_message(socket);
@@ -87,7 +104,6 @@ TEMPLATE_LIST_TEST_CASE(
     }
     socket.close();
     server.stop();
-    thread.join();
 }
 }  // namespace
 
