@@ -32,7 +32,14 @@ set(SPIDER_CORE_HEADERS
 
 add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
+target_sources(
+    spider_core
+    PUBLIC
+        FILE_SET spider_core_headers
+        TYPE HEADERS
+        BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/..
+        FILES ${SPIDER_CORE_HEADERS}
+)
 target_link_libraries(
     spider_core
     PUBLIC
@@ -150,7 +157,14 @@ set(SPIDER_CLIENT_SHARED_HEADERS
 
 add_library(spider_client)
 target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
-target_sources(spider_client PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
+target_sources(
+    spider_client
+    PUBLIC
+        FILE_SET spider_client_shared_headers
+        TYPE HEADERS
+        BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/..
+        FILES ${SPIDER_CLIENT_SHARED_HEADERS}
+)
 target_link_libraries(
     spider_client
     PUBLIC
