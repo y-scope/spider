@@ -1,7 +1,6 @@
 #ifndef SPIDER_WORKER_FUNCTIONMANAGER_HPP
 #define SPIDER_WORKER_FUNCTIONMANAGER_HPP
 
-#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>

@@ -1,8 +1,11 @@
 #include "FunctionManager.hpp"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <tuple>
+#include <type_traits>
+#include <vector>
 
 #include <boost/dll/alias.hpp>
 #include <spdlog/spdlog.h>
