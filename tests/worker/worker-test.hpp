@@ -1,8 +1,8 @@
 #ifndef SPIDER_TEST_WORKER_TEST_HPP
 #define SPIDER_TEST_WORKER_TEST_HPP
 
-#include "../../src/spider/client/Data.hpp"
-#include "../../src/spider/client/TaskContext.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/TaskContext.hpp>
 
 auto sum_test(spider::TaskContext& /*context*/, int x, int y) -> int;
 

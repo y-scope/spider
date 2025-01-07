@@ -1,7 +1,6 @@
 #ifndef SPIDER_WORKER_FUNCTIONMANAGER_HPP
 #define SPIDER_WORKER_FUNCTIONMANAGER_HPP
 
-#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -16,7 +15,6 @@
 #include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
-#include <spdlog/spdlog.h>
 
 #include "../client/Data.hpp"
 #include "../client/task.hpp"
@@ -162,43 +160,8 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<std::t
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-inline auto response_get_result_buffers(msgpack::sbuffer const& buffer
-) -> std::optional<std::vector<msgpack::sbuffer>> {
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    try {
-        std::vector<msgpack::sbuffer> result_buffers;
-        msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
-        msgpack::object const object = handle.get();
-
-        if (msgpack::type::ARRAY != object.type || object.via.array.size < 2) {
-            spdlog::error("Cannot split result into buffers: Wrong type");
-            return std::nullopt;
-        }
-
-        if (worker::TaskExecutorResponseType::Result
-            != object.via.array.ptr[0].as<worker::TaskExecutorResponseType>())
-        {
-            spdlog::error(
-                    "Cannot split result into buffers: Wrong response type {}",
-                    static_cast<std::underlying_type_t<worker::TaskExecutorResponseType>>(
-                            object.via.array.ptr[0].as<worker::TaskExecutorResponseType>()
-                    )
-            );
-            return std::nullopt;
-        }
-
-        for (size_t i = 1; i < object.via.array.size; ++i) {
-            msgpack::object const& obj = object.via.array.ptr[i];
-            result_buffers.emplace_back();
-            msgpack::pack(result_buffers.back(), obj);
-        }
-        return result_buffers;
-    } catch (msgpack::type_error& e) {
-        spdlog::error("Cannot split result into buffers: {}", e.what());
-        return std::nullopt;
-    }
-    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-}
+auto response_get_result_buffers(msgpack::sbuffer const& buffer
+) -> std::optional<std::vector<msgpack::sbuffer>>;
 
 template <TaskIo T>
 auto create_result_response(T const& t) -> msgpack::sbuffer {
