@@ -260,7 +260,9 @@ public:
      * - the error message sent from the task through `TaskContext::abort` or from Spider.
      * @throw spider::ConnectionException
      */
-    auto get_error() -> std::pair<std::string, std::string>;
+    auto get_error() -> std::pair<std::string, std::string> {
+        throw ConnectionException{"Not implemented"};
+    }
 
 private:
     Job(boost::uuids::uuid id,
