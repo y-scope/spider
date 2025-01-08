@@ -5,7 +5,12 @@ project(spider_getting_started)
 add_subdirectory(../../ spider EXCLUDE_FROM_ALL)
 
 # Add the tasks library
-add_library(tasks SHARED src/tasks.cpp src/tasks.hpp)
+add_library(
+    tasks
+    SHARED
+    src/tasks.cpp
+    src/tasks.hpp
+)
 
 # Link the Spider library to the tasks library
 target_link_libraries(tasks PRIVATE spider::spider)
@@ -14,4 +19,9 @@ target_link_libraries(tasks PRIVATE spider::spider)
 add_executable(client src/client.cpp)
 
 # Link the Spider and tasks library to the client
-target_link_libraries(client PRIVATE spider::spider tasks)
+target_link_libraries(
+    client
+    PRIVATE
+        spider::spider
+        tasks
+)

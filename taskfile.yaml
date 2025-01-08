@@ -12,8 +12,12 @@ vars:
   G_BUILD_SPIDER_DIR: "{{.G_BUILD_DIR}}/spider"
   G_SPIDER_CMAKE_CACHE: "{{.G_BUILD_SPIDER_DIR}}/CMakeCache.txt"
   G_SPIDER_COMPILE_COMMANDS_DB: "{{.G_BUILD_SPIDER_DIR}}/compile_commands.json"
+  G_BUILD_EXAMPLES_DIR: "{{.ROOT_DIR}}/build_example"
+  G_EXAMPLES_CMAKE_CACHE: "{{.G_BUILD_EXAMPLES_DIR}}/CMakeCache.txt"
+  G_EXAMPLES_COMPILE_COMMANDS_DB: "{{.G_BUILD_EXAMPLES_DIR}}/compile_commands.json"
   G_SRC_SPIDER_DIR: "{{.ROOT_DIR}}/src/spider"
   G_TEST_DIR: "{{.ROOT_DIR}}/tests"
+  G_EXAMPLES_DIR: "{{.ROOT_DIR}}/examples"
 
 tasks:
   clean:
@@ -25,13 +29,20 @@ tasks:
     sources:
       - "{{.TASKFILE}}"
       - "CMakeLists.txt"
+      - "examples/quick-start/CMakeLists.txt"
     generates:
       - "{{.G_SPIDER_CMAKE_CACHE}}"
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
-    cmd: "cmake -S '{{.ROOT_DIR}}' -B '{{.G_BUILD_SPIDER_DIR}}'"
+      - "{{.G_EXAMPLES_CMAKE_CACHE}}"
+      - "{{.G_EXAMPLES_COMPILE_COMMANDS_DB}}"
+    cmds:
+      - "cmake -S '{{.ROOT_DIR}}' -B '{{.G_BUILD_SPIDER_DIR}}'"
+      - "cmake -S '{{.ROOT_DIR}}/examples/quick-start' -B '{{.G_BUILD_EXAMPLES_DIR}}'"
 
   init:
     internal: true
     silent: true
     run: "once"
-    cmds: ["mkdir -p '{{.G_BUILD_DIR}}'"]
+    cmds:
+      - "mkdir -p '{{.G_BUILD_DIR}}'"
+      - "mkdir -p '{{.G_BUILD_SPIDER_DIR}}'"

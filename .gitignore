@@ -1,6 +1,7 @@
 # Build-related directories and files
 .task
 build
+build_example
 
 # Generated lint configs
 .clang-format

@@ -48,6 +48,9 @@ tasks:
     sources: &cpp_format_src_files
       - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
       - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
+      - "{{.G_EXAMPLES_DIR}}/**/*.cpp"
+      - "{{.G_EXAMPLES_DIR}}/**/*.h"
+      - "{{.G_EXAMPLES_DIR}}/**/*.hpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
@@ -62,6 +65,14 @@ tasks:
         vars:
           FLAGS: "--dry-run"
           SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
+      - task: "clang-format"
+        vars:
+          FLAGS: "--dry-run"
+          SRC_DIR: "{{.G_TEST_DIR}}"
+      - task: "clang-format"
+        vars:
+          FLAGS: "--dry-run"
+          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
 
   cpp-format-fix:
     sources: *cpp_format_src_files
@@ -75,6 +86,10 @@ tasks:
         vars:
           FLAGS: "-i"
           SRC_DIR: "{{.G_TEST_DIR}}"
+      - task: "clang-format"
+        vars:
+          FLAGS: "-i"
+          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
 
   cpp-static-check:
     # Alias task to `cpp-static-fix` since we don't currently support automatic fixes.
@@ -84,6 +99,9 @@ tasks:
     aliases: ["cpp-static-fix"]
     sources:
       - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
@@ -101,7 +119,14 @@ tasks:
         vars:
           FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
           SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
-          TEST_DIR: "{{.G_TEST_DIR}}"
+      - task: "clang-tidy"
+        vars:
+          FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
+          SRC_DIR: "{{.G_TEST_DIR}}"
+      - task: "clang-tidy"
+        vars:
+          FLAGS: "--config-file=.clang-tidy -p {{.G_EXAMPLES_COMPILE_COMMANDS_DB}}"
+          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
 
   py-check:
     cmds:
@@ -165,10 +190,10 @@ tasks:
   clang-tidy:
     internal: true
     requires:
-      vars: ["FLAGS", "SRC_DIR", "TEST_DIR"]
+      vars: ["FLAGS", "SRC_DIR"]
     cmd: |-
       . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find "{{.SRC_DIR}}" "{{.TEST_DIR}}" \
+      find "{{.SRC_DIR}}" \
         -type f \
         \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
         -print0 | \
@@ -182,6 +207,7 @@ tasks:
       - "CMakeLists.txt"
       - "src/spider/CMakeLists.txt"
       - "tests/CMakeLists.txt"
+      - "examples/quick-start/CMakeLists.txt"
       - "cmake/Modules/*.cmake"
     cmds:
       - for: "sources"
