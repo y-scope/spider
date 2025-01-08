@@ -99,9 +99,9 @@ tasks:
     aliases: ["cpp-static-fix"]
     sources:
       - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
+      - "{{.G_EXAMPLES_DIR}}/**/*.cpp"
+      - "{{.G_EXAMPLES_DIR}}/**/*.h"
+      - "{{.G_EXAMPLES_DIR}}/**/*.hpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
       - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
