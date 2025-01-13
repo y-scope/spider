@@ -196,6 +196,7 @@ public:
                     output_index = 0;
                 }
             });
+            return result;
         } else {
             if (output_task_ids.size() != 1) {
                 throw ConnectionException{fmt::format("Expected one output task for job result")};

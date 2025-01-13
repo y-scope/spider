@@ -1,4 +1,5 @@
 #include <string>
+#include <tuple>
 
 #include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
@@ -85,6 +86,24 @@ auto main(int argc, char** argv) -> int {
     constexpr int cExpectedResult = 10;
     if (job.get_result() != cExpectedResult) {
         spdlog::error("Wrong job result. Get {}. Expect 10", job.get_result());
+        return cJobFailed;
+    }
+
+    // Run task with multiple results should succeed
+    spider::Job<std::tuple<int, int>> swap_job = driver.start(&swap_test, 1, 2);
+    spdlog::debug("Multiple result job started");
+    swap_job.wait_complete();
+    if (swap_job.get_status() != spider::JobStatus::Succeeded) {
+        spdlog::error("Multiple result job failed");
+        return cJobFailed;
+    }
+    std::tuple<int, int> swap_result = swap_job.get_result();
+    if (std::get<0>(swap_result) != 2 || std::get<1>(swap_result) != 1) {
+        spdlog::error(
+                "Wrong multiple result job result. Get ({}, {}). Expect (2, 1)",
+                std::get<0>(swap_result),
+                std::get<1>(swap_result)
+        );
         return cJobFailed;
     }
 
