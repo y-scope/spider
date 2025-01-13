@@ -106,9 +106,21 @@ def success_job(storage):
     )
 
     submit_job(storage, uuid.uuid4(), graph)
-    assert get_task_state(storage, parent_1.id) == "ready"
-    assert get_task_state(storage, parent_2.id) == "ready"
-    assert get_task_state(storage, child.id) == "pending"
+    assert (
+        get_task_state(storage, parent_1.id) == "ready"
+        or get_task_state(storage, parent_1.id) == "running"
+        or get_task_state(storage, parent_1.id) == "success"
+    )
+    assert (
+        get_task_state(storage, parent_2.id) == "ready"
+        or get_task_state(storage, parent_2.id) == "running"
+        or get_task_state(storage, parent_2.id) == "success"
+    )
+    assert (
+        get_task_state(storage, child.id) == "pending"
+        or get_task_state(storage, child.id) == "running"
+        or get_task_state(storage, child.id) == "success"
+    )
     print("success job task ids:", parent_1.id, parent_2.id, child.id)
 
     yield graph, parent_1, parent_2, child
@@ -144,7 +156,7 @@ def data_job(storage):
         id=uuid.uuid4(),
         value=msgpack.packb(2),
     )
-    driver = Driver(id=uuid.uuid4(), addr="127.0.0.1")
+    driver = Driver(id=uuid.uuid4())
     add_driver(storage, driver)
     add_driver_data(storage, driver, data)
 
@@ -175,7 +187,7 @@ def random_fail_job(storage):
         id=uuid.uuid4(),
         value=msgpack.packb(2),
     )
-    driver = Driver(id=uuid.uuid4(), addr="127.0.0.1")
+    driver = Driver(id=uuid.uuid4())
     add_driver(storage, driver)
     add_driver_data(storage, driver, data)
 

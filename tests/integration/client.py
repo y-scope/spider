@@ -42,7 +42,6 @@ class TaskGraph:
 @dataclass
 class Driver:
     id: uuid.UUID
-    addr: str
 
 
 @dataclass
@@ -180,9 +179,7 @@ def remove_job(conn, job_id: uuid.UUID):
 def add_driver(conn, driver: Driver):
     cursor = conn.cursor()
 
-    cursor.execute(
-        "INSERT INTO drivers (id, address) VALUES (%s, %s)", (driver.id.bytes, driver.addr)
-    )
+    cursor.execute("INSERT INTO drivers (id) VALUES (%s)", (driver.id.bytes,))
 
     conn.commit()
     cursor.close()
