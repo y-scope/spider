@@ -3,6 +3,7 @@
 #include <iostream>
 #include <random>
 #include <stdexcept>
+#include <tuple>
 
 #include <spider/client/Data.hpp>
 #include <spider/client/Driver.hpp>
@@ -13,6 +14,10 @@
 auto sum_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
     std::cerr << x << " + " << y << " = " << x + y << "\n";
     return x + y;
+}
+
+auto swap_test(spider::TaskContext& /*context*/, int const x, int const y) -> std::tuple<int, int> {
+    return std::make_tuple(y, x);
 }
 
 auto error_test(spider::TaskContext& /*context*/, int const /*x*/) -> int {
@@ -58,6 +63,7 @@ auto create_task_test(spider::TaskContext& context, int x, int y) -> int {
 
 // NOLINTBEGIN(cert-err58-cpp)
 SPIDER_REGISTER_TASK(sum_test);
+SPIDER_REGISTER_TASK(swap_test);
 SPIDER_REGISTER_TASK(error_test);
 SPIDER_REGISTER_TASK(data_test);
 SPIDER_REGISTER_TASK(random_fail_test);
