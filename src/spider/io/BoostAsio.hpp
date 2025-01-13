@@ -1,8 +1,6 @@
 #ifndef SPIDER_CORE_BOOSTASIO_HPP
 #define SPIDER_CORE_BOOSTASIO_HPP
 
-#include <optional>
-
 // clang-format off
 // IWYU pragma: begin_exports
 
