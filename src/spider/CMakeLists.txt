@@ -151,7 +151,7 @@ set(SPIDER_CLIENT_SHARED_HEADERS
 add_library(spider_client)
 target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
 target_sources(spider_client PUBLIC ${SPIDER_CLIENT_SHARED_HEADERS})
-target_include_directories(spider_client PUBLIC ..)
+target_include_directories(spider_client PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_client
     PUBLIC
