@@ -10,15 +10,12 @@ namespace spider::core {
 
 class Driver {
 public:
-    Driver(boost::uuids::uuid const id, std::string addr) : m_id{id}, m_addr{std::move(addr)} {}
+    explicit Driver(boost::uuids::uuid const id) : m_id{id} {}
 
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid const& { return m_id; }
 
-    [[nodiscard]] auto get_addr() const -> std::string const& { return m_addr; }
-
 private:
     boost::uuids::uuid m_id;
-    std::string m_addr;
 };
 
 class Scheduler {

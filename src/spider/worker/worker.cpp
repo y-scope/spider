@@ -63,6 +63,7 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             boost::program_options::value<std::vector<std::string>>(),
             "dynamic libraries that include the spider tasks"
     );
+    desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
@@ -332,12 +333,22 @@ auto main(int argc, char** argv) -> int {
 
     std::string storage_url;
     std::vector<std::string> libs;
+    std::string worker_addr;
     try {
-        if (!args.contains("storage_url") || !args.contains("libs")) {
-            spdlog::error("Error: missing required arguments");
+        if (!args.contains("storage_url")) {
+            spdlog::error("Missing storage_url");
             return cCmdArgParseErr;
         }
         storage_url = args["storage_url"].as<std::string>();
+        if (!args.contains("host")) {
+            spdlog::error("Missing host");
+            return cCmdArgParseErr;
+        }
+        worker_addr = args["host"].as<std::string>();
+        if (!args.contains("libs") || args["libs"].empty()) {
+            spdlog::error("Missing libs");
+            return cCmdArgParseErr;
+        }
         libs = args["libs"].as<std::vector<std::string>>();
     } catch (boost::bad_any_cast const& e) {
         spdlog::error("Error: {}", e.what());
@@ -362,16 +373,10 @@ auto main(int argc, char** argv) -> int {
         spdlog::error("Cannot connect to data storage: {}", err.description);
         return cStorageConnectionErr;
     }
-    std::optional<std::string> const optional_worker_addr = spider::core::get_address();
-    if (!optional_worker_addr.has_value()) {
-        spdlog::error("Failed to get worker address");
-        return cWorkerAddrErr;
-    }
-    std::string const& worker_addr = optional_worker_addr.value();
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const worker_id = gen();
-    spider::core::Driver driver{worker_id, worker_addr};
+    spider::core::Driver driver{worker_id};
     err = metadata_store->add_driver(driver);
     if (!err.success()) {
         spdlog::error("Cannot add driver to metadata storage: {}", err.description);

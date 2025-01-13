@@ -153,7 +153,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data const data{std::string{buffer.data(), buffer.size()}};
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    spider::core::Driver const driver{driver_id, "127.0.0.1"};
+    spider::core::Driver const driver{driver_id};
     REQUIRE(metadata_storage->add_driver(driver).success());
     REQUIRE(data_storage->add_driver_data(driver_id, data).success());
 

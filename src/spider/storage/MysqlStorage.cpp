@@ -55,13 +55,13 @@ namespace spider::core {
 namespace {
 char const* const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS `drivers` (
     `id` BINARY(16) NOT NULL,
-    `address` VARCHAR(40) NOT NULL,
     `heartbeat` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
 ))";
 
 char const* const cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS `schedulers` (
     `id` BINARY(16) NOT NULL,
+    `address` VARCHAR(40) NOT NULL,
     `port` INT UNSIGNED NOT NULL,
     `state` ENUM('normal', 'recovery', 'gc') NOT NULL,
     CONSTRAINT `scheduler_driver_id` FOREIGN KEY (`id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
@@ -331,11 +331,10 @@ auto get_sql_string(sql::SQLString const& str) -> std::string {
 auto MySqlMetadataStorage::add_driver(Driver const& driver) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("INSERT INTO `drivers` (`id`, `address`) VALUES (?, ?)")
+                m_conn->prepareStatement("INSERT INTO `drivers` (`id`) VALUES (?)")
         );
         sql::bytes id_bytes = uuid_get_bytes(driver.get_id());
         statement->setBytes(1, &id_bytes);
-        statement->setString(2, driver.get_addr());
         statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
@@ -351,48 +350,24 @@ auto MySqlMetadataStorage::add_driver(Driver const& driver) -> StorageErr {
 auto MySqlMetadataStorage::add_scheduler(Scheduler const& scheduler) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> driver_statement(
-                m_conn->prepareStatement("INSERT INTO `drivers` (`id`, `address`) VALUES (?, ?)")
+                m_conn->prepareStatement("INSERT INTO `drivers` (`id`) VALUES (?)")
         );
         sql::bytes id_bytes = uuid_get_bytes(scheduler.get_id());
         driver_statement->setBytes(1, &id_bytes);
-        driver_statement->setString(2, scheduler.get_addr());
         driver_statement->executeUpdate();
         std::unique_ptr<sql::PreparedStatement> scheduler_statement(m_conn->prepareStatement(
-                "INSERT INTO `schedulers` (`id`, `port`, `state`) VALUES (?, ?, 'normal')"
+                "INSERT INTO `schedulers` (`id`, `address`, `port`, `state`) "
+                "VALUES (?, ?, ?, 'normal')"
         ));
         scheduler_statement->setBytes(1, &id_bytes);
-        scheduler_statement->setInt(2, scheduler.get_port());
+        scheduler_statement->setString(2, scheduler.get_addr());
+        scheduler_statement->setInt(3, scheduler.get_port());
         scheduler_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
             return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        return StorageErr{StorageErrType::OtherErr, e.what()};
-    }
-    m_conn->commit();
-    return StorageErr{};
-}
-
-auto MySqlMetadataStorage::get_driver(boost::uuids::uuid id, std::string* addr) -> StorageErr {
-    try {
-        std::unique_ptr<sql::PreparedStatement> statement(
-                m_conn->prepareStatement("SELECT `address` FROM `drivers` WHERE `id` = ?")
-        );
-        sql::bytes id_bytes = uuid_get_bytes(id);
-        statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
-        if (0 == res->rowsCount()) {
-            m_conn->rollback();
-            return StorageErr{
-                    StorageErrType::KeyNotFoundErr,
-                    fmt::format("no driver with id {}", boost::uuids::to_string(id))
-            };
-        }
-        res->next();
-        *addr = get_sql_string(res->getString(1));
-    } catch (sql::SQLException& e) {
-        m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     m_conn->commit();
@@ -1513,35 +1488,22 @@ auto MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std::strin
 auto MySqlMetadataStorage::get_scheduler_addr(boost::uuids::uuid id, std::string* addr, int* port)
         -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> addr_statement(
-                m_conn->prepareStatement("SELECT `address` FROM `drivers` WHERE `id` = ?")
-        );
+        std::unique_ptr<sql::PreparedStatement> statement(m_conn->prepareStatement(
+                "SELECT `address`, `port` FROM `schedulers` WHERE `id` = ?"
+        ));
         sql::bytes id_bytes = uuid_get_bytes(id);
-        addr_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> addr_res{addr_statement->executeQuery()};
-        if (addr_res->rowsCount() == 0) {
-            m_conn->rollback();
-            return StorageErr{
-                    StorageErrType::KeyNotFoundErr,
-                    fmt::format("no driver with id {}", boost::uuids::to_string(id))
-            };
-        }
-        std::unique_ptr<sql::PreparedStatement> port_statement(
-                m_conn->prepareStatement("SELECT `port` FROM `schedulers` WHERE `id` = ?")
-        );
-        port_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> port_res{port_statement->executeQuery()};
-        if (port_res->rowsCount() == 0) {
+        statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> res{statement->executeQuery()};
+        if (res->rowsCount() == 0) {
             m_conn->rollback();
             return StorageErr{
                     StorageErrType::KeyNotFoundErr,
                     fmt::format("no scheduler with id {}", boost::uuids::to_string(id))
             };
         }
-        addr_res->next();
-        *addr = get_sql_string(addr_res->getString(1));
-        port_res->next();
-        *port = port_res->getInt(1);
+        res->next();
+        *addr = get_sql_string(res->getString(1));
+        *port = res->getInt(2);
     } catch (sql::SQLException& e) {
         m_conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
