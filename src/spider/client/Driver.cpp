@@ -34,12 +34,7 @@ Driver::Driver(std::string const& storage_url) {
         throw ConnectionException(err.description);
     }
 
-    std::optional<std::string> const optional_addr = core::get_address();
-    if (!optional_addr.has_value()) {
-        throw ConnectionException("Cannot get machine address");
-    }
-    std::string const& addr = optional_addr.value();
-    err = m_metadata_storage->add_driver(core::Driver{m_id, addr});
+    err = m_metadata_storage->add_driver(core::Driver{m_id});
     if (!err.success()) {
         if (core::StorageErrType::DuplicateKeyErr == err.type) {
             throw DriverIdInUseException(m_id);
@@ -72,12 +67,7 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
         throw ConnectionException(err.description);
     }
 
-    std::optional<std::string> const optional_addr = core::get_address();
-    if (!optional_addr.has_value()) {
-        throw ConnectionException("Cannot get machine address");
-    }
-    std::string const& addr = optional_addr.value();
-    err = m_metadata_storage->add_driver(core::Driver{m_id, addr});
+    err = m_metadata_storage->add_driver(core::Driver{m_id});
     if (!err.success()) {
         if (core::StorageErrType::DuplicateKeyErr == err.type) {
             throw DriverIdInUseException(m_id);

@@ -28,7 +28,6 @@ public:
 
     virtual auto add_driver(Driver const& driver) -> StorageErr = 0;
     virtual auto add_scheduler(Scheduler const& scheduler) -> StorageErr = 0;
-    virtual auto get_driver(boost::uuids::uuid id, std::string* addr) -> StorageErr = 0;
     virtual auto get_active_scheduler(std::vector<Scheduler>* schedulers) -> StorageErr = 0;
 
     virtual auto

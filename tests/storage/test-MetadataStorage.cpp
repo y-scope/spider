@@ -31,11 +31,7 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
     // Add driver should succeed
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    REQUIRE(storage->add_driver(spider::core::Driver{driver_id, "127.0.0.1"}).success());
-
-    std::string addr;
-    REQUIRE(storage->get_driver(driver_id, &addr).success());
-    REQUIRE("127.0.0.1" == addr);
+    REQUIRE(storage->add_driver(spider::core::Driver{driver_id}).success());
 
     std::vector<boost::uuids::uuid> ids{};
     // Driver should not time out

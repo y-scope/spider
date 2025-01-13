@@ -43,6 +43,11 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider scheduler");
     desc.add_options()(
+            "host",
+            boost::program_options::value<std::string>(),
+            "scheduler host address"
+    );
+    desc.add_options()(
             "port",
             boost::program_options::value<unsigned short>(),
             "port to listen on"
@@ -136,6 +141,7 @@ auto main(int argc, char** argv) -> int {
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
     unsigned short port = 0;
+    std::string scheduler_addr;
     std::string storage_url;
     try {
         if (!args.contains("port")) {
@@ -143,6 +149,11 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         port = args["port"].as<unsigned short>();
+        if (!args.contains("host")) {
+            spdlog::error("host is required");
+            return cCmdArgParseErr;
+        }
+        scheduler_addr = args["host"].as<std::string>();
         if (!args.contains("storage_url")) {
             spdlog::error("storage_url is required");
             return cCmdArgParseErr;
@@ -185,12 +196,6 @@ auto main(int argc, char** argv) -> int {
     // Get scheduler id and addr
     boost::uuids::random_generator gen;
     boost::uuids::uuid const scheduler_id = gen();
-    std::optional<std::string> const optional_scheduler_addr = spider::core::get_address();
-    if (!optional_scheduler_addr.has_value()) {
-        spdlog::error("Failed to get scheduler address");
-        return cSchedulerAddrErr;
-    }
-    std::string const& scheduler_addr = optional_scheduler_addr.value();
 
     // Start scheduler server
     spider::core::StopToken stop_token;

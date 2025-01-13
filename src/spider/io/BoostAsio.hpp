@@ -40,35 +40,4 @@
 // IWYU pragma: end_exports
 // clang-format on
 
-#include <string>
-
-#include <spdlog/spdlog.h>
-
-namespace spider::core {
-inline auto get_address() -> std::optional<std::string> {
-    try {
-        boost::asio::io_context io_context;
-        boost::asio::ip::tcp::resolver resolver(io_context);
-        auto const endpoints = resolver.resolve(boost::asio::ip::host_name(), "");
-        for (auto const& endpoint : endpoints) {
-            if (endpoint.endpoint().address().is_v4()
-                && !endpoint.endpoint().address().is_loopback())
-            {
-                return endpoint.endpoint().address().to_string();
-            }
-        }
-        // If no non-loopback address found, return loopback address
-        spdlog::warn("No non-loopback address found, using loopback address");
-        for (auto const& endpoint : endpoints) {
-            if (endpoint.endpoint().address().is_v4()) {
-                return endpoint.endpoint().address().to_string();
-            }
-        }
-        return std::nullopt;
-    } catch (boost::system::system_error const& e) {
-        return std::nullopt;
-    }
-}
-}  // namespace spider::core
-
 #endif  // SPIDER_CORE_BOOSTASIO_HPP

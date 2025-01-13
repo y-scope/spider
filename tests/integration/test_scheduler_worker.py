@@ -34,6 +34,8 @@ def start_scheduler_worker(
     dir_path = dir_path / ".." / ".." / "src" / "spider"
     scheduler_cmds = [
         str(dir_path / "spider_scheduler"),
+        "--host",
+        "127.0.0.1",
         "--port",
         str(scheduler_port),
         "--storage_url",
@@ -42,6 +44,8 @@ def start_scheduler_worker(
     scheduler_process = subprocess.Popen(scheduler_cmds)
     worker_cmds = [
         str(dir_path / "spider_worker"),
+        "--host",
+        "127.0.0.1",
         "--storage_url",
         storage_url,
         "--libs",
