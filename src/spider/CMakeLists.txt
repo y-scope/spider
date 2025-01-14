@@ -58,21 +58,6 @@ set(SPIDER_WORKER_SOURCES
     "spider worker source files"
 )
 
-add_executable(spider_worker)
-target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
-target_sources(spider_worker PRIVATE worker/worker.cpp)
-target_link_libraries(spider_worker PRIVATE spider_core)
-target_link_libraries(
-    spider_worker
-    PRIVATE
-        Boost::headers
-        Boost::filesystem
-        Boost::process
-        Boost::program_options
-        Boost::system
-        spdlog::spdlog
-)
-
 set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/DllLoader.cpp
     worker/DllLoader.hpp
@@ -99,6 +84,22 @@ target_link_libraries(
         Boost::system
         spdlog::spdlog
 )
+
+add_executable(spider_worker)
+target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
+target_sources(spider_worker PRIVATE worker/worker.cpp)
+target_link_libraries(spider_worker PRIVATE spider_core)
+target_link_libraries(
+    spider_worker
+    PRIVATE
+        Boost::headers
+        Boost::filesystem
+        Boost::process
+        Boost::program_options
+        Boost::system
+        spdlog::spdlog
+)
+add_dependencies(spider_worker spider_task_executor)
 
 set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerPolicy.hpp
