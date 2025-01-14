@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -61,13 +62,13 @@ auto main(int argc, char const* argv[]) -> int {
     auto hypotenuse_task_graph = driver.bind(&square_root, &sum_of_squares_task_graph);
 
     // Submit the task graph for execution
-    constexpr int a = 4;
-    constexpr int b = 5;
+    int const a = 4;
+    int const b = 5;
     auto job = driver.start(hypotenuse_task_graph, a, b);
 
     job.wait_complete();
 
-    if (false == validate_job_output(job, std::sqrt(a * a + b * b))) {
+    if (false == validate_job_output(job, std::sqrt((a * a) + (b * b)))) {
         return 1;
     }
 

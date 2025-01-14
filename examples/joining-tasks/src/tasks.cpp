@@ -17,7 +17,9 @@ auto sum(spider::TaskContext&, int x, int y) -> int {
 }
 
 // Register the tasks
-// NOLINTNEXTLINE(cert-err58-cpp)
+// NOLINTBEGIN(cert-err58-cpp)
 SPIDER_REGISTER_TASK(square);
 SPIDER_REGISTER_TASK(square_root);
 SPIDER_REGISTER_TASK(sum);
+
+// NOLINTEND(cert-err58-cpp)
