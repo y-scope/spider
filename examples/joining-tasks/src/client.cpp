@@ -39,7 +39,7 @@ auto validate_job_output(spider::Job<JobOutputType>& job, JobOutputType const& e
             return false;
     }
 }
-}
+}  // namespace
 
 auto main(int argc, char const* argv[]) -> int {
     // Parse the storage backend URL from the command line arguments

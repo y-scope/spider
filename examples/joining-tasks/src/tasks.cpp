@@ -5,11 +5,11 @@
 #include <spider/client/spider.hpp>
 
 auto square(spider::TaskContext&, int value) -> int {
-  return value * value;
+    return value * value;
 }
 
 auto square_root(spider::TaskContext&, int value) -> double {
-  return std::sqrt(value);
+    return std::sqrt(value);
 }
 
 auto sum(spider::TaskContext&, int x, int y) -> int {
