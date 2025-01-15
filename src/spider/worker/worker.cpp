@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -50,29 +51,54 @@ constexpr int cTaskErr = 5;
 constexpr int cRetryCount = 5;
 
 namespace {
-auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
-    boost::program_options::options_description desc;
-    desc.add_options()("help", "spider scheduler");
-    desc.add_options()(
-            "storage_url",
-            boost::program_options::value<std::string>(),
-            "storage server url"
-    );
-    desc.add_options()(
-            "libs",
-            boost::program_options::value<std::vector<std::string>>(),
-            "dynamic libraries that include the spider tasks"
-    );
-    desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
 
-    boost::program_options::variables_map variables;
-    boost::program_options::store(
-            // NOLINTNEXTLINE(misc-include-cleaner)
-            boost::program_options::parse_command_line(argc, argv, desc),
-            variables
-    );
-    boost::program_options::notify(variables);
-    return variables;
+char const* const cUsage = "Usage: spider_worker --host <host> --storage_url <storage_url> --libs <libs>";
+
+auto parse_args(int const argc, char** argv, std::string& host, std::string& storage_url, std::vector<std::string>& libs) -> bool {
+    boost::program_options::options_description desc;
+    // clang-format off
+    desc.add_options()
+        ("help", "spider scheduler")
+        (
+        "host",
+            boost::program_options::value<std::string>(&host)->required(),
+            "worker host address"
+        )
+        (
+        "storage_url",
+            boost::program_options::value<std::string>(&storage_url)->required(),
+            "storage server url"
+        )
+        (
+            "libs",
+            boost::program_options::value<std::vector<std::string>>(&libs),
+            "dynamic libraries that include the spider tasks"
+        );
+    // clang-format on
+
+    try {
+        boost::program_options::variables_map variables;
+        boost::program_options::store(
+                // NOLINTNEXTLINE(misc-include-cleaner)
+                boost::program_options::parse_command_line(argc, argv, desc),
+                variables
+        );
+
+        if (!variables.contains("host") && !variables.contains("storage_url") && !variables.contains("libs"))
+        {
+            std::cout << cUsage << "\n";
+            std::cout << desc << "\n";
+            return false;
+        }
+
+        boost::program_options::notify(variables);
+        return true;
+    } catch (boost::program_options::error& e) {
+        std::cerr << "spider_worker: " << e.what() << "\n";
+        std::cerr << cUsage << "\n";
+        std::cerr << "Try 'spider_worker --help' for more information.\n";
+        return false;
+    }
 }
 
 auto get_environment_variable() -> absl::flat_hash_map<
@@ -329,32 +355,10 @@ auto main(int argc, char** argv) -> int {
     spdlog::set_level(spdlog::level::trace);
 #endif
 
-    boost::program_options::variables_map const args = parse_args(argc, argv);
-
     std::string storage_url;
     std::vector<std::string> libs;
     std::string worker_addr;
-    try {
-        if (!args.contains("storage_url")) {
-            spdlog::error("Missing storage_url");
-            return cCmdArgParseErr;
-        }
-        storage_url = args["storage_url"].as<std::string>();
-        if (!args.contains("host")) {
-            spdlog::error("Missing host");
-            return cCmdArgParseErr;
-        }
-        worker_addr = args["host"].as<std::string>();
-        if (!args.contains("libs") || args["libs"].empty()) {
-            spdlog::error("Missing libs");
-            return cCmdArgParseErr;
-        }
-        libs = args["libs"].as<std::vector<std::string>>();
-    } catch (boost::bad_any_cast const& e) {
-        spdlog::error("Error: {}", e.what());
-        return cCmdArgParseErr;
-    } catch (boost::program_options::error const& e) {
-        spdlog::error("Error: {}", e.what());
+    if (!parse_args(argc, argv, worker_addr, storage_url, libs)) {
         return cCmdArgParseErr;
     }
 

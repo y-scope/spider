@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -38,33 +39,62 @@ constexpr int cCleanupInterval = 5;
 constexpr int cRetryCount = 5;
 
 namespace {
-auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
-    boost::program_options::options_description desc;
-    desc.add_options()("help", "spider scheduler");
-    desc.add_options()(
-            "host",
-            boost::program_options::value<std::string>(),
-            "scheduler host address"
-    );
-    desc.add_options()(
-            "port",
-            boost::program_options::value<unsigned short>(),
-            "port to listen on"
-    );
-    desc.add_options()(
-            "storage_url",
-            boost::program_options::value<std::string>(),
-            "storage server url"
-    );
 
-    boost::program_options::variables_map variables;
-    boost::program_options::store(
-            // NOLINTNEXTLINE(misc-include-cleaner)
-            boost::program_options::parse_command_line(argc, argv, desc),
-            variables
-    );
-    boost::program_options::notify(variables);
-    return variables;
+char const* const cUsage
+        = "Usage: spider_scheduler --host <host> --port <port> --storage_url <url>";
+
+auto parse_args(
+        int const argc,
+        char** argv,
+        std::string& host,
+        unsigned short& port,
+        std::string& storage_url
+) -> bool {
+    boost::program_options::options_description desc;
+    // clang-format off
+    desc.add_options()
+        ("help", "spider scheduler")
+        (
+            "host",
+            boost::program_options::value<std::string>(&host)->required(),
+            "scheduler host address"
+        )
+        (
+            "port",
+            boost::program_options::value<unsigned short>(&port)->required(),
+            "port to listen on"
+        )
+        (
+            "storage_url",
+            boost::program_options::value<std::string>(&storage_url)->required(),
+            "storage server url"
+        );
+    // clang-format on
+
+    try {
+        boost::program_options::variables_map variables;
+        boost::program_options::store(
+                // NOLINTNEXTLINE(misc-include-cleaner)
+                boost::program_options::parse_command_line(argc, argv, desc),
+                variables
+        );
+
+        if (!variables.contains("host") && !variables.contains("port")
+            && !variables.contains("storage_url"))
+        {
+            std::cout << cUsage << "\n";
+            std::cout << desc << "\n";
+            return false;
+        }
+
+        boost::program_options::notify(variables);
+        return true;
+    } catch (boost::program_options::error& e) {
+        std::cerr << "spider_scheduler: " << e.what() << "\n";
+        std::cerr << cUsage << "\n";
+        std::cerr << "Try 'spider_scheduler --help' for more information.\n";
+        return false;
+    }
 }
 
 auto heartbeat_loop(
@@ -137,30 +167,10 @@ auto main(int argc, char** argv) -> int {
     spdlog::set_level(spdlog::level::trace);
 #endif
 
-    boost::program_options::variables_map const args = parse_args(argc, argv);
-
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
-    try {
-        if (!args.contains("port")) {
-            spdlog::error("port is required");
-            return cCmdArgParseErr;
-        }
-        port = args["port"].as<unsigned short>();
-        if (!args.contains("host")) {
-            spdlog::error("host is required");
-            return cCmdArgParseErr;
-        }
-        scheduler_addr = args["host"].as<std::string>();
-        if (!args.contains("storage_url")) {
-            spdlog::error("storage_url is required");
-            return cCmdArgParseErr;
-        }
-        storage_url = args["storage_url"].as<std::string>();
-    } catch (boost::bad_any_cast& e) {
-        return cCmdArgParseErr;
-    } catch (boost::program_options::error& e) {
+    if (!parse_args(argc, argv, scheduler_addr, port, storage_url)) {
         return cCmdArgParseErr;
     }
 
