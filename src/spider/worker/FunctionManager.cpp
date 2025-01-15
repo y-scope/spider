@@ -102,6 +102,11 @@ auto response_get_result_buffers(msgpack::sbuffer const& buffer
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
+auto FunctionManager::get_instance() -> FunctionManager& {
+    static FunctionManager instance;
+    return instance;
+}
+
 auto FunctionManager::get_function(std::string const& name) const -> Function const* {
     if (auto const func_iter = m_function_map.find(name); func_iter != m_function_map.end()) {
         return &(func_iter->second);

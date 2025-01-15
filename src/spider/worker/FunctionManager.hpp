@@ -343,10 +343,7 @@ public:
 
     auto operator=(FunctionManager&&) -> FunctionManager& = delete;
 
-    static auto get_instance() -> FunctionManager& {
-        static FunctionManager instance;
-        return instance;
-    }
+    static auto get_instance() -> FunctionManager&;
 
     template <class F>
     auto register_function(std::string const& name, F f) -> bool {
