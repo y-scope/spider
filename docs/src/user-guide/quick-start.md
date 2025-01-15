@@ -15,9 +15,12 @@ you'll need to:
 
 The example source code for this guide is in `examples/quick-start`.
 
-> [!NOTE] In the rest of this guide:
-> 1. we specify source file paths relative to `examples/quick-start`.
-> 2. all CMake commands should be run from inside `examples/quick-start`.
+:::{note}
+In the rest of this guide:
+
+1. we specify source file paths relative to `examples/quick-start`.
+2. all CMake commands should be run from inside `examples/quick-start`.
+:::
 
 # Requirements
 
@@ -39,15 +42,18 @@ In Spider, a task is a C++ function that satisfies the following conditions:
   * All other parameters must have types that conform to the `Serializable` or `Data` interfaces.
 * It returns a value that conforms to the `Serializable` or `Data` interfaces.
 
-> [!NOTE]
-> You don't immediately need to understand the TaskContext, Serializable, or Data types as we'll
-> explain them in other guides.
+:::{note}
+You don't immediately need to understand the TaskContext, Serializable, or Data types as we'll
+explain them in other guides.
+:::
+
 
 For example, the task in `src/tasks.cpp` computes and returns the sum of two integers.
 
-> [!NOTE]
-> The task is split into a header file and an implementation file so that it can be loaded as a
-> library in the worker, as we'll see in later sections.
+:::{note}
+The task is split into a header file and an implementation file so that it can be loaded as a
+library in the worker, as we'll see in later sections.
+:::
 
 The integer parameters and return value are `Serializable` values.
 
@@ -81,8 +87,9 @@ verifies its result.
 When we submit a task to Spider, Spider returns a `Job`, which represents a scheduled, running, or
 completed task (or `TaskGraph`) in a Spider cluster.
 
-> [!NOTE]
-> `Job`s and `TaskGraph`s will be explained in another guide.
+:::{note}
+`Job`s and `TaskGraph`s will be explained in another guide.
+:::
 
 # Building the client
 
@@ -122,12 +129,14 @@ docker run \
         --publish 3306:3306 mariadb:latest
 ```
 
-> [!WARNING]
-> When the container above is stopped, the database will be deleted. In production, you should set
-> up a database instance with some form of data persistence.
+:::{warning}
+When the container above is stopped, the database will be deleted. In production, you should set up
+a database instance with some form of data persistence.
+:::
 
-> [!WARNING]
-> The container above is using hardcoded default credentials that shouldn't be used in production.
+:::{warning}
+The container above is using hardcoded default credentials that shouldn't be used in production.
+:::
 
 Alternatively, if you have an existing MySQL/MariaDB instance, you can use that as well. Simply
 create a database and authorize a user to access it.
@@ -183,9 +192,10 @@ NOTE:
 * You can specify multiple task libraries to load. The task libraries must be built with linkage
   to the Spider client library. 
 
-> [!TIP]
-> You can start multiple workers to increase the number of concurrent tasks that can be run on the
-> cluster.
+:::{tip}
+You can start multiple workers to increase the number of concurrent tasks that can be run on the
+cluster.
+:::
 
 # Running the client
 
