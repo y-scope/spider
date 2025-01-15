@@ -12,7 +12,6 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
-#include <boost/any/bad_any_cast.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>

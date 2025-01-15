@@ -8,7 +8,6 @@
 #include <system_error>
 #include <thread>
 
-#include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
