@@ -3,9 +3,9 @@
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <optional>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -51,9 +51,16 @@ constexpr int cRetryCount = 5;
 
 namespace {
 
-char const* const cUsage = "Usage: spider_worker --host <host> --storage_url <storage_url> --libs <libs>";
+char const* const cUsage
+        = "Usage: spider_worker --host <host> --storage_url <storage_url> --libs <libs>";
 
-auto parse_args(int const argc, char** argv, std::string& host, std::string& storage_url, std::vector<std::string>& libs) -> bool {
+auto parse_args(
+        int const argc,
+        char** argv,
+        std::string& host,
+        std::string& storage_url,
+        std::vector<std::string>& libs
+) -> bool {
     boost::program_options::options_description desc;
     // clang-format off
     desc.add_options()
@@ -83,7 +90,8 @@ auto parse_args(int const argc, char** argv, std::string& host, std::string& sto
                 variables
         );
 
-        if (!variables.contains("host") && !variables.contains("storage_url") && !variables.contains("libs"))
+        if (!variables.contains("host") && !variables.contains("storage_url")
+            && !variables.contains("libs"))
         {
             std::cout << cUsage << "\n";
             std::cout << desc << "\n";
