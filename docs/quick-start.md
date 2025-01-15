@@ -202,8 +202,9 @@ storage backend URL in the command.
 
 # Next steps
 
-In future guides, we'll explain how to write more complex tasks, as well as how to leverage Spider's
-support for fault tolerance.
+The following guides describe how to leverage Spider to implement more advanced functionality:
+
+* [Joining tasks](./joining-tasks.md)
 
 [Docker]: https://docs.docker.com/engine/install/
 [docker-non-root]: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
