@@ -22,8 +22,6 @@ public:
     auto operator=(MetadataStorage&&) -> MetadataStorage& = delete;
     virtual ~MetadataStorage() = default;
 
-    virtual auto connect(std::string const& url) -> StorageErr = 0;
-    virtual void close() = 0;
     virtual auto initialize() -> StorageErr = 0;
 
     virtual auto add_driver(Driver const& driver) -> StorageErr = 0;

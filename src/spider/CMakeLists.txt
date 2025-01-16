@@ -1,5 +1,6 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
+    storage/MySqlConnection.cpp
     storage/MysqlStorage.cpp
     worker/FunctionManager.cpp
     worker/FunctionNameManager.cpp
@@ -23,6 +24,7 @@ set(SPIDER_CORE_HEADERS
     utils/TimedCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
+    storage/MySqlConnection.hpp
     storage/MysqlStorage.hpp
     worker/FunctionManager.hpp
     worker/FunctionNameManager.hpp
