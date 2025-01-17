@@ -26,13 +26,13 @@ public:
 
     ~MySqlConnection();
 
-    auto operator*() -> sql::Connection&;
-    auto operator->() -> sql::Connection*;
+    auto operator*() const -> sql::Connection&;
+    auto operator->() const -> sql::Connection*;
 
 private:
     explicit MySqlConnection(std::unique_ptr<sql::Connection> conn)
             : m_connection{std::move(conn)} {};
-    std::unique_ptr<sql::Connection> m_connection = nullptr;
+    std::unique_ptr<sql::Connection> m_connection;
 };
 
 }  // namespace spider::core

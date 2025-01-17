@@ -44,16 +44,20 @@ auto MySqlConnection::create(std::string const& url) -> std::variant<MySqlConnec
 
 MySqlConnection::~MySqlConnection() {
     if (m_connection) {
-        m_connection->close();
+        try {
+            m_connection->close();
+        } catch (sql::SQLException& e) {
+            // Ignore
+        }
         m_connection.reset();
     }
 }
 
-auto MySqlConnection::operator*() -> sql::Connection& {
+auto MySqlConnection::operator*() const -> sql::Connection& {
     return *m_connection;
 }
 
-auto MySqlConnection::operator->() -> sql::Connection* {
+auto MySqlConnection::operator->() const -> sql::Connection* {
     return &*m_connection;
 }
 

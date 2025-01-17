@@ -1658,11 +1658,6 @@ auto MySqlDataStorage::initialize() -> StorageErr {
     }
     auto& conn = std::get<MySqlConnection>(conn_result);
     try {
-        std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
-        if (std::holds_alternative<StorageErr>(conn_result)) {
-            return std::get<StorageErr>(conn_result);
-        }
-        auto& conn = std::get<MySqlConnection>(conn_result);
         // Need to initialize metadata storage first so that foreign constraint is not voilated
         for (char const* create_table_str : cCreateStorage) {
             std::unique_ptr<sql::Statement> statement(conn->createStatement());
