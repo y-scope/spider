@@ -20,7 +20,6 @@
 #include <spdlog/spdlog.h>
 
 #include "../client/TaskContext.hpp"
-#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"

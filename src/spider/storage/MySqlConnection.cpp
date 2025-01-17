@@ -10,6 +10,7 @@
 #include <mariadb/conncpp/Driver.hpp>
 #include <mariadb/conncpp/Exception.hpp>
 #include <mariadb/conncpp/SQLString.hpp>
+#include <spdlog/spdlog.h>
 
 #include "../core/Error.hpp"
 
@@ -47,7 +48,7 @@ MySqlConnection::~MySqlConnection() {
         try {
             m_connection->close();
         } catch (sql::SQLException& e) {
-            // Ignore
+            spdlog::warn("Failed to close connection: {}", e.what());
         }
         m_connection.reset();
     }
