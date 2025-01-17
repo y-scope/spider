@@ -9,7 +9,6 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -22,11 +21,9 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 #include <mariadb/conncpp/CArray.hpp>
-#include <mariadb/conncpp/Driver.hpp>
 #include <mariadb/conncpp/Exception.hpp>
 #include <mariadb/conncpp/jdbccompat.hpp>
 #include <mariadb/conncpp/PreparedStatement.hpp>
-#include <mariadb/conncpp/Properties.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 #include <mariadb/conncpp/Statement.hpp>
 #include <mariadb/conncpp/Types.hpp>
@@ -273,7 +270,7 @@ auto MySqlMetadataStorage::initialize() -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         for (char const* create_table_str : cCreateStorage) {
             std::unique_ptr<sql::Statement> statement(conn->createStatement());
@@ -309,7 +306,7 @@ auto MySqlMetadataStorage::add_driver(Driver const& driver) -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("INSERT INTO `drivers` (`id`) VALUES (?)")
@@ -333,7 +330,7 @@ auto MySqlMetadataStorage::add_scheduler(Scheduler const& scheduler) -> StorageE
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> driver_statement(
                 conn->prepareStatement("INSERT INTO `drivers` (`id`) VALUES (?)")
@@ -365,7 +362,7 @@ auto MySqlMetadataStorage::get_active_scheduler(std::vector<Scheduler>* schedule
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::Statement> statement(conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
@@ -472,7 +469,7 @@ auto MySqlMetadataStorage::add_job(
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         sql::bytes job_id_bytes = uuid_get_bytes(job_id);
         sql::bytes client_id_bytes = uuid_get_bytes(client_id);
@@ -503,7 +500,7 @@ auto MySqlMetadataStorage::add_job(
                 };
             }
             Task const* task = task_option.value();
-            this->add_task(conn, job_id_bytes, *task);
+            add_task(conn, job_id_bytes, *task);
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
                 if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
@@ -526,7 +523,7 @@ auto MySqlMetadataStorage::add_job(
                     return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
                 }
                 Task const* task = task_option.value();
-                this->add_task(conn, job_id_bytes, *task);
+                add_task(conn, job_id_bytes, *task);
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
                     if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
@@ -732,7 +729,7 @@ auto MySqlMetadataStorage::get_task_graph(boost::uuids::uuid id, TaskGraph* task
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         // Get all tasks
         std::unique_ptr<sql::PreparedStatement> task_statement(
@@ -862,7 +859,7 @@ auto MySqlMetadataStorage::get_job_metadata(boost::uuids::uuid id, JobMetadata* 
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement{conn->prepareStatement(
                 "SELECT `client_id`, `creation_time` FROM `jobs` WHERE `id` = ?"
@@ -906,7 +903,7 @@ auto MySqlMetadataStorage::get_job_complete(boost::uuids::uuid const id, bool* c
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> const statement{
                 conn->prepareStatement("SELECT `state` FROM `tasks` WHERE `job_id` = ? AND "
@@ -930,7 +927,7 @@ auto MySqlMetadataStorage::get_job_status(boost::uuids::uuid const id, JobStatus
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> const running_statement{
                 conn->prepareStatement("SELECT `state` FROM `tasks` WHERE `job_id` = ? AND "
@@ -981,7 +978,7 @@ auto MySqlMetadataStorage::get_job_output_tasks(
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         task_ids->clear();
         std::unique_ptr<sql::PreparedStatement> statement{conn->prepareStatement(
@@ -1009,7 +1006,7 @@ auto MySqlMetadataStorage::get_jobs_by_client_id(
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement{
                 conn->prepareStatement("SELECT `id` FROM `jobs` WHERE `client_id` = ?")
@@ -1033,7 +1030,7 @@ auto MySqlMetadataStorage::remove_job(boost::uuids::uuid id) -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("DELETE FROM `jobs` WHERE `id` = ?")
@@ -1054,7 +1051,7 @@ auto MySqlMetadataStorage::reset_job(boost::uuids::uuid const id) -> StorageErr 
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         // Check for retry count on all tasks
         std::unique_ptr<sql::PreparedStatement> retry_statement(conn->prepareStatement(
@@ -1111,10 +1108,10 @@ auto MySqlMetadataStorage::add_child(boost::uuids::uuid parent_id, Task const& c
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         sql::bytes const job_id = uuid_get_bytes(child.get_id());
-        this->add_task(conn, job_id, child);
+        add_task(conn, job_id, child);
 
         // Add dependencies
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
@@ -1141,7 +1138,7 @@ auto MySqlMetadataStorage::get_task(boost::uuids::uuid id, Task* task) -> Storag
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("SELECT `id`, `func_name`, `state`, `timeout` "
@@ -1173,7 +1170,7 @@ auto MySqlMetadataStorage::get_task_job_id(boost::uuids::uuid id, boost::uuids::
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("SELECT `job_id` FROM `tasks` WHERE `id` = ?")
@@ -1203,7 +1200,7 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         // Get all ready tasks from job that has not failed or cancelled
         std::unique_ptr<sql::Statement> statement(conn->createStatement());
@@ -1228,7 +1225,7 @@ auto MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("UPDATE `tasks` SET `state` = ? WHERE `id` = ?")
@@ -1253,7 +1250,7 @@ auto MySqlMetadataStorage::set_task_running(boost::uuids::uuid id) -> StorageErr
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "UPDATE `tasks` SET `state` = 'running' WHERE `id` = ? AND `state` = 'ready'"
@@ -1278,7 +1275,7 @@ auto MySqlMetadataStorage::add_task_instance(TaskInstance const& instance) -> St
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> const statement(conn->prepareStatement(
                 "INSERT INTO `task_instances` (`id`, `task_id`, `start_time`) "
@@ -1308,7 +1305,7 @@ auto MySqlMetadataStorage::task_finish(
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         // Try to submit task instance
         std::unique_ptr<sql::PreparedStatement> const statement(conn->prepareStatement(
@@ -1403,7 +1400,7 @@ auto MySqlMetadataStorage::task_fail(TaskInstance const& instance, std::string c
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         // Remove task instance
         std::unique_ptr<sql::PreparedStatement> const statement(
@@ -1444,7 +1441,7 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) ->
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::Statement> statement(conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
@@ -1470,7 +1467,7 @@ auto MySqlMetadataStorage::get_child_tasks(boost::uuids::uuid id, std::vector<Ta
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN "
@@ -1497,7 +1494,7 @@ auto MySqlMetadataStorage::get_parent_tasks(boost::uuids::uuid id, std::vector<T
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN "
@@ -1523,7 +1520,7 @@ auto MySqlMetadataStorage::update_heartbeat(boost::uuids::uuid id) -> StorageErr
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "UPDATE `drivers` SET `heartbeat` = CURRENT_TIMESTAMP() WHERE `id` = ?"
@@ -1549,7 +1546,7 @@ auto MySqlMetadataStorage::heartbeat_timeout(double timeout, std::vector<boost::
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "SELECT `id` FROM `drivers` WHERE TIMESTAMPDIFF(MICROSECOND, "
@@ -1574,7 +1571,7 @@ auto MySqlMetadataStorage::get_scheduler_state(boost::uuids::uuid id, std::strin
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("SELECT `state` FROM `schedulers` WHERE `id` = ?")
@@ -1605,7 +1602,7 @@ auto MySqlMetadataStorage::get_scheduler_addr(boost::uuids::uuid id, std::string
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("SELECT `address`, `port` FROM `schedulers` WHERE `id` = ?")
@@ -1637,7 +1634,7 @@ auto MySqlMetadataStorage::set_scheduler_state(boost::uuids::uuid id, std::strin
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("UPDATE `schedulers` SET `state` = ? WHERE `id` = ?")
@@ -1659,13 +1656,13 @@ auto MySqlDataStorage::initialize() -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
         if (std::holds_alternative<StorageErr>(conn_result)) {
             return std::get<StorageErr>(conn_result);
         }
-        MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+        auto& conn = std::get<MySqlConnection>(conn_result);
         // Need to initialize metadata storage first so that foreign constraint is not voilated
         for (char const* create_table_str : cCreateStorage) {
             std::unique_ptr<sql::Statement> statement(conn->createStatement());
@@ -1686,7 +1683,7 @@ auto MySqlDataStorage::add_driver_data(boost::uuids::uuid const driver_id, Data 
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "INSERT INTO `data` (`id`, `value`, `hard_locality`) VALUES(?, ?, ?)"
@@ -1730,7 +1727,7 @@ auto MySqlDataStorage::add_task_data(boost::uuids::uuid const task_id, Data cons
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "INSERT INTO `data` (`id`, `value`, `hard_locality`) VALUES(?, ?, ?)"
@@ -1773,7 +1770,7 @@ auto MySqlDataStorage::get_data(boost::uuids::uuid id, Data* data) -> StorageErr
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("SELECT `id`, `value`, `hard_locality` "
@@ -1818,7 +1815,7 @@ auto MySqlDataStorage::set_data_locality(Data const& data) -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> const delete_statement(
                 conn->prepareStatement("DELETE FROM `data_locality` WHERE `id` = ?")
@@ -1853,7 +1850,7 @@ auto MySqlDataStorage::remove_data(boost::uuids::uuid id) -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("DELETE FROM `data` WHERE `id` = ?")
@@ -1875,7 +1872,7 @@ auto MySqlDataStorage::add_task_reference(boost::uuids::uuid id, boost::uuids::u
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("INSERT INTO `data_ref_task` (`id`, "
@@ -1903,7 +1900,7 @@ auto MySqlDataStorage::remove_task_reference(boost::uuids::uuid id, boost::uuids
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("DELETE FROM `data_ref_task` WHERE "
@@ -1928,7 +1925,7 @@ auto MySqlDataStorage::add_driver_reference(boost::uuids::uuid id, boost::uuids:
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("INSERT INTO `data_ref_driver` (`id`, "
@@ -1956,7 +1953,7 @@ auto MySqlDataStorage::remove_driver_reference(boost::uuids::uuid id, boost::uui
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("DELETE FROM `data_ref_driver` "
@@ -1980,7 +1977,7 @@ auto MySqlDataStorage::remove_dangling_data() -> StorageErr {
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::Statement> statement{conn->createStatement()};
         statement->execute("DELETE FROM `data` WHERE `id` NOT IN (SELECT driver_ref.`id` FROM "
@@ -1999,7 +1996,7 @@ auto MySqlDataStorage::add_client_kv_data(KeyValueData const& data) -> StorageEr
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "INSERT INTO `client_kv_data` (`kv_key`, `value`, `client_id`) VALUES(?, ?, ?)"
@@ -2025,7 +2022,7 @@ auto MySqlDataStorage::add_task_kv_data(KeyValueData const& data) -> StorageErr 
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "INSERT INTO `task_kv_data` (`kv_key`, `value`, `task_id`) VALUES(?, ?, ?)"
@@ -2055,7 +2052,7 @@ auto MySqlDataStorage::get_client_kv_data(
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
                 "SELECT `value` "
@@ -2095,7 +2092,7 @@ auto MySqlDataStorage::get_task_kv_data(
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
-    MySqlConnection& conn = std::get<MySqlConnection>(conn_result);
+    auto& conn = std::get<MySqlConnection>(conn_result);
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 conn->prepareStatement("SELECT `value` "

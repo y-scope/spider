@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <variant>
 
 #include <mariadb/conncpp/Connection.hpp>

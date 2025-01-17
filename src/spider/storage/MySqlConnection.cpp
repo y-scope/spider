@@ -1,12 +1,15 @@
 #include "MySqlConnection.hpp"
 
+#include <memory>
 #include <regex>
 #include <string>
+#include <utility>
 #include <variant>
 
 #include <mariadb/conncpp/Connection.hpp>
 #include <mariadb/conncpp/Driver.hpp>
 #include <mariadb/conncpp/Exception.hpp>
+#include <mariadb/conncpp/SQLString.hpp>
 
 #include "../core/Error.hpp"
 

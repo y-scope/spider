@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -24,7 +25,7 @@ namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
 public:
     MySqlMetadataStorage() = delete;
-    explicit MySqlMetadataStorage(std::string const& url) : m_url{url} {};
+    explicit MySqlMetadataStorage(std::string url) : m_url{std::move(url)} {};
     MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
     MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
     auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
@@ -74,14 +75,14 @@ public:
 private:
     std::string m_url;
 
-    void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
-    auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
+    static void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
+    static auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };
 
 class MySqlDataStorage : public DataStorage {
 public:
     MySqlDataStorage() = delete;
-    explicit MySqlDataStorage(std::string const& url) : m_url{url} {};
+    explicit MySqlDataStorage(std::string url) : m_url{std::move(url)} {};
     MySqlDataStorage(MySqlDataStorage const&) = delete;
     MySqlDataStorage(MySqlDataStorage&&) = delete;
     auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;
