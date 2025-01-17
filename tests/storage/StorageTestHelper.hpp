@@ -11,7 +11,7 @@
 
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/MysqlStorage.hpp"
+#include "../../src/spider/storage/MySqlStorage.hpp"
 
 namespace spider::test {
 char const* const cStorageUrl

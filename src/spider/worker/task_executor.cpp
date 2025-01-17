@@ -25,7 +25,7 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"

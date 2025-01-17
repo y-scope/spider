@@ -23,7 +23,7 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "../utils/StopToken.hpp"
 #include "FifoPolicy.hpp"
 #include "SchedulerPolicy.hpp"
