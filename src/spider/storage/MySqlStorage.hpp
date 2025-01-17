@@ -76,7 +76,8 @@ private:
     std::string m_url;
 
     static void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
-    static auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
+    static auto
+    fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };
 
 class MySqlDataStorage : public DataStorage {
