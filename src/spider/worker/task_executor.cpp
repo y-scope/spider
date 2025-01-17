@@ -20,12 +20,11 @@
 #include <spdlog/spdlog.h>
 
 #include "../client/TaskContext.hpp"
-#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
@@ -124,19 +123,9 @@ auto main(int const argc, char** argv) -> int {
 
         // Set up storage
         std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-                = std::make_shared<spider::core::MySqlMetadataStorage>();
+                = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
         std::shared_ptr<spider::core::DataStorage> const data_store
-                = std::make_shared<spider::core::MySqlDataStorage>();
-        spider::core::StorageErr err = metadata_store->connect(storage_url);
-        if (!err.success()) {
-            spdlog::error("Failed to connect to storage {}", storage_url);
-            return cStorageErr;
-        }
-        err = data_store->connect(storage_url);
-        if (!err.success()) {
-            spdlog::error("Failed to connect to storage {}", storage_url);
-            return cStorageErr;
-        }
+                = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
         // Set up asio
         boost::asio::io_context context;

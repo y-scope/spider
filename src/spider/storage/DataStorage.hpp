@@ -19,8 +19,6 @@ public:
     auto operator=(DataStorage&&) -> DataStorage& = delete;
     virtual ~DataStorage() = default;
 
-    virtual auto connect(std::string const& url) -> StorageErr = 0;
-    virtual void close() = 0;
     virtual auto initialize() -> StorageErr = 0;
 
     virtual auto add_driver_data(boost::uuids::uuid driver_id, Data const& data) -> StorageErr = 0;

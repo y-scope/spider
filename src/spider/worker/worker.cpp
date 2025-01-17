@@ -36,7 +36,7 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
@@ -360,24 +360,14 @@ auto main(int argc, char** argv) -> int {
 
     // Create storage
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::make_shared<spider::core::MySqlMetadataStorage>();
-    spider::core::StorageErr err = metadata_store->connect(storage_url);
-    if (!err.success()) {
-        spdlog::error("Cannot connect to metadata storage: {}", err.description);
-        return cStorageConnectionErr;
-    }
+            = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
     std::shared_ptr<spider::core::DataStorage> const data_store
-            = std::make_shared<spider::core::MySqlDataStorage>();
-    err = data_store->connect(storage_url);
-    if (!err.success()) {
-        spdlog::error("Cannot connect to data storage: {}", err.description);
-        return cStorageConnectionErr;
-    }
+            = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const worker_id = gen();
     spider::core::Driver driver{worker_id};
-    err = metadata_store->add_driver(driver);
+    spider::core::StorageErr const err = metadata_store->add_driver(driver);
     if (!err.success()) {
         spdlog::error("Cannot add driver to metadata storage: {}", err.description);
         return cStorageErr;
