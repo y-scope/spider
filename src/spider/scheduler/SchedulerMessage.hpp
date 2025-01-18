@@ -67,9 +67,9 @@ public:
 
     [[nodiscard]] auto has_task_id() const -> bool { return m_task_ids.has_value(); }
 
-    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     [[nodiscard]] auto get_task_ids(
     ) const -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> const& {
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         return m_task_ids.value();
     }
 

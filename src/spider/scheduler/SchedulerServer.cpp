@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>

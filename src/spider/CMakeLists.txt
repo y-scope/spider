@@ -110,13 +110,15 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    scheduler/SchedulerTaskCache.cpp
+    scheduler/SchedulerTaskCache.hpp
+    scheduler/scheduler.cpp
     utils/StopToken.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
 add_executable(spider_scheduler)
 target_sources(spider_scheduler PRIVATE ${SPIDER_SCHEDULER_SOURCES})
-target_sources(spider_scheduler PRIVATE scheduler/scheduler.cpp)
 target_link_libraries(spider_scheduler PRIVATE spider_core)
 target_link_libraries(
     spider_scheduler

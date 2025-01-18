@@ -217,7 +217,7 @@ auto task_loop(
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
         auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
-        spider::core::TaskInstance instance{task_id, task_instance_id};
+        spider::core::TaskInstance const instance{task_id, task_instance_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
