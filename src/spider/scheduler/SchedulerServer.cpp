@@ -151,15 +151,16 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
         }
     }
 
-    std::optional<boost::uuids::uuid> const task_id = m_policy->schedule_next(
-            m_metadata_store,
-            m_data_store,
-            request.get_worker_id(),
-            request.get_worker_addr()
-    );
+    std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const task_ids
+            = m_policy->schedule_next(
+                    m_metadata_store,
+                    m_data_store,
+                    request.get_worker_id(),
+                    request.get_worker_addr()
+            );
     ScheduleTaskResponse response{};
-    if (task_id.has_value()) {
-        response = ScheduleTaskResponse{task_id.value()};
+    if (task_ids.has_value()) {
+        response = ScheduleTaskResponse{task_ids.value()};
     }
     msgpack::sbuffer response_buffer;
     msgpack::pack(response_buffer, response);

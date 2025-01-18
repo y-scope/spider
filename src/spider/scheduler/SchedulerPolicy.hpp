@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -25,7 +26,7 @@ public:
             std::shared_ptr<core::DataStorage> data_store,
             boost::uuids::uuid worker_id,
             std::string const& worker_addr
-    ) -> std::optional<boost::uuids::uuid> = 0;
+    ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> = 0;
 
     virtual auto cleanup() -> void = 0;
 };

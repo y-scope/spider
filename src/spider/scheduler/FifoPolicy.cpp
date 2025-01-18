@@ -63,7 +63,7 @@ auto FifoPolicy::schedule_next(
         std::shared_ptr<core::DataStorage> data_store,
         boost::uuids::uuid const /*worker_id*/,
         std::string const& worker_addr
-) -> std::optional<boost::uuids::uuid> {
+) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     std::vector<core::Task> ready_tasks;
     metadata_store->get_ready_tasks(&ready_tasks);
 
