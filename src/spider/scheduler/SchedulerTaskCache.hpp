@@ -49,7 +49,8 @@ private:
     std::shared_ptr<MetadataStorage> m_metadata_store;
     std::shared_ptr<DataStorage> m_data_store;
 
-    absl::flat_hash_map<boost::uuids::uuid, Task> m_tasks;
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> m_tasks;
     std::chrono::steady_clock::time_point m_last_update;
     size_t m_update_count = 0;
 

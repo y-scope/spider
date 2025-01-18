@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -78,6 +79,13 @@ auto SchedulerTaskCache::should_fetch_tasks() -> bool {
 }
 
 void SchedulerTaskCache::fetch_ready_tasks() {
+    m_tasks.clear();
+    std::vector<Task> tasks;
+    m_metadata_store->get_ready_tasks(&tasks);
+    for (Task const& task : tasks) {
+        m_tasks.emplace(std::make_pair(task.get_id(), task));
+    }
+
     m_update_count = 0;
     m_last_update = std::chrono::steady_clock::now();
 }
