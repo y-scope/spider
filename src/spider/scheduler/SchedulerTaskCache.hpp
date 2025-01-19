@@ -16,16 +16,16 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 
-namespace spider::core {
+namespace spider::scheduler {
 
 class SchedulerTaskCache {
 public:
     SchedulerTaskCache(
-            std::shared_ptr<MetadataStorage> const& metadata_store,
-            std::shared_ptr<DataStorage> const& data_store,
+            std::shared_ptr<core::MetadataStorage> const& metadata_store,
+            std::shared_ptr<core::DataStorage> const& data_store,
             size_t const num_tasks,
             std::function<std::optional<boost::uuids::uuid>(
-                    std::vector<Task>& tasks,
+                    std::vector<core::Task>& tasks,
                     boost::uuids::uuid const& worker_id,
                     std::string const& worker_addr
             )> const& get_next_task_function
@@ -44,26 +44,26 @@ private:
     void fetch_ready_tasks();
 
     auto pop_next_task(boost::uuids::uuid const& worker_id, std::string const& worker_addr)
-            -> std::optional<Task>;
+            -> std::optional<core::Task>;
 
-    std::shared_ptr<MetadataStorage> m_metadata_store;
-    std::shared_ptr<DataStorage> m_data_store;
+    std::shared_ptr<core::MetadataStorage> m_metadata_store;
+    std::shared_ptr<core::DataStorage> m_data_store;
 
     // NOLINTNEXTLINE(misc-include-cleaner)
-    absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> m_tasks;
+    absl::flat_hash_map<boost::uuids::uuid, core::Task, std::hash<boost::uuids::uuid>> m_tasks;
     std::chrono::steady_clock::time_point m_last_update;
     size_t m_update_count = 0;
 
     size_t m_num_tasks;
 
     std::function<std::optional<boost::uuids::uuid>(
-            std::vector<Task>& tasks,
+            std::vector<core::Task>& tasks,
             boost::uuids::uuid const& worker_id,
             std::string const& worker_addr
     )>
             m_get_next_task_function;
 };
 
-}  // namespace spider::core
+}  // namespace spider::scheduler
 
 #endif  // SPIDER_SCHEDULER_SCHEDULERTASKCACHE_HPP

@@ -11,7 +11,7 @@
 
 #include "../core/Task.hpp"
 
-namespace spider::core {
+namespace spider::scheduler {
 
 namespace {
 constexpr int cUpdateCount = 100;
@@ -27,7 +27,7 @@ auto SchedulerTaskCache::get_ready_task(
         fetch_ready_tasks();
     }
 
-    std::optional<Task> task = pop_next_task(worker_id, worker_addr);
+    std::optional<core::Task> task = pop_next_task(worker_id, worker_addr);
     if (task.has_value()) {
         m_update_count++;
         return task.value().get_id();
@@ -49,8 +49,8 @@ auto SchedulerTaskCache::get_ready_task(
 auto SchedulerTaskCache::pop_next_task(
         boost::uuids::uuid const& worker_id,
         std::string const& worker_addr
-) -> std::optional<Task> {
-    std::vector<Task> tasks;
+) -> std::optional<core::Task> {
+    std::vector<core::Task> tasks;
     tasks.reserve(m_tasks.size());
     for (auto const& task : m_tasks) {
         tasks.push_back(task.second);
@@ -65,7 +65,7 @@ auto SchedulerTaskCache::pop_next_task(
         return std::nullopt;
     }
 
-    Task task = m_tasks.at(task_id.value());
+    core::Task task = m_tasks.at(task_id.value());
     m_tasks.erase(task_id.value());
     return task;
 }
@@ -80,9 +80,9 @@ auto SchedulerTaskCache::should_fetch_tasks() -> bool {
 
 void SchedulerTaskCache::fetch_ready_tasks() {
     m_tasks.clear();
-    std::vector<Task> tasks;
+    std::vector<core::Task> tasks;
     m_metadata_store->get_ready_tasks(&tasks);
-    for (Task const& task : tasks) {
+    for (core::Task const& task : tasks) {
         m_tasks.emplace(std::make_pair(task.get_id(), task));
     }
 
@@ -90,4 +90,4 @@ void SchedulerTaskCache::fetch_ready_tasks() {
     m_last_update = std::chrono::steady_clock::now();
 }
 
-}  // namespace spider::core
+}  // namespace spider::scheduler
