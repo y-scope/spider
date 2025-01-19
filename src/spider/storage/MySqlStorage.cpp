@@ -72,6 +72,7 @@ char const* const cCreateJobTable = R"(CREATE TABLE IF NOT EXISTS jobs (
     `client_id` BINARY(16) NOT NULL,
     `creation_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY (`client_id`) USING BTREE,
+    INDEX (`creation_time`),
     PRIMARY KEY (`id`)
 ))";
 
@@ -1220,7 +1221,7 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks, size_t cos limit)
+auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks, size_t const limit)
         -> StorageErr {
     std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
     if (std::holds_alternative<StorageErr>(conn_result)) {
