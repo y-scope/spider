@@ -81,8 +81,13 @@ auto SchedulerTaskCache::should_fetch_tasks() -> bool {
 void SchedulerTaskCache::fetch_ready_tasks() {
     m_tasks.clear();
     std::vector<core::Task> tasks;
-    m_metadata_store->get_ready_tasks(&tasks);
+    m_metadata_store->get_ready_tasks(&tasks, m_num_tasks);
     for (core::Task const& task : tasks) {
+        m_tasks.emplace(std::make_pair(task.get_id(), task));
+    }
+    std::vector<std::tuple<core::TaskInstance, core::Task>> task_instances;
+    m_metadata_store->get_task_timeout(&task_instances);
+    for (auto const& [task_instance, task] : task_instances) {
         m_tasks.emplace(std::make_pair(task.get_id(), task));
     }
 

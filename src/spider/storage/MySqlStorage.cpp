@@ -1220,6 +1220,34 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
     return StorageErr{};
 }
 
+auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks, size_t cos limit)
+        -> StorageErr {
+    std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
+    if (std::holds_alternative<StorageErr>(conn_result)) {
+        return std::get<StorageErr>(conn_result);
+    }
+    auto& conn = std::get<MySqlConnection>(conn_result);
+    try {
+        // Get all ready tasks from job that has not failed or cancelled
+        std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
+                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN `jobs` ON "
+                "`tasks.job_id` = `jobs`.`id` WHERE `tasks`.`state` = 'ready' "
+                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
+                "`state` = 'cancel') ORDER BY `jobs`.`creation_time` LIMIT ?"
+        ));
+        statement->setUInt(1, limit);
+        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
+        while (res->next()) {
+            tasks->emplace_back(fetch_full_task(conn, res));
+        }
+    } catch (sql::SQLException& e) {
+        conn->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    conn->commit();
+    return StorageErr{};
+}
+
 auto MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr {
     std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
     if (std::holds_alternative<StorageErr>(conn_result)) {
@@ -1436,13 +1464,15 @@ auto MySqlMetadataStorage::task_fail(TaskInstance const& instance, std::string c
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr {
+auto MySqlMetadataStorage::get_task_timeout(std::vector<std::tuple<TaskInstance, Task>>* tasks
+) -> StorageErr {
     std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
     if (std::holds_alternative<StorageErr>(conn_result)) {
         return std::get<StorageErr>(conn_result);
     }
     auto& conn = std::get<MySqlConnection>(conn_result);
     try {
+        std::vector<std::tuple<TaskInstance, Task>> results;
         std::unique_ptr<sql::Statement> statement(conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
                 "SELECT `t1`.`id`, `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
@@ -1450,8 +1480,20 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<TaskInstance>* tasks) ->
                 "`tasks`.`id` WHERE `tasks`.`timeout` > 0.0001 AND TIMESTAMPDIFF(MICROSECOND, "
                 "`t1`.`start_time`, CURRENT_TIMESTAMP()) > `tasks`.`timeout` * 1000"
         ));
+        std::unique_ptr<sql::PreparedStatement> task_statement(conn->prepareStatement(
+                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `id` = ?"
+        ));
         while (res->next()) {
-            tasks->emplace_back(read_id(res->getBinaryStream(1)), read_id(res->getBinaryStream(2)));
+            boost::uuids::uuid task_instance_id = read_id(res->getBinaryStream("id"));
+            boost::uuids::uuid task_id = read_id(res->getBinaryStream("task_id"));
+            // Fetch task
+            sql::bytes task_id_bytes = uuid_get_bytes(task_id);
+            task_statement->setBytes(1, &task_id_bytes);
+            std::unique_ptr<sql::ResultSet> task_res(task_statement->executeQuery());
+            if (task_res->next()) {
+                core::Task task = fetch_full_task(conn, task_res);
+                results.emplace_back(TaskInstance{task_instance_id, task_id}, task);
+            }
         }
     } catch (sql::SQLException& e) {
         conn->rollback();
