@@ -1481,14 +1481,28 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<std::tuple<TaskInstance,
                 "`tasks`.`id` WHERE `tasks`.`timeout` > 0.0001 AND TIMESTAMPDIFF(MICROSECOND, "
                 "`t1`.`start_time`, CURRENT_TIMESTAMP()) > `tasks`.`timeout` * 1000"
         ));
+        std::unique_ptr<sql::PreparedStatement> not_timeout_statement(
+                conn->prepareStatement("SELECT FROM `task_instances` as `t1` JOIN `tasks` ON"
+                                       "`t1`.`task_id` = `tasks`.`id` WHERE `t1.task_id` = ? AND "
+                                       "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, "
+                                       "CURRENT_TIMESTAMP()) < `tasks`.`timeout` * 1000")
+        );
+
         std::unique_ptr<sql::PreparedStatement> task_statement(conn->prepareStatement(
                 "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `id` = ?"
         ));
         while (res->next()) {
             boost::uuids::uuid task_instance_id = read_id(res->getBinaryStream("id"));
             boost::uuids::uuid task_id = read_id(res->getBinaryStream("task_id"));
-            // Fetch task
             sql::bytes task_id_bytes = uuid_get_bytes(task_id);
+            // Check all task instance have timed out
+            not_timeout_statement->setBytes(1, &task_id_bytes);
+            std::unique_ptr<sql::ResultSet> not_timeout_res(not_timeout_statement->executeQuery());
+            if (not_timeout_res->rowsCount() > 0) {
+                continue;
+            }
+
+            // Fetch task
             task_statement->setBytes(1, &task_id_bytes);
             std::unique_ptr<sql::ResultSet> task_res(task_statement->executeQuery());
             if (task_res->next()) {
