@@ -1221,34 +1221,6 @@ auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks) -> StorageE
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_ready_tasks(std::vector<Task>* tasks, size_t const limit)
-        -> StorageErr {
-    std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
-    if (std::holds_alternative<StorageErr>(conn_result)) {
-        return std::get<StorageErr>(conn_result);
-    }
-    auto& conn = std::get<MySqlConnection>(conn_result);
-    try {
-        // Get all ready tasks from job that has not failed or cancelled
-        std::unique_ptr<sql::PreparedStatement> statement(conn->prepareStatement(
-                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN `jobs` ON "
-                "`tasks.job_id` = `jobs`.`id` WHERE `tasks`.`state` = 'ready' "
-                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
-                "`state` = 'cancel') ORDER BY `jobs`.`creation_time` LIMIT ?"
-        ));
-        statement->setUInt(1, limit);
-        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
-        while (res->next()) {
-            tasks->emplace_back(fetch_full_task(conn, res));
-        }
-    } catch (sql::SQLException& e) {
-        conn->rollback();
-        return StorageErr{StorageErrType::OtherErr, e.what()};
-    }
-    conn->commit();
-    return StorageErr{};
-}
-
 auto MySqlMetadataStorage::set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr {
     std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
     if (std::holds_alternative<StorageErr>(conn_result)) {
@@ -1343,8 +1315,8 @@ auto MySqlMetadataStorage::create_task_instance(TaskInstance const& instance) ->
         bool const task_ready = ready_res->rowsCount() > 0;
         // Check all task instances have timed out
         std::unique_ptr<sql::PreparedStatement> not_timeout_statement(conn->prepareStatement(
-                "SELECT FROM `task_instances` as `t1` JOIN `tasks` ON `t1`.`task_id` = "
-                "`tasks`.`id` WHERE `t1.task_id` = ? AND `tasks.timeout` < 0.0001 AND "
+                "SELECT `t1`.`id` FROM `task_instances` as `t1` JOIN `tasks` ON `t1`.`task_id` = "
+                "`tasks`.`id` WHERE `t1`.`task_id` = ? AND `tasks`.`timeout` < 0.0001 AND "
                 "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, CURRENT_TIMESTAMP()) < "
                 "`tasks`.`timeout` * 1000"
         ));

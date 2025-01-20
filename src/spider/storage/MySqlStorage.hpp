@@ -55,7 +55,6 @@ public:
     auto get_task(boost::uuids::uuid id, Task* task) -> StorageErr override;
     auto get_task_job_id(boost::uuids::uuid id, boost::uuids::uuid* job_id) -> StorageErr override;
     auto get_ready_tasks(std::vector<Task>* tasks) -> StorageErr override;
-    auto get_ready_tasks(std::vector<Task>* tasks, size_t limit) -> StorageErr override;
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
     auto set_task_running(boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;

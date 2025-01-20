@@ -59,8 +59,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::scheduler::FifoPolicy policy{metadata_store, data_store};
 
     // Scheduler the earlier task
-    std::optional<boost::uuids::uuid> const optional_task_id
-            = policy.schedule_next(gen(), "");
+    std::optional<boost::uuids::uuid> const optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());
     if (optional_task_id.has_value()) {
         boost::uuids::uuid const& task_id = optional_task_id.value();
@@ -152,8 +151,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     spider::scheduler::FifoPolicy policy{metadata_store, data_store};
     // Schedule with wrong address
-    std::optional<boost::uuids::uuid> const optional_task_id
-            = policy.schedule_next(gen(), "");
+    std::optional<boost::uuids::uuid> const optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());
     if (optional_task_id.has_value()) {
         boost::uuids::uuid const& task_id = optional_task_id.value();

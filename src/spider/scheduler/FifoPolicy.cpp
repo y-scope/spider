@@ -69,7 +69,6 @@ FifoPolicy::FifoPolicy(
           m_task_cache{
                   metadata_store,
                   data_store,
-                  100,
                   [&](std::vector<core::Task>& tasks,
                       boost::uuids::uuid const& worker_id,
                       std::string const& worker_addr) -> std::optional<boost::uuids::uuid> {

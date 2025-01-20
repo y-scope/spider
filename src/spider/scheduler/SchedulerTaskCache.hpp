@@ -23,7 +23,6 @@ public:
     SchedulerTaskCache(
             std::shared_ptr<core::MetadataStorage> const& metadata_store,
             std::shared_ptr<core::DataStorage> const& data_store,
-            size_t const num_tasks,
             std::function<std::optional<boost::uuids::uuid>(
                     std::vector<core::Task>& tasks,
                     boost::uuids::uuid const& worker_id,
@@ -32,7 +31,6 @@ public:
     )
             : m_metadata_store{metadata_store},
               m_data_store{data_store},
-              m_num_tasks{num_tasks},
               m_get_next_task_function{get_next_task_function} {}
 
     auto get_ready_task(boost::uuids::uuid const& worker_id, std::string const& worker_addr)
@@ -53,8 +51,6 @@ private:
     absl::flat_hash_map<boost::uuids::uuid, core::Task, std::hash<boost::uuids::uuid>> m_tasks;
     std::chrono::steady_clock::time_point m_last_update;
     size_t m_update_count = 0;
-
-    size_t m_num_tasks;
 
     std::function<std::optional<boost::uuids::uuid>(
             std::vector<core::Task>& tasks,
