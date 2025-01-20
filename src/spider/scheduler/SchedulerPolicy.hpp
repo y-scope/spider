@@ -1,7 +1,6 @@
 #ifndef SPIDER_SCHEDULER_SCHEDULERPOLICY_HPP
 #define SPIDER_SCHEDULER_SCHEDULERPOLICY_HPP
 
-#include <memory>
 #include <optional>
 #include <string>
 

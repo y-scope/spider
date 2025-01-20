@@ -9,6 +9,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../utils/TimedCache.hpp"

@@ -6,7 +6,6 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -78,7 +77,7 @@ FifoPolicy::FifoPolicy(
 
 auto FifoPolicy::get_next_task(
         std::vector<core::Task>& tasks,
-        boost::uuids::uuid const& worker_id,
+        boost::uuids::uuid const& /*worker_id*/,
         std::string const& worker_addr
 ) -> std::optional<boost::uuids::uuid> {
     std::erase_if(tasks, [this, worker_addr](core::Task const& task) -> bool {

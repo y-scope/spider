@@ -1499,7 +1499,6 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<std::tuple<TaskInstance,
     }
     auto& conn = std::get<MySqlConnection>(conn_result);
     try {
-        std::vector<std::tuple<TaskInstance, Task>> results;
         std::unique_ptr<sql::Statement> statement(conn->createStatement());
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
                 "SELECT `t1`.`id`, `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
@@ -1518,8 +1517,8 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<std::tuple<TaskInstance,
                 "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `id` = ?"
         ));
         while (res->next()) {
-            boost::uuids::uuid task_instance_id = read_id(res->getBinaryStream("id"));
-            boost::uuids::uuid task_id = read_id(res->getBinaryStream("task_id"));
+            boost::uuids::uuid const task_instance_id = read_id(res->getBinaryStream("id"));
+            boost::uuids::uuid const task_id = read_id(res->getBinaryStream("task_id"));
             sql::bytes task_id_bytes = uuid_get_bytes(task_id);
             // Check all task instance have timed out
             not_timeout_statement->setBytes(1, &task_id_bytes);
@@ -1532,8 +1531,8 @@ auto MySqlMetadataStorage::get_task_timeout(std::vector<std::tuple<TaskInstance,
             task_statement->setBytes(1, &task_id_bytes);
             std::unique_ptr<sql::ResultSet> task_res(task_statement->executeQuery());
             if (task_res->next()) {
-                core::Task task = fetch_full_task(conn, task_res);
-                results.emplace_back(TaskInstance{task_instance_id, task_id}, task);
+                Task const task = fetch_full_task(conn, task_res);
+                tasks->emplace_back(TaskInstance{task_instance_id, task_id}, task);
             }
         }
     } catch (sql::SQLException& e) {
