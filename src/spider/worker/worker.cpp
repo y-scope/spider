@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -124,13 +125,13 @@ constexpr int cFetchTaskTimeout = 100;
 auto fetch_task(
         spider::worker::WorkerClient& client,
         std::optional<boost::uuids::uuid> fail_task_id
-) -> boost::uuids::uuid {
+) -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
     spdlog::debug("Fetching task");
     while (true) {
-        std::optional<boost::uuids::uuid> const optional_task_id
+        std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
-        if (optional_task_id.has_value()) {
-            return optional_task_id.value();
+        if (optional_task_ids.has_value()) {
+            return optional_task_ids.value();
         }
         // If the first request succeeds, later requests should not include the failed task id
         fail_task_id = std::nullopt;
@@ -215,7 +216,8 @@ auto task_loop(
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
-        boost::uuids::uuid const task_id = fetch_task(client, fail_task_id);
+        auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
+        spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
@@ -223,20 +225,6 @@ auto task_loop(
         spider::core::StorageErr err = metadata_store->get_task(task_id, &task);
         if (!err.success()) {
             spdlog::error("Failed to fetch task detail: {}", err.description);
-            continue;
-        }
-
-        // Update task status to running
-        err = metadata_store->set_task_running(task_id);
-        if (!err.success()) {
-            spdlog::debug("Failed to update task status to running: {}", err.description);
-            continue;
-        }
-        spider::core::TaskInstance const instance{task_id};
-        spdlog::debug("Adding task instance");
-        err = metadata_store->add_task_instance(instance);
-        if (!err.success()) {
-            spdlog::error("Failed to add task instance: {}", err.description);
             continue;
         }
 

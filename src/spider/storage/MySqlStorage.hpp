@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -57,10 +58,12 @@ public:
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
     auto set_task_running(boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
+    auto create_task_instance(TaskInstance const& instance) -> StorageErr override;
     auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr override;
     auto task_fail(TaskInstance const& instance, std::string const& error) -> StorageErr override;
-    auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
+    auto get_task_timeout(std::vector<std::tuple<TaskInstance, Task>>* tasks
+    ) -> StorageErr override;
     auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;
     auto update_heartbeat(boost::uuids::uuid id) -> StorageErr override;

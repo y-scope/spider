@@ -3,6 +3,7 @@
 
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>
@@ -54,17 +55,28 @@ class ScheduleTaskResponse {
 public:
     ScheduleTaskResponse() = default;
 
-    explicit ScheduleTaskResponse(boost::uuids::uuid const task_id) : m_task_id{task_id} {}
+    ScheduleTaskResponse(
+            boost::uuids::uuid const task_id,
+            boost::uuids::uuid const task_instance_id
+    )
+            : m_task_ids{std::make_tuple(task_id, task_instance_id)} {}
 
-    [[nodiscard]] auto has_task_id() const -> bool { return m_task_id.has_value(); }
+    explicit ScheduleTaskResponse(std::tuple<boost::uuids::uuid, boost::uuids::uuid> const& task_ids
+    )
+            : m_task_ids{task_ids} {}
 
-    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid { return m_task_id.value(); }
+    [[nodiscard]] auto has_task_id() const -> bool { return m_task_ids.has_value(); }
 
-    MSGPACK_DEFINE_ARRAY(m_task_id);
+    [[nodiscard]] auto get_task_ids(
+    ) const -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> const& {
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        return m_task_ids.value();
+    }
+
+    MSGPACK_DEFINE_ARRAY(m_task_ids);
 
 private:
-    std::optional<boost::uuids::uuid> m_task_id = std::nullopt;
+    std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> m_task_ids = std::nullopt;
 };
 
 }  // namespace spider::scheduler
