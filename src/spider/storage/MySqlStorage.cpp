@@ -1333,6 +1333,7 @@ auto MySqlMetadataStorage::create_task_instance(TaskInstance const& instance) ->
                 conn->prepareStatement("UPDATE `tasks` SET `state` = 'running' WHERE `id` = ?")
         );
         running_statement->setBytes(1, &id_bytes);
+        running_statement->executeUpdate();
         // Insert task instance
         std::unique_ptr<sql::PreparedStatement> const instance_statement(conn->prepareStatement(
                 "INSERT INTO `task_instances` (`id`, `task_id`, `start_time`) VALUES(?, ?, "
@@ -1341,7 +1342,7 @@ auto MySqlMetadataStorage::create_task_instance(TaskInstance const& instance) ->
         sql::bytes instance_id_bytes = uuid_get_bytes(instance.id);
         instance_statement->setBytes(1, &instance_id_bytes);
         instance_statement->setBytes(2, &id_bytes);
-        running_statement->executeUpdate();
+        instance_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         conn->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
