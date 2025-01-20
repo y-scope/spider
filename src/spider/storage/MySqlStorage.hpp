@@ -59,6 +59,7 @@ public:
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
     auto set_task_running(boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
+    auto create_task_instance(TaskInstance const& instance) -> StorageErr override;
     auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr override;
     auto task_fail(TaskInstance const& instance, std::string const& error) -> StorageErr override;

@@ -55,6 +55,8 @@ public:
     virtual auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr = 0;
     virtual auto set_task_running(boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_task_instance(TaskInstance const& instance) -> StorageErr = 0;
+    // Set task state and add new task instance if task is ready or all instances timed out
+    virtual auto create_task_instance(TaskInstance const& instance) -> StorageErr = 0;
     virtual auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr = 0;
     virtual auto task_fail(TaskInstance const& instance, std::string const& error) -> StorageErr

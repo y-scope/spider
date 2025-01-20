@@ -56,11 +56,11 @@ TEMPLATE_LIST_TEST_CASE(
     boost::uuids::uuid const job_id_2 = gen();
     REQUIRE(metadata_store->add_job(job_id_2, client_id, graph_2).success());
 
-    spider::scheduler::FifoPolicy policy;
+    spider::scheduler::FifoPolicy policy{metadata_store, data_store};
 
     // Scheduler the earlier task
     std::optional<boost::uuids::uuid> const optional_task_id
-            = policy.schedule_next(metadata_store, data_store, gen(), "");
+            = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());
     if (optional_task_id.has_value()) {
         boost::uuids::uuid const& task_id = optional_task_id.value();
@@ -103,12 +103,12 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_output_task(task.get_id());
     REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
 
-    spider::scheduler::FifoPolicy policy;
+    spider::scheduler::FifoPolicy policy{metadata_store, data_store};
     // Schedule with wrong address
-    REQUIRE_FALSE(policy.schedule_next(metadata_store, data_store, gen(), "").has_value());
+    REQUIRE_FALSE(policy.schedule_next(gen(), "").has_value());
     // Schedule with correct address
     std::optional<boost::uuids::uuid> const optional_task_id
-            = policy.schedule_next(metadata_store, data_store, gen(), "127.0.0.1");
+            = policy.schedule_next(gen(), "127.0.0.1");
     REQUIRE(optional_task_id.has_value());
     if (optional_task_id.has_value()) {
         boost::uuids::uuid const& task_id = optional_task_id.value();
@@ -150,10 +150,10 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_output_task(task.get_id());
     REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
 
-    spider::scheduler::FifoPolicy policy;
+    spider::scheduler::FifoPolicy policy{metadata_store, data_store};
     // Schedule with wrong address
     std::optional<boost::uuids::uuid> const optional_task_id
-            = policy.schedule_next(metadata_store, data_store, gen(), "");
+            = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());
     if (optional_task_id.has_value()) {
         boost::uuids::uuid const& task_id = optional_task_id.value();

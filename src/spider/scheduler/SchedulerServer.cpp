@@ -152,16 +152,21 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
         }
     }
 
-    std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const task_ids
-            = m_policy->schedule_next(
-                    m_metadata_store,
-                    m_data_store,
-                    request.get_worker_id(),
-                    request.get_worker_addr()
-            );
+    std::optional<boost::uuids::uuid> const task_id
+            = m_policy->schedule_next(request.get_worker_id(), request.get_worker_addr());
     ScheduleTaskResponse response{};
-    if (task_ids.has_value()) {
-        response = ScheduleTaskResponse{task_ids.value()};
+    if (task_id.has_value()) {
+        core::TaskInstance instance{task_id.value()};
+        core::StorageErr const err = m_metadata_store->create_task_instance(instance);
+        if (err.success()) {
+            response = ScheduleTaskResponse{task_id.value(), instance.id};
+        } else {
+            spdlog::error(
+                    "Cannot create task instance {}: {}",
+                    boost::uuids::to_string(task_id.value()),
+                    err.description
+            );
+        }
     }
     msgpack::sbuffer response_buffer;
     msgpack::pack(response_buffer, response);
