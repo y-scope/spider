@@ -16,7 +16,7 @@ namespace spider::scheduler {
 
 namespace {
 constexpr int cUpdateCount = 100;
-constexpr int cUpdateInterval = 5;  // 10 ms
+constexpr int cUpdateInterval = 5;  // 5 ms
 }  // namespace
 
 auto SchedulerTaskCache::get_ready_task(
