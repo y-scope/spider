@@ -115,7 +115,7 @@ char const* const cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS `task_in
     `type` VARCHAR(64) NOT NULL,
     `output_task_id` BINARY(16),
     `output_task_position` INT UNSIGNED,
-    `value` VARCHAR(64), -- Use VARCHAR for all types of values
+    `value` VARBINARY(64), -- Use VARBINARY for all types of values
     `data_id` BINARY(16),
     CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`) REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
@@ -127,7 +127,7 @@ char const* const cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS `task_o
     `task_id` BINARY(16) NOT NULL,
     `position` INT UNSIGNED NOT NULL,
     `type` VARCHAR(64) NOT NULL,
-    `value` VARCHAR(64),
+    `value` VARBINARY(64),
     `data_id` BINARY(16),
     CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
@@ -153,7 +153,7 @@ char const* const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS `task
 
 char const* const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
     `id` BINARY(16) NOT NULL,
-    `value` VARCHAR(256) NOT NULL,
+    `value` VARBINARY(256) NOT NULL,
     `hard_locality` BOOL DEFAULT FALSE,
     `persisted` BOOL DEFAULT FALSE,
     PRIMARY KEY (`id`)
@@ -186,14 +186,14 @@ char const* const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS `data_
 
 char const* const cCreateClientKVDataTable = R"(CREATE TABLE IF NOT EXISTS `client_kv_data` (
     `kv_key` VARCHAR(64) NOT NULL,
-    `value` VARCHAR(128) NOT NULL,
+    `value` VARBINARY(128) NOT NULL,
     `client_id` BINARY(16) NOT NULL,
     PRIMARY KEY (`client_id`, `kv_key`)
 ))";
 
 char const* const cCreateTaskKVDataTable = R"(CREATE TABLE IF NOT EXISTS `task_kv_data` (
     `kv_key` VARCHAR(64) NOT NULL,
-    `value` VARCHAR(128) NOT NULL,
+    `value` VARBINARY(128) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
     PRIMARY KEY (`task_id`, `kv_key`),
     CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
@@ -223,6 +223,24 @@ auto uuid_get_bytes(boost::uuids::uuid const& id) -> sql::bytes {
     return {(char const*)id.data(), id.size()};
     // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast)
 }
+
+// NOLINTBEGIN
+auto read_id(std::istream* stream) -> boost::uuids::uuid {
+    std::uint8_t id_bytes[16];
+    stream->read((char*)id_bytes, 16);
+    return {id_bytes};
+}
+
+auto string_get_bytes(std::string const& str) -> sql::bytes {
+    return {str.c_str(), str.size()};
+}
+
+auto get_sql_string(sql::SQLString const& str) -> std::string {
+    std::string result{str.c_str(), str.size()};
+    return result;
+}
+
+// NOLINTEND
 
 auto task_state_to_string(spider::core::TaskState state) -> std::string {
     switch (state) {
@@ -285,22 +303,6 @@ auto MySqlMetadataStorage::initialize() -> StorageErr {
     conn->commit();
     return StorageErr{};
 }
-
-namespace {
-// NOLINTBEGIN
-auto read_id(std::istream* stream) -> boost::uuids::uuid {
-    std::uint8_t id_bytes[16];
-    stream->read((char*)id_bytes, 16);
-    return {id_bytes};
-}
-
-auto get_sql_string(sql::SQLString const& str) -> std::string {
-    std::string result{str.c_str(), str.size()};
-    return result;
-}
-
-// NOLINTEND
-}  // namespace
 
 auto MySqlMetadataStorage::add_driver(Driver const& driver) -> StorageErr {
     std::variant<MySqlConnection, StorageErr> conn_result = MySqlConnection::create(m_url);
