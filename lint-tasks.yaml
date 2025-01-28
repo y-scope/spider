@@ -171,6 +171,7 @@ tasks:
           .github/ \
           build-tasks.yaml \
           dep-tasks.yaml \
+          docs/tasks.yaml \
           lint-tasks.yaml \
           taskfile.yaml \
           test-tasks.yaml
