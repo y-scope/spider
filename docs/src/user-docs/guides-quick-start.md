@@ -10,7 +10,7 @@ you'll need to:
 * Set up a Spider cluster
 * Run the client
 
-The example source code for this guide is in `examples/quick-start`.
+The example source code for this guide is in [examples/quick-start].
 
 :::{note}
 In the rest of this guide:
@@ -214,3 +214,4 @@ support for fault tolerance.
 
 [Docker]: https://docs.docker.com/engine/install/
 [docker-non-root]: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
+[examples/quick-start]: https://github.com/y-scope/spider/tree/main/examples/quick-start
