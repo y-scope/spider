@@ -2,9 +2,13 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import List
 
 
-def main(argv):
+def main(argv: List[str] = None):
+    if argv is None:
+        argv = sys.argv
+
     repo_root = _get_repo_root()
 
     found_violation = False
