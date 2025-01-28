@@ -1,4 +1,4 @@
-# Developer guide
+# Developer docs
 
 :::{toctree}
 :hidden:
