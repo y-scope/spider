@@ -57,4 +57,4 @@ You can use the following tasks to run integration tests.
 | `test:integration`            | Runs all integration tests.                                       |
 
 
-[gh-workflow-unit-tests]: ../../../.github/workflows/unit-tests.yaml
+[gh-workflow-unit-tests]: https://github.com/y-scope/spider/blob/main/.github/workflows/unit-tests.yaml
