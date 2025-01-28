@@ -15,7 +15,6 @@ extensions = [
     "sphinx_design",
     "sphinx.ext.autodoc",
     "sphinx.ext.viewcode",
-    "sphinxcontrib.mermaid",
 ]
 
 # -- MyST extensions -----------------------------------------------------------
