@@ -1,8 +1,5 @@
 # Quick start
 
-Spider is a distributed system for executing user-defined tasks. It is designed to achieve low
-latency, high throughput, and robust fault tolerance.
-
 The guide below briefly describes how to get started with running a task on Spider. At a high-level,
 you'll need to:
 
