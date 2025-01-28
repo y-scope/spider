@@ -1,6 +1,7 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
-    storage/MysqlStorage.cpp
+    storage/MySqlConnection.cpp
+    storage/MySqlStorage.cpp
     worker/FunctionManager.cpp
     worker/FunctionNameManager.cpp
     io/msgpack_message.cpp
@@ -23,7 +24,8 @@ set(SPIDER_CORE_HEADERS
     utils/TimedCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
-    storage/MysqlStorage.hpp
+    storage/MySqlConnection.hpp
+    storage/MySqlStorage.hpp
     worker/FunctionManager.hpp
     worker/FunctionNameManager.hpp
     CACHE INTERNAL
@@ -58,21 +60,6 @@ set(SPIDER_WORKER_SOURCES
     "spider worker source files"
 )
 
-add_executable(spider_worker)
-target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
-target_sources(spider_worker PRIVATE worker/worker.cpp)
-target_link_libraries(spider_worker PRIVATE spider_core)
-target_link_libraries(
-    spider_worker
-    PRIVATE
-        Boost::headers
-        Boost::filesystem
-        Boost::process
-        Boost::program_options
-        Boost::system
-        spdlog::spdlog
-)
-
 set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/DllLoader.cpp
     worker/DllLoader.hpp
@@ -100,6 +87,22 @@ target_link_libraries(
         spdlog::spdlog
 )
 
+add_executable(spider_worker)
+target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
+target_sources(spider_worker PRIVATE worker/worker.cpp)
+target_link_libraries(spider_worker PRIVATE spider_core)
+target_link_libraries(
+    spider_worker
+    PRIVATE
+        Boost::headers
+        Boost::filesystem
+        Boost::process
+        Boost::program_options
+        Boost::system
+        spdlog::spdlog
+)
+add_dependencies(spider_worker spider_task_executor)
+
 set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerPolicy.hpp
     scheduler/FifoPolicy.cpp
@@ -107,6 +110,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    scheduler/SchedulerTaskCache.cpp
+    scheduler/SchedulerTaskCache.hpp
     utils/StopToken.hpp
     CACHE INTERNAL
     "spider scheduler source files"

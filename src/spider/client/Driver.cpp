@@ -14,7 +14,7 @@
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "Exception.hpp"
 
 namespace spider {
@@ -23,18 +23,10 @@ Driver::Driver(std::string const& storage_url) {
     boost::uuids::random_generator gen;
     m_id = gen();
 
-    m_metadata_storage = std::make_shared<core::MySqlMetadataStorage>();
-    m_data_storage = std::make_shared<core::MySqlDataStorage>();
-    core::StorageErr err = m_metadata_storage->connect(storage_url);
-    if (!err.success()) {
-        throw ConnectionException(err.description);
-    }
-    err = m_data_storage->connect(storage_url);
-    if (!err.success()) {
-        throw ConnectionException(err.description);
-    }
+    m_metadata_storage = std::make_shared<core::MySqlMetadataStorage>(storage_url);
+    m_data_storage = std::make_shared<core::MySqlDataStorage>(storage_url);
 
-    err = m_metadata_storage->add_driver(core::Driver{m_id});
+    core::StorageErr const err = m_metadata_storage->add_driver(core::Driver{m_id});
     if (!err.success()) {
         if (core::StorageErrType::DuplicateKeyErr == err.type) {
             throw DriverIdInUseException(m_id);
@@ -56,18 +48,10 @@ Driver::Driver(std::string const& storage_url) {
 }
 
 Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_id{id} {
-    m_metadata_storage = std::make_shared<core::MySqlMetadataStorage>();
-    m_data_storage = std::make_shared<core::MySqlDataStorage>();
-    core::StorageErr err = m_metadata_storage->connect(storage_url);
-    if (!err.success()) {
-        throw ConnectionException(err.description);
-    }
-    err = m_data_storage->connect(storage_url);
-    if (!err.success()) {
-        throw ConnectionException(err.description);
-    }
+    m_metadata_storage = std::make_shared<core::MySqlMetadataStorage>(storage_url);
+    m_data_storage = std::make_shared<core::MySqlDataStorage>(storage_url);
 
-    err = m_metadata_storage->add_driver(core::Driver{m_id});
+    core::StorageErr const err = m_metadata_storage->add_driver(core::Driver{m_id});
     if (!err.success()) {
         if (core::StorageErrType::DuplicateKeyErr == err.type) {
             throw DriverIdInUseException(m_id);
