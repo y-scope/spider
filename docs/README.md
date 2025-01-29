@@ -20,7 +20,7 @@ this project:
   task docs:site
   ```
 
-    * The output of the build will be in `../build/docs/html`.
+  * The output of the build will be in `../build/docs/html`.
 
 * Clean up the build:
 
