@@ -44,8 +44,15 @@ You don't immediately need to understand the TaskContext, Serializable, or Data 
 explain them in other guides.
 :::
 
+For example, the task in `src/tasks.cpp` computes and returns the sum of two integers:
 
-For example, the task in `src/tasks.cpp` computes and returns the sum of two integers.
+:::{literalinclude} ../../../examples/quick-start/src/tasks.cpp
+:caption: src/tasks.cpp: The example task.
+:language: cpp
+:lines: 5-12
+:lineno-start: 5
+:linenos: true
+:::
 
 :::{note}
 The task is split into a header file and an implementation file so that it can be loaded as a
@@ -79,7 +86,15 @@ To make Spider to run a task, we first need to write a client application. Gener
 4. and then handles the result.
 
 For example, the client in `src/client.cpp` runs the `sum` task from the previous section and
-verifies its result.
+verifies its result:
+
+:::{literalinclude} ../../../examples/quick-start/src/client.cpp
+:caption: src/client.cpp: A snippet of the example client.
+:language: cpp
+:lines: 24-35
+:lineno-start: 24
+:linenos: true
+:::
 
 When we submit a task to Spider, Spider returns a `Job`, which represents a scheduled, running, or
 completed task (or `TaskGraph`) in a Spider cluster.
