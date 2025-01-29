@@ -84,8 +84,9 @@ def _check_tracked_files(
             ).splitlines():
                 _parse_and_print_match(match, error_msg)
                 found_matches = True
-        except subprocess.CalledProcessError:
-            pass
+        except subprocess.CalledProcessError as ex:
+            if ex.returncode != 1:
+                print(f"Failed to grep '{path}' - exit status {ex.returncode}.", file=sys.stderr)
 
     return found_matches
 
