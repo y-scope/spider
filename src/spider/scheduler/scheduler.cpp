@@ -171,7 +171,7 @@ auto main(int argc, char** argv) -> int {
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
-    if (!parse_args(argc, argv, scheduler_addr, port, storage_url)) {
+    if (false == parse_args(argc, argv, scheduler_addr, port, storage_url)) {
         return cCmdArgParseErr;
     }
 
