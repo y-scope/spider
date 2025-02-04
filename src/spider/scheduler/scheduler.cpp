@@ -68,7 +68,7 @@ auto parse_args(
         (
             "storage_url",
             boost::program_options::value<std::string>(&storage_url)->required(),
-            "storage server url"
+            "The storage server's URL"
         );
     // clang-format on
 
