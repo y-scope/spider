@@ -3,11 +3,12 @@
 
 #include <memory>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 #include <mariadb/conncpp/CArray.hpp>
-#include <mariadb/conncpp/Connection.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 
 #include "../core/Data.hpp"
@@ -19,18 +20,18 @@
 #include "../core/TaskGraph.hpp"
 #include "DataStorage.hpp"
 #include "MetadataStorage.hpp"
+#include "MySqlConnection.hpp"
 
 namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
 public:
-    MySqlMetadataStorage() = default;
+    MySqlMetadataStorage() = delete;
+    explicit MySqlMetadataStorage(std::string url) : m_url{std::move(url)} {};
     MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
     MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
     auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
     auto operator=(MySqlMetadataStorage&&) -> MySqlMetadataStorage& = delete;
     ~MySqlMetadataStorage() override = default;
-    auto connect(std::string const& url) -> StorageErr override;
-    void close() override;
     auto initialize() -> StorageErr override;
     auto add_driver(Driver const& driver) -> StorageErr override;
     auto add_scheduler(Scheduler const& scheduler) -> StorageErr override;
@@ -57,10 +58,12 @@ public:
     auto set_task_state(boost::uuids::uuid id, TaskState state) -> StorageErr override;
     auto set_task_running(boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(TaskInstance const& instance) -> StorageErr override;
+    auto create_task_instance(TaskInstance const& instance) -> StorageErr override;
     auto task_finish(TaskInstance const& instance, std::vector<TaskOutput> const& outputs)
             -> StorageErr override;
     auto task_fail(TaskInstance const& instance, std::string const& error) -> StorageErr override;
-    auto get_task_timeout(std::vector<TaskInstance>* tasks) -> StorageErr override;
+    auto get_task_timeout(std::vector<std::tuple<TaskInstance, Task>>* tasks
+    ) -> StorageErr override;
     auto get_child_tasks(boost::uuids::uuid id, std::vector<Task>* children) -> StorageErr override;
     auto get_parent_tasks(boost::uuids::uuid id, std::vector<Task>* tasks) -> StorageErr override;
     auto update_heartbeat(boost::uuids::uuid id) -> StorageErr override;
@@ -73,22 +76,22 @@ public:
     set_scheduler_state(boost::uuids::uuid id, std::string const& state) -> StorageErr override;
 
 private:
-    sql::Connection* m_conn = nullptr;
+    std::string m_url;
 
-    void add_task(sql::bytes job_id, Task const& task);
-    auto fetch_full_task(std::unique_ptr<sql::ResultSet> const& res) -> Task;
+    static void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
+    static auto
+    fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };
 
 class MySqlDataStorage : public DataStorage {
 public:
-    MySqlDataStorage() = default;
+    MySqlDataStorage() = delete;
+    explicit MySqlDataStorage(std::string url) : m_url{std::move(url)} {};
     MySqlDataStorage(MySqlDataStorage const&) = delete;
     MySqlDataStorage(MySqlDataStorage&&) = delete;
     auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;
     auto operator=(MySqlDataStorage&&) -> MySqlDataStorage& = delete;
     ~MySqlDataStorage() override = default;
-    auto connect(std::string const& url) -> StorageErr override;
-    void close() override;
     auto initialize() -> StorageErr override;
     auto add_driver_data(boost::uuids::uuid driver_id, Data const& data) -> StorageErr override;
     auto add_task_data(boost::uuids::uuid task_id, Data const& data) -> StorageErr override;
@@ -119,7 +122,7 @@ public:
     ) -> StorageErr override;
 
 private:
-    sql::Connection* m_conn = nullptr;
+    std::string m_url;
 };
 }  // namespace spider::core
 

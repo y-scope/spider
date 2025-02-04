@@ -7,6 +7,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -34,7 +35,7 @@ WorkerClient::WorkerClient(
           m_metadata_store(std::move(metadata_store)) {}
 
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
-) -> std::optional<boost::uuids::uuid> {
+) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
     if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {
@@ -94,7 +95,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         if (!response.has_task_id()) {
             return std::nullopt;
         }
-        return response.get_task_id();
+        return response.get_task_ids();
     } catch (boost::system::system_error const& e) {
         return std::nullopt;
     } catch (std::runtime_error const& e) {

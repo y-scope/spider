@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -36,7 +37,7 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "../utils/ProgramOptions.hpp"
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
@@ -156,13 +157,13 @@ constexpr int cFetchTaskTimeout = 100;
 auto fetch_task(
         spider::worker::WorkerClient& client,
         std::optional<boost::uuids::uuid> fail_task_id
-) -> boost::uuids::uuid {
+) -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
     spdlog::debug("Fetching task");
     while (true) {
-        std::optional<boost::uuids::uuid> const optional_task_id
+        std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
-        if (optional_task_id.has_value()) {
-            return optional_task_id.value();
+        if (optional_task_ids.has_value()) {
+            return optional_task_ids.value();
         }
         // If the first request succeeds, later requests should not include the failed task id
         fail_task_id = std::nullopt;
@@ -247,7 +248,8 @@ auto task_loop(
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
-        boost::uuids::uuid const task_id = fetch_task(client, fail_task_id);
+        auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
+        spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
@@ -255,20 +257,6 @@ auto task_loop(
         spider::core::StorageErr err = metadata_store->get_task(task_id, &task);
         if (!err.success()) {
             spdlog::error("Failed to fetch task detail: {}", err.description);
-            continue;
-        }
-
-        // Update task status to running
-        err = metadata_store->set_task_running(task_id);
-        if (!err.success()) {
-            spdlog::debug("Failed to update task status to running: {}", err.description);
-            continue;
-        }
-        spider::core::TaskInstance const instance{task_id};
-        spdlog::debug("Adding task instance");
-        err = metadata_store->add_task_instance(instance);
-        if (!err.success()) {
-            spdlog::error("Failed to add task instance: {}", err.description);
             continue;
         }
 
@@ -370,24 +358,14 @@ auto main(int argc, char** argv) -> int {
 
     // Create storage
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::make_shared<spider::core::MySqlMetadataStorage>();
-    spider::core::StorageErr err = metadata_store->connect(storage_url);
-    if (!err.success()) {
-        spdlog::error("Cannot connect to metadata storage: {}", err.description);
-        return cStorageConnectionErr;
-    }
+            = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
     std::shared_ptr<spider::core::DataStorage> const data_store
-            = std::make_shared<spider::core::MySqlDataStorage>();
-    err = data_store->connect(storage_url);
-    if (!err.success()) {
-        spdlog::error("Cannot connect to data storage: {}", err.description);
-        return cStorageConnectionErr;
-    }
+            = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const worker_id = gen();
     spider::core::Driver driver{worker_id};
-    err = metadata_store->add_driver(driver);
+    spider::core::StorageErr const err = metadata_store->add_driver(driver);
     if (!err.success()) {
         spdlog::error("Cannot add driver to metadata storage: {}", err.description);
         return cStorageErr;

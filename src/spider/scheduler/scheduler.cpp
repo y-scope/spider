@@ -23,7 +23,7 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MysqlStorage.hpp"
+#include "../storage/MySqlStorage.hpp"
 #include "../utils/ProgramOptions.hpp"
 #include "../utils/StopToken.hpp"
 #include "FifoPolicy.hpp"
@@ -174,22 +174,12 @@ auto main(int argc, char** argv) -> int {
 
     // Create storages
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::make_shared<spider::core::MySqlMetadataStorage>();
-    spider::core::StorageErr err = metadata_store->connect(storage_url);
-    if (!err.success()) {
-        spdlog::error("Failed to connect to storage server: {}", err.description);
-        return cStorageConnectionErr;
-    }
+            = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
     std::shared_ptr<spider::core::DataStorage> const data_store
-            = std::make_shared<spider::core::MySqlDataStorage>();
-    err = data_store->connect(storage_url);
-    if (!err.success()) {
-        spdlog::error("Failed to connect to storage server: {}", err.description);
-        return cStorageConnectionErr;
-    }
+            = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
     // Initialize storages
-    err = metadata_store->initialize();
+    spider::core::StorageErr err = metadata_store->initialize();
     if (!err.success()) {
         spdlog::error("Failed to initialize metadata storage: {}", err.description);
         return cStorageErr;
@@ -207,7 +197,7 @@ auto main(int argc, char** argv) -> int {
     // Start scheduler server
     spider::core::StopToken stop_token;
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>();
+            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store);
     spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, stop_token};
 
     // Register scheduler with storage

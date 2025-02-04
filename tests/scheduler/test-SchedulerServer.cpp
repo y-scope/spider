@@ -46,7 +46,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>();
+            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store);
 
     constexpr unsigned short cPort = 6021;
     spider::core::StopToken stop_token;
@@ -100,7 +100,7 @@ TEMPLATE_LIST_TEST_CASE(
         spider::scheduler::ScheduleTaskResponse const res
                 = object.as<spider::scheduler::ScheduleTaskResponse>();
         REQUIRE(res.has_task_id());
-        REQUIRE(res.get_task_id() == parent_task.get_id());
+        REQUIRE(std::get<0>(res.get_task_ids()) == parent_task.get_id());
     }
     socket.close();
     server.stop();
