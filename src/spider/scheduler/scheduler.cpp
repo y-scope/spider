@@ -93,7 +93,7 @@ auto parse_args(
     } catch (boost::program_options::error& e) {
         std::cerr << "spider_scheduler: " << e.what() << "\n";
         std::cerr << cUsage << "\n";
-        std::cerr << "Try 'spider_scheduler --help' for more information.\n";
+        std::cerr << "Try 'spider_scheduler --help' for detailed usage instructions.\n";
         return false;
     }
 }
