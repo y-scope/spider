@@ -6,19 +6,19 @@
 namespace spider::core {
 
 constexpr std::string_view cSchedulerUsage
-        = {"Usage: spider_scheduler --host <host> --port <port> --storage_url <url>"};
+        = {"Usage: spider_scheduler --host <host> --port <port> --storage-url <url>"};
 
 constexpr std::string_view cSchedulerHelpMessage
         = {"Try 'spider_scheduler --help' for detailed usage instructions.\n"};
 
 constexpr std::string_view cWorkerUsage
-        = {"Usage: spider_worker --host <host> --storage_url <storage_url> --libs <libs>"};
+        = {"Usage: spider_worker --host <host> --storage-url <storage_url> --libs <libs>"};
 
 constexpr std::string_view cWorkerHelpMessage
         = {"Try 'spider_worker --help' for detailed usage instructions.\n"};
 
 constexpr std::string_view cTaskExecutorUsage
-        = {"Usage: spider_task_executor --func <function> --task_id <task_id> --storage_url "
+        = {"Usage: spider_task_executor --func <function> --task-id <task_id> --storage-url "
            "<storage_url> --libs <libs>"};
 
 constexpr std::string_view cTaskExecutorHelpMessage
@@ -36,7 +36,7 @@ constexpr std::string_view cPortOption = {"port"};
 
 constexpr std::string_view cPortMessage = {"The port to listen on"};
 
-constexpr std::string_view cStorageUrlOption = {"storage_url"};
+constexpr std::string_view cStorageUrlOption = {"storage-url"};
 
 constexpr std::string_view cStorageUrlMessage = {"The storage server's URL"};
 
@@ -48,7 +48,7 @@ constexpr std::string_view cFunctionOption = {"func"};
 
 constexpr std::string_view cFunctionMessage = {"The function to execute"};
 
-constexpr std::string_view cTaskIdOption = {"task_id"};
+constexpr std::string_view cTaskIdOption = {"task-id"};
 
 constexpr std::string_view cTaskIdMessage = {"The id of the task to execute"};
 

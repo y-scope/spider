@@ -23,7 +23,7 @@ def start_scheduler_workers(
         "127.0.0.1",
         "--port",
         str(scheduler_port),
-        "--storage_url",
+        "--storage-url",
         storage_url,
     ]
     scheduler_process = subprocess.Popen(scheduler_cmds)
@@ -31,7 +31,7 @@ def start_scheduler_workers(
         str(dir_path / "spider_worker"),
         "--host",
         "127.0.0.1",
-        "--storage_url",
+        "--storage-url",
         storage_url,
         "--libs",
         "tests/libworker_test.so",
@@ -63,7 +63,7 @@ class TestClient:
         dir_path = dir_path / ".."
         client_cmds = [
             str(dir_path / "client_test"),
-            "--storage_url",
+            "--storage-url",
             storage_url,
         ]
         p = subprocess.run(client_cmds, timeout=20)
