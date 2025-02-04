@@ -99,6 +99,22 @@ auto parse_args(
         }
 
         boost::program_options::notify(variables);
+
+        if (host.empty()) {
+            std::cerr << spider::core::cHostEmptyMessage << "\n";
+            return false;
+        }
+
+        if (storage_url.empty()) {
+            std::cerr << spider::core::cStorageUrlEmptyMessage << "\n";
+            return false;
+        }
+
+        if (libs.empty()) {
+            std::cerr << spider::core::cLibsEmptyMessage << "\n";
+            return false;
+        }
+
         return true;
     } catch (boost::program_options::error& e) {
         std::cerr << "spider_worker: " << e.what() << "\n";

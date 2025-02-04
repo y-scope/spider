@@ -32,6 +32,8 @@ constexpr std::string_view cHostOption = {"host"};
 
 constexpr std::string_view cHostMessage = {"The host address to bind to"};
 
+constexpr std::string_view cHostEmptyMessage = {"The host address should not be empty"};
+
 constexpr std::string_view cPortOption = {"port"};
 
 constexpr std::string_view cPortMessage = {"The port to listen on"};
@@ -40,9 +42,14 @@ constexpr std::string_view cStorageUrlOption = {"storage-url"};
 
 constexpr std::string_view cStorageUrlMessage = {"The storage server's URL"};
 
+constexpr std::string_view cStorageUrlEmptyMessage
+        = {"The storage server's URL should not be empty"};
+
 constexpr std::string_view cLibsOption = {"libs"};
 
 constexpr std::string_view cLibsMessage = {"The tasks libraries to load"};
+
+constexpr std::string_view cLibsEmptyMessage = {"The tasks libraries should not be empty"};
 
 constexpr std::string_view cFunctionOption = {"func"};
 
