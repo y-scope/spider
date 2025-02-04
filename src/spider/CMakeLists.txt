@@ -111,6 +111,7 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    scheduler/SchedulerTaskCache.cpp
     scheduler/SchedulerTaskCache.hpp
     utils/ProgramOptions.hpp
     utils/StopToken.hpp
