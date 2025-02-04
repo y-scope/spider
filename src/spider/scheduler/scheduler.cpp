@@ -54,7 +54,7 @@ auto parse_args(
     boost::program_options::options_description desc;
     // clang-format off
     desc.add_options()
-        ("help", "spider scheduler")
+        ("help", "Prints this help text.")
         (
             "host",
             boost::program_options::value<std::string>(&host)->required(),
