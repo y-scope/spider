@@ -63,7 +63,7 @@ auto parse_args(
         (
             "port",
             boost::program_options::value<unsigned short>(&port)->required(),
-            "port to listen on"
+            "The port to listen on"
         )
         (
             "storage_url",
