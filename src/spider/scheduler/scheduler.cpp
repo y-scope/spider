@@ -39,7 +39,9 @@ constexpr int cRetryCount = 5;
 
 namespace {
 
-char const* const cUsage
+constexpr std::string_view cUsage{
+        "Usage: spider_scheduler --host <host> --port <port> --storage_url <url>"
+};
         = "Usage: spider_scheduler --host <host> --port <port> --storage_url <url>";
 
 auto parse_args(
