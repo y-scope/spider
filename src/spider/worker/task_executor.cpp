@@ -26,6 +26,7 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/MysqlStorage.hpp"
+#include "../utils/ProgramOptions.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
@@ -35,22 +36,26 @@ namespace {
 
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
-    desc.add_options()("help", "spider task executor");
-    desc.add_options()("func", boost::program_options::value<std::string>(), "function to run");
+    desc.add_options()(spider::core::cHelpOption.data(), spider::core::cHelpMessage.data());
     desc.add_options()(
-            "task_id",
+            spider::core::cFunctionOption.data(),
             boost::program_options::value<std::string>(),
-            "task id of the function"
+            spider::core::cFunctionMessage.data()
     );
     desc.add_options()(
-            "libs",
+            spider::core::cTaskIdOption.data(),
+            boost::program_options::value<std::string>(),
+            spider::core::cTaskIdMessage.data()
+    );
+    desc.add_options()(
+            spider::core::cLibsOption.data(),
             boost::program_options::value<std::vector<std::string>>(),
-            "dynamic libraries that include the spider tasks"
+            spider::core::cLibsMessage.data()
     );
     desc.add_options()(
-            "storage_url",
+            spider::core::cStorageUrlOption.data(),
             boost::program_options::value<std::string>(),
-            "storage server url"
+            spider::core::cStorageUrlMessage.data()
     );
 
     boost::program_options::variables_map variables;
@@ -87,22 +92,23 @@ auto main(int const argc, char** argv) -> int {
     std::string storage_url;
     std::string task_id_string;
     try {
-        if (!args.contains("func")) {
+        if (!args.contains(spider::core::cFunctionOption.data())) {
             return cCmdArgParseErr;
         }
-        func_name = args["func"].as<std::string>();
-        if (!args.contains("task_id")) {
+        func_name = args[spider::core::cFunctionOption.data()].as<std::string>();
+        if (!args.contains(spider::core::cTaskIdOption.data())) {
             return cCmdArgParseErr;
         }
-        task_id_string = args["task_id"].as<std::string>();
-        if (!args.contains("storage_url")) {
+        task_id_string = args[spider::core::cTaskIdOption.data()].as<std::string>();
+        if (!args.contains(spider::core::cStorageUrlOption.data())) {
             return cCmdArgParseErr;
         }
-        storage_url = args["storage_url"].as<std::string>();
-        if (!args.contains("libs")) {
+        storage_url = args[spider::core::cStorageUrlOption.data()].as<std::string>();
+        if (!args.contains(spider::core::cLibsOption.data())) {
             return cCmdArgParseErr;
         }
-        std::vector<std::string> const libs = args["libs"].as<std::vector<std::string>>();
+        std::vector<std::string> const libs
+                = args[spider::core::cLibsOption.data()].as<std::vector<std::string>>();
         spider::worker::DllLoader& dll_loader = spider::worker::DllLoader::get_instance();
         for (std::string const& lib : libs) {
             if (false == dll_loader.load_dll(lib)) {

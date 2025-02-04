@@ -20,7 +20,6 @@ set(SPIDER_CORE_HEADERS
     io/MsgPack.hpp
     io/msgpack_message.hpp
     io/Serializer.hpp
-    utils/TimedCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
     storage/MysqlStorage.hpp
@@ -53,6 +52,7 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/ProgramOptions.hpp
     utils/StopToken.hpp
     CACHE INTERNAL
     "spider worker source files"
@@ -64,6 +64,7 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/message_pipe.cpp
     worker/message_pipe.hpp
     worker/task_executor.cpp
+    utils/ProgramOptions.hpp
     CACHE INTERNAL
     "spider task executor source files"
 )
@@ -108,7 +109,9 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    utils/ProgramOptions.hpp
     utils/StopToken.hpp
+    utils/TimedCache.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )

@@ -24,6 +24,7 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/MysqlStorage.hpp"
+#include "../utils/ProgramOptions.hpp"
 #include "../utils/StopToken.hpp"
 #include "FifoPolicy.hpp"
 #include "SchedulerPolicy.hpp"
@@ -39,11 +40,6 @@ constexpr int cRetryCount = 5;
 
 namespace {
 
-constexpr std::string_view cUsage{
-        "Usage: spider_scheduler --host <host> --port <port> --storage_url <url>"
-};
-        = "Usage: spider_scheduler --host <host> --port <port> --storage_url <url>";
-
 auto parse_args(
         int const argc,
         char** argv,
@@ -54,21 +50,21 @@ auto parse_args(
     boost::program_options::options_description desc;
     // clang-format off
     desc.add_options()
-        ("help", "Prints this help text.")
+        (spider::core::cHelpOption.data(), spider::core::cHelpMessage.data())
         (
-            "host",
+            spider::core::cHostOption.data(),
             boost::program_options::value<std::string>(&host)->required(),
-            "The host address to bind to"
+            spider::core::cHostMessage.data()
         )
         (
-            "port",
+            spider::core::cPortOption.data(),
             boost::program_options::value<unsigned short>(&port)->required(),
-            "The port to listen on"
+            spider::core::cPortMessage.data()
         )
         (
-            "storage_url",
+            spider::core::cStorageUrlOption.data(),
             boost::program_options::value<std::string>(&storage_url)->required(),
-            "The storage server's URL"
+            spider::core::cStorageUrlMessage.data()
         );
     // clang-format on
 
@@ -80,10 +76,11 @@ auto parse_args(
                 variables
         );
 
-        if (!variables.contains("host") && !variables.contains("port")
-            && !variables.contains("storage_url"))
+        if (false == variables.contains(spider::core::cHostOption.data())
+            && false == variables.contains(spider::core::cPortOption.data())
+            && false == variables.contains(spider::core::cStorageUrlOption.data()))
         {
-            std::cout << cUsage << "\n";
+            std::cout << spider::core::cSchedulerUsage << "\n";
             std::cout << desc << "\n";
             return false;
         }
@@ -92,8 +89,8 @@ auto parse_args(
         return true;
     } catch (boost::program_options::error& e) {
         std::cerr << "spider_scheduler: " << e.what() << "\n";
-        std::cerr << cUsage << "\n";
-        std::cerr << "Try 'spider_scheduler --help' for detailed usage instructions.\n";
+        std::cerr << spider::core::cSchedulerUsage << "\n";
+        std::cerr << spider::core::cSchedulerHelpMessage;
         return false;
     }
 }

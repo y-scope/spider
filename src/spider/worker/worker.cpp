@@ -37,6 +37,7 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/MysqlStorage.hpp"
+#include "../utils/ProgramOptions.hpp"
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
@@ -51,9 +52,6 @@ constexpr int cRetryCount = 5;
 
 namespace {
 
-char const* const cUsage
-        = "Usage: spider_worker --host <host> --storage_url <storage_url> --libs <libs>";
-
 auto parse_args(
         int const argc,
         char** argv,
@@ -64,21 +62,21 @@ auto parse_args(
     boost::program_options::options_description desc;
     // clang-format off
     desc.add_options()
-        ("help", "spider scheduler")
+        (spider::core::cHelpOption.data(), spider::core::cHelpMessage.data())
         (
-        "host",
+            spider::core::cHostOption.data(),
             boost::program_options::value<std::string>(&host)->required(),
-            "worker host address"
+            spider::core::cHostMessage.data()
         )
         (
-        "storage_url",
+            spider::core::cStorageUrlOption.data(),
             boost::program_options::value<std::string>(&storage_url)->required(),
-            "storage server url"
+            spider::core::cStorageUrlMessage.data()
         )
         (
-            "libs",
+            spider::core::cLibsOption.data(),
             boost::program_options::value<std::vector<std::string>>(&libs),
-            "dynamic libraries that include the spider tasks"
+            spider::core::cLibsMessage.data()
         );
     // clang-format on
 
@@ -90,10 +88,11 @@ auto parse_args(
                 variables
         );
 
-        if (!variables.contains("host") && !variables.contains("storage_url")
-            && !variables.contains("libs"))
+        if (!variables.contains(spider::core::cHostOption.data())
+            && !variables.contains(spider::core::cStorageUrlOption.data())
+            && !variables.contains(spider::core::cLibsOption.data()))
         {
-            std::cout << cUsage << "\n";
+            std::cout << spider::core::cWorkerUsage << "\n";
             std::cout << desc << "\n";
             return false;
         }
@@ -102,8 +101,8 @@ auto parse_args(
         return true;
     } catch (boost::program_options::error& e) {
         std::cerr << "spider_worker: " << e.what() << "\n";
-        std::cerr << cUsage << "\n";
-        std::cerr << "Try 'spider_worker --help' for more information.\n";
+        std::cerr << spider::core::cWorkerUsage << "\n";
+        std::cerr << spider::core::cWorkerHelpMessage;
         return false;
     }
 }
