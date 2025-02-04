@@ -222,17 +222,17 @@ class TestSchedulerWorker:
         assert state == "success"
         outputs = get_task_outputs(storage, parent_1.id)
         assert len(outputs) == 1
-        assert outputs[0].value == msgpack.packb(3).decode("utf-8")
+        assert outputs[0].value == msgpack.packb(3)
         state = get_task_state(storage, parent_2.id)
         assert state == "success"
         outputs = get_task_outputs(storage, parent_2.id)
         assert len(outputs) == 1
-        assert outputs[0].value == msgpack.packb(7).decode("utf-8")
+        assert outputs[0].value == msgpack.packb(7)
         state = get_task_state(storage, child.id)
         assert state == "success"
         outputs = get_task_outputs(storage, child.id)
         assert len(outputs) == 1
-        assert outputs[0].value == msgpack.packb(10).decode("utf-8")
+        assert outputs[0].value == msgpack.packb(10)
 
     def test_job_failure(self, scheduler_worker, storage, fail_job):
         task = fail_job
@@ -249,7 +249,7 @@ class TestSchedulerWorker:
         assert state == "success"
         outputs = get_task_outputs(storage, task.id)
         assert len(outputs) == 1
-        assert outputs[0].value == msgpack.packb(2).decode("utf-8")
+        assert outputs[0].value == msgpack.packb(2)
 
     def test_random_fail_job(self, scheduler_worker, storage, random_fail_job):
         task = random_fail_job
