@@ -58,7 +58,7 @@ auto parse_args(
         (
             "host",
             boost::program_options::value<std::string>(&host)->required(),
-            "scheduler host address"
+            "The host address to bind to"
         )
         (
             "port",
