@@ -91,23 +91,23 @@ auto main(int const argc, char** argv) -> int {
     std::string storage_url;
     std::string task_id_string;
     try {
-        if (!args.contains(spider::core::cFunctionOption.data())) {
+        if (!args.contains(std::string(spider::core::cFunctionOption))) {
             return cCmdArgParseErr;
         }
-        func_name = args[spider::core::cFunctionOption.data()].as<std::string>();
-        if (!args.contains(spider::core::cTaskIdOption.data())) {
+        func_name = args[std::string(spider::core::cFunctionOption)].as<std::string>();
+        if (!args.contains(std::string(spider::core::cTaskIdOption))) {
             return cCmdArgParseErr;
         }
-        task_id_string = args[spider::core::cTaskIdOption.data()].as<std::string>();
-        if (!args.contains(spider::core::cStorageUrlOption.data())) {
+        task_id_string = args[std::string(spider::core::cTaskIdOption)].as<std::string>();
+        if (!args.contains(std::string(spider::core::cStorageUrlOption))) {
             return cCmdArgParseErr;
         }
-        storage_url = args[spider::core::cStorageUrlOption.data()].as<std::string>();
-        if (!args.contains(spider::core::cLibsOption.data())) {
+        storage_url = args[std::string(spider::core::cStorageUrlOption)].as<std::string>();
+        if (!args.contains(std::string(spider::core::cLibsOption))) {
             return cCmdArgParseErr;
         }
         std::vector<std::string> const libs
-                = args[spider::core::cLibsOption.data()].as<std::vector<std::string>>();
+                = args[std::string(spider::core::cLibsOption)].as<std::vector<std::string>>();
         spider::worker::DllLoader& dll_loader = spider::worker::DllLoader::get_instance();
         for (std::string const& lib : libs) {
             if (false == dll_loader.load_dll(lib)) {

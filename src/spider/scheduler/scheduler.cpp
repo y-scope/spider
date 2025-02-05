@@ -76,9 +76,9 @@ auto parse_args(
                 variables
         );
 
-        if (false == variables.contains(spider::core::cHostOption.data())
-            && false == variables.contains(spider::core::cPortOption.data())
-            && false == variables.contains(spider::core::cStorageUrlOption.data()))
+        if (false == variables.contains(std::string(spider::core::cHostOption))
+            && false == variables.contains(std::string(spider::core::cPortOption))
+            && false == variables.contains(std::string(spider::core::cStorageUrlOption)))
         {
             std::cout << spider::core::cSchedulerUsage << "\n";
             std::cout << desc << "\n";

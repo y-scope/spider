@@ -18,7 +18,7 @@
 #include <boost/process/v2/stdio.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
-#include <fmt/fmt.h>
+#include <fmt/format.h>
 
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep

@@ -89,9 +89,9 @@ auto parse_args(
                 variables
         );
 
-        if (!variables.contains(spider::core::cHostOption.data())
-            && !variables.contains(spider::core::cStorageUrlOption.data())
-            && !variables.contains(spider::core::cLibsOption.data()))
+        if (!variables.contains(std::string(spider::core::cHostOption))
+            && !variables.contains(std::string(spider::core::cStorageUrlOption))
+            && !variables.contains(std::string(spider::core::cLibsOption)))
         {
             std::cout << spider::core::cWorkerUsage << "\n";
             std::cout << desc << "\n";
