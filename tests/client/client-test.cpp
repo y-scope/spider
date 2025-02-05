@@ -54,11 +54,11 @@ auto main(int argc, char** argv) -> int {
 
     std::string storage_url;
     try {
-        if (!args.contains(spider::core::cStorageUrlOption.data())) {
+        if (!args.contains(std::string(spider::core::cStorageUrlOption))) {
             spdlog::error("storage-url is required");
             return cCmdArgParseErr;
         }
-        storage_url = args[spider::core::cStorageUrlOption.data()].as<std::string>();
+        storage_url = args[std::string(spider::core::cStorageUrlOption)].as<std::string>();
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {
