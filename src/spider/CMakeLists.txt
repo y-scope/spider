@@ -84,6 +84,7 @@ target_link_libraries(
         Boost::filesystem
         Boost::program_options
         Boost::system
+        ${CMAKE_DL_LIBS}
         spdlog::spdlog
 )
 
@@ -99,6 +100,7 @@ target_link_libraries(
         Boost::process
         Boost::program_options
         Boost::system
+        ${CMAKE_DL_LIBS}
         spdlog::spdlog
 )
 add_dependencies(spider_worker spider_task_executor)
