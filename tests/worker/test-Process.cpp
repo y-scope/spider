@@ -56,13 +56,17 @@ TEST_CASE("Process pipe", "[worker]") {
             read_pipe_fd[1],
             std::nullopt
     );
+    close(write_pipe_fd[0]);
+    close(read_pipe_fd[1]);
     std::string const message = "Hello, World!";
     boost::asio::write(write_pipe, boost::asio::buffer(message));
     std::string buffer;
     buffer.resize(message.size());
     boost::asio::read(read_pipe, boost::asio::buffer(buffer));
-    REQUIRE(0 == echo_process.wait());
     REQUIRE(buffer == message);
+    close(write_pipe_fd[1]);
+    close(read_pipe_fd[0]);
+    REQUIRE(echo_process.wait() == 0);
 }
 
 }  // namespace
