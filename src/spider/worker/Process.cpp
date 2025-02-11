@@ -62,7 +62,8 @@ auto Process::spawn(
 ) -> Process {
     // Build execvp arguments
     std::vector<char*> exec_args;
-    exec_args.reserve(args.size() + 1);
+    exec_args.reserve(args.size() + 2);
+    exec_args.push_back(const_cast<char*>(executable.data()));
     for (std::string const& arg : args) {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         exec_args.push_back(const_cast<char*>(arg.data()));
