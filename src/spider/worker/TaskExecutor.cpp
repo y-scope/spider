@@ -6,7 +6,6 @@
 #include <tuple>
 #include <vector>
 
-#include <boost/process/v2/process.hpp>
 #include <fmt/format.h>
 
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep

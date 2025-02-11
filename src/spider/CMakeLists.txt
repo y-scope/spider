@@ -48,6 +48,8 @@ target_link_libraries(spider_core PRIVATE fmt::fmt)
 set(SPIDER_WORKER_SOURCES
     worker/DllLoader.hpp
     worker/DllLoader.cpp
+    worker/Process.hpp
+    worker/Process.cpp
     worker/TaskExecutor.hpp
     worker/TaskExecutor.cpp
     worker/TaskExecutorMessage.hpp
