@@ -24,7 +24,7 @@ In the rest of this guide:
 In the guide below, you'll need:
 
 * CMake 3.22.1+
-* GCC 10+ or Clang 7+
+* GCC 11+ or Clang 14+
 * [Docker] 20.10+
   * If you're not running as root, ensure `docker` can be run
     [without superuser privileges][docker-non-root].
