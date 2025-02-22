@@ -107,10 +107,7 @@ auto cleanup_loop(
             spdlog::error("Failed to set scheduler state to gc: {}", err.description);
             continue;
         }
-        server.pause();
-        policy->cleanup();
         data_store->remove_dangling_data();
-        server.resume();
         for (size_t i = 0; i < cRetryCount; ++i) {
             err = metadata_store->set_scheduler_state(scheduler.get_id(), "normal");
             if (!err.success()) {

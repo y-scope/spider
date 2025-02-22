@@ -18,8 +18,6 @@ public:
 
     virtual auto schedule_next(boost::uuids::uuid worker_id, std::string const& worker_addr)
             -> std::optional<boost::uuids::uuid> = 0;
-
-    virtual auto cleanup() -> void = 0;
 };
 
 }  // namespace spider::scheduler

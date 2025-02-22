@@ -27,7 +27,6 @@ public:
 
     auto schedule_next(boost::uuids::uuid worker_id, std::string const& worker_addr)
             -> std::optional<boost::uuids::uuid> override;
-    auto cleanup() -> void override;
 
 private:
     auto get_next_task(
