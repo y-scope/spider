@@ -12,7 +12,7 @@
 #include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../utils/TimedCache.hpp"
+#include "../utils/LruCache.hpp"
 #include "SchedulerPolicy.hpp"
 #include "SchedulerTaskCache.hpp"
 
@@ -40,8 +40,8 @@ private:
 
     SchedulerTaskCache m_task_cache;
 
-    core::TimedCache<boost::uuids::uuid, boost::uuids::uuid> m_task_job_cache;
-    core::TimedCache<boost::uuids::uuid, std::chrono::system_clock::time_point> m_job_time_cache;
+    core::LruCache<boost::uuids::uuid, boost::uuids::uuid> m_task_job_cache;
+    core::LruCache<boost::uuids::uuid, std::chrono::system_clock::time_point> m_job_time_cache;
 };
 
 }  // namespace spider::scheduler
