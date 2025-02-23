@@ -34,7 +34,7 @@ constexpr int cStorageConnectionErr = 2;
 constexpr int cSchedulerAddrErr = 3;
 constexpr int cStorageErr = 4;
 
-constexpr int cCleanupInterval = 5;
+constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
