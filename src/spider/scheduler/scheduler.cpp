@@ -93,8 +93,6 @@ auto heartbeat_loop(
 auto cleanup_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         std::shared_ptr<spider::core::DataStorage> const& data_store,
-        spider::scheduler::SchedulerServer& server,
-        std::shared_ptr<spider::scheduler::SchedulerPolicy> const& policy,
         spider::core::Scheduler const& scheduler,
         spider::core::StopToken& stop_token
 ) -> void {
@@ -211,8 +209,6 @@ auto main(int argc, char** argv) -> int {
                 cleanup_loop,
                 std::cref(metadata_store),
                 std::cref(data_store),
-                std::ref(server),
-                std::cref(policy),
                 std::cref(scheduler),
                 std::ref(stop_token)
         };

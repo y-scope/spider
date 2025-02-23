@@ -1,6 +1,7 @@
 #ifndef SPIDER_UTILS_TIMEDCACHE_HPP
 #define SPIDER_UTILS_TIMEDCACHE_HPP
 
+#include <cstddef>
 #include <optional>
 #include <utility>
 
@@ -8,7 +9,9 @@
 
 namespace spider::core {
 
-constexpr unsigned cDefaultThreshold = 5;
+namespace utils {
+constexpr size_t cDefaultCacheSize = 100;
+}  // namespace utils
 
 template <class Key, class Value>
 class LruCache {
@@ -50,13 +53,13 @@ private:
             Key const& key,
             Value const& value
     ) -> void {
-        auto listIt = it->second;
-        m_list.erase(listIt);
+        auto list_it = it->second;
+        m_list.erase(list_it);
         m_list.push_front({key, value});
         it->second = m_list.begin();
     }
 
-    size_t m_size = 100;
+    size_t m_size = utils::cDefaultCacheSize;
     std::list<std::pair<Key, Value>> m_list;
     absl::flat_hash_map<Key, typename std::list<std::pair<Key, Value>>::iterator> m_map;
 };
