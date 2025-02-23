@@ -134,9 +134,4 @@ auto FifoPolicy::schedule_next(boost::uuids::uuid const worker_id, std::string c
     return m_task_cache.get_ready_task(worker_id, worker_addr);
 }
 
-auto FifoPolicy::cleanup() -> void {
-    m_task_job_cache.cleanup();
-    m_job_time_cache.cleanup();
-}
-
 }  // namespace spider::scheduler

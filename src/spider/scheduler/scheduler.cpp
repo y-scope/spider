@@ -34,7 +34,7 @@ constexpr int cStorageConnectionErr = 2;
 constexpr int cSchedulerAddrErr = 3;
 constexpr int cStorageErr = 4;
 
-constexpr int cCleanupInterval = 5;
+constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
@@ -93,8 +93,6 @@ auto heartbeat_loop(
 auto cleanup_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         std::shared_ptr<spider::core::DataStorage> const& data_store,
-        spider::scheduler::SchedulerServer& server,
-        std::shared_ptr<spider::scheduler::SchedulerPolicy> const& policy,
         spider::core::Scheduler const& scheduler,
         spider::core::StopToken& stop_token
 ) -> void {
@@ -107,10 +105,7 @@ auto cleanup_loop(
             spdlog::error("Failed to set scheduler state to gc: {}", err.description);
             continue;
         }
-        server.pause();
-        policy->cleanup();
         data_store->remove_dangling_data();
-        server.resume();
         for (size_t i = 0; i < cRetryCount; ++i) {
             err = metadata_store->set_scheduler_state(scheduler.get_id(), "normal");
             if (!err.success()) {
@@ -214,8 +209,6 @@ auto main(int argc, char** argv) -> int {
                 cleanup_loop,
                 std::cref(metadata_store),
                 std::cref(data_store),
-                std::ref(server),
-                std::cref(policy),
                 std::cref(scheduler),
                 std::ref(stop_token)
         };
