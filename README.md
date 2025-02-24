@@ -57,4 +57,9 @@ in the table below.
 | `lint:yml-check`        | Runs the YAML linters.                                   |
 | `lint:yml-fix`          | Runs the YAML linters and fixes some violations.         |
 
+## Docs
+
+You can find our docs [online][spider-docs]. 
+
 [Task]: https://taskfile.dev
+[spider-docs]: https://docs.yscope.com/spider/main/
