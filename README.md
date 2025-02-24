@@ -1,3 +1,7 @@
+# Docs
+
+You can find our docs [online][spider-docs]. 
+
 # Contributing
 Follow the steps below to develop and contribute to the project.
 
@@ -56,10 +60,6 @@ in the table below.
 | `lint:cpp-static-fix`   | Runs the C++ static analyzers and fixes some violations. |
 | `lint:yml-check`        | Runs the YAML linters.                                   |
 | `lint:yml-fix`          | Runs the YAML linters and fixes some violations.         |
-
-## Docs
-
-You can find our docs [online][spider-docs]. 
 
 [Task]: https://taskfile.dev
 [spider-docs]: https://docs.yscope.com/spider/main/
