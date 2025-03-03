@@ -26,7 +26,6 @@
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/MySqlConnection.hpp"
 #include "../storage/MySqlStorage.hpp"
-#include "../storage/StorageConnection.hpp"
 #include "../utils/StopToken.hpp"
 #include "FifoPolicy.hpp"
 #include "SchedulerPolicy.hpp"
@@ -89,7 +88,7 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
         spider::core::StorageErr const err
                 = metadata_store->update_heartbeat(conn, scheduler.get_id());
         if (!err.success()) {
@@ -123,7 +122,7 @@ auto cleanup_loop(
             );
             continue;
         }
-        spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
         spider::core::StorageErr err
                 = metadata_store->set_scheduler_state(conn, scheduler.get_id(), "gc");
         if (!err.success()) {
@@ -199,7 +198,7 @@ auto main(int argc, char** argv) -> int {
                 std::get<spider::core::StorageErr>(conn_result).description
         );
     }
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     spider::core::StorageErr err = metadata_store->initialize(conn);
     if (!err.success()) {

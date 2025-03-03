@@ -40,6 +40,7 @@ private:
 
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     core::StorageConnection& m_conn;
 
     SchedulerTaskCache m_task_cache;

@@ -17,6 +17,7 @@
 #include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "SchedulerTaskCache.hpp"
 
 namespace {
