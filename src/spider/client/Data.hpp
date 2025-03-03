@@ -14,6 +14,7 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {
@@ -64,7 +65,13 @@ public:
     void set_locality(std::vector<std::string> const& nodes, bool hard) {
         m_impl->set_locality(nodes);
         m_impl->set_hard_locality(hard);
-        m_data_store->set_data_locality(*m_impl);
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_store->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        m_data_store->set_data_locality(conn, *m_impl);
     }
 
     class Builder {
@@ -108,16 +115,22 @@ public:
             auto data = std::make_unique<core::Data>(std::string{buffer.data(), buffer.size()});
             data->set_locality(m_nodes);
             data->set_hard_locality(m_hard_locality);
+            std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                    = core::MySqlConnection::create(m_data_store->get_url());
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
             core::StorageErr err;
             switch (m_data_source) {
                 case DataSource::Driver:
-                    err = m_data_store->add_driver_data(m_source_id, *data);
+                    err = m_data_store->add_driver_data(conn, m_source_id, *data);
                     if (!err.success()) {
                         throw ConnectionException(err.description);
                     }
                     break;
                 case DataSource::TaskContext:
-                    err = m_data_store->add_task_data(m_source_id, *data);
+                    err = m_data_store->add_task_data(conn, m_source_id, *data);
                     if (!err.success()) {
                         throw ConnectionException(err.description);
                     }

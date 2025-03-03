@@ -27,7 +27,9 @@ namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
 public:
     MySqlMetadataStorage() = delete;
-    explicit MySqlMetadataStorage(std::string url): m_url{std::move(url)} {}
+
+    explicit MySqlMetadataStorage(std::string url) : m_url{std::move(url)} {}
+
     MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
     MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
     auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
@@ -129,7 +131,9 @@ private:
 class MySqlDataStorage : public DataStorage {
 public:
     MySqlDataStorage() = delete;
-    explicit MySqlDataStorage(std::string url): m_url{std::move(url)} {}
+
+    explicit MySqlDataStorage(std::string url) : m_url{std::move(url)} {}
+
     MySqlDataStorage(MySqlDataStorage const&) = delete;
     MySqlDataStorage(MySqlDataStorage&&) = delete;
     auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;

@@ -60,8 +60,15 @@ public:
      * @throw spider::ConnectionException
      */
     auto wait_complete() -> void {
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_storage->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+
         bool complete = false;
-        core::StorageErr err = m_metadata_storage->get_job_complete(m_id, &complete);
+        core::StorageErr err = m_metadata_storage->get_job_complete(conn, m_id, &complete);
         if (!err.success()) {
             throw ConnectionException{
                     fmt::format("Failed to get job completion status: {}", err.description)
@@ -70,7 +77,7 @@ public:
         while (!complete) {
             constexpr int cSleepMs = 10;
             std::this_thread::sleep_for(std::chrono::milliseconds(cSleepMs));
-            err = m_metadata_storage->get_job_complete(m_id, &complete);
+            err = m_metadata_storage->get_job_complete(conn, m_id, &complete);
             if (!err.success()) {
                 throw ConnectionException{
                         fmt::format("Failed to get job completion status: {}", err.description)
@@ -91,8 +98,15 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_status() -> JobStatus {
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_storage->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+
         core::JobStatus status = core::JobStatus::Running;
-        core::StorageErr const err = m_metadata_storage->get_job_status(m_id, &status);
+        core::StorageErr const err = m_metadata_storage->get_job_status(conn, m_id, &status);
         if (!err.success()) {
             throw ConnectionException{fmt::format("Failed to get job status: {}", err.description)};
         }
@@ -120,8 +134,16 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_result() -> ReturnType {
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_storage->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+
         std::vector<boost::uuids::uuid> output_task_ids;
-        core::StorageErr err = m_metadata_storage->get_job_output_tasks(m_id, &output_task_ids);
+        core::StorageErr err
+                = m_metadata_storage->get_job_output_tasks(conn, m_id, &output_task_ids);
         if (!err.success()) {
             throw ConnectionException{
                     fmt::format("Failed to get job output tasks: {}", err.description)
@@ -130,7 +152,7 @@ public:
         std::vector<core::Task> tasks;
         for (auto const& id : output_task_ids) {
             core::Task task{""};
-            err = m_metadata_storage->get_task(id, &task);
+            err = m_metadata_storage->get_task(conn, id, &task);
             if (!err.success()) {
                 throw ConnectionException{fmt::format("Failed to get task: {}", err.description)};
             }
@@ -161,7 +183,7 @@ public:
                     if (!optional_data_id.has_value()) {
                         throw ConnectionException{fmt::format("Output data ID is missing")};
                     }
-                    err = m_data_storage->get_data(optional_data_id.value(), &data);
+                    err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
                     if (!err.success()) {
                         throw ConnectionException{
                                 fmt::format("Failed to get data: {}", err.description)
@@ -202,7 +224,7 @@ public:
                 throw ConnectionException{fmt::format("Expected one output task for job result")};
             }
             core::Task task{""};
-            err = m_metadata_storage->get_task(output_task_ids[0], &task);
+            err = m_metadata_storage->get_task(conn, output_task_ids[0], &task);
             if (!err.success()) {
                 throw ConnectionException{fmt::format("Failed to get task: {}", err.description)};
             }
@@ -220,7 +242,7 @@ public:
                 if (!optional_data_id.has_value()) {
                     throw ConnectionException{fmt::format("Output data ID is missing")};
                 }
-                err = m_data_storage->get_data(optional_data_id.value(), &data);
+                err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
                 if (!err.success()) {
                     throw ConnectionException{fmt::format("Failed to get data: {}", err.description)
                     };

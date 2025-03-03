@@ -3,8 +3,7 @@
 
 namespace spider::core {
 
-class StorageConnection {
-};
+class StorageConnection {};
 
 }  // namespace spider::core
 

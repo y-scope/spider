@@ -220,7 +220,8 @@ auto main(int argc, char** argv) -> int {
     spider::core::StopToken stop_token;
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
             = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
-    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, conn, stop_token};
+    spider::scheduler::SchedulerServer
+            server{port, policy, metadata_store, data_store, conn, stop_token};
 
     // Register scheduler with storage
     spider::core::Scheduler const scheduler{scheduler_id, scheduler_addr, port};
