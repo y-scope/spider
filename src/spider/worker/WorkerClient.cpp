@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
+#include <spdlog/spdlog.h>
 
 #include "../core/Driver.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -20,6 +21,8 @@
 #include "../scheduler/SchedulerMessage.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/MySqlConnection.hpp"
+#include "../storage/StorageConnection.hpp"
 
 namespace spider::worker {
 
@@ -27,18 +30,31 @@ WorkerClient::WorkerClient(
         boost::uuids::uuid const worker_id,
         std::string worker_addr,
         std::shared_ptr<core::DataStorage> data_store,
-        std::shared_ptr<core::MetadataStorage> metadata_store
+        std::shared_ptr<core::MetadataStorage> metadata_store,
+        std::string const& storage_url
 )
         : m_worker_id{worker_id},
           m_worker_addr{std::move(worker_addr)},
           m_data_store(std::move(data_store)),
-          m_metadata_store(std::move(metadata_store)) {}
+          m_metadata_store(std::move(metadata_store)),
+          m_storage_url{storage_url} {}
 
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
 ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
-    if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {
+
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(m_storage_url);
+    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+        spdlog::error(
+                "Failed to connection to storage: {}",
+                std::get<spider::core::StorageErr>(conn_result).description
+        );
+    }
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
+    if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
         return std::nullopt;
     }
     if (schedulers.empty()) {
