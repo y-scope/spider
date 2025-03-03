@@ -9,12 +9,14 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 #include <spdlog/spdlog.h>
 
 #include "../core/Driver.hpp"
+#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
@@ -22,7 +24,6 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/MySqlConnection.hpp"
-#include "../storage/StorageConnection.hpp"
 
 namespace spider::worker {
 
@@ -51,7 +52,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         );
         return std::nullopt;
     }
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
     if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
         return std::nullopt;
     }

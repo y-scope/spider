@@ -40,7 +40,6 @@
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/MySqlConnection.hpp"
 #include "../storage/MySqlStorage.hpp"
-#include "../storage/StorageConnection.hpp"
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
@@ -119,7 +118,7 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
         spider::core::StorageErr const err
                 = metadata_store->update_heartbeat(conn, driver.get_id());
@@ -240,7 +239,7 @@ auto task_loop(
             );
             continue;
         }
-        spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
         auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
         spider::core::TaskInstance const instance{task_instance_id, task_id};
@@ -396,7 +395,7 @@ auto main(int argc, char** argv) -> int {
             );
             return cStorageErr;
         }
-        spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
         spider::core::StorageErr const err = metadata_store->add_driver(conn, driver);
         if (!err.success()) {
             spdlog::error("Cannot add driver to metadata storage: {}", err.description);

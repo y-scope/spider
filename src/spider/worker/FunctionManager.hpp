@@ -27,7 +27,6 @@
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MySqlConnection.hpp"
-#include "../storage/StorageConnection.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -293,7 +292,7 @@ public:
                         fmt::format("Cannot parse arguments: {}.", err.description)
                 );
             }
-            core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
                 if (!err.success()) {
                     return;
