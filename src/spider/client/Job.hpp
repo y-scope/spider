@@ -10,6 +10,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -20,7 +21,9 @@
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "Data.hpp"
+#include "Exception.hpp"
 #include "task.hpp"
 #include "type_utils.hpp"
 
@@ -65,7 +68,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
 
         bool complete = false;
         core::StorageErr err = m_metadata_storage->get_job_complete(conn, m_id, &complete);
@@ -103,7 +106,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
 
         core::JobStatus status = core::JobStatus::Running;
         core::StorageErr const err = m_metadata_storage->get_job_status(conn, m_id, &status);
@@ -139,7 +142,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
 
         std::vector<boost::uuids::uuid> output_task_ids;
         core::StorageErr err

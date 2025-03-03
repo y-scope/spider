@@ -8,6 +8,7 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -17,6 +18,7 @@
 #include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"
@@ -178,7 +180,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr err = m_metadata_storage->add_job(conn, job_id, m_id, graph);
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
@@ -227,7 +229,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr const err
                 = m_metadata_storage->add_job(conn, job_id, m_id, graph.m_impl->get_graph());
         if (!err.success()) {
@@ -252,7 +254,7 @@ public:
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<spider::core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr const err
                 = m_metadata_storage->get_jobs_by_client_id(conn, m_id, &job_ids);
         if (!err.success()) {

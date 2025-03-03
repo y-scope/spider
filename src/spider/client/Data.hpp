@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -70,7 +71,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
         m_data_store->set_data_locality(conn, *m_impl);
     }
 
@@ -120,7 +121,7 @@ public:
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
             core::StorageErr err;
             switch (m_data_source) {
                 case DataSource::Driver:

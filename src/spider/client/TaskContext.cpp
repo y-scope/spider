@@ -2,12 +2,14 @@
 
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {
@@ -22,7 +24,7 @@ auto TaskContext::kv_store_get(std::string const& key) -> std::optional<std::str
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     std::string value;
     core::StorageErr const err = m_data_store->get_task_kv_data(conn, m_task_id, key, &value);
@@ -41,7 +43,7 @@ auto TaskContext::kv_store_insert(std::string const& key, std::string const& val
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     core::KeyValueData const kv_data{key, value, m_task_id};
     core::StorageErr const err = m_data_store->add_task_kv_data(conn, kv_data);
@@ -56,7 +58,7 @@ auto TaskContext::get_jobs() -> std::vector<boost::uuids::uuid> {
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     std::vector<boost::uuids::uuid> job_ids;
     core::StorageErr const err = m_metadata_store->get_jobs_by_client_id(conn, m_task_id, &job_ids);

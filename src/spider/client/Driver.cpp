@@ -6,6 +6,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <variant>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -14,6 +15,7 @@
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "../storage/MySqlConnection.hpp"
 #include "../storage/MySqlStorage.hpp"
 #include "Exception.hpp"
 
@@ -31,7 +33,7 @@ Driver::Driver(std::string const& storage_url) {
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     core::StorageErr const err = m_metadata_storage->add_driver(conn, core::Driver{m_id});
     if (!err.success()) {
@@ -51,7 +53,7 @@ Driver::Driver(std::string const& storage_url) {
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
 
             core::StorageErr const err = m_metadata_storage->update_heartbeat(conn, m_id);
             if (!err.success()) {
@@ -69,7 +71,7 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     core::StorageErr const err = m_metadata_storage->add_driver(conn, core::Driver{m_id});
     if (!err.success()) {
@@ -89,7 +91,7 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
 
             core::StorageErr const err = m_metadata_storage->update_heartbeat(conn, m_id);
             if (!err.success()) {
@@ -107,7 +109,7 @@ auto Driver::kv_store_insert(std::string const& key, std::string const& value) -
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     core::StorageErr const err = m_data_storage->add_client_kv_data(conn, kv_data);
     if (!err.success()) {
@@ -121,7 +123,7 @@ auto Driver::kv_store_get(std::string const& key) -> std::optional<std::string> 
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     std::string value;
     core::StorageErr const err = m_data_storage->get_client_kv_data(conn, m_id, key, &value);
