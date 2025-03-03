@@ -121,8 +121,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -178,8 +178,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -201,8 +201,15 @@ public:
         graph.m_impl->reset_ids();
         boost::uuids::random_generator gen;
         boost::uuids::uuid const job_id = gen();
+
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_store->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr const err
-                = m_metadata_store->add_job(job_id, m_task_id, graph.m_impl->get_graph());
+                = m_metadata_store->add_job(conn, job_id, m_task_id, graph.m_impl->get_graph());
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
