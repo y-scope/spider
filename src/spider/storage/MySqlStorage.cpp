@@ -13,7 +13,6 @@
 #include <string>
 #include <tuple>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include <absl/container/flat_hash_set.h>
@@ -285,6 +284,7 @@ auto string_to_task_state(std::string const& state) -> spider::core::TaskState {
 }
 }  // namespace
 
+// NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
 auto MySqlMetadataStorage::initialize(StorageConnection& conn) -> StorageErr {
     try {
         for (char const* create_table_str : cCreateStorage) {
@@ -2209,5 +2209,7 @@ auto MySqlDataStorage::get_task_kv_data(
     static_cast<MySqlConnection&>(conn)->commit();
     return StorageErr{};
 }
+
+// NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
 
 }  // namespace spider::core

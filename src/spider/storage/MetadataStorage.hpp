@@ -128,7 +128,7 @@ public:
             std::string const& state
     ) -> StorageErr = 0;
 
-    virtual auto get_url() const -> std::string const& = 0;
+    [[nodiscard]] virtual auto get_url() const -> std::string const& = 0;
 };
 
 }  // namespace spider::core

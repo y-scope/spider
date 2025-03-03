@@ -118,7 +118,7 @@ public:
             std::string const& state
     ) -> StorageErr override;
 
-    auto get_url() const -> std::string const& override { return m_url; }
+    [[nodiscard]] auto get_url() const -> std::string const& override { return m_url; }
 
 private:
     std::string m_url;
@@ -186,7 +186,7 @@ public:
             std::string* value
     ) -> StorageErr override;
 
-    auto get_url() const -> std::string const& override { return m_url; }
+    [[nodiscard]] auto get_url() const -> std::string const& override { return m_url; }
 
 private:
     std::string m_url;
