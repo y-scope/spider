@@ -4,6 +4,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -13,8 +14,10 @@
 #include "../../src/spider/client/Data.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/core/Driver.hpp"
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/FunctionNameManager.hpp"
 #include "../storage/StorageTestHelper.hpp"
@@ -148,14 +151,19 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(unique_metadata_storage);
     std::shared_ptr<spider::core::DataStorage> const data_storage = std::move(unique_data_storage);
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(metadata_storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     msgpack::sbuffer buffer;
     msgpack::pack(buffer, 3);
     spider::core::Data const data{std::string{buffer.data(), buffer.size()}};
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
     spider::core::Driver const driver{driver_id};
-    REQUIRE(metadata_storage->add_driver(driver).success());
-    REQUIRE(data_storage->add_driver_data(driver_id, data).success());
+    REQUIRE(metadata_storage->add_driver(conn, driver).success());
+    REQUIRE(data_storage->add_driver_data(conn, driver_id, data).success());
 
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
             gen(),
@@ -171,7 +179,7 @@ TEMPLATE_LIST_TEST_CASE(
     msgpack::sbuffer const result = (*function)(context, args_buffers);
     REQUIRE(3 == spider::core::response_get_result<int>(result).value_or(0));
 
-    REQUIRE(data_storage->remove_data(data.get_id()).success());
+    REQUIRE(data_storage->remove_data(conn, data.get_id()).success());
 }
 }  // namespace
 

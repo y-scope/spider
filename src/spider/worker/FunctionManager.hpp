@@ -10,6 +10,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -25,6 +26,7 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -281,6 +283,16 @@ public:
             // Fill args_tuple
             StorageErr err;
             std::get<0>(args_tuple) = context;
+            std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                    = core::MySqlConnection::create(data_store->get_url());
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                err = std::get<core::StorageErr>(conn_result);
+                return create_error_response(
+                        FunctionInvokeError::ArgumentParsingError,
+                        fmt::format("Cannot parse arguments: {}.", err.description)
+                );
+            }
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
                 if (!err.success()) {
                     return;
@@ -290,7 +302,7 @@ public:
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
                     std::unique_ptr<Data> data = std::make_unique<Data>();
-                    err = data_store->get_data(data_id, data.get());
+                    err = data_store->get_data(conn, data_id, data.get());
                     if (!err.success()) {
                         return;
                     }

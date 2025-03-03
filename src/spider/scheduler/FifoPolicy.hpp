@@ -12,6 +12,7 @@
 #include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "../utils/LruCache.hpp"
 #include "SchedulerPolicy.hpp"
 #include "SchedulerTaskCache.hpp"
@@ -22,7 +23,9 @@ class FifoPolicy final : public SchedulerPolicy {
 public:
     FifoPolicy(
             std::shared_ptr<core::MetadataStorage> const& metadata_store,
-            std::shared_ptr<core::DataStorage> const& data_store
+            std::shared_ptr<core::DataStorage> const& data_store,
+            core::StorageConnection& conn
+
     );
 
     auto schedule_next(boost::uuids::uuid worker_id, std::string const& worker_addr)
@@ -37,6 +40,8 @@ private:
 
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    core::StorageConnection& m_conn;
 
     SchedulerTaskCache m_task_cache;
 

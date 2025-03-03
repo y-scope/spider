@@ -8,6 +8,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -18,6 +19,7 @@
 #include "../core/TaskGraph.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "Job.hpp"
@@ -151,7 +153,14 @@ public:
         graph.add_task(new_task);
         graph.add_input_task(new_task.get_id());
         graph.add_output_task(new_task.get_id());
-        core::StorageErr err = m_metadata_store->add_job(job_id, m_task_id, graph);
+
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_store->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
+        core::StorageErr err = m_metadata_store->add_job(conn, job_id, m_task_id, graph);
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
@@ -194,8 +203,15 @@ public:
         graph.m_impl->reset_ids();
         boost::uuids::random_generator gen;
         boost::uuids::uuid const job_id = gen();
+
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_data_store->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr const err
-                = m_metadata_store->add_job(job_id, m_task_id, graph.m_impl->get_graph());
+                = m_metadata_store->add_job(conn, job_id, m_task_id, graph.m_impl->get_graph());
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }

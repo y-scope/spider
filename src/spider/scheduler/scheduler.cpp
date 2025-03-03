@@ -6,6 +6,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <variant>
 
 #include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
@@ -23,6 +24,7 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/MySqlConnection.hpp"
 #include "../storage/MySqlStorage.hpp"
 #include "../utils/StopToken.hpp"
 #include "FifoPolicy.hpp"
@@ -76,7 +78,19 @@ auto heartbeat_loop(
     while (!stop_token.stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
-        spider::core::StorageErr const err = metadata_store->update_heartbeat(scheduler.get_id());
+        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
+        if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+            spdlog::error(
+                    "Failed to connection to storage: {}",
+                    std::get<spider::core::StorageErr>(conn_result).description
+            );
+            fail_count++;
+            continue;
+        }
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        spider::core::StorageErr const err
+                = metadata_store->update_heartbeat(conn, scheduler.get_id());
         if (!err.success()) {
             spdlog::error("Failed to update scheduler heartbeat: {}", err.description);
             fail_count++;
@@ -99,15 +113,25 @@ auto cleanup_loop(
     while (!stop_token.stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
         spdlog::debug("Starting cleanup");
+        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
+        if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+            spdlog::error(
+                    "Failed to connection to storage: {}",
+                    std::get<spider::core::StorageErr>(conn_result).description
+            );
+            continue;
+        }
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
         spider::core::StorageErr err
-                = metadata_store->set_scheduler_state(scheduler.get_id(), "gc");
+                = metadata_store->set_scheduler_state(conn, scheduler.get_id(), "gc");
         if (!err.success()) {
             spdlog::error("Failed to set scheduler state to gc: {}", err.description);
             continue;
         }
-        data_store->remove_dangling_data();
+        data_store->remove_dangling_data(conn);
         for (size_t i = 0; i < cRetryCount; ++i) {
-            err = metadata_store->set_scheduler_state(scheduler.get_id(), "normal");
+            err = metadata_store->set_scheduler_state(conn, scheduler.get_id(), "normal");
             if (!err.success()) {
                 spdlog::error("Failed to set scheduler state to normal: {}", err.description);
                 if (i >= cRetryCount - 1) {
@@ -166,12 +190,22 @@ auto main(int argc, char** argv) -> int {
             = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
     // Initialize storages
-    spider::core::StorageErr err = metadata_store->initialize();
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage_url);
+    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+        spdlog::error(
+                "Failed to connection to storage: {}",
+                std::get<spider::core::StorageErr>(conn_result).description
+        );
+    }
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
+    spider::core::StorageErr err = metadata_store->initialize(conn);
     if (!err.success()) {
         spdlog::error("Failed to initialize metadata storage: {}", err.description);
         return cStorageErr;
     }
-    err = data_store->initialize();
+    err = data_store->initialize(conn);
     if (!err.success()) {
         spdlog::error("Failed to initialize data storage: {}", err.description);
         return cStorageErr;
@@ -184,12 +218,13 @@ auto main(int argc, char** argv) -> int {
     // Start scheduler server
     spider::core::StopToken stop_token;
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store);
-    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, stop_token};
+            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
+    spider::scheduler::SchedulerServer
+            server{port, policy, metadata_store, data_store, conn, stop_token};
 
     // Register scheduler with storage
     spider::core::Scheduler const scheduler{scheduler_id, scheduler_addr, port};
-    err = metadata_store->add_scheduler(scheduler);
+    err = metadata_store->add_scheduler(conn, scheduler);
     if (!err.success()) {
         spdlog::error("Failed to register scheduler with storage server: {}", err.description);
         return cStorageErr;

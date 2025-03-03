@@ -9,11 +9,12 @@
 #include <mariadb/conncpp/Connection.hpp>
 
 #include "../core/Error.hpp"
+#include "StorageConnection.hpp"
 
 namespace spider::core {
 
 // RAII class for MySQL connection
-class MySqlConnection {
+class MySqlConnection : public StorageConnection {
 public:
     static auto create(std::string const& url) -> std::variant<MySqlConnection, StorageErr>;
 

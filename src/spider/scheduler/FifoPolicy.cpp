@@ -17,12 +17,14 @@
 #include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "SchedulerTaskCache.hpp"
 
 namespace {
 
 auto task_locality_satisfied(
         std::shared_ptr<spider::core::DataStorage> const& data_store,
+        spider::core::StorageConnection& conn,
         spider::core::Task const& task,
         std::string const& addr
 ) -> bool {
@@ -36,7 +38,7 @@ auto task_locality_satisfied(
         }
         boost::uuids::uuid const data_id = optional_data_id.value();
         spider::core::Data data;
-        if (false == data_store->get_data(data_id, &data).success()) {
+        if (false == data_store->get_data(conn, data_id, &data).success()) {
             throw std::runtime_error(
                     fmt::format("Data with id {} not exists.", boost::uuids::to_string((data_id)))
             );
@@ -61,13 +63,16 @@ namespace spider::scheduler {
 
 FifoPolicy::FifoPolicy(
         std::shared_ptr<core::MetadataStorage> const& metadata_store,
-        std::shared_ptr<core::DataStorage> const& data_store
+        std::shared_ptr<core::DataStorage> const& data_store,
+        core::StorageConnection& conn
 )
         : m_metadata_store{metadata_store},
           m_data_store{data_store},
+          m_conn{conn},
           m_task_cache{
                   metadata_store,
                   data_store,
+                  conn,
                   [&](std::vector<core::Task>& tasks,
                       boost::uuids::uuid const& worker_id,
                       std::string const& worker_addr) -> std::optional<boost::uuids::uuid> {
@@ -81,7 +86,7 @@ auto FifoPolicy::get_next_task(
         std::string const& worker_addr
 ) -> std::optional<boost::uuids::uuid> {
     std::erase_if(tasks, [this, worker_addr](core::Task const& task) -> bool {
-        return !task_locality_satisfied(m_data_store, task, worker_addr);
+        return !task_locality_satisfied(m_data_store, m_conn, task, worker_addr);
     });
 
     if (tasks.empty()) {
@@ -99,7 +104,8 @@ auto FifoPolicy::get_next_task(
                 if (optional_job_id.has_value()) {
                     job_id = optional_job_id.value();
                 } else {
-                    if (false == m_metadata_store->get_task_job_id(task_id, &job_id).success()) {
+                    if (false
+                        == m_metadata_store->get_task_job_id(m_conn, task_id, &job_id).success()) {
                         throw std::runtime_error(fmt::format(
                                 "Task with id {} not exists.",
                                 boost::uuids::to_string(task_id)
@@ -115,7 +121,9 @@ auto FifoPolicy::get_next_task(
                 }
 
                 core::JobMetadata job_metadata;
-                if (false == m_metadata_store->get_job_metadata(job_id, &job_metadata).success()) {
+                if (false
+                    == m_metadata_store->get_job_metadata(m_conn, job_id, &job_metadata).success())
+                {
                     throw std::runtime_error(fmt::format(
                             "Job with id {} not exists.",
                             boost::uuids::to_string(job_id)

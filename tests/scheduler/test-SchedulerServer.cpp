@@ -5,6 +5,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -12,6 +13,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -23,6 +25,7 @@
 #include "../../src/spider/scheduler/SchedulerServer.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
@@ -45,13 +48,18 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<0>(storages));
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(metadata_store->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store);
+            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
 
     constexpr unsigned short cPort = 6021;
     spider::core::StopToken stop_token;
     spider::scheduler::SchedulerServer
-            server{cPort, policy, metadata_store, data_store, stop_token};
+            server{cPort, policy, metadata_store, data_store, conn, stop_token};
 
     // Pause and resume server
     server.pause();
@@ -76,7 +84,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_output_task(child_task.get_id());
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
-    REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
+    REQUIRE(metadata_store->add_job(conn, job_id, gen(), graph).success());
 
     // Schedule request should succeed
     spider::scheduler::ScheduleTaskRequest const req{gen(), ""};
@@ -91,7 +99,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Get response should succeed and get child task
     std::optional<msgpack::sbuffer> const& res_buffer = spider::core::receive_message(socket);
-    REQUIRE(metadata_store->remove_job(job_id).success());
+    REQUIRE(metadata_store->remove_job(conn, job_id).success());
     REQUIRE(res_buffer.has_value());
     if (res_buffer.has_value()) {
         msgpack::object_handle const handle

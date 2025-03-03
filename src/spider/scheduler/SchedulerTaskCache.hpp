@@ -15,6 +15,7 @@
 #include "../core/Task.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 
 namespace spider::scheduler {
 
@@ -23,6 +24,7 @@ public:
     SchedulerTaskCache(
             std::shared_ptr<core::MetadataStorage> const& metadata_store,
             std::shared_ptr<core::DataStorage> const& data_store,
+            core::StorageConnection& conn,
             std::function<std::optional<boost::uuids::uuid>(
                     std::vector<core::Task>& tasks,
                     boost::uuids::uuid const& worker_id,
@@ -31,6 +33,7 @@ public:
     )
             : m_metadata_store{metadata_store},
               m_data_store{data_store},
+              m_conn{conn},
               m_get_next_task_function{get_next_task_function} {}
 
     auto get_ready_task(boost::uuids::uuid const& worker_id, std::string const& worker_addr)
@@ -46,6 +49,8 @@ private:
 
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    core::StorageConnection& m_conn;
 
     // NOLINTNEXTLINE(misc-include-cleaner)
     absl::flat_hash_map<boost::uuids::uuid, core::Task, std::hash<boost::uuids::uuid>> m_tasks;

@@ -9,17 +9,21 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
+#include <spdlog/spdlog.h>
 
 #include "../core/Driver.hpp"
+#include "../core/Error.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
 #include "../scheduler/SchedulerMessage.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/MySqlConnection.hpp"
 
 namespace spider::worker {
 
@@ -38,7 +42,18 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
 ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
-    if (!m_metadata_store->get_active_scheduler(&schedulers).success()) {
+
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(m_metadata_store->get_url());
+    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+        spdlog::error(
+                "Failed to connect to storage: {}",
+                std::get<spider::core::StorageErr>(conn_result).description
+        );
+        return std::nullopt;
+    }
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
         return std::nullopt;
     }
     if (schedulers.empty()) {
