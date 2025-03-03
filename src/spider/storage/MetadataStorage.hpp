@@ -12,6 +12,7 @@
 #include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
+#include "StorageConnection.hpp"
 
 namespace spider::core {
 class MetadataStorage {
