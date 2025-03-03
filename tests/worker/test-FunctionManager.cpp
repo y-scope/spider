@@ -4,6 +4,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -13,8 +14,10 @@
 #include "../../src/spider/client/Data.hpp"
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/core/Driver.hpp"
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/FunctionNameManager.hpp"
 #include "../storage/StorageTestHelper.hpp"
@@ -151,7 +154,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     msgpack::sbuffer buffer;
     msgpack::pack(buffer, 3);

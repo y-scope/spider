@@ -6,11 +6,14 @@
 #include <memory>
 #include <tuple>
 #include <utility>
+#include <variant>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../../src/spider/storage/MySqlStorage.hpp"
 
 namespace spider::test {
@@ -28,7 +31,7 @@ auto create_data_storage() -> std::unique_ptr<core::DataStorage> {
     std::variant<core::MySqlConnection, core::StorageErr> conn_result
             = core::MySqlConnection::create(cStorageUrl);
     REQUIRE(std::holds_alternative<core::MySqlConnection>(conn_result));
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
     REQUIRE(storage->initialize(conn).success());
     return storage;
 }
@@ -40,7 +43,7 @@ auto create_metadata_storage() -> std::unique_ptr<core::MetadataStorage> {
     std::variant<core::MySqlConnection, core::StorageErr> conn_result
             = core::MySqlConnection::create(cStorageUrl);
     REQUIRE(std::holds_alternative<core::MySqlConnection>(conn_result));
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
     REQUIRE(storage->initialize(conn).success());
     return storage;
 }
@@ -52,7 +55,7 @@ auto create_storage(
     std::variant<core::MySqlConnection, core::StorageErr> conn_result
             = core::MySqlConnection::create(cStorageUrl);
     REQUIRE(std::holds_alternative<core::MySqlConnection>(conn_result));
-    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    auto& conn = std::get<core::MySqlConnection>(conn_result);
 
     std::unique_ptr<core::MetadataStorage> metadata_storage = std::make_unique<M>(cStorageUrl);
     REQUIRE(metadata_storage->initialize(conn).success());

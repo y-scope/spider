@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -16,10 +17,12 @@
 
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Driver.hpp"
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/TaskExecutor.hpp"
 #include "../storage/StorageTestHelper.hpp"
@@ -149,7 +152,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     // Create driver and data
     msgpack::sbuffer buffer;

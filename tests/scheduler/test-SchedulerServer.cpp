@@ -5,6 +5,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -12,6 +13,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -23,6 +25,7 @@
 #include "../../src/spider/scheduler/SchedulerServer.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
@@ -48,7 +51,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_store->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
             = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);

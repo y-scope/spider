@@ -1,5 +1,6 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 #include <tuple>
+#include <variant>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -12,6 +13,7 @@
 #include "../../src/spider/core/KeyValueData.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../utils/CoreDataUtils.hpp"
 #include "StorageTestHelper.hpp"
 
@@ -24,7 +26,7 @@ TEMPLATE_LIST_TEST_CASE("Add, get and remove data", "[storage]", spider::test::S
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     // Add driver and data
     spider::core::Data const data{"value"};
@@ -62,7 +64,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     // Add driver
     boost::uuids::random_generator gen;
@@ -96,7 +98,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     // Add task
     boost::uuids::random_generator gen;
@@ -137,7 +139,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
     // Add task reference without data and task should fail.
@@ -191,7 +193,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_storage->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
 

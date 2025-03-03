@@ -6,6 +6,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <variant>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -14,11 +15,13 @@
 
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Driver.hpp"
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/scheduler/FifoPolicy.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/MySqlConnection.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
@@ -40,7 +43,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_store->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const client_id = gen();
@@ -93,7 +96,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_store->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -145,7 +148,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
             = spider::core::MySqlConnection::create(metadata_store->get_url());
     REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     // Add task
     boost::uuids::random_generator gen;
