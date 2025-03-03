@@ -47,7 +47,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             = spider::core::MySqlConnection::create(m_metadata_store->get_url());
     if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
         spdlog::error(
-                "Failed to connection to storage: {}",
+                "Failed to connect to storage: {}",
                 std::get<spider::core::StorageErr>(conn_result).description
         );
         return std::nullopt;
