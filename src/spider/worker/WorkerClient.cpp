@@ -49,9 +49,9 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
                 "Failed to connection to storage: {}",
                 std::get<spider::core::StorageErr>(conn_result).description
         );
+        return std::nullopt;
     }
     spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
-
     if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
         return std::nullopt;
     }
