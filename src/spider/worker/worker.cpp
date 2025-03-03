@@ -229,8 +229,8 @@ auto task_loop(
         spider::core::StopToken const& stop_token
 ) -> void {
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
-    boost::asio::io_context context;
     while (!stop_token.stop_requested()) {
+        boost::asio::io_context context;
         std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
                 = spider::core::MySqlConnection::create(metadata_store->get_url());
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
