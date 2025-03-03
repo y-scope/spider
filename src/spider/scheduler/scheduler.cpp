@@ -72,7 +72,6 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 
 auto heartbeat_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        std::string const& storage_url,
         spider::core::Scheduler const& scheduler,
         spider::core::StopToken& stop_token
 ) -> void {
@@ -81,7 +80,7 @@ auto heartbeat_loop(
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(storage_url);
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
                     "Failed to connection to storage: {}",
@@ -109,7 +108,6 @@ auto heartbeat_loop(
 auto cleanup_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         std::shared_ptr<spider::core::DataStorage> const& data_store,
-        std::string const& storage_url,
         spider::core::Scheduler const& scheduler,
         spider::core::StopToken& stop_token
 ) -> void {
@@ -117,7 +115,7 @@ auto cleanup_loop(
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
         spdlog::debug("Starting cleanup");
         std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(storage_url);
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
                     "Failed to connection to storage: {}",
@@ -188,9 +186,9 @@ auto main(int argc, char** argv) -> int {
 
     // Create storages
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::make_shared<spider::core::MySqlMetadataStorage>();
+            = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
     std::shared_ptr<spider::core::DataStorage> const data_store
-            = std::make_shared<spider::core::MySqlDataStorage>();
+            = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
     // Initialize storages
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
@@ -221,8 +219,8 @@ auto main(int argc, char** argv) -> int {
     // Start scheduler server
     spider::core::StopToken stop_token;
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store);
-    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, stop_token};
+            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
+    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, conn, stop_token};
 
     // Register scheduler with storage
     spider::core::Scheduler const scheduler{scheduler_id, scheduler_addr, port};
@@ -237,7 +235,6 @@ auto main(int argc, char** argv) -> int {
         std::thread heartbeat_thread{
                 heartbeat_loop,
                 std::cref(metadata_store),
-                std::cref(storage_url),
                 std::ref(scheduler),
                 std::ref(stop_token),
         };
@@ -247,7 +244,6 @@ auto main(int argc, char** argv) -> int {
                 cleanup_loop,
                 std::cref(metadata_store),
                 std::cref(data_store),
-                std::cref(storage_url),
                 std::cref(scheduler),
                 std::ref(stop_token)
         };

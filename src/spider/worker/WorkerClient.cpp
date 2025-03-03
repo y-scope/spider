@@ -30,14 +30,12 @@ WorkerClient::WorkerClient(
         boost::uuids::uuid const worker_id,
         std::string worker_addr,
         std::shared_ptr<core::DataStorage> data_store,
-        std::shared_ptr<core::MetadataStorage> metadata_store,
-        std::string const& storage_url
+        std::shared_ptr<core::MetadataStorage> metadata_store
 )
         : m_worker_id{worker_id},
           m_worker_addr{std::move(worker_addr)},
           m_data_store(std::move(data_store)),
-          m_metadata_store(std::move(metadata_store)),
-          m_storage_url{storage_url} {}
+          m_metadata_store(std::move(metadata_store)) {}
 
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
 ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
@@ -45,7 +43,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
     std::vector<core::Scheduler> schedulers;
 
     std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-            = spider::core::MySqlConnection::create(m_storage_url);
+            = spider::core::MySqlConnection::create(m_metadata_store->get_url());
     if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
         spdlog::error(
                 "Failed to connection to storage: {}",

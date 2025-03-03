@@ -26,7 +26,8 @@
 namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
 public:
-    MySqlMetadataStorage() = default;
+    MySqlMetadataStorage() = delete;
+    explicit MySqlMetadataStorage(std::string url): m_url{std::move(url)} {}
     MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
     MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
     auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
@@ -115,7 +116,11 @@ public:
             std::string const& state
     ) -> StorageErr override;
 
+    auto get_url() const -> std::string const& override { return m_url; }
+
 private:
+    std::string m_url;
+
     static void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
     static auto
     fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
@@ -123,7 +128,8 @@ private:
 
 class MySqlDataStorage : public DataStorage {
 public:
-    MySqlDataStorage() = default;
+    MySqlDataStorage() = delete;
+    explicit MySqlDataStorage(std::string url): m_url{std::move(url)} {}
     MySqlDataStorage(MySqlDataStorage const&) = delete;
     MySqlDataStorage(MySqlDataStorage&&) = delete;
     auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;
@@ -175,6 +181,11 @@ public:
             std::string const& key,
             std::string* value
     ) -> StorageErr override;
+
+    auto get_url() const -> std::string const& override { return m_url; }
+
+private:
+    std::string m_url;
 };
 }  // namespace spider::core
 

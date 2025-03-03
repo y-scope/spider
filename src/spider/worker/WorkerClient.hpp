@@ -26,8 +26,7 @@ public:
             boost::uuids::uuid worker_id,
             std::string worker_addr,
             std::shared_ptr<core::DataStorage> data_store,
-            std::shared_ptr<core::MetadataStorage> metadata_store,
-            std::string const& storage_url
+            std::shared_ptr<core::MetadataStorage> metadata_store
     );
 
     auto get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
@@ -39,8 +38,6 @@ private:
 
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
-
-    std::string m_storage_url;
 };
 }  // namespace spider::worker
 #endif  // SPIDER_WORKER_WORKERCLIENT_HPP

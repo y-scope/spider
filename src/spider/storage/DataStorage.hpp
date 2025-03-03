@@ -74,6 +74,8 @@ public:
             std::string const& key,
             std::string* value
     ) -> StorageErr = 0;
+
+    virtual auto get_url() const -> std::string const& = 0
 };
 }  // namespace spider::core
 

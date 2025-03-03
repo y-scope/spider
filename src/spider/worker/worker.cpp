@@ -102,7 +102,6 @@ auto get_environment_variable() -> absl::flat_hash_map<
 
 auto heartbeat_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        std::string const& storage_url,
         spider::core::Driver const& driver,
         spider::core::StopToken& stop_token
 ) -> void {
@@ -111,7 +110,7 @@ auto heartbeat_loop(
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(storage_url);
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
                     "Failed to connection to storage: {}",
@@ -223,7 +222,6 @@ auto parse_outputs(
 auto task_loop(
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::worker::WorkerClient& client,
-        std::string const& storage_url,
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
@@ -234,7 +232,7 @@ auto task_loop(
     boost::asio::io_context context;
     while (!stop_token.stop_requested()) {
         std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(storage_url);
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
                     "Failed to connection to storage: {}",
@@ -274,7 +272,7 @@ auto task_loop(
                 context,
                 task.get_function_name(),
                 task.get_id(),
-                storage_url,
+                metadata_store->get_url(),
                 libs,
                 environment,
                 args_buffers
@@ -380,9 +378,9 @@ auto main(int argc, char** argv) -> int {
 
     // Create storage
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::make_shared<spider::core::MySqlMetadataStorage>();
+            = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
     std::shared_ptr<spider::core::DataStorage> const data_store
-            = std::make_shared<spider::core::MySqlDataStorage>();
+            = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const worker_id = gen();
@@ -429,7 +427,6 @@ auto main(int argc, char** argv) -> int {
             task_loop,
             std::cref(metadata_store),
             std::ref(client),
-            std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
             std::cref(stop_token),
