@@ -37,6 +37,11 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<0>(storages));
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(metadata_store->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     boost::uuids::random_generator gen;
     boost::uuids::uuid const client_id = gen();
     // Submit tasks
@@ -46,7 +51,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph_1.add_input_task(task_1.get_id());
     graph_1.add_output_task(task_1.get_id());
     boost::uuids::uuid const job_id_1 = gen();
-    REQUIRE(metadata_store->add_job(job_id_1, client_id, graph_1).success());
+    REQUIRE(metadata_store->add_job(conn, job_id_1, client_id, graph_1).success());
     std::this_thread::sleep_for(std::chrono::seconds(1));
     spider::core::Task const task_2{"task_2"};
     spider::core::TaskGraph graph_2;
@@ -54,9 +59,9 @@ TEMPLATE_LIST_TEST_CASE(
     graph_2.add_input_task(task_2.get_id());
     graph_2.add_output_task(task_2.get_id());
     boost::uuids::uuid const job_id_2 = gen();
-    REQUIRE(metadata_store->add_job(job_id_2, client_id, graph_2).success());
+    REQUIRE(metadata_store->add_job(conn, job_id_2, client_id, graph_2).success());
 
-    spider::scheduler::FifoPolicy policy{metadata_store, data_store};
+    spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
 
     // Scheduler the earlier task
     std::optional<boost::uuids::uuid> const optional_task_id = policy.schedule_next(gen(), "");
@@ -66,8 +71,8 @@ TEMPLATE_LIST_TEST_CASE(
         REQUIRE(task_id == task_1.get_id());
     }
 
-    REQUIRE(metadata_store->remove_job(job_id_1).success());
-    REQUIRE(metadata_store->remove_job(job_id_2).success());
+    REQUIRE(metadata_store->remove_job(conn, job_id_1).success());
+    REQUIRE(metadata_store->remove_job(conn, job_id_2).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -85,6 +90,11 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<0>(storages));
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(metadata_store->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
     boost::uuids::uuid const client_id = gen();
@@ -93,16 +103,16 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data data{"value"};
     data.set_hard_locality(true);
     data.set_locality({"127.0.0.1"});
-    REQUIRE(metadata_store->add_driver(spider::core::Driver{client_id}).success());
-    REQUIRE(data_store->add_driver_data(client_id, data).success());
+    REQUIRE(metadata_store->add_driver(conn, spider::core::Driver{client_id}).success());
+    REQUIRE(data_store->add_driver_data(conn, client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id()});
     spider::core::TaskGraph graph;
     graph.add_task(task);
     graph.add_input_task(task.get_id());
     graph.add_output_task(task.get_id());
-    REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
+    REQUIRE(metadata_store->add_job(conn, job_id, client_id, graph).success());
 
-    spider::scheduler::FifoPolicy policy{metadata_store, data_store};
+    spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
     // Schedule with wrong address
     REQUIRE_FALSE(policy.schedule_next(gen(), "").has_value());
     // Schedule with correct address
@@ -114,7 +124,7 @@ TEMPLATE_LIST_TEST_CASE(
         REQUIRE(task_id == task.get_id());
     }
 
-    REQUIRE(metadata_store->remove_job(job_id).success());
+    REQUIRE(metadata_store->remove_job(conn, job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -132,6 +142,11 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<0>(storages));
     std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(metadata_store->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     // Add task
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -140,16 +155,16 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Data data;
     data.set_hard_locality(false);
     data.set_locality({"127.0.0.1"});
-    REQUIRE(metadata_store->add_driver(spider::core::Driver{client_id}).success());
-    REQUIRE(data_store->add_driver_data(client_id, data).success());
+    REQUIRE(metadata_store->add_driver(conn, spider::core::Driver{client_id}).success());
+    REQUIRE(data_store->add_driver_data(conn, client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id()});
     spider::core::TaskGraph graph;
     graph.add_task(task);
     graph.add_input_task(task.get_id());
     graph.add_output_task(task.get_id());
-    REQUIRE(metadata_store->add_job(job_id, client_id, graph).success());
+    REQUIRE(metadata_store->add_job(conn, job_id, client_id, graph).success());
 
-    spider::scheduler::FifoPolicy policy{metadata_store, data_store};
+    spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
     // Schedule with wrong address
     std::optional<boost::uuids::uuid> const optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());
@@ -158,7 +173,7 @@ TEMPLATE_LIST_TEST_CASE(
         REQUIRE(task_id == task.get_id());
     }
 
-    REQUIRE(metadata_store->remove_job(job_id).success());
+    REQUIRE(metadata_store->remove_job(conn, job_id).success());
 }
 }  // namespace
 

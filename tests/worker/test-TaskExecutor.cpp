@@ -146,6 +146,11 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(unique_metadata_storage);
     std::shared_ptr<spider::core::DataStorage> const data_storage = std::move(unique_data_storage);
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(metadata_storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     // Create driver and data
     msgpack::sbuffer buffer;
     msgpack::pack(buffer, 3);
@@ -153,8 +158,8 @@ TEMPLATE_LIST_TEST_CASE(
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
     spider::core::Driver const driver{driver_id};
-    REQUIRE(metadata_storage->add_driver(driver).success());
-    REQUIRE(data_storage->add_driver_data(driver_id, data).success());
+    REQUIRE(metadata_storage->add_driver(conn, driver).success());
+    REQUIRE(data_storage->add_driver_data(conn, driver_id, data).success());
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
@@ -182,7 +187,7 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     // Clean up
-    REQUIRE(data_storage->remove_data(data.get_id()).success());
+    REQUIRE(data_storage->remove_data(conn, data.get_id()).success());
 }
 
 }  // namespace

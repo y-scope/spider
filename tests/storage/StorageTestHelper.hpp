@@ -25,7 +25,11 @@ template <class T>
 requires std::derived_from<T, core::DataStorage>
 auto create_data_storage() -> std::unique_ptr<core::DataStorage> {
     std::unique_ptr<core::DataStorage> storage = std::make_unique<T>(cStorageUrl);
-    REQUIRE(storage->initialize().success());
+    std::variant<core::MySqlConnection, core::StorageErr> conn_result
+            = core::MySqlConnection::create(cStorageUrl);
+    REQUIRE(std::holds_alternative<core::MySqlConnection>(conn_result));
+    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    REQUIRE(storage->initialize(conn).success());
     return storage;
 }
 
@@ -33,7 +37,11 @@ template <class T>
 requires std::derived_from<T, core::MetadataStorage>
 auto create_metadata_storage() -> std::unique_ptr<core::MetadataStorage> {
     std::unique_ptr<core::MetadataStorage> storage = std::make_unique<T>(cStorageUrl);
-    REQUIRE(storage->initialize().success());
+    std::variant<core::MySqlConnection, core::StorageErr> conn_result
+            = core::MySqlConnection::create(cStorageUrl);
+    REQUIRE(std::holds_alternative<core::MySqlConnection>(conn_result));
+    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+    REQUIRE(storage->initialize(conn).success());
     return storage;
 }
 
@@ -41,10 +49,15 @@ template <class M, class D>
 requires std::derived_from<M, core::MetadataStorage> && std::derived_from<D, core::DataStorage>
 auto create_storage(
 ) -> std::tuple<std::unique_ptr<core::MetadataStorage>, std::unique_ptr<core::DataStorage>> {
+    std::variant<core::MySqlConnection, core::StorageErr> conn_result
+            = core::MySqlConnection::create(cStorageUrl);
+    REQUIRE(std::holds_alternative<core::MySqlConnection>(conn_result));
+    core::MySqlConnection& conn = std::get<core::MySqlConnection>(conn_result);
+
     std::unique_ptr<core::MetadataStorage> metadata_storage = std::make_unique<M>(cStorageUrl);
-    REQUIRE(metadata_storage->initialize().success());
+    REQUIRE(metadata_storage->initialize(conn).success());
     std::unique_ptr<core::DataStorage> data_storage = std::make_unique<D>(cStorageUrl);
-    REQUIRE(data_storage->initialize().success());
+    REQUIRE(data_storage->initialize(conn).success());
     return std::make_tuple(std::move(metadata_storage), std::move(data_storage));
 }
 

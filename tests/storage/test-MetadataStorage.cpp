@@ -26,16 +26,21 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     constexpr double cDuration = 100;
 
     // Add driver should succeed
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
-    REQUIRE(storage->add_driver(spider::core::Driver{driver_id}).success());
+    REQUIRE(storage->add_driver(conn, spider::core::Driver{driver_id}).success());
 
     std::vector<boost::uuids::uuid> ids{};
     // Driver should not time out
-    REQUIRE(storage->heartbeat_timeout(cDuration, &ids).success());
+    REQUIRE(storage->heartbeat_timeout(conn, cDuration, &ids).success());
     // Because other tests may run in parallel, just check `ids` don't have `driver_id`
     REQUIRE(std::ranges::none_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
@@ -44,7 +49,7 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
     // Driver should time out
-    REQUIRE(storage->heartbeat_timeout(cDuration, &ids).success());
+    REQUIRE(storage->heartbeat_timeout(conn, cDuration, &ids).success());
     REQUIRE(!ids.empty());
     REQUIRE(std::ranges::any_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
@@ -52,9 +57,9 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::MetadataS
     ids.clear();
 
     // Update heartbeat
-    REQUIRE(storage->update_heartbeat(driver_id).success());
+    REQUIRE(storage->update_heartbeat(conn, driver_id).success());
     // Driver should not time out
-    REQUIRE(storage->heartbeat_timeout(cDuration, &ids).success());
+    REQUIRE(storage->heartbeat_timeout(conn, cDuration, &ids).success());
     REQUIRE(std::ranges::none_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
     }));
@@ -68,37 +73,42 @@ TEMPLATE_LIST_TEST_CASE(
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
 
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
+
     boost::uuids::random_generator gen;
     boost::uuids::uuid const scheduler_id = gen();
     constexpr int cPort = 3306;
 
     // Add scheduler should succeed
-    REQUIRE(storage->add_scheduler(spider::core::Scheduler{scheduler_id, "127.0.0.1", cPort})
+    REQUIRE(storage->add_scheduler(conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", cPort})
                     .success());
 
     // Get scheduler addr should succeed
     std::string addr_res;
     int port_res = 0;
-    REQUIRE(storage->get_scheduler_addr(scheduler_id, &addr_res, &port_res).success());
+    REQUIRE(storage->get_scheduler_addr(conn, scheduler_id, &addr_res, &port_res).success());
     REQUIRE(addr_res == "127.0.0.1");
     REQUIRE(port_res == cPort);
 
     // Get non-exist scheduler should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
-            == storage->get_scheduler_addr(gen(), &addr_res, &port_res).type);
+            == storage->get_scheduler_addr(conn, gen(), &addr_res, &port_res).type);
 
     // Get default state
     std::string state_res;
-    REQUIRE(storage->get_scheduler_state(scheduler_id, &state_res).success());
+    REQUIRE(storage->get_scheduler_state(conn, scheduler_id, &state_res).success());
     REQUIRE(state_res == "normal");
     state_res.clear();
 
     // Update scheduler state should succeed
     std::string state = "recovery";
-    REQUIRE(storage->set_scheduler_state(scheduler_id, state).success());
+    REQUIRE(storage->set_scheduler_state(conn, scheduler_id, state).success());
 
     // Get new state
-    REQUIRE(storage->get_scheduler_state(scheduler_id, &state_res).success());
+    REQUIRE(storage->get_scheduler_state(conn, scheduler_id, &state_res).success());
     REQUIRE(state_res == state);
 }
 
@@ -109,6 +119,11 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
+
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -160,16 +175,16 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(heads[0] == simple_task.get_id());
 
     // Submit job should success
-    REQUIRE(storage->add_job(job_id, client_id, graph).success());
-    REQUIRE(storage->add_job(simple_job_id, client_id, simple_graph).success());
+    REQUIRE(storage->add_job(conn, job_id, client_id, graph).success());
+    REQUIRE(storage->add_job(conn, simple_job_id, client_id, simple_graph).success());
 
     // Get job id for non-existent client id should return empty vector
     std::vector<boost::uuids::uuid> job_ids;
-    REQUIRE(storage->get_jobs_by_client_id(gen(), &job_ids).success());
+    REQUIRE(storage->get_jobs_by_client_id(conn, gen(), &job_ids).success());
     REQUIRE(job_ids.empty());
 
     // Get job id for client id should get correct value
-    REQUIRE(storage->get_jobs_by_client_id(client_id, &job_ids).success());
+    REQUIRE(storage->get_jobs_by_client_id(conn, client_id, &job_ids).success());
     REQUIRE(2 == job_ids.size());
     REQUIRE(
             ((job_ids[0] == job_id && job_ids[1] == simple_job_id)
@@ -178,7 +193,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Get job metadata should get correct value
     spider::core::JobMetadata job_metadata{};
-    REQUIRE(storage->get_job_metadata(job_id, &job_metadata).success());
+    REQUIRE(storage->get_job_metadata(conn, job_id, &job_metadata).success());
     REQUIRE(job_id == job_metadata.get_id());
     REQUIRE(client_id == job_metadata.get_client_id());
     std::chrono::seconds const time_delta{1};
@@ -187,26 +202,26 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Get task graph should succeed
     spider::core::TaskGraph graph_res{};
-    REQUIRE(storage->get_task_graph(job_id, &graph_res).success());
+    REQUIRE(storage->get_task_graph(conn, job_id, &graph_res).success());
     REQUIRE(spider::test::task_graph_equal(graph, graph_res));
     spider::core::TaskGraph simple_graph_res{};
-    REQUIRE(storage->get_task_graph(simple_job_id, &simple_graph_res).success());
+    REQUIRE(storage->get_task_graph(conn, simple_job_id, &simple_graph_res).success());
     REQUIRE(spider::test::task_graph_equal(simple_graph, simple_graph_res));
 
     // Get task should succeed
     spider::core::Task task_res{""};
-    REQUIRE(storage->get_task(child_task.get_id(), &task_res).success());
+    REQUIRE(storage->get_task(conn, child_task.get_id(), &task_res).success());
     REQUIRE(spider::test::task_equal(child_task, task_res));
 
     // Get child tasks should succeed
     std::vector<spider::core::Task> tasks;
-    REQUIRE(storage->get_child_tasks(parent_1.get_id(), &tasks).success());
+    REQUIRE(storage->get_child_tasks(conn, parent_1.get_id(), &tasks).success());
     REQUIRE(1 == tasks.size());
     REQUIRE(spider::test::task_equal(child_task, tasks[0]));
     tasks.clear();
 
     // Get parent tasks should succeed
-    REQUIRE(storage->get_parent_tasks(child_task.get_id(), &tasks).success());
+    REQUIRE(storage->get_parent_tasks(conn, child_task.get_id(), &tasks).success());
     REQUIRE(2 == tasks.size());
     REQUIRE(
             ((spider::test::task_equal(tasks[0], parent_1)
@@ -216,18 +231,23 @@ TEMPLATE_LIST_TEST_CASE(
     );
 
     // Remove job should succeed
-    REQUIRE(storage->remove_job(simple_job_id).success());
+    REQUIRE(storage->remove_job(conn, simple_job_id).success());
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
-            == storage->get_task_graph(simple_job_id, &simple_graph_res).type);
+            == storage->get_task_graph(conn, simple_job_id, &simple_graph_res).type);
     graph_res = spider::core::TaskGraph{};
-    REQUIRE(storage->get_task_graph(job_id, &graph_res).success());
+    REQUIRE(storage->get_task_graph(conn, job_id, &graph_res).success());
     REQUIRE(spider::test::task_graph_equal(graph, graph_res));
-    REQUIRE(storage->remove_job(job_id).success());
+    REQUIRE(storage->remove_job(conn, job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::MetadataStorageTypeList) {
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
+
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -256,39 +276,49 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::MetadataStorag
     graph.add_input_task(parent_2.get_id());
     graph.add_output_task(child_task.get_id());
     // Submit job should success
-    REQUIRE(storage->add_job(job_id, gen(), graph).success());
+    REQUIRE(storage->add_job(conn, job_id, gen(), graph).success());
 
     // Task finish for parent 1 should succeed
     spider::core::TaskInstance const parent_1_instance{gen(), parent_1.get_id()};
-    REQUIRE(storage->set_task_state(parent_1.get_id(), spider::core::TaskState::Running).success());
-    REQUIRE(storage->task_finish(parent_1_instance, {spider::core::TaskOutput{"1.1", "float"}})
+    REQUIRE(storage->set_task_state(conn, parent_1.get_id(), spider::core::TaskState::Running)
                     .success());
+    REQUIRE(storage->task_finish(
+                           conn,
+                           parent_1_instance,
+                           {spider::core::TaskOutput{"1.1", "float"}}
+    ).success());
     // Parent 1 finish should not update state of any other tasks
     spider::core::Task res_task{""};
-    REQUIRE(storage->get_task(parent_2.get_id(), &res_task).success());
+    REQUIRE(storage->get_task(conn, parent_2.get_id(), &res_task).success());
     REQUIRE(spider::test::task_equal(parent_2, res_task));
     REQUIRE(res_task.get_state() == spider::core::TaskState::Ready);
-    REQUIRE(storage->get_task(child_task.get_id(), &res_task).success());
+    REQUIRE(storage->get_task(conn, child_task.get_id(), &res_task).success());
     REQUIRE(res_task.get_state() == spider::core::TaskState::Pending);
 
     // Task finish for parent 2 should success
     spider::core::TaskInstance const parent_2_instance{gen(), parent_2.get_id()};
-    REQUIRE(storage->set_task_state(parent_2.get_id(), spider::core::TaskState::Running).success());
-    REQUIRE(storage->task_finish(parent_2_instance, {spider::core::TaskOutput{"2", "int"}})
+    REQUIRE(storage->set_task_state(conn, parent_2.get_id(), spider::core::TaskState::Running)
+                    .success());
+    REQUIRE(storage->task_finish(conn, parent_2_instance, {spider::core::TaskOutput{"2", "int"}})
                     .success());
     // Parent 2 finish should update state of child
-    REQUIRE(storage->get_task(child_task.get_id(), &res_task).success());
+    REQUIRE(storage->get_task(conn, child_task.get_id(), &res_task).success());
     REQUIRE(res_task.get_input(0).get_value() == "1.1");
     REQUIRE(res_task.get_input(1).get_value() == "2");
     REQUIRE(res_task.get_state() == spider::core::TaskState::Ready);
 
     // Clean up
-    REQUIRE(storage->remove_job(job_id).success());
+    REQUIRE(storage->remove_job(conn, job_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::MetadataStorageTypeList) {
     std::unique_ptr<spider::core::MetadataStorage> storage
             = spider::test::create_metadata_storage<TestType>();
+
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    spider::core::MySqlConnection& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -320,46 +350,51 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::MetadataStorageT
     graph.add_input_task(parent_2.get_id());
     graph.add_output_task(child_task.get_id());
     // Submit job should success
-    REQUIRE(storage->add_job(job_id, gen(), graph).success());
+    REQUIRE(storage->add_job(conn, job_id, gen(), graph).success());
 
     // Task finish for parent 1 should succeed
     spider::core::TaskInstance const parent_1_instance{gen(), parent_1.get_id()};
-    REQUIRE(storage->set_task_state(parent_1.get_id(), spider::core::TaskState::Running).success());
-    REQUIRE(storage->task_finish(parent_1_instance, {spider::core::TaskOutput{"1.1", "float"}})
+    REQUIRE(storage->set_task_state(conn, parent_1.get_id(), spider::core::TaskState::Running)
                     .success());
+    REQUIRE(storage->task_finish(
+                           conn,
+                           parent_1_instance,
+                           {spider::core::TaskOutput{"1.1", "float"}}
+    ).success());
     // Task finish for parent 2 should success
     spider::core::TaskInstance const parent_2_instance{gen(), parent_2.get_id()};
-    REQUIRE(storage->set_task_state(parent_2.get_id(), spider::core::TaskState::Running).success());
-    REQUIRE(storage->task_finish(parent_2_instance, {spider::core::TaskOutput{"2", "int"}})
+    REQUIRE(storage->set_task_state(conn, parent_2.get_id(), spider::core::TaskState::Running)
+                    .success());
+    REQUIRE(storage->task_finish(conn, parent_2_instance, {spider::core::TaskOutput{"2", "int"}})
                     .success());
     // Task finish for child should success
     spider::core::TaskInstance const child_instance{gen(), child_task.get_id()};
-    REQUIRE(storage->set_task_state(child_task.get_id(), spider::core::TaskState::Running).success()
-    );
-    REQUIRE(storage->task_finish(child_instance, {spider::core::TaskOutput{"3.3", "float"}})
+    REQUIRE(storage->set_task_state(conn, child_task.get_id(), spider::core::TaskState::Running)
+                    .success());
+    REQUIRE(storage->task_finish(conn, child_instance, {spider::core::TaskOutput{"3.3", "float"}})
                     .success());
 
     // Job reset
-    REQUIRE(storage->reset_job(job_id).success());
+    REQUIRE(storage->reset_job(conn, job_id).success());
     // Parent tasks states should be ready and child task state should be waiting
     // Parent tasks inputs should be available and child task inputs should be empty
     // All tasks output should be empty
     spider::core::Task res_task{""};
-    REQUIRE(storage->get_task(parent_1.get_id(), &res_task).success());
+    REQUIRE(storage->get_task(conn, parent_1.get_id(), &res_task).success());
     REQUIRE(res_task.get_state() == spider::core::TaskState::Ready);
     REQUIRE(res_task.get_num_inputs() == 2);
     REQUIRE(res_task.get_input(0).get_value() == "1");
     REQUIRE(res_task.get_input(1).get_value() == "2");
     REQUIRE(res_task.get_num_outputs() == 1);
     REQUIRE(!res_task.get_output(0).get_value().has_value());
-    REQUIRE(storage->get_task(parent_2.get_id(), &res_task).success());
+    REQUIRE(storage->get_task(conn, parent_2.get_id(), &res_task).success());
     REQUIRE(res_task.get_state() == spider::core::TaskState::Ready);
     REQUIRE(res_task.get_num_inputs() == 2);
     REQUIRE(res_task.get_input(0).get_value() == "3");
     REQUIRE(res_task.get_input(1).get_value() == "4");
     REQUIRE(res_task.get_num_outputs() == 1);
     REQUIRE(!res_task.get_output(0).get_value().has_value());
-    REQUIRE(storage->get_task(child_task.get_id(), &res_task).success());
+    REQUIRE(storage->get_task(conn, child_task.get_id(), &res_task).success());
     REQUIRE(res_task.get_state() == spider::core::TaskState::Pending);
     REQUIRE(res_task.get_num_inputs() == 2);
     REQUIRE(!res_task.get_input(0).get_value().has_value());
@@ -368,7 +403,7 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::MetadataStorageT
     REQUIRE(!res_task.get_output(0).get_value().has_value());
 
     // Clean up
-    REQUIRE(storage->remove_job(job_id).success());
+    REQUIRE(storage->remove_job(conn, job_id).success());
 }
 
 }  // namespace
