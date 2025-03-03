@@ -4,7 +4,6 @@
 namespace spider::core {
 
 class StorageConnection {
-    virtual ~StorageConnection() = 0;
 };
 
 }  // namespace spider::core
