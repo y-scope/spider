@@ -24,6 +24,7 @@ set(SPIDER_CORE_HEADERS
     utils/LruCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
+    storage/StorageConnection.hpp
     storage/MySqlConnection.hpp
     storage/MySqlStorage.hpp
     worker/FunctionManager.hpp
