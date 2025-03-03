@@ -26,8 +26,7 @@
 namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
 public:
-    MySqlMetadataStorage() = delete;
-    explicit MySqlMetadataStorage(std::string url) : m_url{std::move(url)} {};
+    MySqlMetadataStorage() = default;
     MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
     MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
     auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
@@ -117,8 +116,6 @@ public:
     ) -> StorageErr override;
 
 private:
-    std::string m_url;
-
     static void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
     static auto
     fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
