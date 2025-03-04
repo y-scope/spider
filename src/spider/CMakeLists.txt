@@ -115,8 +115,6 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
-    scheduler/SchedulerTaskCache.cpp
-    scheduler/SchedulerTaskCache.hpp
     utils/StopToken.hpp
     CACHE INTERNAL
     "spider scheduler source files"
