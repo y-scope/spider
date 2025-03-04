@@ -230,16 +230,6 @@ auto task_loop(
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
-        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(metadata_store->get_url());
-        if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
-            spdlog::error(
-                    "Failed to connection to storage: {}",
-                    std::get<spider::core::StorageErr>(conn_result).description
-            );
-            continue;
-        }
-        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
 
         auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
         spider::core::TaskInstance const instance{task_instance_id, task_id};
@@ -247,22 +237,37 @@ auto task_loop(
         fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
-        spider::core::StorageErr err = metadata_store->get_task(conn, task_id, &task);
-        if (!err.success()) {
-            spdlog::error("Failed to fetch task detail: {}", err.description);
-            continue;
-        }
+        std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers;
+        spider::core::StorageErr err;
 
-        // Set up arguments
-        std::optional<std::vector<msgpack::sbuffer>> const optional_args_buffers
-                = get_args_buffers(task);
-        if (!optional_args_buffers.has_value()) {
-            metadata_store->task_fail(
-                    conn,
-                    instance,
-                    fmt::format("Task {} failed to parse arguments", task.get_function_name())
-            );
-            continue;
+        {
+            // Keep the scope of RAII storage connection
+            std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+                    = spider::core::MySqlConnection::create(metadata_store->get_url());
+            if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+                spdlog::error(
+                        "Failed to connection to storage: {}",
+                        std::get<spider::core::StorageErr>(conn_result).description
+                );
+                continue;
+            }
+            auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+            err = metadata_store->get_task(conn, task_id, &task);
+            if (!err.success()) {
+                spdlog::error("Failed to fetch task detail: {}", err.description);
+                continue;
+            }
+
+            // Set up arguments
+            optional_args_buffers = get_args_buffers(task);
+            if (!optional_args_buffers.has_value()) {
+                metadata_store->task_fail(
+                        conn,
+                        instance,
+                        fmt::format("Task {} failed to parse arguments", task.get_function_name())
+                );
+                continue;
+            }
         }
         std::vector<msgpack::sbuffer> const& args_buffers = optional_args_buffers.value();
 
@@ -280,6 +285,16 @@ auto task_loop(
         context.run();
         executor.wait();
 
+        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+                = spider::core::MySqlConnection::create(metadata_store->get_url());
+        if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+            spdlog::error(
+                    "Failed to connection to storage: {}",
+                    std::get<spider::core::StorageErr>(conn_result).description
+            );
+            continue;
+        }
+        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
         if (!executor.succeed()) {
             spdlog::warn("Task {} failed", task.get_function_name());
             metadata_store->task_fail(
