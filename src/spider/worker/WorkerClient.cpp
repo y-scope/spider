@@ -43,18 +43,20 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
 
-    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-            = spider::core::MySqlConnection::create(m_metadata_store->get_url());
-    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
-        spdlog::error(
-                "Failed to connect to storage: {}",
-                std::get<spider::core::StorageErr>(conn_result).description
-        );
-        return std::nullopt;
-    }
-    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
-    if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
-        return std::nullopt;
+    {  // Keep the scope for RAII storage connection
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_metadata_store->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            spdlog::error(
+                    "Failed to connect to storage: {}",
+                    std::get<core::StorageErr>(conn_result).description
+            );
+            return std::nullopt;
+        }
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
+        if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
+            return std::nullopt;
+        }
     }
     if (schedulers.empty()) {
         return std::nullopt;
