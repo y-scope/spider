@@ -87,14 +87,15 @@ auto FifoPolicy::schedule_next(
     if (it == reverse_end) {
         return std::nullopt;
     }
-    m_tasks.erase(it.base());
+    boost::uuids::uuid const task_id = it->get_id();
     for (core::TaskInput const& input : it->get_inputs()) {
         std::optional<boost::uuids::uuid> const data_id = input.get_data_id();
         if (data_id.has_value()) {
             m_data_cache.erase(data_id.value());
         }
     }
-    return it->get_id();
+    m_tasks.erase(std::next(it).base());
+    return task_id;
 }
 
 auto FifoPolicy::fetch_tasks() -> void {
