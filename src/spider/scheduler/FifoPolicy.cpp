@@ -22,14 +22,10 @@
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/StorageConnection.hpp"
 
-namespace {
+namespace spider::scheduler {
 
-auto task_locality_satisfied(
-        std::shared_ptr<spider::core::DataStorage> const& data_store,
-        spider::core::StorageConnection& conn,
-        spider::core::Task const& task,
-        std::string const& addr
-) -> bool {
+auto FifoPolicy::task_locality_satisfied(spider::core::Task const& task, std::string const& addr)
+        -> bool {
     for (auto const& input : task.get_inputs()) {
         if (input.get_value().has_value()) {
             continue;
@@ -39,11 +35,16 @@ auto task_locality_satisfied(
             continue;
         }
         boost::uuids::uuid const data_id = optional_data_id.value();
-        spider::core::Data data;
-        if (false == data_store->get_data(conn, data_id, &data).success()) {
-            throw std::runtime_error(
-                    fmt::format("Data with id {} not exists.", boost::uuids::to_string((data_id)))
-            );
+        core::Data data;
+        if (m_data_cache.contains(data_id)) {
+            data = m_data_cache[data_id];
+        } else {
+            if (false == m_data_store->get_data(m_conn, data_id, &data).success()) {
+                throw std::runtime_error(
+                        fmt::format("Data with id {} not exists.", to_string((data_id)))
+                );
+            }
+            m_data_cache.emplace(data_id, data);
         }
         if (false == data.is_hard_locality()) {
             continue;
@@ -58,10 +59,6 @@ auto task_locality_satisfied(
     }
     return true;
 }
-
-}  // namespace
-
-namespace spider::scheduler {
 
 FifoPolicy::FifoPolicy(
         std::shared_ptr<core::MetadataStorage> const& metadata_store,
@@ -85,16 +82,23 @@ auto FifoPolicy::schedule_next(
     auto const reverse_begin = std::reverse_iterator(m_tasks.end());
     auto const reverse_end = std::reverse_iterator(m_tasks.begin());
     auto const it = std::find_if(reverse_begin, reverse_end, [&](core::Task const& task) {
-        return task_locality_satisfied(m_data_store, m_conn, task, worker_addr);
+        return task_locality_satisfied(task, worker_addr);
     });
     if (it == reverse_end) {
         return std::nullopt;
     }
     m_tasks.erase(it.base());
+    for (core::TaskInput const& input : it->get_inputs()) {
+        std::optional<boost::uuids::uuid> const data_id = input.get_data_id();
+        if (data_id.has_value()) {
+            m_data_cache.erase(data_id.value());
+        }
+    }
     return it->get_id();
 }
 
 auto FifoPolicy::fetch_tasks() -> void {
+    m_data_cache.clear();
     m_metadata_store->get_ready_tasks(m_conn, &m_tasks);
     std::vector<std::tuple<core::TaskInstance, core::Task>> instances;
     m_metadata_store->get_task_timeout(m_conn, &instances);
@@ -103,7 +107,9 @@ auto FifoPolicy::fetch_tasks() -> void {
     }
 
     // Sort tasks based on job creation time in descending order.
-    absl::flat_hash_map<boost::uuids::uuid, core::JobMetadata> job_metadata_map;
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    absl::flat_hash_map<boost::uuids::uuid, core::JobMetadata, std::hash<boost::uuids::uuid>>
+            job_metadata_map;
     auto get_task_job_creation_time
             = [&](boost::uuids::uuid const task_id) -> std::chrono::system_clock::time_point {
         boost::uuids::uuid job_id;
