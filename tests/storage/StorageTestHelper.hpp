@@ -13,8 +13,8 @@
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/MySqlConnection.hpp"
-#include "../../src/spider/storage/MySqlStorage.hpp"
+#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlStorage.hpp"
 
 namespace spider::test {
 char const* const cStorageUrl

@@ -18,7 +18,7 @@
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
 #include "../utils/CoreTaskUtils.hpp"
 #include "StorageTestHelper.hpp"
 

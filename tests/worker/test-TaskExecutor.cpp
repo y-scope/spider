@@ -22,7 +22,7 @@
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/TaskExecutor.hpp"
 #include "../storage/StorageTestHelper.hpp"

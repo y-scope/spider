@@ -28,15 +28,15 @@
 #include <mariadb/conncpp/Types.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../core/Data.hpp"
-#include "../core/Driver.hpp"
-#include "../core/Error.hpp"
-#include "../core/JobMetadata.hpp"
-#include "../core/KeyValueData.hpp"
-#include "../core/Task.hpp"
-#include "../core/TaskGraph.hpp"
+#include "../../core/Data.hpp"
+#include "../../core/Driver.hpp"
+#include "../../core/Error.hpp"
+#include "../../core/JobMetadata.hpp"
+#include "../../core/KeyValueData.hpp"
+#include "../../core/Task.hpp"
+#include "../../core/TaskGraph.hpp"
+#include "../StorageConnection.hpp"
 #include "MySqlConnection.hpp"
-#include "StorageConnection.hpp"
 
 // mariadb-connector-cpp does not define SQL errcode. Just include some useful ones.
 enum MariadbErr : uint16_t {
@@ -598,6 +598,16 @@ auto MySqlMetadataStorage::add_job(
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
     static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::add_job_batch(
+        StorageConnection& conn,
+        JobSubmissionBatch& batch,
+        boost::uuids::uuid job_id,
+        boost::uuids::uuid client_id,
+        TaskGraph const& task_graph
+) -> StorageErr {
     return StorageErr{};
 }
 

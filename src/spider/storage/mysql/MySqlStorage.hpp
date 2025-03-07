@@ -11,17 +11,17 @@
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 
-#include "../core/Data.hpp"
-#include "../core/Driver.hpp"
-#include "../core/Error.hpp"
-#include "../core/JobMetadata.hpp"
-#include "../core/KeyValueData.hpp"
-#include "../core/Task.hpp"
-#include "../core/TaskGraph.hpp"
-#include "DataStorage.hpp"
-#include "MetadataStorage.hpp"
+#include "../../core/Data.hpp"
+#include "../../core/Driver.hpp"
+#include "../../core/Error.hpp"
+#include "../../core/JobMetadata.hpp"
+#include "../../core/KeyValueData.hpp"
+#include "../../core/Task.hpp"
+#include "../../core/TaskGraph.hpp"
+#include "../DataStorage.hpp"
+#include "../MetadataStorage.hpp"
+#include "../StorageConnection.hpp"
 #include "MySqlConnection.hpp"
-#include "StorageConnection.hpp"
 
 namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
@@ -42,6 +42,13 @@ public:
             -> StorageErr override;
     auto add_job(
             StorageConnection& conn,
+            boost::uuids::uuid job_id,
+            boost::uuids::uuid client_id,
+            TaskGraph const& task_graph
+    ) -> StorageErr override;
+    auto add_job_batch(
+            StorageConnection& conn,
+            JobSubmissionBatch& batch,
             boost::uuids::uuid job_id,
             boost::uuids::uuid client_id,
             TaskGraph const& task_graph

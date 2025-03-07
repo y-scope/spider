@@ -21,7 +21,7 @@
 #include "../../src/spider/scheduler/FifoPolicy.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {

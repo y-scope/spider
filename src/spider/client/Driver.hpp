@@ -18,7 +18,7 @@
 #include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
-#include "../storage/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"

@@ -12,7 +12,7 @@
 #include <mariadb/conncpp/SQLString.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../core/Error.hpp"
+#include "../../core/Error.hpp"
 
 namespace spider::core {
 

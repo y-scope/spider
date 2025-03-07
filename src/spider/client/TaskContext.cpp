@@ -9,7 +9,7 @@
 
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
-#include "../storage/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {

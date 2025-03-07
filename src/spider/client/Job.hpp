@@ -21,7 +21,7 @@
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "task.hpp"
