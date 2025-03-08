@@ -2,6 +2,7 @@
 #define SPIDER_STORAGE_MYSQLSTORAGE_HPP
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -130,7 +131,12 @@ public:
 private:
     std::string m_url;
 
-    static void add_task(MySqlConnection& conn, sql::bytes job_id, Task const& task);
+    static void add_task(
+            MySqlConnection& conn,
+            sql::bytes job_id,
+            Task const& task,
+            std::optional<TaskState> const& state
+    );
     static auto
     fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
 };

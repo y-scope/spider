@@ -14,6 +14,10 @@ public:
 
     auto get_task_stmt() -> sql::PreparedStatement& { return *m_task_stmt; }
 
+    auto get_task_input_output_stmt() -> sql::PreparedStatement& {
+        return *m_task_input_output_stmt;
+    }
+
     auto get_task_input_value_stmt() -> sql::PreparedStatement& { return *m_task_input_value_stmt; }
 
     auto get_task_input_data_stmt() -> sql::PreparedStatement& { return *m_task_input_data_stmt; }
@@ -29,6 +33,7 @@ public:
 private:
     std::unique_ptr<sql::PreparedStatement> m_job_stmt;
     std::unique_ptr<sql::PreparedStatement> m_task_stmt;
+    std::unique_ptr<sql::PreparedStatement> m_task_input_output_stmt;
     std::unique_ptr<sql::PreparedStatement> m_task_input_value_stmt;
     std::unique_ptr<sql::PreparedStatement> m_task_input_data_stmt;
     std::unique_ptr<sql::PreparedStatement> m_task_output_stmt;
