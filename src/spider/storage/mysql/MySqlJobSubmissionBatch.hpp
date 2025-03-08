@@ -5,11 +5,23 @@
 
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
-#include "JobSubmissionBatch.hpp"
+#include "../JobSubmissionBatch.hpp"
+#include "mysql_stmt.hpp"
 
 namespace spider::core {
 class MySqlJobSubmissionBatch : public JobSubmissionBatch {
 public:
+    explicit MySqlJobSubmissionBatch(sql::Connection& conn)
+            : m_job_stmt{conn.prepareStatement(mysql::cInsertJob)},
+              m_task_stmt{conn.prepareStatement(mysql::cInsertTask)},
+              m_task_input_output_stmt{conn.prepareStatement(mysql::cInsertTaskInputOutput)},
+              m_task_input_value_stmt{conn.prepareStatement(mysql::cInsertTaskInputValue)},
+              m_task_input_data_stmt{conn.prepareStatement(mysql::cInsertTaskInputData)},
+              m_task_output_stmt{conn.prepareStatement(mysql::cInsertTaskOutput)},
+              m_task_dependency_stmt{conn.prepareStatement(mysql::cInsertTaskDependency)},
+              m_input_task_stmt{conn.prepareStatement(mysql::cInsertInputTask)},
+              m_output_task_stmt{conn.prepareStatement(mysql::cInsertOutputTask)} {}
+
     auto get_job_stmt() -> sql::PreparedStatement& { return *m_job_stmt; }
 
     auto get_task_stmt() -> sql::PreparedStatement& { return *m_task_stmt; }

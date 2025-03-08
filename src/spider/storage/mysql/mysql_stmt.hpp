@@ -189,6 +189,9 @@ std::string const cInsertTaskInputValue
 std::string const cInsertTaskOutput
         = R"(INSERT INTO `task_outputs` (`task_id`, `position`, `type`) VALUES (?, ?, ?))";
 
+std::string const cInsertTaskDependency
+        = R"(INSERT INTO `task_dependencies` (parent, child) VALUES (?, ?))";
+
 std::string const cInsertInputTask
         = R"(INSERT INTO `input_tasks` (`job_id`, `task_id`, `position`) VALUES (?, ?, ?))";
 

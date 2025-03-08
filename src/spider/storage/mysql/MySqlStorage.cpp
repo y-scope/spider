@@ -376,7 +376,7 @@ auto MySqlMetadataStorage::add_job(
         {
             std::unique_ptr<sql::PreparedStatement> dep_statement{
                     static_cast<MySqlConnection&>(conn)->prepareStatement(
-                            "INSERT INTO `task_dependencies` (parent, child) VALUES (?, ?)"
+                            mysql::cInsertTaskDependency
                     )
             };
             sql::bytes parent_id_bytes = uuid_get_bytes(pair.first);
