@@ -169,10 +169,12 @@ auto main(int argc, char** argv) -> int {
         job.wait_complete();
         if (job.get_status() != spider::JobStatus::Succeeded) {
             spdlog::error("Batch job failed");
+            return cJobFailed;
         }
         int const result = job.get_result();
         if (result != i + i) {
             spdlog::error("Batch job wrong result. Expect {}. Get {}.", i + i, result);
+            return cJobFailed;
         }
     }
 
