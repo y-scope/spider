@@ -1,5 +1,6 @@
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
@@ -38,6 +39,8 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 
 constexpr int cCmdArgParseErr = 1;
 constexpr int cJobFailed = 2;
+
+constexpr int cBatchSize = 10;
 
 }  // namespace
 
@@ -159,12 +162,13 @@ auto main(int argc, char** argv) -> int {
 
     // Run batch submission
     std::vector<spider::Job<int>> jobs;
+    jobs.reserve(cBatchSize);
     driver.begin_batch_start();
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < cBatchSize; ++i) {
         jobs.emplace_back(driver.start(&sum_test, i, i));
     }
     driver.end_batch_start();
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < cBatchSize; ++i) {
         spider::Job<int>& job = jobs[i];
         job.wait_complete();
         if (job.get_status() != spider::JobStatus::Succeeded) {
