@@ -8,7 +8,6 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
-#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -148,8 +147,8 @@ public:
         if (nullptr != m_batch) {
             return;
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         m_batch = std::make_shared<core::MySqlJobSubmissionBatch>(
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
                 static_cast<core::MySqlConnection&>(*m_conn)
         );
     }

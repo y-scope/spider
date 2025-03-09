@@ -9,6 +9,7 @@
 
 #include "../../core/Error.hpp"
 #include "../JobSubmissionBatch.hpp"
+#include "../StorageConnection.hpp"
 #include "mysql_stmt.hpp"
 #include "MySqlConnection.hpp"
 

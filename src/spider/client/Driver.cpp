@@ -6,6 +6,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <utility>
 #include <variant>
 
 #include <boost/uuid/random_generator.hpp>
@@ -17,7 +18,6 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/mysql/MySqlConnection.hpp"
 #include "../storage/mysql/MySqlStorage.hpp"
-#include "../storage/StorageConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {

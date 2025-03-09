@@ -22,6 +22,7 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/mysql/MySqlConnection.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "task.hpp"
@@ -63,7 +64,6 @@ public:
      * @throw spider::ConnectionException
      */
     auto wait_complete() -> void {
-        bool complete = false;
         if (nullptr == m_conn) {
             std::variant<core::MySqlConnection, core::StorageErr> conn_result
                     = core::MySqlConnection::create(m_data_storage->get_url());
@@ -72,9 +72,8 @@ public:
             }
             auto& conn = std::get<core::MySqlConnection>(conn_result);
             wait_complete_conn(conn);
-        } else {
-            wait_complete_conn(*m_conn);
         }
+        wait_complete_conn(*m_conn);
     }
 
     /**
@@ -122,7 +121,6 @@ public:
         };
     }
 
-    // NOLINTBEGIN(readability-function-cognitive-complexity)
     /**
      * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeeded`
      * state.
@@ -139,12 +137,9 @@ public:
             }
             auto& conn = std::get<core::MySqlConnection>(conn_result);
             return get_result_conn(conn);
-        } else {
-            return get_result_conn(*m_conn);
         }
+        return get_result_conn(*m_conn);
     }
-
-    // NOLINTEND(readability-function-cognitive-complexity)
 
     /**
      * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
@@ -174,7 +169,7 @@ private:
             : m_id{id},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
-              m_conn{conn} {}
+              m_conn{std::move(conn)} {}
 
     auto wait_complete_conn(core::StorageConnection& conn) -> void {
         bool complete = false;
@@ -196,6 +191,7 @@ private:
         }
     }
 
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
     auto get_result_conn(core::StorageConnection& conn) -> ReturnType {
         std::vector<boost::uuids::uuid> output_task_ids;
         core::StorageErr err
@@ -327,6 +323,8 @@ private:
             }
         }
     }
+
+    // NOLINTEND(readability-function-cognitive-complexity)
 
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;

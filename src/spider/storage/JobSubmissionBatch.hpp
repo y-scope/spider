@@ -8,6 +8,13 @@ namespace spider::core {
 class JobSubmissionBatch {
 public:
     virtual auto submit_batch(StorageConnection& conn) -> StorageErr = 0;
+
+    JobSubmissionBatch() = default;
+    JobSubmissionBatch(JobSubmissionBatch const&) = delete;
+    auto operator=(JobSubmissionBatch const&) -> JobSubmissionBatch& = delete;
+    JobSubmissionBatch(JobSubmissionBatch&&) = delete;
+    auto operator=(JobSubmissionBatch&&) -> JobSubmissionBatch& = delete;
+    virtual ~JobSubmissionBatch() = default;
 };
 }  // namespace spider::core
 

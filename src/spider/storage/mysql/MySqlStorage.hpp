@@ -20,6 +20,7 @@
 #include "../../core/Task.hpp"
 #include "../../core/TaskGraph.hpp"
 #include "../DataStorage.hpp"
+#include "../JobSubmissionBatch.hpp"
 #include "../MetadataStorage.hpp"
 #include "../StorageConnection.hpp"
 #include "MySqlConnection.hpp"
