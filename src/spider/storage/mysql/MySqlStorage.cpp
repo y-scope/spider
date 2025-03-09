@@ -38,6 +38,7 @@
 #include "../StorageConnection.hpp"
 #include "mysql_stmt.hpp"
 #include "MySqlConnection.hpp"
+#include "MySqlJobSubmissionBatch.hpp"
 
 // mariadb-connector-cpp does not define SQL errcode. Just include some useful ones.
 enum MariadbErr : uint16_t {
@@ -297,6 +298,77 @@ void MySqlMetadataStorage::add_task(
     }
 }
 
+void MySqlMetadataStorage::add_task_batch(
+        MySqlJobSubmissionBatch& batch,
+        sql::bytes job_id,
+        Task const& task,
+        std::optional<TaskState> const& state
+) {
+    // Add task
+    sql::PreparedStatement& task_statement = batch.get_task_stmt();
+    sql::bytes task_id_bytes = uuid_get_bytes(task.get_id());
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
+    task_statement.setBytes(1, &task_id_bytes);
+    task_statement.setBytes(2, &job_id);
+    task_statement.setString(3, task.get_function_name());
+    if (state.has_value()) {
+        task_statement.setString(4, task_state_to_string(state.value()));
+    } else {
+        task_statement.setString(4, task_state_to_string(task.get_state()));
+    }
+    task_statement.setFloat(5, task.get_timeout());
+    task_statement.setUInt(6, task.get_max_retries());
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
+    task_statement.addBatch();
+
+    // Add task inputs
+    for (std::uint64_t i = 0; i < task.get_num_inputs(); ++i) {
+        TaskInput const input = task.get_input(i);
+        std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> const task_output
+                = input.get_task_output();
+        std::optional<boost::uuids::uuid> const data_id = input.get_data_id();
+        std::optional<std::string> const& value = input.get_value();
+        if (task_output.has_value()) {
+            std::tuple<boost::uuids::uuid, std::uint8_t> const pair = task_output.value();
+            sql::PreparedStatement& input_statement = batch.get_task_input_output_stmt();
+            // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
+            input_statement.setBytes(1, &task_id_bytes);
+            input_statement.setUInt(2, i);
+            input_statement.setString(3, input.get_type());
+            sql::bytes task_output_id = uuid_get_bytes(std::get<0>(pair));
+            input_statement.setBytes(4, &task_output_id);
+            input_statement.setUInt(5, std::get<1>(pair));
+            // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
+            input_statement.addBatch();
+        } else if (data_id.has_value()) {
+            sql::PreparedStatement& input_statement = batch.get_task_input_data_stmt();
+            input_statement.setBytes(1, &task_id_bytes);
+            input_statement.setUInt(2, i);
+            input_statement.setString(3, input.get_type());
+            sql::bytes data_id_bytes = uuid_get_bytes(data_id.value());
+            input_statement.setBytes(4, &data_id_bytes);
+            input_statement.addBatch();
+        } else if (value.has_value()) {
+            sql::PreparedStatement& input_statement = batch.get_task_input_value_stmt();
+            input_statement.setBytes(1, &task_id_bytes);
+            input_statement.setUInt(2, i);
+            input_statement.setString(3, input.get_type());
+            input_statement.setString(4, value.value());
+            input_statement.addBatch();
+        }
+    }
+
+    // Add task outputs
+    for (std::uint64_t i = 0; i < task.get_num_outputs(); i++) {
+        TaskOutput const output = task.get_output(i);
+        sql::PreparedStatement& output_statement = batch.get_task_output_stmt();
+        output_statement.setBytes(1, &task_id_bytes);
+        output_statement.setUInt(2, i);
+        output_statement.setString(3, output.get_type());
+        output_statement.addBatch();
+    }
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 auto MySqlMetadataStorage::add_job(
         StorageConnection& conn,
@@ -428,6 +500,124 @@ auto MySqlMetadataStorage::add_job_batch(
         boost::uuids::uuid client_id,
         TaskGraph const& task_graph
 ) -> StorageErr {
+    try {
+        sql::bytes job_id_bytes = uuid_get_bytes(job_id);
+        sql::bytes client_id_bytes = uuid_get_bytes(client_id);
+        {
+            sql::PreparedStatement& statement
+                    = static_cast<MySqlJobSubmissionBatch&>(batch).get_job_stmt();
+            statement.setBytes(1, &job_id_bytes);
+            statement.setBytes(2, &client_id_bytes);
+            statement.addBatch();
+        }
+
+        // Tasks must be added in graph order to avoid the dangling reference.
+        std::vector<boost::uuids::uuid> const& input_task_ids = task_graph.get_input_tasks();
+        absl::flat_hash_set<boost::uuids::uuid> heads;
+        for (boost::uuids::uuid const task_id : input_task_ids) {
+            heads.insert(task_id);
+        }
+        std::deque<boost::uuids::uuid> queue;
+        // First go over all heads
+        for (boost::uuids::uuid const task_id : heads) {
+            std::optional<Task const*> const task_option = task_graph.get_task(task_id);
+            if (!task_option.has_value()) {
+                static_cast<MySqlConnection&>(conn)->rollback();
+                return StorageErr{
+                        StorageErrType::KeyNotFoundErr,
+                        "Task graph inconsistent: head task not found"
+                };
+            }
+            Task const* task = task_option.value();
+            add_task_batch(
+                    static_cast<MySqlJobSubmissionBatch&>(batch),
+                    job_id_bytes,
+                    *task,
+                    TaskState::Ready
+            );
+            for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
+                std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
+                if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
+                        return heads.contains(parent);
+                    }))
+                {
+                    queue.push_back(id);
+                }
+            }
+        }
+        // Then go over all tasks in queue
+        while (!queue.empty()) {
+            boost::uuids::uuid const task_id = queue.back();
+            queue.pop_back();
+            if (!heads.contains(task_id)) {
+                heads.insert(task_id);
+                std::optional<Task const*> const task_option = task_graph.get_task(task_id);
+                if (!task_option.has_value()) {
+                    static_cast<MySqlConnection&>(conn)->rollback();
+                    return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
+                }
+                Task const* task = task_option.value();
+                add_task_batch(
+                        static_cast<MySqlJobSubmissionBatch&>(batch),
+                        job_id_bytes,
+                        *task,
+                        std::nullopt
+                );
+                for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
+                    std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
+                    if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
+                            return heads.contains(parent);
+                        }))
+                    {
+                        queue.push_back(id);
+                    }
+                }
+            }
+        }
+
+        // Add all dependencies
+        for (std::pair<boost::uuids::uuid, boost::uuids::uuid> const& pair :
+             task_graph.get_dependencies())
+        {
+            sql::PreparedStatement& dep_statement
+                    = static_cast<MySqlJobSubmissionBatch&>(batch).get_task_dependency_stmt();
+            sql::bytes parent_id_bytes = uuid_get_bytes(pair.first);
+            sql::bytes child_id_bytes = uuid_get_bytes(pair.second);
+            dep_statement.setBytes(1, &parent_id_bytes);
+            dep_statement.setBytes(2, &child_id_bytes);
+            dep_statement.addBatch();
+        }
+
+        // Add input tasks
+        for (size_t i = 0; i < input_task_ids.size(); i++) {
+            sql::PreparedStatement& input_statement
+                    = static_cast<MySqlJobSubmissionBatch&>(batch).get_input_task_stmt();
+            input_statement.setBytes(1, &job_id_bytes);
+            sql::bytes task_id_bytes = uuid_get_bytes(input_task_ids[i]);
+            input_statement.setBytes(2, &task_id_bytes);
+            input_statement.setUInt(3, i);
+            input_statement.addBatch();
+        }
+        // Add output tasks
+        std::vector<boost::uuids::uuid> const& output_task_ids = task_graph.get_output_tasks();
+        for (size_t i = 0; i < output_task_ids.size(); i++) {
+            sql::PreparedStatement& output_statement
+                    = static_cast<MySqlJobSubmissionBatch&>(batch).get_output_task_stmt();
+            output_statement.setBytes(1, &job_id_bytes);
+            sql::bytes task_id_bytes = uuid_get_bytes(output_task_ids[i]);
+            output_statement.setBytes(2, &task_id_bytes);
+            output_statement.setUInt(3, i);
+            output_statement.addBatch();
+        }
+
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
+            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
+        }
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
     return StorageErr{};
 }
 

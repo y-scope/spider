@@ -23,6 +23,7 @@
 #include "../MetadataStorage.hpp"
 #include "../StorageConnection.hpp"
 #include "MySqlConnection.hpp"
+#include "MySqlJobSubmissionBatch.hpp"
 
 namespace spider::core {
 class MySqlMetadataStorage : public MetadataStorage {
@@ -133,6 +134,12 @@ private:
 
     static void add_task(
             MySqlConnection& conn,
+            sql::bytes job_id,
+            Task const& task,
+            std::optional<TaskState> const& state
+    );
+    static void add_task_batch(
+            MySqlJobSubmissionBatch& batch,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
