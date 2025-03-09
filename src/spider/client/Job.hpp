@@ -72,8 +72,9 @@ public:
             }
             auto& conn = std::get<core::MySqlConnection>(conn_result);
             wait_complete_conn(conn);
+        } else {
+            wait_complete_conn(*m_conn);
         }
-        wait_complete_conn(*m_conn);
     }
 
     /**
