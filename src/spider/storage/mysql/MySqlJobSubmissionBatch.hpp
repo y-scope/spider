@@ -3,10 +3,12 @@
 
 #include <memory>
 
+#include <mariadb/conncpp/Connection.hpp>
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
 #include "../JobSubmissionBatch.hpp"
 #include "mysql_stmt.hpp"
+#include "MySqlConnection.hpp"
 
 namespace spider::core {
 class MySqlJobSubmissionBatch : public JobSubmissionBatch {

@@ -1,7 +1,6 @@
 #include "MySqlStorage.hpp"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -35,6 +34,7 @@
 #include "../../core/KeyValueData.hpp"
 #include "../../core/Task.hpp"
 #include "../../core/TaskGraph.hpp"
+#include "../JobSubmissionBatch.hpp"
 #include "../StorageConnection.hpp"
 #include "mysql_stmt.hpp"
 #include "MySqlConnection.hpp"

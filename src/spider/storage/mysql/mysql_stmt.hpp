@@ -5,6 +5,7 @@
 #include <string>
 
 namespace spider::core::mysql {
+// NOLINTBEGIN(cert-err58-cpp)
 
 std::string const cCreateDriverTable = R"(CREATE TABLE IF NOT EXISTS `drivers` (
     `id` BINARY(16) NOT NULL,
@@ -198,6 +199,7 @@ std::string const cInsertInputTask
 std::string const cInsertOutputTask
         = R"(INSERT INTO `output_tasks` (`job_id`, `task_id`, `position`) VALUES (?, ?, ?))";
 
+// NOLINTEND(cert-err58-cpp)
 }  // namespace spider::core::mysql
 
 #endif

@@ -9,6 +9,7 @@
 #include <mariadb/conncpp/Connection.hpp>
 #include <mariadb/conncpp/DriverManager.hpp>
 #include <mariadb/conncpp/Exception.hpp>
+#include <mariadb/conncpp/Properties.hpp>
 #include <spdlog/spdlog.h>
 
 #include "../../core/Error.hpp"
