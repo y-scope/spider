@@ -75,17 +75,17 @@ auto main(int argc, char** argv) -> int {
     spider::Data<int> d1 = driver.get_data_builder<int>().build(1);
     spider::Data<int> d2 = driver.get_data_builder<int>().build(2);
     spdlog::debug("Data created");
-    spider::Job<int> job = driver.start(graph, d1, d2, 3, 4);
+    spider::Job<int> graph_job = driver.start(graph, d1, d2, 3, 4);
     spdlog::debug("Job started");
-    job.wait_complete();
+    graph_job.wait_complete();
     spdlog::debug("Job completed");
-    if (job.get_status() != spider::JobStatus::Succeeded) {
+    if (graph_job.get_status() != spider::JobStatus::Succeeded) {
         spdlog::error("Job failed");
         return cJobFailed;
     }
     constexpr int cExpectedResult = 10;
-    if (job.get_result() != cExpectedResult) {
-        spdlog::error("Wrong job result. Get {}. Expect 10", job.get_result());
+    if (graph_job.get_result() != cExpectedResult) {
+        spdlog::error("Wrong job result. Get {}. Expect 10", graph_job.get_result());
         return cJobFailed;
     }
 
@@ -155,6 +155,25 @@ auto main(int argc, char** argv) -> int {
     if (create_task_job.get_result() != 3) {
         spdlog::error("Create task job failed");
         return cJobFailed;
+    }
+
+    // Run batch submission
+    std::vector<spider::Job<int>> jobs;
+    driver.begin_batch_start();
+    for (int i = 0; i < 10; ++i) {
+        jobs.emplace_back(driver.start(&sum_test, i, i));
+    }
+    driver.end_batch_start();
+    for (int i = 0; i < 10; ++i) {
+        spider::Job<int>& job = jobs[i];
+        job.wait_complete();
+        if (job.get_status() != spider::JobStatus::Succeeded) {
+            spdlog::error("Batch job failed");
+        }
+        int const result = job.get_result();
+        if (result != i + i) {
+            spdlog::error("Batch job wrong result. Expect {}. Get {}.", i + i, result);
+        }
     }
 
     return 0;
