@@ -18,7 +18,10 @@
 #include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
+#include "../storage/JobSubmissionBatch.hpp"
 #include "../storage/mysql/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlJobSubmissionBatch.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"
@@ -134,6 +137,40 @@ public:
     }
 
     /**
+     * Begins a batch of `start` calls. This allows the driver to submit multiple jobs in a single
+     * batch, which can be more efficient than submitting jobs individually.
+     *
+     * Needs to be paired with `end_batch_start`.
+     *
+     * If a batch has already been started, this method is a no-op.
+     */
+    auto begin_batch_start() -> void {
+        if (nullptr != m_batch) {
+            return;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        m_batch = std::make_shared<core::MySqlJobSubmissionBatch>(
+                static_cast<core::MySqlConnection&>(*m_conn)
+        );
+    }
+
+    /**
+     * Ends a batch of `start` calls. This submits all jobs in the batch to Spider.
+     *
+     * @throw spider::ConnectionException
+     */
+    auto end_batch_start() -> void {
+        if (nullptr == m_batch) {
+            return;
+        }
+        core::StorageErr const err = m_batch->submit_batch(*m_conn);
+        m_batch = nullptr;
+        if (!err.success()) {
+            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        }
+    }
+
+    /**
      * Starts running a task with the given inputs on Spider.
      *
      * @tparam ReturnType
@@ -175,15 +212,17 @@ public:
         graph.add_task(new_task);
         graph.add_input_task(new_task.get_id());
         graph.add_output_task(new_task.get_id());
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_metadata_storage->get_url());
-        if (std::holds_alternative<core::StorageErr>(conn_result)) {
-            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
-        }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
-        core::StorageErr err = m_metadata_storage->add_job(conn, job_id, m_id, graph);
-        if (!err.success()) {
-            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        if (nullptr != m_batch) {
+            core::StorageErr const err
+                    = m_metadata_storage->add_job_batch(*m_conn, *m_batch, job_id, m_id, graph);
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
+        } else {
+            core::StorageErr const err = m_metadata_storage->add_job(*m_conn, job_id, m_id, graph);
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
         }
 
         return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
@@ -224,14 +263,8 @@ public:
         graph.m_impl->reset_ids();
         boost::uuids::random_generator gen;
         boost::uuids::uuid const job_id = gen();
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_metadata_storage->get_url());
-        if (std::holds_alternative<core::StorageErr>(conn_result)) {
-            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
-        }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr const err
-                = m_metadata_storage->add_job(conn, job_id, m_id, graph.m_impl->get_graph());
+                = m_metadata_storage->add_job(*m_conn, job_id, m_id, graph.m_impl->get_graph());
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
@@ -249,14 +282,8 @@ public:
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid> {
         std::vector<boost::uuids::uuid> job_ids;
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_metadata_storage->get_url());
-        if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
-            throw ConnectionException(std::get<spider::core::StorageErr>(conn_result).description);
-        }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
         core::StorageErr const err
-                = m_metadata_storage->get_jobs_by_client_id(conn, m_id, &job_ids);
+                = m_metadata_storage->get_jobs_by_client_id(*m_conn, m_id, &job_ids);
         if (!err.success()) {
             throw ConnectionException("Failed to get jobs.");
         }
@@ -267,6 +294,8 @@ private:
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
+    std::shared_ptr<core::StorageConnection> m_conn;
+    std::shared_ptr<core::JobSubmissionBatch> m_batch{nullptr};
     std::jthread m_heartbeat_thread;
 };
 }  // namespace spider

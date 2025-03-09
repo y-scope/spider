@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <mariadb/conncpp/Connection.hpp>
+#include <mariadb/conncpp/Exception.hpp>
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
 #include "../JobSubmissionBatch.hpp"
@@ -35,16 +36,25 @@ public:
               m_input_task_stmt{conn->prepareStatement(mysql::cInsertInputTask)},
               m_output_task_stmt{conn->prepareStatement(mysql::cInsertOutputTask)} {}
 
-    auto submit_batch() -> void {
-        m_job_stmt->executeBatch();
-        m_task_stmt->executeBatch();
-        m_task_output_stmt->executeBatch();  // Update task outputs in case of input reference
-        m_task_input_output_stmt->executeBatch();
-        m_task_input_value_stmt->executeBatch();
-        m_task_input_data_stmt->executeBatch();
-        m_task_dependency_stmt->executeBatch();
-        m_input_task_stmt->executeBatch();
-        m_output_task_stmt->executeBatch();
+    auto submit_batch(StorageConnection& conn) -> StorageErr override {
+        try {
+            m_job_stmt->executeBatch();
+            m_task_stmt->executeBatch();
+            m_task_output_stmt->executeBatch();  // Update task outputs in case of input reference
+            m_task_input_output_stmt->executeBatch();
+            m_task_input_value_stmt->executeBatch();
+            m_task_input_data_stmt->executeBatch();
+            m_task_dependency_stmt->executeBatch();
+            m_input_task_stmt->executeBatch();
+            m_output_task_stmt->executeBatch();
+        } catch (sql::SQLException& e) {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{StorageErrType::OtherErr, e.what()};
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        static_cast<MySqlConnection&>(conn)->commit();
+        return StorageErr{};
     }
 
     auto get_job_stmt() -> sql::PreparedStatement& { return *m_job_stmt; }

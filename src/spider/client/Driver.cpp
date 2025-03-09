@@ -17,6 +17,7 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/mysql/MySqlConnection.hpp"
 #include "../storage/mysql/MySqlStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {
@@ -33,9 +34,10 @@ Driver::Driver(std::string const& storage_url) {
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    auto& conn = std::get<core::MySqlConnection>(conn_result);
+    m_conn = std::make_shared<core::StorageConnection>(std::get<core::MySqlConnection>(conn_result)
+    );
 
-    core::StorageErr const err = m_metadata_storage->add_driver(conn, core::Driver{m_id});
+    core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
     if (!err.success()) {
         if (core::StorageErrType::DuplicateKeyErr == err.type) {
             throw DriverIdInUseException(m_id);
@@ -71,9 +73,10 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    auto& conn = std::get<core::MySqlConnection>(conn_result);
+    m_conn = std::make_shared<core::StorageConnection>(std::get<core::MySqlConnection>(conn_result)
+    );
 
-    core::StorageErr const err = m_metadata_storage->add_driver(conn, core::Driver{m_id});
+    core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
     if (!err.success()) {
         if (core::StorageErrType::DuplicateKeyErr == err.type) {
             throw DriverIdInUseException(m_id);
@@ -104,29 +107,15 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
 auto Driver::kv_store_insert(std::string const& key, std::string const& value) -> void {
     core::KeyValueData const kv_data{key, value, m_id};
 
-    std::variant<core::MySqlConnection, core::StorageErr> conn_result
-            = core::MySqlConnection::create(m_data_storage->get_url());
-    if (std::holds_alternative<core::StorageErr>(conn_result)) {
-        throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
-    }
-    auto& conn = std::get<core::MySqlConnection>(conn_result);
-
-    core::StorageErr const err = m_data_storage->add_client_kv_data(conn, kv_data);
+    core::StorageErr const err = m_data_storage->add_client_kv_data(*m_conn, kv_data);
     if (!err.success()) {
         throw ConnectionException(err.description);
     }
 }
 
 auto Driver::kv_store_get(std::string const& key) -> std::optional<std::string> {
-    std::variant<core::MySqlConnection, core::StorageErr> conn_result
-            = core::MySqlConnection::create(m_data_storage->get_url());
-    if (std::holds_alternative<core::StorageErr>(conn_result)) {
-        throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
-    }
-    auto& conn = std::get<core::MySqlConnection>(conn_result);
-
     std::string value;
-    core::StorageErr const err = m_data_storage->get_client_kv_data(conn, m_id, key, &value);
+    core::StorageErr const err = m_data_storage->get_client_kv_data(*m_conn, m_id, key, &value);
     if (!err.success()) {
         if (core::StorageErrType::KeyNotFoundErr == err.type) {
             return std::nullopt;
