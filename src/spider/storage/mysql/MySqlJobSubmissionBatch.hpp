@@ -7,6 +7,7 @@
 #include <mariadb/conncpp/Exception.hpp>
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
+#include "../../core/Error.hpp"
 #include "../JobSubmissionBatch.hpp"
 #include "mysql_stmt.hpp"
 #include "MySqlConnection.hpp"

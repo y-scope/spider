@@ -34,7 +34,8 @@ Driver::Driver(std::string const& storage_url) {
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    m_conn = std::make_shared<core::StorageConnection>(std::get<core::MySqlConnection>(conn_result)
+    m_conn = std::make_shared<core::MySqlConnection>(
+            std::get<core::MySqlConnection>(std::move(conn_result))
     );
 
     core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
@@ -73,7 +74,8 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    m_conn = std::make_shared<core::StorageConnection>(std::get<core::MySqlConnection>(conn_result)
+    m_conn = std::make_shared<core::MySqlConnection>(
+            std::get<core::MySqlConnection>(std::move(conn_result))
     );
 
     core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});

@@ -225,7 +225,7 @@ public:
             }
         }
 
-        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage, m_conn};
     }
 
     /**
@@ -269,7 +269,7 @@ public:
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage, m_conn};
     }
 
     /**
