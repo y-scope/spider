@@ -18,7 +18,8 @@
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlJobSubmissionBatch.hpp"
 #include "../utils/CoreTaskUtils.hpp"
 #include "StorageTestHelper.hpp"
 
@@ -116,6 +117,136 @@ TEMPLATE_LIST_TEST_CASE(
 
 TEMPLATE_LIST_TEST_CASE(
         "Job add, get and remove",
+        "[storage]",
+        spider::test::MetadataStorageTypeList
+) {
+    std::unique_ptr<spider::core::MetadataStorage> storage
+            = spider::test::create_metadata_storage<TestType>();
+
+    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
+            = spider::core::MySqlConnection::create(storage->get_url());
+    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
+    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    spider::core::MySqlJobSubmissionBatch batch{conn};
+
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const job_id = gen();
+
+    // Create a complicated task graph
+    boost::uuids::uuid const client_id = gen();
+    spider::core::Task child_task{"child"};
+    spider::core::Task parent_1{"p1"};
+    spider::core::Task parent_2{"p2"};
+    parent_1.add_input(spider::core::TaskInput{"1", "float"});
+    parent_1.add_input(spider::core::TaskInput{"2", "float"});
+    parent_2.add_input(spider::core::TaskInput{"3", "int"});
+    parent_2.add_input(spider::core::TaskInput{"4", "int"});
+    parent_1.add_output(spider::core::TaskOutput{"float"});
+    parent_2.add_output(spider::core::TaskOutput{"int"});
+    child_task.add_input(spider::core::TaskInput{parent_1.get_id(), 0, "float"});
+    child_task.add_input(spider::core::TaskInput{parent_2.get_id(), 0, "int"});
+    child_task.add_output(spider::core::TaskOutput{"float"});
+    spider::core::TaskGraph graph;
+    // Add task and dependencies to task graph in wrong order
+    graph.add_task(child_task);
+    graph.add_task(parent_1);
+    graph.add_task(parent_2);
+    graph.add_dependency(parent_2.get_id(), child_task.get_id());
+    graph.add_dependency(parent_1.get_id(), child_task.get_id());
+    graph.add_input_task(parent_1.get_id());
+    graph.add_input_task(parent_2.get_id());
+    graph.add_output_task(child_task.get_id());
+
+    // Get head tasks should succeed
+    std::vector<boost::uuids::uuid> heads = graph.get_input_tasks();
+    REQUIRE(2 == heads.size());
+    REQUIRE(heads[0] == parent_1.get_id());
+    REQUIRE(heads[1] == parent_2.get_id());
+
+    std::chrono::system_clock::time_point const job_creation_time
+            = std::chrono::system_clock::now();
+
+    // Submit a simple job
+    boost::uuids::uuid const simple_job_id = gen();
+    spider::core::Task const simple_task{"simple"};
+    spider::core::TaskGraph simple_graph;
+    simple_graph.add_task(simple_task);
+    simple_graph.add_input_task(simple_task.get_id());
+    simple_graph.add_output_task(simple_task.get_id());
+
+    heads = simple_graph.get_input_tasks();
+    REQUIRE(1 == heads.size());
+    REQUIRE(heads[0] == simple_task.get_id());
+
+    // Submit job should success
+    REQUIRE(storage->add_job_batch(conn, batch, job_id, client_id, graph).success());
+    REQUIRE(storage->add_job_batch(conn, batch, simple_job_id, client_id, simple_graph).success());
+    batch.submit_batch(conn);
+
+    // Get job id for non-existent client id should return empty vector
+    std::vector<boost::uuids::uuid> job_ids;
+    REQUIRE(storage->get_jobs_by_client_id(conn, gen(), &job_ids).success());
+    REQUIRE(job_ids.empty());
+
+    // Get job id for client id should get correct value
+    REQUIRE(storage->get_jobs_by_client_id(conn, client_id, &job_ids).success());
+    REQUIRE(2 == job_ids.size());
+    REQUIRE(
+            ((job_ids[0] == job_id && job_ids[1] == simple_job_id)
+             || (job_ids[0] == simple_job_id && job_ids[1] == job_id))
+    );
+
+    // Get job metadata should get correct value
+    spider::core::JobMetadata job_metadata{};
+    REQUIRE(storage->get_job_metadata(conn, job_id, &job_metadata).success());
+    REQUIRE(job_id == job_metadata.get_id());
+    REQUIRE(client_id == job_metadata.get_client_id());
+    std::chrono::seconds const time_delta{1};
+    // REQUIRE(job_creation_time + time_delta >= job_metadata.get_creation_time());
+    // REQUIRE(job_creation_time - time_delta <= job_metadata.get_creation_time());
+
+    // Get task graph should succeed
+    spider::core::TaskGraph graph_res{};
+    REQUIRE(storage->get_task_graph(conn, job_id, &graph_res).success());
+    REQUIRE(spider::test::task_graph_equal(graph, graph_res));
+    spider::core::TaskGraph simple_graph_res{};
+    REQUIRE(storage->get_task_graph(conn, simple_job_id, &simple_graph_res).success());
+    REQUIRE(spider::test::task_graph_equal(simple_graph, simple_graph_res));
+
+    // Get task should succeed
+    spider::core::Task task_res{""};
+    REQUIRE(storage->get_task(conn, child_task.get_id(), &task_res).success());
+    REQUIRE(spider::test::task_equal(child_task, task_res));
+
+    // Get child tasks should succeed
+    std::vector<spider::core::Task> tasks;
+    REQUIRE(storage->get_child_tasks(conn, parent_1.get_id(), &tasks).success());
+    REQUIRE(1 == tasks.size());
+    REQUIRE(spider::test::task_equal(child_task, tasks[0]));
+    tasks.clear();
+
+    // Get parent tasks should succeed
+    REQUIRE(storage->get_parent_tasks(conn, child_task.get_id(), &tasks).success());
+    REQUIRE(2 == tasks.size());
+    REQUIRE(
+            ((spider::test::task_equal(tasks[0], parent_1)
+              && spider::test::task_equal(tasks[1], parent_2))
+             || (spider::test::task_equal(tasks[0], parent_2)
+                 && spider::test::task_equal(tasks[1], parent_1)))
+    );
+
+    // Remove job should succeed
+    REQUIRE(storage->remove_job(conn, simple_job_id).success());
+    REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
+            == storage->get_task_graph(conn, simple_job_id, &simple_graph_res).type);
+    graph_res = spider::core::TaskGraph{};
+    REQUIRE(storage->get_task_graph(conn, job_id, &graph_res).success());
+    REQUIRE(spider::test::task_graph_equal(graph, graph_res));
+    REQUIRE(storage->remove_job(conn, job_id).success());
+}
+
+TEMPLATE_LIST_TEST_CASE(
+        "Job batch add, get and remove",
         "[storage]",
         spider::test::MetadataStorageTypeList
 ) {

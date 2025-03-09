@@ -19,7 +19,7 @@
 #include "../core/TaskGraph.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
-#include "../storage/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "Job.hpp"

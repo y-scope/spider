@@ -23,7 +23,7 @@
 #include "../scheduler/SchedulerMessage.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
 
 namespace spider::worker {
 

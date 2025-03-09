@@ -21,7 +21,8 @@
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "task.hpp"
@@ -63,13 +64,115 @@ public:
      * @throw spider::ConnectionException
      */
     auto wait_complete() -> void {
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_data_storage->get_url());
-        if (std::holds_alternative<core::StorageErr>(conn_result)) {
-            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        if (nullptr == m_conn) {
+            std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                    = core::MySqlConnection::create(m_data_storage->get_url());
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
+            wait_complete_conn(conn);
+        } else {
+            wait_complete_conn(*m_conn);
         }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
+    }
 
+    /**
+     * Cancels the job and waits for the job's tasks to be cancelled.
+     *
+     * @throw spider::ConnectionException
+     */
+    auto cancel();
+
+    /**
+     * @return Status of the job.
+     * @throw spider::ConnectionException
+     */
+    auto get_status() -> JobStatus {
+        core::JobStatus status = core::JobStatus::Running;
+        core::StorageErr err;
+
+        if (nullptr == m_conn) {
+            std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                    = core::MySqlConnection::create(m_data_storage->get_url());
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
+
+            err = m_metadata_storage->get_job_status(conn, m_id, &status);
+        } else {
+            err = m_metadata_storage->get_job_status(*m_conn, m_id, &status);
+        }
+        if (!err.success()) {
+            throw ConnectionException{fmt::format("Failed to get job status: {}", err.description)};
+        }
+        switch (status) {
+            case core::JobStatus::Running:
+                return JobStatus::Running;
+            case core::JobStatus::Succeeded:
+                return JobStatus::Succeeded;
+            case core::JobStatus::Failed:
+                return JobStatus::Failed;
+            case core::JobStatus::Cancelled:
+                return JobStatus::Cancelled;
+        }
+        throw ConnectionException{
+                fmt::format("Unknown job status: {}", static_cast<uint8_t>(status))
+        };
+    }
+
+    /**
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeeded`
+     * state.
+     *
+     * @return Result of the job.
+     * @throw spider::ConnectionException
+     */
+    auto get_result() -> ReturnType {
+        if (nullptr == m_conn) {
+            std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                    = core::MySqlConnection::create(m_data_storage->get_url());
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto& conn = std::get<core::MySqlConnection>(conn_result);
+            return get_result_conn(conn);
+        }
+        return get_result_conn(*m_conn);
+    }
+
+    /**
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
+     * state.
+     *
+     * @return A pair:
+     * - the name of the task function that failed.
+     * - the error message sent from the task through `TaskContext::abort` or from Spider.
+     * @throw spider::ConnectionException
+     */
+    auto get_error() -> std::pair<std::string, std::string> {
+        throw ConnectionException{"Not implemented"};
+    }
+
+private:
+    Job(boost::uuids::uuid id,
+        std::shared_ptr<core::MetadataStorage> metadata_storage,
+        std::shared_ptr<core::DataStorage> data_storage)
+            : m_id{id},
+              m_metadata_storage{std::move(metadata_storage)},
+              m_data_storage{std::move(data_storage)} {}
+
+    Job(boost::uuids::uuid id,
+        std::shared_ptr<core::MetadataStorage> metadata_storage,
+        std::shared_ptr<core::DataStorage> data_storage,
+        std::shared_ptr<core::StorageConnection> conn)
+            : m_id{id},
+              m_metadata_storage{std::move(metadata_storage)},
+              m_data_storage{std::move(data_storage)},
+              m_conn{std::move(conn)} {}
+
+    auto wait_complete_conn(core::StorageConnection& conn) -> void {
         bool complete = false;
         core::StorageErr err = m_metadata_storage->get_job_complete(conn, m_id, &complete);
         if (!err.success()) {
@@ -89,61 +192,8 @@ public:
         }
     }
 
-    /**
-     * Cancels the job and waits for the job's tasks to be cancelled.
-     *
-     * @throw spider::ConnectionException
-     */
-    auto cancel();
-
-    /**
-     * @return Status of the job.
-     * @throw spider::ConnectionException
-     */
-    auto get_status() -> JobStatus {
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_data_storage->get_url());
-        if (std::holds_alternative<core::StorageErr>(conn_result)) {
-            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
-        }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
-
-        core::JobStatus status = core::JobStatus::Running;
-        core::StorageErr const err = m_metadata_storage->get_job_status(conn, m_id, &status);
-        if (!err.success()) {
-            throw ConnectionException{fmt::format("Failed to get job status: {}", err.description)};
-        }
-        switch (status) {
-            case core::JobStatus::Running:
-                return JobStatus::Running;
-            case core::JobStatus::Succeeded:
-                return JobStatus::Succeeded;
-            case core::JobStatus::Failed:
-                return JobStatus::Failed;
-            case core::JobStatus::Cancelled:
-                return JobStatus::Cancelled;
-        }
-        throw ConnectionException{
-                fmt::format("Unknown job status: {}", static_cast<uint8_t>(status))
-        };
-    }
-
     // NOLINTBEGIN(readability-function-cognitive-complexity)
-    /**
-     * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeeded`
-     * state.
-     *
-     * @return Result of the job.
-     * @throw spider::ConnectionException
-     */
-    auto get_result() -> ReturnType {
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_data_storage->get_url());
-        if (std::holds_alternative<core::StorageErr>(conn_result)) {
-            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
-        }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
-
+    auto get_result_conn(core::StorageConnection& conn) -> ReturnType {
         std::vector<boost::uuids::uuid> output_task_ids;
         core::StorageErr err
                 = m_metadata_storage->get_job_output_tasks(conn, m_id, &output_task_ids);
@@ -277,30 +327,10 @@ public:
 
     // NOLINTEND(readability-function-cognitive-complexity)
 
-    /**
-     * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
-     * state.
-     *
-     * @return A pair:
-     * - the name of the task function that failed.
-     * - the error message sent from the task through `TaskContext::abort` or from Spider.
-     * @throw spider::ConnectionException
-     */
-    auto get_error() -> std::pair<std::string, std::string> {
-        throw ConnectionException{"Not implemented"};
-    }
-
-private:
-    Job(boost::uuids::uuid id,
-        std::shared_ptr<core::MetadataStorage> metadata_storage,
-        std::shared_ptr<core::DataStorage> data_storage)
-            : m_id{id},
-              m_metadata_storage{std::move(metadata_storage)},
-              m_data_storage{std::move(data_storage)} {}
-
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
+    std::shared_ptr<core::StorageConnection> m_conn;
 
     friend class Driver;
     friend class TaskContext;

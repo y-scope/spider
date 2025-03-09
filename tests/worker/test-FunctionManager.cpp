@@ -17,7 +17,7 @@
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../../src/spider/storage/MySqlConnection.hpp"
+#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/FunctionNameManager.hpp"
 #include "../storage/StorageTestHelper.hpp"

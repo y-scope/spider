@@ -12,6 +12,7 @@
 #include "../core/JobMetadata.hpp"
 #include "../core/Task.hpp"
 #include "../core/TaskGraph.hpp"
+#include "JobSubmissionBatch.hpp"
 #include "StorageConnection.hpp"
 
 namespace spider::core {
@@ -34,6 +35,13 @@ public:
 
     virtual auto add_job(
             StorageConnection& conn,
+            boost::uuids::uuid job_id,
+            boost::uuids::uuid client_id,
+            TaskGraph const& task_graph
+    ) -> StorageErr = 0;
+    virtual auto add_job_batch(
+            StorageConnection& conn,
+            JobSubmissionBatch& batch,
             boost::uuids::uuid job_id,
             boost::uuids::uuid client_id,
             TaskGraph const& task_graph

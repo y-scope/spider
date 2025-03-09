@@ -8,8 +8,8 @@
 
 #include <mariadb/conncpp/Connection.hpp>
 
-#include "../core/Error.hpp"
-#include "StorageConnection.hpp"
+#include "../../core/Error.hpp"
+#include "../StorageConnection.hpp"
 
 namespace spider::core {
 

@@ -38,8 +38,8 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MySqlConnection.hpp"
-#include "../storage/MySqlStorage.hpp"
+#include "../storage/mysql/MySqlConnection.hpp"
+#include "../storage/mysql/MySqlStorage.hpp"
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
