@@ -12,7 +12,6 @@
 #include <spdlog/spdlog.h>
 
 #include "../core/Error.hpp"
-#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
@@ -160,17 +159,7 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
             = m_policy->schedule_next(request.get_worker_id(), request.get_worker_addr());
     ScheduleTaskResponse response{};
     if (task_id.has_value()) {
-        core::TaskInstance const instance{task_id.value()};
-        core::StorageErr const err = m_metadata_store->create_task_instance(m_conn, instance);
-        if (err.success()) {
-            response = ScheduleTaskResponse{task_id.value(), instance.id};
-        } else {
-            spdlog::error(
-                    "Cannot create task instance {}: {}",
-                    boost::uuids::to_string(task_id.value()),
-                    err.description
-            );
-        }
+        response = ScheduleTaskResponse{task_id.value()};
     }
     msgpack::sbuffer response_buffer;
     msgpack::pack(response_buffer, response);

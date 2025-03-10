@@ -108,7 +108,7 @@ TEMPLATE_LIST_TEST_CASE(
         spider::scheduler::ScheduleTaskResponse const res
                 = object.as<spider::scheduler::ScheduleTaskResponse>();
         REQUIRE(res.has_task_id());
-        REQUIRE(std::get<0>(res.get_task_ids()) == parent_task.get_id());
+        REQUIRE(res.get_task_id() == parent_task.get_id());
     }
     socket.close();
     server.stop();
