@@ -66,16 +66,28 @@ TEMPLATE_LIST_TEST_CASE(
 
     spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
 
-    // Scheduler the earlier task
-    std::optional<boost::uuids::uuid> const optional_task_id = policy.schedule_next(gen(), "");
+    // Schedule the earlier task
+    std::optional<boost::uuids::uuid> optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());
     if (optional_task_id.has_value()) {
         boost::uuids::uuid const& task_id = optional_task_id.value();
         REQUIRE(task_id == task_1.get_id());
     }
 
+    // Schedule the later task
+    optional_task_id = policy.schedule_next(gen(), "");
+    REQUIRE(optional_task_id.has_value());
+    if (optional_task_id.has_value()) {
+        boost::uuids::uuid const& task_id = optional_task_id.value();
+        REQUIRE(task_id == task_2.get_id());
+    }
+
     REQUIRE(metadata_store->remove_job(conn, job_id_1).success());
     REQUIRE(metadata_store->remove_job(conn, job_id_2).success());
+
+    // Schedule when no task available
+    optional_task_id = policy.schedule_next(gen(), "");
+    REQUIRE(!optional_task_id.has_value());
 }
 
 TEMPLATE_LIST_TEST_CASE(
