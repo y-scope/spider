@@ -50,6 +50,7 @@ enum MariadbErr : uint16_t {
     ErWrongDbName = 1102,
     ErWrongTableName = 1103,
     ErUnknownTable = 1109,
+    ErDeadLock = 1213,
 };
 
 namespace spider::core {
@@ -1347,8 +1348,8 @@ auto MySqlMetadataStorage::create_task_instance(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
                         "SELECT `t1`.`id` FROM `task_instances` as `t1` JOIN `tasks` ON "
                         "`t1`.`task_id` = `tasks`.`id` WHERE `t1`.`task_id` = ? AND "
-                        "`tasks`.`timeout` < 0.0001 AND TIMESTAMPDIFF(MICROSECOND, "
-                        "`t1`.`start_time`, CURRENT_TIMESTAMP()) < `tasks`.`timeout` * 1000"
+                        "(`tasks`.`timeout` < 0.0001 OR TIMESTAMPDIFF(MICROSECOND, "
+                        "`t1`.`start_time`, CURRENT_TIMESTAMP()) < `tasks`.`timeout` * 1000)"
                 )
         );
         not_timeout_statement->setBytes(1, &id_bytes);
@@ -1481,6 +1482,9 @@ auto MySqlMetadataStorage::task_finish(
         static_cast<MySqlConnection&>(conn)->rollback();
         if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
             return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
+        }
+        if (e.getErrorCode() == ErDeadLock) {
+            return StorageErr{StorageErrType::DeadLockErr, e.what()};
         }
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
