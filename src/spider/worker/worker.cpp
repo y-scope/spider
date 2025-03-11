@@ -340,7 +340,20 @@ auto task_loop(
         std::vector<spider::core::TaskOutput> const& outputs = optional_outputs.value();
         // Submit result
         spdlog::debug("Submitting result for task {}", boost::uuids::to_string(task_id));
-        err = metadata_store->task_finish(conn, instance, outputs);
+        for (int i = 0; i < cRetryCount; ++i) {
+            err = metadata_store->task_finish(conn, instance, outputs);
+            if (err.success()) {
+                break;
+            }
+            if (spider::core::StorageErrType::DeakLockErr != err.type) {
+                spdlog::error(
+                        "Submit task {} fails: {}",
+                        task.get_function_name(),
+                        err.description
+                );
+                break;
+            }
+        }
         fail_task_id = std::nullopt;
         if (!err.success()) {
             spdlog::error("Submit task {} fails: {}", task.get_function_name(), err.description);
