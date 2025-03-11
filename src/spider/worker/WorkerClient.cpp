@@ -17,6 +17,7 @@
 
 #include "../core/Driver.hpp"
 #include "../core/Error.hpp"
+#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
@@ -112,7 +113,23 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         if (!response.has_task_id()) {
             return std::nullopt;
         }
-        return response.get_task_ids();
+        boost::uuids::uuid const task_id = response.get_task_id();
+        std::variant<core::MySqlConnection, core::StorageErr> conn_result
+                = core::MySqlConnection::create(m_metadata_store->get_url());
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            spdlog::error(
+                    "Failed to connect to storage: {}",
+                    std::get<core::StorageErr>(conn_result).description
+            );
+            return std::nullopt;
+        }
+        auto& conn = std::get<core::MySqlConnection>(conn_result);
+        core::TaskInstance const instance{task_id};
+        core::StorageErr const err = m_metadata_store->create_task_instance(conn, instance);
+        if (!err.success()) {
+            return std::nullopt;
+        }
+        return std::make_tuple(task_id, instance.id);
     } catch (boost::system::system_error const& e) {
         return std::nullopt;
     } catch (std::runtime_error const& e) {
