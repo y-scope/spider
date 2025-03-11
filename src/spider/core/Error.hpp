@@ -13,7 +13,7 @@ enum class StorageErrType : std::uint8_t {
     KeyNotFoundErr,
     DuplicateKeyErr,
     ConstraintViolationErr,
-    DeakLockErr,
+    DeadLockErr,
     OtherErr
 };
 

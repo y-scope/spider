@@ -50,7 +50,7 @@ enum MariadbErr : uint16_t {
     ErWrongDbName = 1102,
     ErWrongTableName = 1103,
     ErUnknownTable = 1109,
-    ErDeakLock = 1213,
+    ErDeadLock = 1213,
 };
 
 namespace spider::core {
@@ -1483,8 +1483,8 @@ auto MySqlMetadataStorage::task_finish(
         if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
             return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
         }
-        if (e.getErrorCode() == ErDeakLock) {
-            return StorageErr{StorageErrType::DeakLockErr, e.what()};
+        if (e.getErrorCode() == ErDeadLock) {
+            return StorageErr{StorageErrType::DeadLockErr, e.what()};
         }
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }

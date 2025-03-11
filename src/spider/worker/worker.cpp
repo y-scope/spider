@@ -345,7 +345,7 @@ auto task_loop(
             if (err.success()) {
                 break;
             }
-            if (spider::core::StorageErrType::DeakLockErr != err.type) {
+            if (spider::core::StorageErrType::DeadLockErr != err.type) {
                 spdlog::error(
                         "Submit task {} fails: {}",
                         task.get_function_name(),
