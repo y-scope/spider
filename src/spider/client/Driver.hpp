@@ -18,9 +18,8 @@
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
 #include "../storage/JobSubmissionBatch.hpp"
-#include "../storage/mysql/MySqlConnection.hpp"
-#include "../storage/mysql/MySqlJobSubmissionBatch.hpp"
 #include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"
@@ -147,10 +146,7 @@ public:
         if (nullptr != m_batch) {
             return;
         }
-        m_batch = std::make_shared<core::MySqlJobSubmissionBatch>(
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-                static_cast<core::MySqlConnection&>(*m_conn)
-        );
+        m_batch = m_storage_factory->provide_job_submission_batch(*m_conn);
     }
 
     /**
@@ -224,7 +220,13 @@ public:
             }
         }
 
-        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage, m_conn};
+        return Job<ReturnType>{
+                job_id,
+                m_metadata_storage,
+                m_data_storage,
+                m_storage_factory,
+                m_conn
+        };
     }
 
     /**
@@ -268,7 +270,13 @@ public:
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage, m_conn};
+        return Job<ReturnType>{
+                job_id,
+                m_metadata_storage,
+                m_data_storage,
+                m_storage_factory,
+                m_conn
+        };
     }
 
     /**
@@ -293,6 +301,7 @@ private:
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
+    std::shared_ptr<core::StorageFactory> m_storage_factory;
     std::shared_ptr<core::StorageConnection> m_conn;
     std::shared_ptr<core::JobSubmissionBatch> m_batch{nullptr};
     std::jthread m_heartbeat_thread;

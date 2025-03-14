@@ -21,8 +21,8 @@
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlConnection.hpp"
 #include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "task.hpp"
@@ -65,13 +65,13 @@ public:
      */
     auto wait_complete() -> void {
         if (nullptr == m_conn) {
-            std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                    = core::MySqlConnection::create(m_data_storage->get_url());
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto& conn = std::get<core::MySqlConnection>(conn_result);
-            wait_complete_conn(conn);
+            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            wait_complete_conn(*conn);
         } else {
             wait_complete_conn(*m_conn);
         }
@@ -93,14 +93,14 @@ public:
         core::StorageErr err;
 
         if (nullptr == m_conn) {
-            std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                    = core::MySqlConnection::create(m_data_storage->get_url());
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto& conn = std::get<core::MySqlConnection>(conn_result);
+            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
 
-            err = m_metadata_storage->get_job_status(conn, m_id, &status);
+            err = m_metadata_storage->get_job_status(*conn, m_id, &status);
         } else {
             err = m_metadata_storage->get_job_status(*m_conn, m_id, &status);
         }
@@ -131,13 +131,14 @@ public:
      */
     auto get_result() -> ReturnType {
         if (nullptr == m_conn) {
-            std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                    = core::MySqlConnection::create(m_data_storage->get_url());
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto& conn = std::get<core::MySqlConnection>(conn_result);
-            return get_result_conn(conn);
+            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+
+            return get_result_conn(*conn);
         }
         return get_result_conn(*m_conn);
     }
@@ -158,18 +159,22 @@ public:
 private:
     Job(boost::uuids::uuid id,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
-        std::shared_ptr<core::DataStorage> data_storage)
+        std::shared_ptr<core::DataStorage> data_storage,
+        std::shared_ptr<core::StorageFactory> storage_factory)
             : m_id{id},
               m_metadata_storage{std::move(metadata_storage)},
-              m_data_storage{std::move(data_storage)} {}
+              m_data_storage{std::move(data_storage)},
+              m_storage_factory{std::move(storage_factory)} {}
 
     Job(boost::uuids::uuid id,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
         std::shared_ptr<core::DataStorage> data_storage,
+        std::shared_ptr<core::StorageFactory> storage_factory,
         std::shared_ptr<core::StorageConnection> conn)
             : m_id{id},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
+              m_storage_factory{std::move(storage_factory)},
               m_conn{std::move(conn)} {}
 
     auto wait_complete_conn(core::StorageConnection& conn) -> void {
@@ -330,6 +335,7 @@ private:
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
+    std::shared_ptr<core::StorageFactory> m_storage_factory;
     std::shared_ptr<core::StorageConnection> m_conn;
 
     friend class Driver;
