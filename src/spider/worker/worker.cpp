@@ -38,8 +38,9 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlConnection.hpp"
-#include "../storage/mysql/MySqlStorage.hpp"
+#include "../storage/mysql/MySqlStorageFactory.hpp"
+#include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
@@ -100,6 +101,7 @@ auto get_environment_variable() -> absl::flat_hash_map<
 }
 
 auto heartbeat_loop(
+        std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::core::Driver const& driver,
         spider::core::StopToken& stop_token
@@ -108,20 +110,21 @@ auto heartbeat_loop(
     while (!stop_token.stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
-        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(metadata_store->get_url());
+        std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+                conn_result = storage_factory->provide_storage_connection();
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
-                    "Failed to connection to storage: {}",
+                    "Failed to connect to storage: {}",
                     std::get<spider::core::StorageErr>(conn_result).description
             );
             fail_count++;
             continue;
         }
-        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        ));
 
         spider::core::StorageErr const err
-                = metadata_store->update_heartbeat(conn, driver.get_id());
+                = metadata_store->update_heartbeat(*conn, driver.get_id());
         if (!err.success()) {
             spdlog::error("Failed to update scheduler heartbeat: {}", err.description);
             fail_count++;
@@ -219,8 +222,10 @@ auto parse_outputs(
 
 // NOLINTBEGIN(clang-analyzer-unix.BlockInCriticalSection)
 auto task_loop(
+        std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::worker::WorkerClient& client,
+        std::string const& storage_url,
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
@@ -242,17 +247,20 @@ auto task_loop(
 
         {
             // Keep the scope of RAII storage connection
-            std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                    = spider::core::MySqlConnection::create(metadata_store->get_url());
+            std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+                    conn_result = storage_factory->provide_storage_connection();
             if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
                 spdlog::error(
-                        "Failed to connection to storage: {}",
+                        "Failed to connect to storage: {}",
                         std::get<spider::core::StorageErr>(conn_result).description
                 );
                 continue;
             }
-            auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
-            err = metadata_store->get_task(conn, task_id, &task);
+            auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(
+                    std::move(conn_result)
+            );
+
+            err = metadata_store->get_task(*conn, task_id, &task);
             if (!err.success()) {
                 spdlog::error("Failed to fetch task detail: {}", err.description);
                 continue;
@@ -262,7 +270,7 @@ auto task_loop(
             optional_args_buffers = get_args_buffers(task);
             if (!optional_args_buffers.has_value()) {
                 metadata_store->task_fail(
-                        conn,
+                        *conn,
                         instance,
                         fmt::format("Task {} failed to parse arguments", task.get_function_name())
                 );
@@ -276,7 +284,7 @@ auto task_loop(
                 context,
                 task.get_function_name(),
                 task.get_id(),
-                metadata_store->get_url(),
+                storage_url,
                 libs,
                 environment,
                 args_buffers
@@ -285,20 +293,22 @@ auto task_loop(
         context.run();
         executor.wait();
 
-        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(metadata_store->get_url());
+        std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+                conn_result = storage_factory->provide_storage_connection();
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
-                    "Failed to connection to storage: {}",
+                    "Failed to connect to storage: {}",
                     std::get<spider::core::StorageErr>(conn_result).description
             );
             continue;
         }
-        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        ));
+
         if (!executor.succeed()) {
             spdlog::warn("Task {} failed", task.get_function_name());
             metadata_store->task_fail(
-                    conn,
+                    *conn,
                     instance,
                     fmt::format("Task {} failed", task.get_function_name())
             );
@@ -312,7 +322,7 @@ auto task_loop(
         if (!optional_result_buffers.has_value()) {
             spdlog::error("Task {} failed to parse result into buffers", task.get_function_name());
             metadata_store->task_fail(
-                    conn,
+                    *conn,
                     instance,
                     fmt::format(
                             "Task {} failed to parse result into buffers",
@@ -327,7 +337,7 @@ auto task_loop(
                 = parse_outputs(task, result_buffers);
         if (!optional_outputs.has_value()) {
             metadata_store->task_fail(
-                    conn,
+                    *conn,
                     instance,
                     fmt::format(
                             "Task {} failed to parse result into TaskOutput",
@@ -341,7 +351,7 @@ auto task_loop(
         // Submit result
         spdlog::debug("Submitting result for task {}", boost::uuids::to_string(task_id));
         for (int i = 0; i < cRetryCount; ++i) {
-            err = metadata_store->task_finish(conn, instance, outputs);
+            err = metadata_store->task_finish(*conn, instance, outputs);
             if (err.success()) {
                 break;
             }
@@ -404,27 +414,31 @@ auto main(int argc, char** argv) -> int {
     }
 
     // Create storage
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
+            = std::make_shared<spider::core::MySqlStorageFactory>(storage_url);
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
+            = storage_factory->provide_metadata_storage();
     std::shared_ptr<spider::core::DataStorage> const data_store
-            = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
+            = storage_factory->provide_data_storage();
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const worker_id = gen();
     spider::core::Driver driver{worker_id};
 
     {  // Keep the scope of RAII storage connection
-        std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-                = spider::core::MySqlConnection::create(storage_url);
+        std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+                conn_result = storage_factory->provide_storage_connection();
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
             spdlog::error(
-                    "Failed to connection to storage: {}",
+                    "Failed to connect to storage: {}",
                     std::get<spider::core::StorageErr>(conn_result).description
             );
             return cStorageErr;
         }
-        auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
-        spider::core::StorageErr const err = metadata_store->add_driver(conn, driver);
+        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        ));
+
+        spider::core::StorageErr const err = metadata_store->add_driver(*conn, driver);
         if (!err.success()) {
             spdlog::error("Cannot add driver to metadata storage: {}", err.description);
             return cStorageErr;
@@ -434,7 +448,8 @@ auto main(int argc, char** argv) -> int {
     spider::core::StopToken stop_token;
 
     // Start client
-    spider::worker::WorkerClient client{worker_id, worker_addr, data_store, metadata_store};
+    spider::worker::WorkerClient
+            client{worker_id, worker_addr, data_store, metadata_store, storage_factory};
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
@@ -444,6 +459,7 @@ auto main(int argc, char** argv) -> int {
     // Start a thread that periodically updates the scheduler's heartbeat
     std::thread heartbeat_thread{
             heartbeat_loop,
+            std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
             std::ref(stop_token)
@@ -452,8 +468,10 @@ auto main(int argc, char** argv) -> int {
     // Start a thread that processes tasks
     std::thread task_thread{
             task_loop,
+            std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(client),
+            std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
             std::cref(stop_token),

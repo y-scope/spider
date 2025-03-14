@@ -24,7 +24,8 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlStorage.hpp"
+#include "../storage/mysql/MySqlStorageFactory.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
@@ -122,10 +123,12 @@ auto main(int const argc, char** argv) -> int {
         boost::uuids::uuid const task_id = gen(task_id_string);
 
         // Set up storage
+        std::shared_ptr<spider::core::StorageFactory> const storage_factory
+                = std::make_shared<spider::core::MySqlStorageFactory>(storage_url);
         std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-                = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
+                = storage_factory->provide_metadata_storage();
         std::shared_ptr<spider::core::DataStorage> const data_store
-                = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
+                = storage_factory->provide_data_storage();
 
         // Set up asio
         boost::asio::io_context context;
@@ -167,7 +170,8 @@ auto main(int const argc, char** argv) -> int {
         spider::TaskContext task_context = spider::core::TaskContextImpl::create_task_context(
                 task_id,
                 data_store,
-                metadata_store
+                metadata_store,
+                storage_factory
         );
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");

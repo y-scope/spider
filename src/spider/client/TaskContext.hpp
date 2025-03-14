@@ -236,11 +236,13 @@ private:
     TaskContext(
             boost::uuids::uuid const task_id,
             std::shared_ptr<core::DataStorage> data_store,
-            std::shared_ptr<core::MetadataStorage> metadata_store
+            std::shared_ptr<core::MetadataStorage> metadata_store,
+            std::shared_ptr<core::StorageFactory> storage_factory
     )
             : m_task_id{task_id},
               m_data_store{std::move(data_store)},
-              m_metadata_store{std::move(metadata_store)} {}
+              m_metadata_store{std::move(metadata_store)},
+              m_storage_factory{std::move(storage_factory)} {}
 
     auto get_data_store() -> std::shared_ptr<core::DataStorage> { return m_data_store; }
 

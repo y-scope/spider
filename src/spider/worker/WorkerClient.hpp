@@ -11,6 +11,7 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageFactory.hpp"
 
 namespace spider::worker {
 class WorkerClient {
@@ -26,7 +27,8 @@ public:
             boost::uuids::uuid worker_id,
             std::string worker_addr,
             std::shared_ptr<core::DataStorage> data_store,
-            std::shared_ptr<core::MetadataStorage> metadata_store
+            std::shared_ptr<core::MetadataStorage> metadata_store,
+            std::shared_ptr<core::StorageFactory> storage_factory
     );
 
     auto get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
@@ -38,6 +40,7 @@ private:
 
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
+    std::shared_ptr<core::StorageFactory> m_storage_factory;
 };
 }  // namespace spider::worker
 #endif  // SPIDER_WORKER_WORKERCLIENT_HPP

@@ -24,7 +24,8 @@
 #include "../scheduler/SchedulerMessage.hpp"
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlConnection.hpp"
+#include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 
 namespace spider::worker {
 
@@ -32,12 +33,14 @@ WorkerClient::WorkerClient(
         boost::uuids::uuid const worker_id,
         std::string worker_addr,
         std::shared_ptr<core::DataStorage> data_store,
-        std::shared_ptr<core::MetadataStorage> metadata_store
+        std::shared_ptr<core::MetadataStorage> metadata_store,
+        std::shared_ptr<core::StorageFactory> storage_factory
 )
         : m_worker_id{worker_id},
           m_worker_addr{std::move(worker_addr)},
           m_data_store(std::move(data_store)),
-          m_metadata_store(std::move(metadata_store)) {}
+          m_metadata_store(std::move(metadata_store)),
+          m_storage_factory(std::move(storage_factory)) {}
 
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
 ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
@@ -45,8 +48,8 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
     std::vector<core::Scheduler> schedulers;
 
     {  // Keep the scope for RAII storage connection
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_metadata_store->get_url());
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             spdlog::error(
                     "Failed to connect to storage: {}",
@@ -54,8 +57,8 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             );
             return std::nullopt;
         }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
-        if (!m_metadata_store->get_active_scheduler(conn, &schedulers).success()) {
+        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+        if (!m_metadata_store->get_active_scheduler(*conn, &schedulers).success()) {
             return std::nullopt;
         }
     }
@@ -114,8 +117,9 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             return std::nullopt;
         }
         boost::uuids::uuid const task_id = response.get_task_id();
-        std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                = core::MySqlConnection::create(m_metadata_store->get_url());
+
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             spdlog::error(
                     "Failed to connect to storage: {}",
@@ -123,9 +127,10 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             );
             return std::nullopt;
         }
-        auto& conn = std::get<core::MySqlConnection>(conn_result);
+        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+
         core::TaskInstance const instance{task_id};
-        core::StorageErr const err = m_metadata_store->create_task_instance(conn, instance);
+        core::StorageErr const err = m_metadata_store->create_task_instance(*conn, instance);
         if (!err.success()) {
             return std::nullopt;
         }
