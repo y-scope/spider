@@ -4,7 +4,6 @@
 #include <memory>
 #include <optional>
 #include <thread>
-#include <tuple>
 #include <utility>
 #include <variant>
 
@@ -31,16 +30,17 @@ TEMPLATE_LIST_TEST_CASE(
         "[scheduler][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::shared_ptr<spider::core::StorageFactory> storage_factory
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = spider::test::create_storage_factory<TestType>();
-    std::shared_ptr<spider::core::MetadataStorage> metadata_store
+    std::shared_ptr<spider::core::MetadataStorage> const metadata_store
             = storage_factory->provide_metadata_storage();
-    std::shared_ptr<spider::core::DataStorage> data_store = storage_factory->provide_data_storage();
+    std::shared_ptr<spider::core::DataStorage> const data_store
+            = storage_factory->provide_data_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    std::shared_ptr<spider::core::StorageConnection> conn
+    std::shared_ptr<spider::core::StorageConnection> const conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
@@ -93,16 +93,17 @@ TEMPLATE_LIST_TEST_CASE(
         "[scheduler][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::shared_ptr<spider::core::StorageFactory> storage_factory
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = spider::test::create_storage_factory<TestType>();
-    std::shared_ptr<spider::core::MetadataStorage> metadata_store
+    std::shared_ptr<spider::core::MetadataStorage> const metadata_store
             = storage_factory->provide_metadata_storage();
-    std::shared_ptr<spider::core::DataStorage> data_store = storage_factory->provide_data_storage();
+    std::shared_ptr<spider::core::DataStorage> const data_store
+            = storage_factory->provide_data_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    std::shared_ptr<spider::core::StorageConnection> conn
+    std::shared_ptr<spider::core::StorageConnection> const conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
@@ -142,16 +143,17 @@ TEMPLATE_LIST_TEST_CASE(
         "[scheduler][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::shared_ptr<spider::core::StorageFactory> storage_factory
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = spider::test::create_storage_factory<TestType>();
-    std::shared_ptr<spider::core::MetadataStorage> metadata_store
+    std::shared_ptr<spider::core::MetadataStorage> const metadata_store
             = storage_factory->provide_metadata_storage();
-    std::shared_ptr<spider::core::DataStorage> data_store = storage_factory->provide_data_storage();
+    std::shared_ptr<spider::core::DataStorage> const data_store
+            = storage_factory->provide_data_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    std::shared_ptr<spider::core::StorageConnection> conn
+    std::shared_ptr<spider::core::StorageConnection> const conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     // Add task

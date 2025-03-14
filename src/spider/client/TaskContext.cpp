@@ -12,7 +12,6 @@
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
 #include "Exception.hpp"
 
 namespace spider {

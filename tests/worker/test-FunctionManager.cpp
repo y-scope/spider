@@ -159,11 +159,11 @@ TEMPLATE_LIST_TEST_CASE(
         "[core][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::shared_ptr<spider::core::StorageFactory> storage_factory
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = spider::test::create_storage_factory<TestType>();
-    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+    std::shared_ptr<spider::core::MetadataStorage> const metadata_storage
             = storage_factory->provide_metadata_storage();
-    std::shared_ptr<spider::core::DataStorage> data_storage
+    std::shared_ptr<spider::core::DataStorage> const data_storage
             = storage_factory->provide_data_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>

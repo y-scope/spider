@@ -6,7 +6,6 @@
 #include <memory>
 #include <string>
 #include <tuple>
-#include <utility>
 
 #include "../../src/spider/storage/mysql/MySqlStorageFactory.hpp"
 #include "../../src/spider/storage/StorageFactory.hpp"

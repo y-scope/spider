@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -22,7 +23,8 @@
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
+#include "../../src/spider/storage/StorageConnection.hpp"
+#include "../../src/spider/storage/StorageFactory.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/TaskExecutor.hpp"
 #include "../storage/StorageTestHelper.hpp"
@@ -155,11 +157,11 @@ TEMPLATE_LIST_TEST_CASE(
         "[worker][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::shared_ptr<spider::core::StorageFactory> storage_factory
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = spider::test::create_storage_factory<TestType>();
-    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+    std::shared_ptr<spider::core::MetadataStorage> const metadata_storage
             = storage_factory->provide_metadata_storage();
-    std::shared_ptr<spider::core::DataStorage> data_storage
+    std::shared_ptr<spider::core::DataStorage> const data_storage
             = storage_factory->provide_data_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>

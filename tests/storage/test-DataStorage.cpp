@@ -1,5 +1,6 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-#include <tuple>
+#include <memory>
+#include <utility>
 #include <variant>
 
 #include <boost/uuid/random_generator.hpp>
@@ -13,6 +14,8 @@
 #include "../../src/spider/core/KeyValueData.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
+#include "../../src/spider/storage/DataStorage.hpp"
+#include "../../src/spider/storage/MetadataStorage.hpp"
 #include "../../src/spider/storage/StorageConnection.hpp"
 #include "../../src/spider/storage/StorageFactory.hpp"
 #include "../utils/CoreDataUtils.hpp"
