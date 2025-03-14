@@ -26,7 +26,8 @@ auto MySqlStorageFactory::provide_metadata_storage() -> std::unique_ptr<Metadata
 
 auto MySqlStorageFactory::provide_storage_connection(
 ) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> {
-    std::variant<std::unique_ptr<StorageConnection>, StorageErr> connection = MySqlConnection::create(m_url);
+    std::variant<std::unique_ptr<StorageConnection>, StorageErr> connection
+            = MySqlConnection::create(m_url);
     if (std::holds_alternative<StorageErr>(connection)) {
         return std::get<StorageErr>(connection);
     }

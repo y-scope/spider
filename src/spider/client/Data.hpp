@@ -116,7 +116,6 @@ public:
          * @throw spider::ConnectionException
          */
         auto build(T const& t) -> Data {
-            std::cerr << "Building data\n";
             msgpack::sbuffer buffer;
             msgpack::pack(buffer, t);
             auto data = std::make_unique<core::Data>(std::string{buffer.data(), buffer.size()});

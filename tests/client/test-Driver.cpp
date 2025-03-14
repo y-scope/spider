@@ -37,9 +37,7 @@ TEMPLATE_LIST_TEST_CASE(
 TEMPLATE_LIST_TEST_CASE("Driver data", "[client][storage]", spider::test::StorageFactoryTypeList) {
     std::string const storage_url = spider::test::get_storage_url<TestType>();
     spider::Driver driver{storage_url};
-    std::cerr << "Driver created" << std::endl;
     spider::Data<int> const data = driver.get_data_builder<int>().build(1);
-    std::cerr << "Data created" << std::endl;
 }
 
 auto sum(spider::TaskContext&, int x, int y) -> int {
