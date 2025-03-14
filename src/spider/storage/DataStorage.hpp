@@ -14,10 +14,10 @@ namespace spider::core {
 class DataStorage {
 public:
     DataStorage() = default;
-    DataStorage(DataStorage const&) = delete;
-    DataStorage(DataStorage&&) = delete;
-    auto operator=(DataStorage const&) -> DataStorage& = delete;
-    auto operator=(DataStorage&&) -> DataStorage& = delete;
+    DataStorage(DataStorage const&) = default;
+    auto operator=(DataStorage const&) -> DataStorage& = default;
+    DataStorage(DataStorage&&) = default;
+    auto operator=(DataStorage&&) -> DataStorage& = default;
     virtual ~DataStorage() = default;
 
     virtual auto initialize(StorageConnection& conn) -> StorageErr = 0;
@@ -74,8 +74,6 @@ public:
             std::string const& key,
             std::string* value
     ) -> StorageErr = 0;
-
-    [[nodiscard]] virtual auto get_url() const -> std::string const& = 0;
 };
 }  // namespace spider::core
 

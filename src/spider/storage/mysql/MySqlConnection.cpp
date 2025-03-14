@@ -13,10 +13,12 @@
 #include <spdlog/spdlog.h>
 
 #include "../../core/Error.hpp"
+#include "../StorageConnection.hpp"
 
 namespace spider::core {
 
-auto MySqlConnection::create(std::string const& url) -> std::variant<MySqlConnection, StorageErr> {
+auto MySqlConnection::create(std::string const& url
+) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> {
     // Validate jdbc url
     std::regex const url_regex(R"(jdbc:mariadb://[^?]+(\?user=([^&]*)(&password=([^&]*))?)?)");
     std::smatch match;
@@ -27,7 +29,7 @@ auto MySqlConnection::create(std::string const& url) -> std::variant<MySqlConnec
         sql::Properties const properties{{{"useBulkStmts", "true"}}};
         std::unique_ptr<sql::Connection> conn{sql::DriverManager::getConnection(url, properties)};
         conn->setAutoCommit(false);
-        return MySqlConnection{std::move(conn)};
+        return std::unique_ptr<StorageConnection>(new MySqlConnection{std::move(conn)});
     } catch (sql::SQLException& e) {
         return StorageErr{StorageErrType::ConnectionErr, e.what()};
     }

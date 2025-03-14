@@ -16,27 +16,26 @@
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../storage/mysql/MySqlConnection.hpp"
-#include "../storage/mysql/MySqlStorage.hpp"
+#include "../storage/mysql/MySqlStorageFactory.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {
 
-Driver::Driver(std::string const& storage_url) {
+Driver::Driver(std::string const& storage_url)
+        : m_storage_factory{std::make_shared<core::MySqlStorageFactory>(storage_url)} {
     boost::uuids::random_generator gen;
     m_id = gen();
 
-    m_metadata_storage = std::make_shared<core::MySqlMetadataStorage>(storage_url);
-    m_data_storage = std::make_shared<core::MySqlDataStorage>(storage_url);
+    m_metadata_storage = m_storage_factory->provide_metadata_storage();
+    m_data_storage = m_storage_factory->provide_data_storage();
 
-    std::variant<core::MySqlConnection, core::StorageErr> conn_result
-            = core::MySqlConnection::create(storage_url);
+    std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+            = m_storage_factory->provide_storage_connection();
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    m_conn = std::make_shared<core::MySqlConnection>(
-            std::get<core::MySqlConnection>(std::move(conn_result))
-    );
+    m_conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
     if (!err.success()) {
@@ -51,14 +50,14 @@ Driver::Driver(std::string const& storage_url) {
     m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
         while (!stoken.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                    = core::MySqlConnection::create(m_metadata_storage->get_url());
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto& conn = std::get<core::MySqlConnection>(conn_result);
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
-            core::StorageErr const err = m_metadata_storage->update_heartbeat(conn, m_id);
+            core::StorageErr const err = m_metadata_storage->update_heartbeat(*conn, m_id);
             if (!err.success()) {
                 throw ConnectionException(err.description);
             }
@@ -66,17 +65,18 @@ Driver::Driver(std::string const& storage_url) {
     });
 }
 
-Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_id{id} {
-    m_metadata_storage = std::make_shared<core::MySqlMetadataStorage>(storage_url);
-    m_data_storage = std::make_shared<core::MySqlDataStorage>(storage_url);
-    std::variant<core::MySqlConnection, core::StorageErr> conn_result
-            = core::MySqlConnection::create(storage_url);
+Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id)
+        : m_id{id},
+          m_storage_factory{std::make_shared<core::MySqlStorageFactory>(storage_url)} {
+    m_metadata_storage = m_storage_factory->provide_metadata_storage();
+    m_data_storage = m_storage_factory->provide_data_storage();
+
+    std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+            = m_storage_factory->provide_storage_connection();
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    m_conn = std::make_shared<core::MySqlConnection>(
-            std::get<core::MySqlConnection>(std::move(conn_result))
-    );
+    m_conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
     if (!err.success()) {
@@ -91,14 +91,14 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id) : m_
     m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
         while (!stoken.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                    = core::MySqlConnection::create(m_metadata_storage->get_url());
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto& conn = std::get<core::MySqlConnection>(conn_result);
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
-            core::StorageErr const err = m_metadata_storage->update_heartbeat(conn, m_id);
+            core::StorageErr const err = m_metadata_storage->update_heartbeat(*conn, m_id);
             if (!err.success()) {
                 throw ConnectionException(err.description);
             }

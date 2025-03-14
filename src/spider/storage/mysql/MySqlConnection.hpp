@@ -13,11 +13,12 @@
 
 namespace spider::core {
 
+// Forward declaration for friend class
+class MySqlStorageFactory;
+
 // RAII class for MySQL connection
 class MySqlConnection : public StorageConnection {
 public:
-    static auto create(std::string const& url) -> std::variant<MySqlConnection, StorageErr>;
-
     // Delete copy constructor and copy assignment operator
     MySqlConnection(MySqlConnection const&) = delete;
     auto operator=(MySqlConnection const&) -> MySqlConnection& = delete;
@@ -25,15 +26,20 @@ public:
     MySqlConnection(MySqlConnection&&) = default;
     auto operator=(MySqlConnection&&) -> MySqlConnection& = default;
 
-    ~MySqlConnection();
+    ~MySqlConnection() override;
 
     auto operator*() const -> sql::Connection&;
     auto operator->() const -> sql::Connection*;
 
 private:
+    static auto create(std::string const& url
+    ) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr>;
+
     explicit MySqlConnection(std::unique_ptr<sql::Connection> conn)
             : m_connection{std::move(conn)} {};
     std::unique_ptr<sql::Connection> m_connection;
+
+    friend class MySqlStorageFactory;
 };
 
 }  // namespace spider::core

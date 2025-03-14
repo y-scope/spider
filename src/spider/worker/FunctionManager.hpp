@@ -26,7 +26,7 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
-#include "../storage/mysql/MySqlConnection.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -283,8 +283,8 @@ public:
             // Fill args_tuple
             StorageErr err;
             std::get<0>(args_tuple) = context;
-            std::variant<core::MySqlConnection, core::StorageErr> conn_result
-                    = core::MySqlConnection::create(data_store->get_url());
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = TaskContextImpl::get_storage_factory(context)->provide_storage_connection();
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 err = std::get<core::StorageErr>(conn_result);
                 return create_error_response(
@@ -292,7 +292,7 @@ public:
                         fmt::format("Cannot parse arguments: {}.", err.description)
                 );
             }
-            auto& conn = std::get<core::MySqlConnection>(conn_result);
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
                 if (!err.success()) {
                     return;
@@ -302,13 +302,17 @@ public:
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
                     std::unique_ptr<Data> data = std::make_unique<Data>();
-                    err = data_store->get_data(conn, data_id, data.get());
+                    err = data_store->get_data(*conn, data_id, data.get());
                     if (!err.success()) {
                         return;
                     }
 
-                    std::get<i.cValue + 1>(args_tuple
-                    ) = DataImpl::create_data<TemplateParameterT<T>>(std::move(data), data_store);
+                    std::get<i.cValue + 1>(args_tuple)
+                            = DataImpl::create_data<TemplateParameterT<T>>(
+                                    std::move(data),
+                                    data_store,
+                                    TaskContextImpl::get_storage_factory(context)
+                            );
                 } else {
                     std::get<i.cValue + 1>(args_tuple)
                             = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();

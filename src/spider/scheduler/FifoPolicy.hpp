@@ -22,7 +22,7 @@ public:
     FifoPolicy(
             std::shared_ptr<core::MetadataStorage> const& metadata_store,
             std::shared_ptr<core::DataStorage> const& data_store,
-            core::StorageConnection& conn
+            std::shared_ptr<core::StorageConnection> const& conn
     );
 
     auto schedule_next(boost::uuids::uuid worker_id, std::string const& worker_addr)
@@ -34,8 +34,7 @@ private:
 
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-    core::StorageConnection& m_conn;
+    std::shared_ptr<core::StorageConnection> m_conn;
 
     std::vector<core::Task> m_tasks;
     // NOLINTNEXTLINE(misc-include-cleaner)

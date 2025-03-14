@@ -136,6 +136,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
                 return std::nullopt;
             }
             msgpack::sbuffer buffer;
+            // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
             buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
             return buffer;
         }
@@ -155,6 +156,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
             return std::nullopt;
         }
         msgpack::sbuffer buffer;
+        // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
         buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
         return buffer;
     } catch (boost::system::system_error& e) {
@@ -221,6 +223,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             co_return std::nullopt;
         }
         msgpack::sbuffer buffer;
+        // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
         buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
         co_return buffer;
     }
@@ -257,6 +260,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
         co_return std::nullopt;
     }
     msgpack::sbuffer buffer;
+    // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
     buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
     co_return buffer;
 }

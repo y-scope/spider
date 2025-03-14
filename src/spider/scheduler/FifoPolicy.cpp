@@ -39,7 +39,7 @@ auto FifoPolicy::task_locality_satisfied(spider::core::Task const& task, std::st
         if (m_data_cache.contains(data_id)) {
             data = m_data_cache[data_id];
         } else {
-            if (false == m_data_store->get_data(m_conn, data_id, &data).success()) {
+            if (false == m_data_store->get_data(*m_conn, data_id, &data).success()) {
                 throw std::runtime_error(
                         fmt::format("Data with id {} not exists.", to_string((data_id)))
                 );
@@ -63,7 +63,7 @@ auto FifoPolicy::task_locality_satisfied(spider::core::Task const& task, std::st
 FifoPolicy::FifoPolicy(
         std::shared_ptr<core::MetadataStorage> const& metadata_store,
         std::shared_ptr<core::DataStorage> const& data_store,
-        core::StorageConnection& conn
+        std::shared_ptr<core::StorageConnection> const& conn
 )
         : m_metadata_store{metadata_store},
           m_data_store{data_store},
@@ -100,9 +100,9 @@ auto FifoPolicy::schedule_next(
 
 auto FifoPolicy::fetch_tasks() -> void {
     m_data_cache.clear();
-    m_metadata_store->get_ready_tasks(m_conn, &m_tasks);
+    m_metadata_store->get_ready_tasks(*m_conn, &m_tasks);
     std::vector<std::tuple<core::TaskInstance, core::Task>> instances;
-    m_metadata_store->get_task_timeout(m_conn, &instances);
+    m_metadata_store->get_task_timeout(*m_conn, &instances);
     for (auto const& [instance, task] : instances) {
         m_tasks.emplace_back(task);
     }
@@ -114,7 +114,7 @@ auto FifoPolicy::fetch_tasks() -> void {
     auto get_task_job_creation_time
             = [&](boost::uuids::uuid const task_id) -> std::chrono::system_clock::time_point {
         boost::uuids::uuid job_id;
-        if (false == m_metadata_store->get_task_job_id(m_conn, task_id, &job_id).success()) {
+        if (false == m_metadata_store->get_task_job_id(*m_conn, task_id, &job_id).success()) {
             throw std::runtime_error(fmt::format("Task with id {} not exists.", to_string(task_id))
             );
         }
@@ -122,7 +122,7 @@ auto FifoPolicy::fetch_tasks() -> void {
             return job_metadata_map[job_id].get_creation_time();
         }
         core::JobMetadata job_metadata;
-        if (false == m_metadata_store->get_job_metadata(m_conn, job_id, &job_metadata).success()) {
+        if (false == m_metadata_store->get_job_metadata(*m_conn, job_id, &job_metadata).success()) {
             throw std::runtime_error(fmt::format("Job with id {} not exists.", to_string(job_id)));
         }
         job_metadata_map[job_id] = job_metadata;

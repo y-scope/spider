@@ -5,7 +5,6 @@
 #include <optional>
 #include <string>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -27,16 +26,16 @@
 #include "MySqlJobSubmissionBatch.hpp"
 
 namespace spider::core {
+
+// Forward declaration for friend class
+class MySqlStorageFactory;
+
 class MySqlMetadataStorage : public MetadataStorage {
 public:
-    MySqlMetadataStorage() = delete;
-
-    explicit MySqlMetadataStorage(std::string url) : m_url{std::move(url)} {}
-
-    MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
-    MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
-    auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
-    auto operator=(MySqlMetadataStorage&&) -> MySqlMetadataStorage& = delete;
+    MySqlMetadataStorage(MySqlMetadataStorage const&) = default;
+    MySqlMetadataStorage(MySqlMetadataStorage&&) = default;
+    auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = default;
+    auto operator=(MySqlMetadataStorage&&) -> MySqlMetadataStorage& = default;
     ~MySqlMetadataStorage() override = default;
     auto initialize(StorageConnection& conn) -> StorageErr override;
     auto add_driver(StorageConnection& conn, Driver const& driver) -> StorageErr override;
@@ -128,10 +127,8 @@ public:
             std::string const& state
     ) -> StorageErr override;
 
-    [[nodiscard]] auto get_url() const -> std::string const& override { return m_url; }
-
 private:
-    std::string m_url;
+    MySqlMetadataStorage() = default;
 
     static void add_task(
             MySqlConnection& conn,
@@ -147,18 +144,16 @@ private:
     );
     static auto
     fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
+
+    friend class MySqlStorageFactory;
 };
 
 class MySqlDataStorage : public DataStorage {
 public:
-    MySqlDataStorage() = delete;
-
-    explicit MySqlDataStorage(std::string url) : m_url{std::move(url)} {}
-
-    MySqlDataStorage(MySqlDataStorage const&) = delete;
-    MySqlDataStorage(MySqlDataStorage&&) = delete;
-    auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;
-    auto operator=(MySqlDataStorage&&) -> MySqlDataStorage& = delete;
+    MySqlDataStorage(MySqlDataStorage const&) = default;
+    MySqlDataStorage(MySqlDataStorage&&) = default;
+    auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = default;
+    auto operator=(MySqlDataStorage&&) -> MySqlDataStorage& = default;
     ~MySqlDataStorage() override = default;
     auto initialize(StorageConnection& conn) -> StorageErr override;
     auto add_driver_data(StorageConnection& conn, boost::uuids::uuid driver_id, Data const& data)
@@ -207,10 +202,10 @@ public:
             std::string* value
     ) -> StorageErr override;
 
-    [[nodiscard]] auto get_url() const -> std::string const& override { return m_url; }
-
 private:
-    std::string m_url;
+    MySqlDataStorage() = default;
+
+    friend class MySqlStorageFactory;
 };
 }  // namespace spider::core
 

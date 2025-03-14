@@ -5,16 +5,20 @@
 #include <utility>
 
 #include "../client/Data.hpp"
-#include "../core/Data.hpp"
+#include "../storage/StorageFactory.hpp"
+#include "Data.hpp"
 
 namespace spider::core {
 
 class DataImpl {
 public:
     template <class T>
-    static auto create_data(std::unique_ptr<Data> data, std::shared_ptr<DataStorage> data_store)
-            -> spider::Data<T> {
-        return spider::Data<T>{std::move(data), data_store};
+    static auto create_data(
+            std::unique_ptr<Data> data,
+            std::shared_ptr<DataStorage> data_store,
+            std::shared_ptr<StorageFactory> storage_factory
+    ) -> spider::Data<T> {
+        return spider::Data<T>{std::move(data), data_store, storage_factory};
     }
 
     template <class T>

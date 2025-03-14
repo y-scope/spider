@@ -12,8 +12,8 @@ public:
     JobSubmissionBatch() = default;
     JobSubmissionBatch(JobSubmissionBatch const&) = delete;
     auto operator=(JobSubmissionBatch const&) -> JobSubmissionBatch& = delete;
-    JobSubmissionBatch(JobSubmissionBatch&&) = delete;
-    auto operator=(JobSubmissionBatch&&) -> JobSubmissionBatch& = delete;
+    JobSubmissionBatch(JobSubmissionBatch&&) = default;
+    auto operator=(JobSubmissionBatch&&) -> JobSubmissionBatch& = default;
     virtual ~JobSubmissionBatch() = default;
 };
 }  // namespace spider::core
