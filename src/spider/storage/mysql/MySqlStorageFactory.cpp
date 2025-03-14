@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <variant>
 
 #include "../../core/Error.hpp"
 #include "../DataStorage.hpp"
@@ -14,7 +16,7 @@
 
 namespace spider::core {
 
-MySqlStorageFactory::MySqlStorageFactory(std::string const& url) : m_url{url} {}
+MySqlStorageFactory::MySqlStorageFactory(std::string url) : m_url{std::move(url)} {}
 
 auto MySqlStorageFactory::provide_data_storage() -> std::unique_ptr<DataStorage> {
     return std::unique_ptr<DataStorage>(new MySqlDataStorage());

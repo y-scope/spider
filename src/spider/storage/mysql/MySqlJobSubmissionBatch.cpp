@@ -5,11 +5,13 @@
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
 #include "../../core/Error.hpp"
+#include "../StorageConnection.hpp"
 #include "mysql_stmt.hpp"
 #include "MySqlConnection.hpp"
 
 namespace spider::core {
 
+// NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
 MySqlJobSubmissionBatch::MySqlJobSubmissionBatch(StorageConnection& conn)
         : m_job_stmt{static_cast<MySqlConnection&>(conn)->prepareStatement(mysql::cInsertJob)},
           m_task_stmt{static_cast<MySqlConnection&>(conn)->prepareStatement(mysql::cInsertTask)},
@@ -34,6 +36,8 @@ MySqlJobSubmissionBatch::MySqlJobSubmissionBatch(StorageConnection& conn)
           m_output_task_stmt{
                   static_cast<MySqlConnection&>(conn)->prepareStatement(mysql::cInsertOutputTask)
           } {}
+
+// NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
 
 auto MySqlJobSubmissionBatch::submit_batch(StorageConnection& conn) -> StorageErr {
     try {

@@ -13,6 +13,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../../core/Error.hpp"
+#include "../StorageConnection.hpp"
 
 namespace spider::core {
 

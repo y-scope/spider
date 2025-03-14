@@ -15,7 +15,7 @@
 namespace spider::core {
 class MySqlStorageFactory : public StorageFactory {
 public:
-    explicit MySqlStorageFactory(std::string const& url);
+    explicit MySqlStorageFactory(std::string url);
 
     auto provide_data_storage() -> std::unique_ptr<DataStorage> override;
     auto provide_metadata_storage() -> std::unique_ptr<MetadataStorage> override;

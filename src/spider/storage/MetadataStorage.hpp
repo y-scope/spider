@@ -18,6 +18,11 @@
 namespace spider::core {
 class MetadataStorage {
 public:
+    MetadataStorage() = default;
+    MetadataStorage(MetadataStorage const&) = default;
+    auto operator=(MetadataStorage const&) -> MetadataStorage& = default;
+    MetadataStorage(MetadataStorage&&) = default;
+    auto operator=(MetadataStorage&&) -> MetadataStorage& = default;
     virtual ~MetadataStorage() = default;
 
     virtual auto initialize(StorageConnection& conn) -> StorageErr = 0;

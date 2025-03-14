@@ -17,7 +17,7 @@
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/mysql/MySqlStorageFactory.hpp"
-#include "../storage/StorageFactory.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "Exception.hpp"
 
 namespace spider {

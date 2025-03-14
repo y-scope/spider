@@ -13,6 +13,11 @@
 namespace spider::core {
 class DataStorage {
 public:
+    DataStorage() = default;
+    DataStorage(DataStorage const&) = default;
+    auto operator=(DataStorage const&) -> DataStorage& = default;
+    DataStorage(DataStorage&&) = default;
+    auto operator=(DataStorage&&) -> DataStorage& = default;
     virtual ~DataStorage() = default;
 
     virtual auto initialize(StorageConnection& conn) -> StorageErr = 0;

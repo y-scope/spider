@@ -5,7 +5,6 @@
 #include <optional>
 #include <string>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>

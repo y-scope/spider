@@ -20,6 +20,7 @@ public:
     auto operator=(MySqlJobSubmissionBatch const&) -> MySqlJobSubmissionBatch& = delete;
     MySqlJobSubmissionBatch(MySqlJobSubmissionBatch&&) = default;
     auto operator=(MySqlJobSubmissionBatch&&) -> MySqlJobSubmissionBatch& = default;
+    ~MySqlJobSubmissionBatch() override = default;
 
     auto submit_batch(StorageConnection& conn) -> StorageErr override;
 

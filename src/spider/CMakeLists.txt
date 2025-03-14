@@ -95,6 +95,7 @@ target_link_libraries(
         Boost::program_options
         Boost::system
         ${CMAKE_DL_LIBS}
+        fmt::fmt
         spdlog::spdlog
 )
 
@@ -111,6 +112,7 @@ target_link_libraries(
         Boost::program_options
         Boost::system
         ${CMAKE_DL_LIBS}
+        fmt::fmt
         spdlog::spdlog
 )
 add_dependencies(spider_worker spider_task_executor)
@@ -136,6 +138,7 @@ target_link_libraries(
         Boost::headers
         Boost::program_options
         absl::flat_hash_map
+        fmt::fmt
         spdlog::spdlog
 )
 

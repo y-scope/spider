@@ -19,6 +19,12 @@ public:
     ) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> = 0;
     virtual auto
     provide_job_submission_batch(StorageConnection&) -> std::unique_ptr<JobSubmissionBatch> = 0;
+
+    StorageFactory() = default;
+    StorageFactory(StorageFactory const&) = default;
+    auto operator=(StorageFactory const&) -> StorageFactory& = default;
+    StorageFactory(StorageFactory&&) = default;
+    auto operator=(StorageFactory&&) -> StorageFactory& = default;
     virtual ~StorageFactory() = default;
 };
 

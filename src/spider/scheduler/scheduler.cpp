@@ -6,6 +6,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <variant>
 
 #include <boost/any/bad_any_cast.hpp>
@@ -207,7 +208,7 @@ auto main(int argc, char** argv) -> int {
                 std::get<spider::core::StorageErr>(conn_result).description
         );
     }
-    std::shared_ptr<spider::core::StorageConnection> conn
+    std::shared_ptr<spider::core::StorageConnection> const conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     spider::core::StorageErr err = metadata_store->initialize(*conn);

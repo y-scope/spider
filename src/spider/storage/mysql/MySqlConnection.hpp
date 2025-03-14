@@ -26,7 +26,7 @@ public:
     MySqlConnection(MySqlConnection&&) = default;
     auto operator=(MySqlConnection&&) -> MySqlConnection& = default;
 
-    ~MySqlConnection();
+    ~MySqlConnection() override;
 
     auto operator*() const -> sql::Connection&;
     auto operator->() const -> sql::Connection*;
