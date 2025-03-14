@@ -58,7 +58,11 @@ auto get_libraries() -> std::vector<std::string> {
     return {lib_path.string()};
 }
 
-TEST_CASE("Task execute success", "[worker][storage]") {
+TEMPLATE_LIST_TEST_CASE(
+        "Task execute success",
+        "[worker][storage]",
+        spider::test::StorageFactoryTypeList
+) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
@@ -72,7 +76,7 @@ TEST_CASE("Task execute success", "[worker][storage]") {
             context,
             "sum_test",
             gen(),
-            spider::test::cStorageUrl,
+            spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             2,
@@ -86,7 +90,11 @@ TEST_CASE("Task execute success", "[worker][storage]") {
     REQUIRE(5 == result_option.value_or(0));
 }
 
-TEST_CASE("Task execute wrong number of arguments", "[worker][storage]") {
+TEMPLATE_LIST_TEST_CASE(
+        "Task execute wrong number of arguments",
+        "[worker][storage]",
+        spider::test::StorageFactoryTypeList
+) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
@@ -100,7 +108,7 @@ TEST_CASE("Task execute wrong number of arguments", "[worker][storage]") {
             context,
             "sum_test",
             gen(),
-            spider::test::cStorageUrl,
+            spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             2
@@ -112,7 +120,11 @@ TEST_CASE("Task execute wrong number of arguments", "[worker][storage]") {
     REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments == std::get<0>(error));
 }
 
-TEST_CASE("Task execute fail", "[worker][storage]") {
+TEMPLATE_LIST_TEST_CASE(
+        "Task execute fail",
+        "[worker][storage]",
+        spider::test::StorageFactoryTypeList
+) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
@@ -126,7 +138,7 @@ TEST_CASE("Task execute fail", "[worker][storage]") {
             context,
             "error_test",
             gen(),
-            spider::test::cStorageUrl,
+            spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             2
@@ -141,18 +153,18 @@ TEST_CASE("Task execute fail", "[worker][storage]") {
 TEMPLATE_LIST_TEST_CASE(
         "Task execute data argument",
         "[worker][storage]",
-        spider::test::StorageTypeList
+        spider::test::StorageFactoryTypeList
 ) {
-    auto [unique_metadata_storage, unique_data_storage] = spider::test::
-            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
-    std::shared_ptr<spider::core::MetadataStorage> const metadata_storage
-            = std::move(unique_metadata_storage);
-    std::shared_ptr<spider::core::DataStorage> const data_storage = std::move(unique_data_storage);
+    std::shared_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+            = storage_factory->provide_metadata_storage();
+    std::shared_ptr<spider::core::DataStorage> data_storage
+            = storage_factory->provide_data_storage();
 
-    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-            = spider::core::MySqlConnection::create(metadata_storage->get_url());
-    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
 
     // Create driver and data
     msgpack::sbuffer buffer;
@@ -161,8 +173,8 @@ TEMPLATE_LIST_TEST_CASE(
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
     spider::core::Driver const driver{driver_id};
-    REQUIRE(metadata_storage->add_driver(conn, driver).success());
-    REQUIRE(data_storage->add_driver_data(conn, driver_id, data).success());
+    REQUIRE(metadata_storage->add_driver(*conn, driver).success());
+    REQUIRE(data_storage->add_driver_data(*conn, driver_id, data).success());
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
@@ -175,7 +187,7 @@ TEMPLATE_LIST_TEST_CASE(
             context,
             "data_test",
             gen(),
-            spider::test::cStorageUrl,
+            spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             data.get_id()
@@ -190,7 +202,7 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     // Clean up
-    REQUIRE(data_storage->remove_data(conn, data.get_id()).success());
+    REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
 }
 
 }  // namespace

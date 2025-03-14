@@ -17,7 +17,10 @@
 #include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/TaskContextImpl.hpp"
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
+#include "../../src/spider/storage/DataStorage.hpp"
+#include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/StorageConnection.hpp"
+#include "../../src/spider/storage/StorageFactory.hpp"
 #include "../../src/spider/worker/FunctionManager.hpp"
 #include "../../src/spider/worker/FunctionNameManager.hpp"
 #include "../storage/StorageTestHelper.hpp"
@@ -63,15 +66,20 @@ TEST_CASE("Register and get function name", "[core]") {
 TEMPLATE_LIST_TEST_CASE(
         "Register and run function with POD inputs",
         "[core][storage]",
-        spider::test::StorageTypeList
+        spider::test::StorageFactoryTypeList
 ) {
-    auto [metadata_storage, data_storage] = spider::test::
-            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::MetadataStorage> metadata_storage
+            = storage_factory->provide_metadata_storage();
+    std::unique_ptr<spider::core::DataStorage> data_storage
+            = storage_factory->provide_data_storage();
+
     boost::uuids::random_generator gen;
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
             gen(),
             std::move(data_storage),
-            std::move(metadata_storage)
+            std::move(metadata_storage),
+            std::move(storage_factory)
     );
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
@@ -116,15 +124,20 @@ TEMPLATE_LIST_TEST_CASE(
 TEMPLATE_LIST_TEST_CASE(
         "Register and run function with tuple return",
         "[core][storage]",
-        spider::test::StorageTypeList
+        spider::test::StorageFactoryTypeList
 ) {
-    auto [metadata_storage, data_storage] = spider::test::
-            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::MetadataStorage> metadata_storage
+            = storage_factory->provide_metadata_storage();
+    std::unique_ptr<spider::core::DataStorage> data_storage
+            = storage_factory->provide_data_storage();
+
     boost::uuids::random_generator gen;
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
             gen(),
             std::move(data_storage),
-            std::move(metadata_storage)
+            std::move(metadata_storage),
+            std::move(storage_factory)
     );
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
@@ -142,19 +155,18 @@ TEMPLATE_LIST_TEST_CASE(
 TEMPLATE_LIST_TEST_CASE(
         "Register and run function with data inputs",
         "[core][storage]",
-        spider::test::StorageTypeList
+        spider::test::StorageFactoryTypeList
 ) {
-    auto [unique_metadata_storage, unique_data_storage] = spider::test::
-            create_storage<std::tuple_element_t<0, TestType>, std::tuple_element_t<1, TestType>>();
+    std::shared_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::shared_ptr<spider::core::MetadataStorage> metadata_storage
+            = storage_factory->provide_metadata_storage();
+    std::shared_ptr<spider::core::DataStorage> data_storage
+            = storage_factory->provide_data_storage();
 
-    std::shared_ptr<spider::core::MetadataStorage> const metadata_storage
-            = std::move(unique_metadata_storage);
-    std::shared_ptr<spider::core::DataStorage> const data_storage = std::move(unique_data_storage);
-
-    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-            = spider::core::MySqlConnection::create(metadata_storage->get_url());
-    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
 
     msgpack::sbuffer buffer;
     msgpack::pack(buffer, 3);
@@ -162,13 +174,14 @@ TEMPLATE_LIST_TEST_CASE(
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
     spider::core::Driver const driver{driver_id};
-    REQUIRE(metadata_storage->add_driver(conn, driver).success());
-    REQUIRE(data_storage->add_driver_data(conn, driver_id, data).success());
+    REQUIRE(metadata_storage->add_driver(*conn, driver).success());
+    REQUIRE(data_storage->add_driver_data(*conn, driver_id, data).success());
 
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
             gen(),
             data_storage,
-            metadata_storage
+            metadata_storage,
+            storage_factory
     );
 
     spider::core::FunctionManager const& manager = spider::core::FunctionManager::get_instance();
@@ -179,7 +192,7 @@ TEMPLATE_LIST_TEST_CASE(
     msgpack::sbuffer const result = (*function)(context, args_buffers);
     REQUIRE(3 == spider::core::response_get_result<int>(result).value_or(0));
 
-    REQUIRE(data_storage->remove_data(conn, data.get_id()).success());
+    REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
 }
 }  // namespace
 

@@ -25,7 +25,8 @@
 #include "../../src/spider/scheduler/SchedulerServer.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/mysql/MySqlConnection.hpp"
+#include "../../src/spider/storage/StorageConnection.hpp"
+#include "../../src/spider/storage/StorageFactory.hpp"
 #include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
@@ -36,22 +37,18 @@ constexpr int cServerWarmupTime = 5;
 TEMPLATE_LIST_TEST_CASE(
         "Scheduler server test",
         "[scheduler][server][storage]",
-        spider::test::StorageTypeList
+        spider::test::StorageFactoryTypeList
 ) {
-    std::tuple<
-            std::unique_ptr<spider::core::MetadataStorage>,
-            std::unique_ptr<spider::core::DataStorage>>
-            storages = spider::test::create_storage<
-                    std::tuple_element_t<0, TestType>,
-                    std::tuple_element_t<1, TestType>>();
-    std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::move(std::get<0>(storages));
-    std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
+    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::shared_ptr<spider::core::MetadataStorage> metadata_store
+            = storage_factory->provide_metadata_storage();
+    std::shared_ptr<spider::core::DataStorage> data_store = storage_factory->provide_data_storage();
 
-    std::variant<spider::core::MySqlConnection, spider::core::StorageErr> conn_result
-            = spider::core::MySqlConnection::create(metadata_store->get_url());
-    REQUIRE(std::holds_alternative<spider::core::MySqlConnection>(conn_result));
-    auto& conn = std::get<spider::core::MySqlConnection>(conn_result);
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    std::shared_ptr<spider::core::StorageConnection> conn
+            = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
 
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
             = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
@@ -84,7 +81,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_output_task(child_task.get_id());
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
-    REQUIRE(metadata_store->add_job(conn, job_id, gen(), graph).success());
+    REQUIRE(metadata_store->add_job(*conn, job_id, gen(), graph).success());
 
     // Schedule request should succeed
     spider::scheduler::ScheduleTaskRequest const req{gen(), ""};
@@ -99,7 +96,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Get response should succeed and get child task
     std::optional<msgpack::sbuffer> const& res_buffer = spider::core::receive_message(socket);
-    REQUIRE(metadata_store->remove_job(conn, job_id).success());
+    REQUIRE(metadata_store->remove_job(*conn, job_id).success());
     REQUIRE(res_buffer.has_value());
     if (res_buffer.has_value()) {
         msgpack::object_handle const handle
