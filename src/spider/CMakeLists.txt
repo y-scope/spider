@@ -1,6 +1,8 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
     storage/mysql/MySqlConnection.cpp
+    storage/mysql/MySqlStorageFactory.cpp
+    storage/mysql/MySqlJobSubmissionBatch.cpp
     storage/mysql/MySqlStorage.cpp
     worker/FunctionManager.cpp
     worker/FunctionNameManager.cpp
@@ -27,9 +29,11 @@ set(SPIDER_CORE_HEADERS
     storage/StorageConnection.hpp
     storage/mysql/mysql_stmt.hpp
     storage/mysql/MySqlConnection.hpp
+    storage/mysql/MySqlStorageFactory.hpp
     storage/mysql/MySqlStorage.hpp
     storage/mysql/MySqlJobSubmissionBatch.hpp
     storage/JobSubmissionBatch.hpp
+    storage/StorageFactory.hpp
     worker/FunctionManager.hpp
     worker/FunctionNameManager.hpp
     CACHE INTERNAL

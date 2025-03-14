@@ -18,11 +18,6 @@
 namespace spider::core {
 class MetadataStorage {
 public:
-    MetadataStorage() = default;
-    MetadataStorage(MetadataStorage const&) = delete;
-    MetadataStorage(MetadataStorage&&) = delete;
-    auto operator=(MetadataStorage const&) -> MetadataStorage& = delete;
-    auto operator=(MetadataStorage&&) -> MetadataStorage& = delete;
     virtual ~MetadataStorage() = default;
 
     virtual auto initialize(StorageConnection& conn) -> StorageErr = 0;
@@ -135,8 +130,6 @@ public:
             boost::uuids::uuid id,
             std::string const& state
     ) -> StorageErr = 0;
-
-    [[nodiscard]] virtual auto get_url() const -> std::string const& = 0;
 };
 
 }  // namespace spider::core

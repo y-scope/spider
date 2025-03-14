@@ -10,14 +10,16 @@
 
 #include "../../core/Error.hpp"
 #include "../StorageConnection.hpp"
+#include "MySqlStorageFactory.hpp"
 
 namespace spider::core {
+
+// Forward declaration of MySqlConnection
+class MySqlStorageFactory;
 
 // RAII class for MySQL connection
 class MySqlConnection : public StorageConnection {
 public:
-    static auto create(std::string const& url) -> std::variant<MySqlConnection, StorageErr>;
-
     // Delete copy constructor and copy assignment operator
     MySqlConnection(MySqlConnection const&) = delete;
     auto operator=(MySqlConnection const&) -> MySqlConnection& = delete;
@@ -31,9 +33,13 @@ public:
     auto operator->() const -> sql::Connection*;
 
 private:
+    static auto create(std::string const& url) -> std::variant<MySqlConnection, StorageErr>;
+
     explicit MySqlConnection(std::unique_ptr<sql::Connection> conn)
             : m_connection{std::move(conn)} {};
     std::unique_ptr<sql::Connection> m_connection;
+
+    friend class MySqlStorageFactory;
 };
 
 }  // namespace spider::core
