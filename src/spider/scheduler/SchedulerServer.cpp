@@ -30,14 +30,14 @@ SchedulerServer::SchedulerServer(
         std::shared_ptr<SchedulerPolicy> policy,
         std::shared_ptr<core::MetadataStorage> metadata_store,
         std::shared_ptr<core::DataStorage> data_store,
-        core::StorageConnection& conn,
+        std::shared_ptr<core::StorageConnection> conn,
         core::StopToken& stop_token
 )
         : m_port{port},
           m_policy{std::move(policy)},
           m_metadata_store{std::move(metadata_store)},
           m_data_store{std::move(data_store)},
-          m_conn{conn},
+          m_conn{std::move(conn)},
           m_stop_token{stop_token} {
     boost::asio::co_spawn(m_context, receive_message(), boost::asio::detached);
     std::lock_guard const lock{m_mutex};
@@ -139,7 +139,7 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
     if (request.has_task_id()) {
         boost::uuids::uuid job_id;
         core::StorageErr err
-                = m_metadata_store->get_task_job_id(m_conn, request.get_task_id(), &job_id);
+                = m_metadata_store->get_task_job_id(*m_conn, request.get_task_id(), &job_id);
         // It is possible the job is deleted, so we don't need to reset it
         if (!err.success()) {
             spdlog::error(
@@ -147,7 +147,7 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
                     boost::uuids::to_string(request.get_task_id())
             );
         } else {
-            err = m_metadata_store->reset_job(m_conn, job_id);
+            err = m_metadata_store->reset_job(*m_conn, job_id);
             if (!err.success()) {
                 spdlog::error("Cannot reset job {}", boost::uuids::to_string(job_id));
                 co_return;
