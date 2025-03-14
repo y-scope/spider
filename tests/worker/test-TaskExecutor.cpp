@@ -155,7 +155,8 @@ TEMPLATE_LIST_TEST_CASE(
         "[worker][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::shared_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::shared_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::shared_ptr<spider::core::MetadataStorage> metadata_storage
             = storage_factory->provide_metadata_storage();
     std::shared_ptr<spider::core::DataStorage> data_storage
@@ -164,7 +165,7 @@ TEMPLATE_LIST_TEST_CASE(
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     // Create driver and data
     msgpack::sbuffer buffer;

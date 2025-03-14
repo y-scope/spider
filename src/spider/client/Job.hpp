@@ -70,7 +70,7 @@ public:
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
             wait_complete_conn(*conn);
         } else {
             wait_complete_conn(*m_conn);
@@ -98,7 +98,7 @@ public:
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
             err = m_metadata_storage->get_job_status(*conn, m_id, &status);
         } else {
@@ -136,7 +136,7 @@ public:
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
             return get_result_conn(*conn);
         }
@@ -307,7 +307,8 @@ private:
                 }
                 return core::DataImpl::create_data<DataType>(
                         std::make_unique<core::Data>(std::move(data)),
-                        m_data_storage
+                        m_data_storage,
+                        m_storage_factory
                 );
             } else {
                 if (output.get_type() != typeid(ReturnType).name()) {

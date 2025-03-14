@@ -33,10 +33,10 @@ class MySqlStorageFactory;
 
 class MySqlMetadataStorage : public MetadataStorage {
 public:
-    MySqlMetadataStorage(MySqlMetadataStorage const&) = delete;
-    MySqlMetadataStorage(MySqlMetadataStorage&&) = delete;
-    auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = delete;
-    auto operator=(MySqlMetadataStorage&&) -> MySqlMetadataStorage& = delete;
+    MySqlMetadataStorage(MySqlMetadataStorage const&) = default;
+    MySqlMetadataStorage(MySqlMetadataStorage&&) = default;
+    auto operator=(MySqlMetadataStorage const&) -> MySqlMetadataStorage& = default;
+    auto operator=(MySqlMetadataStorage&&) -> MySqlMetadataStorage& = default;
     ~MySqlMetadataStorage() override = default;
     auto initialize(StorageConnection& conn) -> StorageErr override;
     auto add_driver(StorageConnection& conn, Driver const& driver) -> StorageErr override;
@@ -151,10 +151,10 @@ private:
 
 class MySqlDataStorage : public DataStorage {
 public:
-    MySqlDataStorage(MySqlDataStorage const&) = delete;
-    MySqlDataStorage(MySqlDataStorage&&) = delete;
-    auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = delete;
-    auto operator=(MySqlDataStorage&&) -> MySqlDataStorage& = delete;
+    MySqlDataStorage(MySqlDataStorage const&) = default;
+    MySqlDataStorage(MySqlDataStorage&&) = default;
+    auto operator=(MySqlDataStorage const&) -> MySqlDataStorage& = default;
+    auto operator=(MySqlDataStorage&&) -> MySqlDataStorage& = default;
     ~MySqlDataStorage() override = default;
     auto initialize(StorageConnection& conn) -> StorageErr override;
     auto add_driver_data(StorageConnection& conn, boost::uuids::uuid driver_id, Data const& data)
@@ -203,7 +203,7 @@ public:
             std::string* value
     ) -> StorageErr override;
 
-public:
+private:
     MySqlDataStorage() = default;
 
     friend class MySqlStorageFactory;

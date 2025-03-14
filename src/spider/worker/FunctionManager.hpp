@@ -292,7 +292,7 @@ public:
                         fmt::format("Cannot parse arguments: {}.", err.description)
                 );
             }
-            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
                 if (!err.success()) {
                     return;
@@ -307,8 +307,12 @@ public:
                         return;
                     }
 
-                    std::get<i.cValue + 1>(args_tuple
-                    ) = DataImpl::create_data<TemplateParameterT<T>>(std::move(data), data_store);
+                    std::get<i.cValue + 1>(args_tuple)
+                            = DataImpl::create_data<TemplateParameterT<T>>(
+                                    std::move(data),
+                                    data_store,
+                                    TaskContextImpl::get_storage_factory(context)
+                            );
                 } else {
                     std::get<i.cValue + 1>(args_tuple)
                             = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();

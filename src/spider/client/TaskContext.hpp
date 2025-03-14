@@ -60,7 +60,12 @@ public:
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
-        return DataBuilder{m_data_store, m_task_id, DataBuilder::DataSource::TaskContext};
+        return DataBuilder{
+                m_data_store,
+                m_task_id,
+                DataBuilder::DataSource::TaskContext,
+                m_storage_factory
+        };
     }
 
     /**
@@ -160,7 +165,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
         core::StorageErr err = m_metadata_store->add_job(*conn, job_id, m_task_id, graph);
         if (!err.success()) {
@@ -211,7 +216,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
         core::StorageErr const err
                 = m_metadata_store->add_job(*conn, job_id, m_task_id, graph.m_impl->get_graph());

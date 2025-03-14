@@ -76,7 +76,7 @@ public:
         if (std::holds_alternative<core::StorageErr>(conn_result)) {
             throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
         }
-        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
         m_data_store->set_data_locality(*conn, *m_impl);
     }
 
@@ -116,19 +116,20 @@ public:
          * @throw spider::ConnectionException
          */
         auto build(T const& t) -> Data {
+            std::cerr << "Building data\n";
             msgpack::sbuffer buffer;
             msgpack::pack(buffer, t);
             auto data = std::make_unique<core::Data>(std::string{buffer.data(), buffer.size()});
             data->set_locality(m_nodes);
             data->set_hard_locality(m_hard_locality);
             std::shared_ptr<core::StorageConnection> conn = m_connection;
-            if (nullptr != conn) {
+            if (nullptr == conn) {
                 std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
                         = m_storage_factory->provide_storage_connection();
                 if (std::holds_alternative<core::StorageErr>(conn_result)) {
                     throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
                 }
-                conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+                conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
             }
             core::StorageErr err;
             switch (m_data_source) {

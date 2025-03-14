@@ -120,7 +120,7 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
         ));
 
         spider::core::StorageErr const err
@@ -256,8 +256,8 @@ auto task_loop(
                 );
                 continue;
             }
-            auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(
-                    std::move(conn_result)
+            auto conn = std::move(
+                    std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
             );
 
             err = metadata_store->get_task(*conn, task_id, &task);
@@ -302,7 +302,7 @@ auto task_loop(
             );
             continue;
         }
-        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
         ));
 
         if (!executor.succeed()) {
@@ -435,7 +435,7 @@ auto main(int argc, char** argv) -> int {
             );
             return cStorageErr;
         }
-        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
         ));
 
         spider::core::StorageErr const err = metadata_store->add_driver(*conn, driver);

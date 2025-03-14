@@ -90,7 +90,7 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
         ));
 
         spider::core::StorageErr const err
@@ -127,7 +127,7 @@ auto cleanup_loop(
             );
             continue;
         }
-        auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result
+        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
         ));
 
         spider::core::StorageErr err
@@ -191,7 +191,7 @@ auto main(int argc, char** argv) -> int {
     }
 
     // Create storages
-    std::unique_ptr<spider::core::StorageFactory> const storage_factory
+    std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = std::make_unique<spider::core::MySqlStorageFactory>(storage_url);
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
             = storage_factory->provide_metadata_storage();
@@ -208,7 +208,7 @@ auto main(int argc, char** argv) -> int {
         );
     }
     std::shared_ptr<spider::core::StorageConnection> conn
-            = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+            = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     spider::core::StorageErr err = metadata_store->initialize(*conn);
     if (!err.success()) {

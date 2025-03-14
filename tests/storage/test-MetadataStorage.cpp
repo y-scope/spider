@@ -27,14 +27,15 @@
 namespace {
 
 TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFactoryTypeList) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
             = storage_factory->provide_metadata_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     constexpr double cDuration = 100;
 
@@ -75,14 +76,15 @@ TEMPLATE_LIST_TEST_CASE(
         "[storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
             = storage_factory->provide_metadata_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const scheduler_id = gen();
@@ -123,14 +125,15 @@ TEMPLATE_LIST_TEST_CASE(
         "[storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
             = storage_factory->provide_metadata_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     std::unique_ptr<spider::core::JobSubmissionBatch> batch
             = storage_factory->provide_job_submission_batch(*conn);
@@ -257,14 +260,15 @@ TEMPLATE_LIST_TEST_CASE(
         "[storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
             = storage_factory->provide_metadata_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -382,14 +386,15 @@ TEMPLATE_LIST_TEST_CASE(
 }
 
 TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::StorageFactoryTypeList) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
             = storage_factory->provide_metadata_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
@@ -454,14 +459,15 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::StorageFactory
 }
 
 TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::StorageFactoryTypeList) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
             = storage_factory->provide_metadata_storage();
 
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-    auto conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();

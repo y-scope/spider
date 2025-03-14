@@ -25,7 +25,7 @@ auto TaskContext::kv_store_get(std::string const& key) -> std::optional<std::str
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     std::string value;
     core::StorageErr const err = m_data_store->get_task_kv_data(*conn, m_task_id, key, &value);
@@ -44,7 +44,7 @@ auto TaskContext::kv_store_insert(std::string const& key, std::string const& val
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     core::KeyValueData const kv_data{key, value, m_task_id};
     core::StorageErr const err = m_data_store->add_task_kv_data(*conn, kv_data);
@@ -59,7 +59,7 @@ auto TaskContext::get_jobs() -> std::vector<boost::uuids::uuid> {
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     std::vector<boost::uuids::uuid> job_ids;
     core::StorageErr const err

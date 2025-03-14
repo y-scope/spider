@@ -57,7 +57,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             );
             return std::nullopt;
         }
-        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
         if (!m_metadata_store->get_active_scheduler(*conn, &schedulers).success()) {
             return std::nullopt;
         }
@@ -127,7 +127,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             );
             return std::nullopt;
         }
-        auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
         core::TaskInstance const instance{task_id};
         core::StorageErr const err = m_metadata_store->create_task_instance(*conn, instance);

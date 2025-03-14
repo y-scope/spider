@@ -39,7 +39,8 @@ TEMPLATE_LIST_TEST_CASE(
         "[scheduler][server][storage]",
         spider::test::StorageFactoryTypeList
 ) {
-    std::unique_ptr<spider::core::StorageFactory> storage_factory = std::make_unique<TestType>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::shared_ptr<spider::core::MetadataStorage> metadata_store
             = storage_factory->provide_metadata_storage();
     std::shared_ptr<spider::core::DataStorage> data_store = storage_factory->provide_data_storage();
@@ -48,7 +49,7 @@ TEMPLATE_LIST_TEST_CASE(
             conn_result = storage_factory->provide_storage_connection();
     REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
     std::shared_ptr<spider::core::StorageConnection> conn
-            = std::get<std::unique_ptr<spider::core::StorageConnection>>(std::move(conn_result));
+            = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
             = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);

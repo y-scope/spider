@@ -8,7 +8,6 @@
 #include "../../core/Error.hpp"
 #include "../JobSubmissionBatch.hpp"
 #include "../StorageConnection.hpp"
-#include "MySqlStorageFactory.hpp"
 
 namespace spider::core {
 
@@ -17,6 +16,11 @@ class MySqlStorageFactory;
 
 class MySqlJobSubmissionBatch : public JobSubmissionBatch {
 public:
+    MySqlJobSubmissionBatch(MySqlJobSubmissionBatch const&) = delete;
+    auto operator=(MySqlJobSubmissionBatch const&) -> MySqlJobSubmissionBatch& = delete;
+    MySqlJobSubmissionBatch(MySqlJobSubmissionBatch&&) = default;
+    auto operator=(MySqlJobSubmissionBatch&&) -> MySqlJobSubmissionBatch& = default;
+
     auto submit_batch(StorageConnection& conn) -> StorageErr override;
 
     auto get_job_stmt() -> sql::PreparedStatement& { return *m_job_stmt; }

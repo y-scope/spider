@@ -82,7 +82,13 @@ public:
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
-        return DataBuilder{m_data_storage, m_id, DataBuilder::DataSource::Driver};
+        return DataBuilder{
+                m_data_storage,
+                m_id,
+                DataBuilder::DataSource::Driver,
+                m_storage_factory,
+                m_conn
+        };
     }
 
     /**

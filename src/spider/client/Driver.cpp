@@ -35,7 +35,7 @@ Driver::Driver(std::string const& storage_url)
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    m_conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+    m_conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
     if (!err.success()) {
@@ -55,7 +55,7 @@ Driver::Driver(std::string const& storage_url)
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
             core::StorageErr const err = m_metadata_storage->update_heartbeat(*conn, m_id);
             if (!err.success()) {
@@ -76,7 +76,7 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id)
     if (std::holds_alternative<core::StorageErr>(conn_result)) {
         throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
     }
-    m_conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+    m_conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
     core::StorageErr const err = m_metadata_storage->add_driver(*m_conn, core::Driver{m_id});
     if (!err.success()) {
@@ -96,7 +96,7 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id)
             if (std::holds_alternative<core::StorageErr>(conn_result)) {
                 throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
-            auto conn = std::get<std::unique_ptr<core::StorageConnection>>(std::move(conn_result));
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
             core::StorageErr const err = m_metadata_storage->update_heartbeat(*conn, m_id);
             if (!err.success()) {
