@@ -11,7 +11,6 @@
 #include "../../src/spider/client/TaskContext.hpp"
 #include "../../src/spider/client/TaskGraph.hpp"
 #include "../storage/StorageTestHelper.hpp"
-#include "catch2/catch_template_test_macros.hpp"
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(
