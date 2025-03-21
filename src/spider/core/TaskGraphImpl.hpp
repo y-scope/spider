@@ -290,14 +290,22 @@ private:
         }
         Task const& parent = optional_parent.value();
         if constexpr (cIsSpecializationV<ReturnType, std::tuple>) {
+            bool fail = false;
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
+                if (fail) {
+                    return;
+                }
                 if (position >= task.get_num_inputs()) {
-                    return std::nullopt;
+                    fail = true;
+                    return;
                 }
                 TaskInput& input = task.get_input_ref(position);
                 position++;
                 input.set_output(parent.get_id(), i.cValue);
             });
+            if (fail) {
+                return std::nullopt;
+            }
         } else {
             if (position >= task.get_num_inputs()) {
                 return std::nullopt;
