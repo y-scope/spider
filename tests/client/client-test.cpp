@@ -182,5 +182,28 @@ auto main(int argc, char** argv) -> int {
         }
     }
 
+    // Run batch submission for task graph
+    jobs.clear();
+    jobs.reserve(cBatchSize);
+    driver.begin_batch_start();
+    spider::TaskGraph const sum_graph = driver.bind(&sum_test, &sum_test, &sum_test);
+    for (int i = 0; i < cBatchSize; ++i) {
+        jobs.emplace_back(driver.start(sum_graph, i, i, i, i));
+    }
+    driver.end_batch_start();
+    for (int i = 0; i < cBatchSize; ++i) {
+        spider::Job<int>& job = jobs[i];
+        job.wait_complete();
+        if (job.get_status() != spider::JobStatus::Succeeded) {
+            spdlog::error("Batch graph job failed");
+            return cJobFailed;
+        }
+        int const result = job.get_result();
+        if (result != i * 4) {
+            spdlog::error("Batch job wrong result. Expect {}. Get {}.", i * 4, result);
+            return cJobFailed;
+        }
+    }
+
     return 0;
 }
