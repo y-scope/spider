@@ -270,10 +270,23 @@ public:
         graph.m_impl->reset_ids();
         boost::uuids::random_generator gen;
         boost::uuids::uuid const job_id = gen();
-        core::StorageErr const err
-                = m_metadata_storage->add_job(*m_conn, job_id, m_id, graph.m_impl->get_graph());
-        if (!err.success()) {
-            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        if (nullptr != m_batch) {
+            core::StorageErr const err = m_metadata_storage->add_job_batch(
+                    *m_conn,
+                    *m_batch,
+                    job_id,
+                    m_id,
+                    graph.m_impl->get_graph()
+            );
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
+        } else {
+            core::StorageErr const err
+                    = m_metadata_storage->add_job(*m_conn, job_id, m_id, graph.m_impl->get_graph());
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
         }
 
         return Job<ReturnType>{
