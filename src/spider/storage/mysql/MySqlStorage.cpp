@@ -1646,7 +1646,7 @@ auto MySqlMetadataStorage::get_task_timeout(
         std::unique_ptr<sql::PreparedStatement> not_timeout_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
                         "SELECT `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
-                        "`t1`.`task_id` = `tasks`.`id` WHERE `t1.task_id` = ? AND "
+                        "`t1`.`task_id` = `tasks`.`id` WHERE `t1`.`task_id` = ? AND "
                         "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, CURRENT_TIMESTAMP()) < "
                         "`tasks`.`timeout` * 1000"
                 )
