@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -1230,20 +1231,105 @@ auto MySqlMetadataStorage::get_task_job_id(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_ready_tasks(StorageConnection& conn, std::vector<Task>* tasks)
-        -> StorageErr {
+auto MySqlMetadataStorage::get_ready_tasks(
+        StorageConnection& conn,
+        std::vector<ScheduleTaskMetadata>* tasks
+) -> StorageErr {
     try {
         // Get all ready tasks from job that has not failed or cancelled
         std::unique_ptr<sql::Statement> statement(
                 static_cast<MySqlConnection&>(conn)->createStatement()
         );
-        std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
-                "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `state` = 'ready' "
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery(
+                "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `state` = 'ready' "
                 "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
                 "`state` = 'cancel')"
         ));
+
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->commit();
+            return StorageErr{};
+        }
+
+        absl::flat_hash_map<boost::uuids::uuid, ScheduleTaskMetadata> new_tasks;
+        absl::flat_hash_map<boost::uuids::uuid, std::vector<boost::uuids::uuid>> job_id_to_task_ids;
         while (res->next()) {
-            tasks->emplace_back(fetch_full_task(static_cast<MySqlConnection&>(conn), res));
+            boost::uuids::uuid const task_id = read_id(res->getBinaryStream("id"));
+            boost::uuids::uuid const job_id = read_id(res->getBinaryStream("job_id"));
+            std::string const function_name = get_sql_string(res->getString("func_name"));
+            new_tasks.emplace(task_id, ScheduleTaskMetadata{task_id, function_name, job_id});
+            if (job_id_to_task_ids.find(job_id) == job_id_to_task_ids.end()) {
+                job_id_to_task_ids[job_id] = std::vector<boost::uuids::uuid>{task_id};
+            } else {
+                job_id_to_task_ids[job_id].emplace_back(task_id);
+            }
+        }
+
+        // Get all job metadata
+        std::unique_ptr<sql::PreparedStatement> job_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `id`, `client_id`, `creation_time` FROM `jobs` WHERE `id` = ?"
+                )
+        );
+        for (auto const& iter : job_id_to_task_ids) {
+            sql::bytes job_id_bytes = uuid_get_bytes(iter.first);
+            job_statement->setBytes(1, &job_id_bytes);
+            job_statement->addBatch();
+        }
+        job_statement->execute();
+        std::unique_ptr<sql::ResultSet> const job_res(job_statement->getResultSet());
+        while (job_res->next()) {
+            boost::uuids::uuid const job_id = read_id(job_res->getBinaryStream("id"));
+            boost::uuids::uuid const client_id = read_id(job_res->getBinaryStream("client_id"));
+            std::optional<std::chrono::system_clock::time_point> const optional_creation_time
+                    = parse_timestamp(get_sql_string(job_res->getString("creation_time")));
+            if (false == optional_creation_time.has_value()) {
+                static_cast<MySqlConnection&>(conn)->rollback();
+                return StorageErr{
+                        StorageErrType::OtherErr,
+                        fmt::format(
+                                "Cannot parse timestamp {}",
+                                get_sql_string(job_res->getString("creation_time"))
+                        )
+                };
+            }
+            for (boost::uuids::uuid const& task_id : job_id_to_task_ids[job_id]) {
+                new_tasks[task_id].set_client_id(client_id);
+                new_tasks[task_id].set_job_creation_time(optional_creation_time.value());
+            }
+        }
+
+        // Get all data localities
+        std::unique_ptr<sql::PreparedStatement> locality_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, "
+                        "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
+                        "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
+                        "= `data_locality`.`id` WHERE `task_inputs`.`task_id` = ? AND "
+                        "`task_inputs`.`task_id` IS NOT NULL"
+                )
+        );
+        for (auto const& iter : new_tasks) {
+            sql::bytes task_id_bytes = uuid_get_bytes(iter.first);
+            locality_statement->setBytes(1, &task_id_bytes);
+            locality_statement->addBatch();
+        }
+        locality_statement->execute();
+        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->getResultSet());
+        while (locality_res->next()) {
+            boost::uuids::uuid const task_id = read_id(locality_res->getBinaryStream("task_id"));
+            bool const hard_locality = locality_res->getBoolean("hard_locality");
+            std::string const address = get_sql_string(locality_res->getString("address"));
+            if (hard_locality) {
+                new_tasks[task_id].add_hard_locality(address);
+            } else {
+                new_tasks[task_id].add_soft_locality(address);
+            }
+        }
+
+        // Add all tasks to the output
+        for (auto const& ite : new_tasks) {
+            tasks->emplace_back(ite.second);
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
@@ -1540,49 +1626,147 @@ auto MySqlMetadataStorage::task_fail(
 
 auto MySqlMetadataStorage::get_task_timeout(
         StorageConnection& conn,
-        std::vector<std::tuple<TaskInstance, Task>>* tasks
+        std::vector<ScheduleTaskMetadata>* tasks
 ) -> StorageErr {
     try {
         std::unique_ptr<sql::Statement> statement(
                 static_cast<MySqlConnection&>(conn)->createStatement()
         );
-        std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
-                "SELECT `t1`.`id`, `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
+        std::unique_ptr<sql::ResultSet> const task_timeout_res(statement->executeQuery(
+                "SELECT `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
                 "`t1`.`task_id` = `tasks`.`id` WHERE `tasks`.`timeout` > 0.0001 AND "
                 "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, CURRENT_TIMESTAMP()) > "
                 "`tasks`.`timeout` * 1000"
         ));
+        if (task_timeout_res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->commit();
+            return StorageErr{};
+        }
+
         std::unique_ptr<sql::PreparedStatement> not_timeout_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT FROM `task_instances` as `t1` JOIN `tasks` ON`t1`.`task_id` = "
-                        "`tasks`.`id` WHERE `t1.task_id` = ? AND TIMESTAMPDIFF(MICROSECOND, "
-                        "`t1`.`start_time`, CURRENT_TIMESTAMP()) < `tasks`.`timeout` * 1000"
+                        "SELECT `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
+                        "`t1`.`task_id` = `tasks`.`id` WHERE `t1`.`task_id` = ? AND "
+                        "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, CURRENT_TIMESTAMP()) < "
+                        "`tasks`.`timeout` * 1000"
                 )
         );
 
+        absl::flat_hash_set<boost::uuids::uuid> task_ids;
+        while (task_timeout_res->next()) {
+            boost::uuids::uuid const task_id
+                    = read_id(task_timeout_res->getBinaryStream("task_id"));
+            task_ids.insert(task_id);
+            sql::bytes task_id_bytes = uuid_get_bytes(task_id);
+            not_timeout_statement->setBytes(1, &task_id_bytes);
+            not_timeout_statement->addBatch();
+        }
+        not_timeout_statement->execute();
+        std::unique_ptr<sql::ResultSet> const not_timeout_res(not_timeout_statement->getResultSet()
+        );
+        while (not_timeout_res->next()) {
+            boost::uuids::uuid const task_id = read_id(not_timeout_res->getBinaryStream("task_id"));
+            task_ids.erase(task_id);
+        }
+
+        if (task_ids.empty()) {
+            static_cast<MySqlConnection&>(conn)->commit();
+            return StorageErr{};
+        }
+
+        // Get task metadata
         std::unique_ptr<sql::PreparedStatement> task_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `id` = ?"
+                        "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `id` = ?"
                 )
         );
-        while (res->next()) {
-            boost::uuids::uuid const task_instance_id = read_id(res->getBinaryStream("id"));
-            boost::uuids::uuid const task_id = read_id(res->getBinaryStream("task_id"));
+        for (boost::uuids::uuid const& task_id : task_ids) {
             sql::bytes task_id_bytes = uuid_get_bytes(task_id);
-            // Check all task instance have timed out
-            not_timeout_statement->setBytes(1, &task_id_bytes);
-            std::unique_ptr<sql::ResultSet> not_timeout_res(not_timeout_statement->executeQuery());
-            if (not_timeout_res->rowsCount() > 0) {
-                continue;
-            }
-
-            // Fetch task
             task_statement->setBytes(1, &task_id_bytes);
-            std::unique_ptr<sql::ResultSet> task_res(task_statement->executeQuery());
-            if (task_res->next()) {
-                Task const task = fetch_full_task(static_cast<MySqlConnection&>(conn), task_res);
-                tasks->emplace_back(TaskInstance{task_instance_id, task_id}, task);
+            task_statement->addBatch();
+        }
+        task_statement->execute();
+        std::unique_ptr<sql::ResultSet> const task_res(task_statement->getResultSet());
+
+        absl::flat_hash_map<boost::uuids::uuid, ScheduleTaskMetadata> new_tasks;
+        absl::flat_hash_map<boost::uuids::uuid, std::vector<boost::uuids::uuid>> job_id_to_task_ids;
+        while (task_res->next()) {
+            boost::uuids::uuid const task_id = read_id(task_res->getBinaryStream("id"));
+            boost::uuids::uuid const job_id = read_id(task_res->getBinaryStream("job_id"));
+            std::string const function_name = get_sql_string(task_res->getString("func_name"));
+            new_tasks.emplace(task_id, ScheduleTaskMetadata{task_id, function_name, job_id});
+            if (job_id_to_task_ids.find(job_id) == job_id_to_task_ids.end()) {
+                job_id_to_task_ids[job_id] = std::vector<boost::uuids::uuid>{task_id};
+            } else {
+                job_id_to_task_ids[job_id].emplace_back(task_id);
             }
+        }
+
+        // Get all job metadata
+        std::unique_ptr<sql::PreparedStatement> job_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `id`, `client_id`, `creation_time` FROM `jobs` WHERE `id` = ?"
+                )
+        );
+        for (auto const& iter : job_id_to_task_ids) {
+            sql::bytes job_id_bytes = uuid_get_bytes(iter.first);
+            job_statement->setBytes(1, &job_id_bytes);
+            job_statement->addBatch();
+        }
+        job_statement->execute();
+        std::unique_ptr<sql::ResultSet> const job_res(job_statement->getResultSet());
+        while (job_res->next()) {
+            boost::uuids::uuid const job_id = read_id(job_res->getBinaryStream("id"));
+            boost::uuids::uuid const client_id = read_id(job_res->getBinaryStream("client_id"));
+            std::optional<std::chrono::system_clock::time_point> const optional_creation_time
+                    = parse_timestamp(get_sql_string(job_res->getString("creation_time")));
+            if (false == optional_creation_time.has_value()) {
+                static_cast<MySqlConnection&>(conn)->rollback();
+                return StorageErr{
+                        StorageErrType::OtherErr,
+                        fmt::format(
+                                "Cannot parse timestamp {}",
+                                get_sql_string(job_res->getString("creation_time"))
+                        )
+                };
+            }
+            for (boost::uuids::uuid const& task_id : job_id_to_task_ids[job_id]) {
+                new_tasks[task_id].set_client_id(client_id);
+                new_tasks[task_id].set_job_creation_time(optional_creation_time.value());
+            }
+        }
+
+        // Get all data localities
+        std::unique_ptr<sql::PreparedStatement> locality_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, "
+                        "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
+                        "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
+                        "= `data_locality`.`id` WHERE `task_inputs`.`task_id` = ? AND "
+                        "`task_inputs`.`task_id` IS NOT NULL"
+                )
+        );
+        for (auto const& iter : new_tasks) {
+            sql::bytes task_id_bytes = uuid_get_bytes(iter.first);
+            locality_statement->setBytes(1, &task_id_bytes);
+            locality_statement->addBatch();
+        }
+        locality_statement->execute();
+        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->getResultSet());
+        while (locality_res->next()) {
+            boost::uuids::uuid const task_id = read_id(locality_res->getBinaryStream("task_id"));
+            bool const hard_locality = locality_res->getBoolean("hard_locality");
+            std::string const address = get_sql_string(locality_res->getString("address"));
+            if (hard_locality) {
+                new_tasks[task_id].add_hard_locality(address);
+            } else {
+                new_tasks[task_id].add_soft_locality(address);
+            }
+        }
+
+        // Add all tasks to the output
+        for (auto const& iter : new_tasks) {
+            tasks->emplace_back(iter.second);
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();

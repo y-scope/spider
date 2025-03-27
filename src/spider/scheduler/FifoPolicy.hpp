@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-#include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Task.hpp"
@@ -30,15 +29,12 @@ public:
 
 private:
     auto fetch_tasks() -> void;
-    auto task_locality_satisfied(core::Task const& task, std::string const& addr) -> bool;
 
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::StorageConnection> m_conn;
 
-    std::vector<core::Task> m_tasks;
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    absl::flat_hash_map<boost::uuids::uuid, core::Data, std::hash<boost::uuids::uuid>> m_data_cache;
+    std::vector<core::ScheduleTaskMetadata> m_tasks;
 };
 
 }  // namespace spider::scheduler

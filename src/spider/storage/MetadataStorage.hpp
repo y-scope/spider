@@ -2,7 +2,6 @@
 #define SPIDER_STORAGE_METADATASTORAGE_HPP
 
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -78,8 +77,8 @@ public:
             boost::uuids::uuid id,
             boost::uuids::uuid* job_id
     ) -> StorageErr = 0;
-    virtual auto get_ready_tasks(StorageConnection& conn, std::vector<Task>* tasks) -> StorageErr
-                                                                                       = 0;
+    virtual auto get_ready_tasks(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
+            -> StorageErr = 0;
     virtual auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
             -> StorageErr = 0;
     virtual auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
@@ -98,10 +97,8 @@ public:
             TaskInstance const& instance,
             std::string const& error
     ) -> StorageErr = 0;
-    virtual auto get_task_timeout(
-            StorageConnection& conn,
-            std::vector<std::tuple<TaskInstance, Task>>* tasks
-    ) -> StorageErr = 0;
+    virtual auto get_task_timeout(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
+            -> StorageErr = 0;
     virtual auto get_child_tasks(
             StorageConnection& conn,
             boost::uuids::uuid id,
