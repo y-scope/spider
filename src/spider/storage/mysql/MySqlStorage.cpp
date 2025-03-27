@@ -1259,7 +1259,7 @@ auto MySqlMetadataStorage::get_ready_tasks(
             std::string const function_name = get_sql_string(res->getString("func_name"));
             new_tasks.emplace(task_id, ScheduleTaskMetadata{task_id, function_name, job_id});
             if (job_id_to_task_ids.find(job_id) == job_id_to_task_ids.end()) {
-                job_id_to_task_ids[job_id] = std::vector<boost::uuids::uuid>{};
+                job_id_to_task_ids[job_id] = std::vector<boost::uuids::uuid>{task_id};
             } else {
                 job_id_to_task_ids[job_id].emplace_back(task_id);
             }
@@ -1696,7 +1696,7 @@ auto MySqlMetadataStorage::get_task_timeout(
             std::string const function_name = get_sql_string(task_res->getString("func_name"));
             new_tasks.emplace(task_id, ScheduleTaskMetadata{task_id, function_name, job_id});
             if (job_id_to_task_ids.find(job_id) == job_id_to_task_ids.end()) {
-                job_id_to_task_ids[job_id] = std::vector<boost::uuids::uuid>{};
+                job_id_to_task_ids[job_id] = std::vector<boost::uuids::uuid>{task_id};
             } else {
                 job_id_to_task_ids[job_id].emplace_back(task_id);
             }
