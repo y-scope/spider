@@ -1,6 +1,7 @@
 #ifndef SPIDER_CORE_TASK_HPP
 #define SPIDER_CORE_TASK_HPP
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -107,6 +108,62 @@ enum class TaskState : std::uint8_t {
     Succeed,
     Failed,
     Canceled,
+};
+
+class ScheduleTaskMetadata {
+public:
+    ScheduleTaskMetadata(
+            boost::uuids::uuid id,
+            std::string function_name,
+            boost::uuids::uuid job_id
+    )
+            : m_id(id),
+              m_function_name(std::move(function_name)),
+              m_job_id(job_id) {}
+
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
+
+    [[nodiscard]] auto get_function_name() const -> std::string const& { return m_function_name; }
+
+    [[nodiscard]] auto get_job_id() const -> boost::uuids::uuid { return m_job_id; }
+
+    [[nodiscard]] auto get_client_id() const -> boost::uuids::uuid { return m_client_id; }
+
+    [[nodiscard]] auto get_job_creation_time() const -> std::chrono::system_clock::time_point {
+        return m_job_creation_time;
+    }
+
+    [[nodiscard]] auto get_hard_localities() const -> std::vector<std::string> const& {
+        return m_hard_localities;
+    }
+
+    [[nodiscard]] auto get_soft_localities() const -> std::vector<std::string> const& {
+        return m_soft_localities;
+    }
+
+    auto set_client_id(boost::uuids::uuid const client_id) -> void { m_client_id = client_id; }
+
+    auto set_job_creation_time(std::chrono::system_clock::time_point const job_creation_time
+    ) -> void {
+        m_job_creation_time = job_creation_time;
+    }
+
+    auto add_hard_locality(std::string const& locality) -> void {
+        m_hard_localities.push_back(locality);
+    }
+
+    auto add_soft_locality(std::string const& locality) -> void {
+        m_soft_localities.push_back(locality);
+    }
+
+private:
+    boost::uuids::uuid m_id;
+    std::string m_function_name;
+    boost::uuids::uuid m_job_id;
+    boost::uuids::uuid m_client_id;
+    std::chrono::system_clock::time_point m_job_creation_time;
+    std::vector<std::string> m_hard_localities;
+    std::vector<std::string> m_soft_localities;
 };
 
 class Task {
