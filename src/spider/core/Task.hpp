@@ -121,6 +121,8 @@ public:
               m_function_name(std::move(function_name)),
               m_job_id(job_id) {}
 
+    ScheduleTaskMetadata() = default;
+
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
     [[nodiscard]] auto get_function_name() const -> std::string const& { return m_function_name; }

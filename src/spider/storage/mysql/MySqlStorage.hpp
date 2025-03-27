@@ -4,7 +4,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -81,7 +80,8 @@ public:
     get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task) -> StorageErr override;
     auto get_task_job_id(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid* job_id)
             -> StorageErr override;
-    auto get_ready_tasks(StorageConnection& conn, std::vector<Task>* tasks) -> StorageErr override;
+    auto get_ready_tasks(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
+            -> StorageErr override;
     auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
             -> StorageErr override;
     auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
@@ -96,10 +96,8 @@ public:
     ) -> StorageErr override;
     auto task_fail(StorageConnection& conn, TaskInstance const& instance, std::string const& error)
             -> StorageErr override;
-    auto get_task_timeout(
-            StorageConnection& conn,
-            std::vector<std::tuple<TaskInstance, Task>>* tasks
-    ) -> StorageErr override;
+    auto get_task_timeout(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
+            -> StorageErr override;
     auto get_child_tasks(
             StorageConnection& conn,
             boost::uuids::uuid id,
