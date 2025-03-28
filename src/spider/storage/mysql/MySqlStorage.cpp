@@ -1321,8 +1321,8 @@ auto MySqlMetadataStorage::get_ready_tasks(
         }
 
         // Add all tasks to the output
-        for (auto const& it : new_tasks) {
-            tasks->emplace_back(it.second);
+        for (auto const& iter : new_tasks) {
+            tasks->emplace_back(iter.second);
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
@@ -1622,64 +1622,21 @@ auto MySqlMetadataStorage::get_task_timeout(
         std::vector<ScheduleTaskMetadata>* tasks
 ) -> StorageErr {
     try {
-        std::unique_ptr<sql::Statement> statement(
+        std::unique_ptr<sql::Statement> task_statement(
                 static_cast<MySqlConnection&>(conn)->createStatement()
         );
-        std::unique_ptr<sql::ResultSet> const task_timeout_res(statement->executeQuery(
-                "SELECT `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
-                "`t1`.`task_id` = `tasks`.`id` WHERE `tasks`.`timeout` > 0.0001 AND "
-                "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, CURRENT_TIMESTAMP()) > "
-                "`tasks`.`timeout` * 1000"
-        ));
-        if (task_timeout_res->rowsCount() == 0) {
-            static_cast<MySqlConnection&>(conn)->commit();
-            return StorageErr{};
-        }
 
-        std::unique_ptr<sql::PreparedStatement> not_timeout_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `t1`.`task_id` FROM `task_instances` as `t1` JOIN `tasks` ON "
-                        "`t1`.`task_id` = `tasks`.`id` WHERE `t1`.`task_id` = ? AND "
-                        "TIMESTAMPDIFF(MICROSECOND, `t1`.`start_time`, CURRENT_TIMESTAMP()) < "
-                        "`tasks`.`timeout` * 1000"
-                )
-        );
-
-        absl::flat_hash_set<boost::uuids::uuid> task_ids;
-        while (task_timeout_res->next()) {
-            boost::uuids::uuid const task_id
-                    = read_id(task_timeout_res->getBinaryStream("task_id"));
-            task_ids.insert(task_id);
-            sql::bytes task_id_bytes = uuid_get_bytes(task_id);
-            not_timeout_statement->setBytes(1, &task_id_bytes);
-            not_timeout_statement->addBatch();
-        }
-        not_timeout_statement->execute();
-        std::unique_ptr<sql::ResultSet> const not_timeout_res(not_timeout_statement->getResultSet()
-        );
-        while (not_timeout_res->next()) {
-            boost::uuids::uuid const task_id = read_id(not_timeout_res->getBinaryStream("task_id"));
-            task_ids.erase(task_id);
-        }
-
-        if (task_ids.empty()) {
-            static_cast<MySqlConnection&>(conn)->commit();
-            return StorageErr{};
-        }
-
-        // Get task metadata
-        std::unique_ptr<sql::PreparedStatement> task_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `id` = ?"
-                )
-        );
-        for (boost::uuids::uuid const& task_id : task_ids) {
-            sql::bytes task_id_bytes = uuid_get_bytes(task_id);
-            task_statement->setBytes(1, &task_id_bytes);
-            task_statement->addBatch();
-        }
-        task_statement->execute();
-        std::unique_ptr<sql::ResultSet> const task_res(task_statement->getResultSet());
+        std::unique_ptr<sql::ResultSet> const task_res{task_statement->executeQuery(
+                "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `id` IN (SELECT "
+                "`tasks`.`id` FROM `task_instances` JOIN `tasks` ON `task_instances`.`task_id` = "
+                "`tasks`.`id` WHERE `tasks`.`timeout` > 0.0001 AND `tasks`.`state` = 'running' AND "
+                "TIMESTAMPDIFF(MICROSECOND, `task_instances`.`start_time`, CURRENT_TIMESTAMP()) > "
+                "`tasks`.`timeout` * 1000) AND `id` NOT IN (SELECT `tasks`.`id` FROM "
+                "`task_instances` JOIN `tasks` ON `task_instances`.`task_id` = `tasks`.`id` WHERE "
+                "`tasks`.`timeout` > 0.0001 AND `tasks`.`state` = 'running' AND "
+                "TIMESTAMPDIFF(MICROSECOND, `task_instances`.`start_time`, CURRENT_TIMESTAMP()) < "
+                "`tasks`.` timeout` * 1000)"
+        )};
 
         absl::flat_hash_map<boost::uuids::uuid, ScheduleTaskMetadata> new_tasks;
         absl::flat_hash_map<boost::uuids::uuid, std::vector<boost::uuids::uuid>> job_id_to_task_ids;
@@ -1696,18 +1653,22 @@ auto MySqlMetadataStorage::get_task_timeout(
         }
 
         // Get all job metadata
-        std::unique_ptr<sql::PreparedStatement> job_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `client_id`, `creation_time` FROM `jobs` WHERE `id` = ?"
-                )
-        );
-        for (auto const& iter : job_id_to_task_ids) {
-            sql::bytes job_id_bytes = uuid_get_bytes(iter.first);
-            job_statement->setBytes(1, &job_id_bytes);
-            job_statement->addBatch();
-        }
-        job_statement->execute();
-        std::unique_ptr<sql::ResultSet> const job_res(job_statement->getResultSet());
+        std::unique_ptr<sql::Statement> job_statement{
+                static_cast<MySqlConnection&>(conn)->createStatement()
+        };
+        std::unique_ptr<sql::ResultSet> const job_res{job_statement->executeQuery(
+                "SELECT `jobs`.`id`, `jobs`.`client_id`, `jobs`.`creation_time` FROM `jobs` JOIN "
+                "`tasks` ON `jobs`.`id` = `tasks`.`job_id` WHERE `tasks`.`id` IN (SELECT "
+                "`tasks`.`id` FROM `task_instances` JOIN `tasks` ON `task_instances`.`task_id` = "
+                "`tasks`.`id` WHERE `tasks`.`timeout` > 0.0001 AND `tasks`.`state` = 'running' AND "
+                "TIMESTAMPDIFF(MICROSECOND, `task_instances`.`start_time`, CURRENT_TIMESTAMP()) > "
+                "`tasks`.`timeout` * 1000) AND `tasks`.`id` NOT IN (SELECT `tasks`.`id` FROM "
+                "`task_instances` JOIN `tasks` ON `task_instances`.`task_id` = `tasks`.`id` WHERE "
+                "`tasks`.`timeout` > 0.0001 AND `tasks`.`state` = 'running' AND "
+                "TIMESTAMPDIFF(MICROSECOND, `task_instances`.`start_time`, CURRENT_TIMESTAMP()) < "
+                "`tasks`.` timeout` * 1000)"
+        )};
+
         while (job_res->next()) {
             boost::uuids::uuid const job_id = read_id(job_res->getBinaryStream("id"));
             boost::uuids::uuid const client_id = read_id(job_res->getBinaryStream("client_id"));
@@ -1730,22 +1691,23 @@ auto MySqlMetadataStorage::get_task_timeout(
         }
 
         // Get all data localities
-        std::unique_ptr<sql::PreparedStatement> locality_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, "
-                        "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
-                        "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
-                        "= `data_locality`.`id` WHERE `task_inputs`.`task_id` = ? AND "
-                        "`task_inputs`.`task_id` IS NOT NULL"
-                )
-        );
-        for (auto const& iter : new_tasks) {
-            sql::bytes task_id_bytes = uuid_get_bytes(iter.first);
-            locality_statement->setBytes(1, &task_id_bytes);
-            locality_statement->addBatch();
-        }
-        locality_statement->execute();
-        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->getResultSet());
+        std::unique_ptr<sql::Statement> locality_statement{
+                static_cast<MySqlConnection&>(conn)->createStatement()
+        };
+        std::unique_ptr<sql::ResultSet> const locality_res{locality_statement->executeQuery(
+                "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, `data_locality`.`address` "
+                "FROM `task_inputs` JOIN `data` ON `task_inputs`.`data_id` = `data`.`id` JOIN "
+                "`data_locality` ON `data`.`id` = `data_locality`.`id` WHERE "
+                "`task_inputs`.`task_id` IN (SELECT `tasks`.`id` FROM `task_instances` JOIN "
+                "`tasks` ON `task_instances`.`task_id` = `tasks`.`id` WHERE `tasks`.`timeout` > "
+                "0.0001 AND `tasks`.`state` = 'running' AND TIMESTAMPDIFF(MICROSECOND, "
+                "`task_instances`.`start_time`, CURRENT_TIMESTAMP()) > `tasks`.`timeout` * 1000) "
+                "AND `task_inputs`.`task_id` NOT IN (SELECT `tasks`.`id` FROM `task_instances` "
+                "JOIN `tasks` ON `task_instances`.`task_id` = `tasks`.`id` WHERE `tasks`.`timeout` "
+                "> 0.0001 AND `tasks`.`state` = 'running' AND TIMESTAMPDIFF(MICROSECOND, "
+                "`task_instances`.`start_time`, CURRENT_TIMESTAMP()) < `tasks`.` timeout` * 1000)"
+        )};
+
         while (locality_res->next()) {
             boost::uuids::uuid const task_id = read_id(locality_res->getBinaryStream("task_id"));
             bool const hard_locality = locality_res->getBoolean("hard_locality");
