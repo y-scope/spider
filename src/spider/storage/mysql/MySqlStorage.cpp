@@ -1237,14 +1237,14 @@ auto MySqlMetadataStorage::get_ready_tasks(
 ) -> StorageErr {
     try {
         // Get all ready tasks from job that has not failed or cancelled
-        std::unique_ptr<sql::Statement> statement(
+        std::unique_ptr<sql::Statement> task_statement(
                 static_cast<MySqlConnection&>(conn)->createStatement()
         );
-        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery(
+        std::unique_ptr<sql::ResultSet> const res{task_statement->executeQuery(
                 "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `state` = 'ready' "
                 "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
                 "`state` = 'cancel')"
-        ));
+        )};
 
         if (res->rowsCount() == 0) {
             static_cast<MySqlConnection&>(conn)->commit();
@@ -1266,21 +1266,15 @@ auto MySqlMetadataStorage::get_ready_tasks(
         }
 
         // Get all job metadata
-        std::unique_ptr<sql::PreparedStatement> job_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id` , `client_id` , `creation_time` FROM `jobs` WHERE `id` "
-                        "IN (SELECT DISTINCT `job_id` FROM `tasks` WHERE `state` = 'ready' AND "
-                        "`job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' "
-                        "OR `state` = 'cancel'))"
-                )
-        );
-        for (auto const& iter : job_id_to_task_ids) {
-            sql::bytes job_id_bytes = uuid_get_bytes(iter.first);
-            job_statement->setBytes(1, &job_id_bytes);
-            job_statement->addBatch();
-        }
-        job_statement->execute();
-        std::unique_ptr<sql::ResultSet> const job_res(job_statement->getResultSet());
+        std::unique_ptr<sql::Statement> job_statement{
+                static_cast<MySqlConnection&>(conn)->createStatement()
+        };
+        std::unique_ptr<sql::ResultSet> const job_res{job_statement->executeQuery(
+                "SELECT `id` , `client_id` , `creation_time` FROM `jobs` WHERE `id` IN (SELECT "
+                "DISTINCT `job_id` FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN "
+                "(SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
+        )};
+
         while (job_res->next()) {
             boost::uuids::uuid const job_id = read_id(job_res->getBinaryStream("id"));
             boost::uuids::uuid const client_id = read_id(job_res->getBinaryStream("client_id"));
@@ -1303,23 +1297,18 @@ auto MySqlMetadataStorage::get_ready_tasks(
         }
 
         // Get all data localities
-        std::unique_ptr<sql::PreparedStatement> locality_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, "
-                        "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
-                        "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
-                        "= `data_locality`.`id` WHERE `task_inputs`.`task_id` IN (SELECT `id` "
-                        "FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN (SELECT `job_id` "
-                        "FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
-                )
-        );
-        for (auto const& iter : new_tasks) {
-            sql::bytes task_id_bytes = uuid_get_bytes(iter.first);
-            locality_statement->setBytes(1, &task_id_bytes);
-            locality_statement->addBatch();
-        }
-        locality_statement->execute();
-        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->getResultSet());
+        std::unique_ptr<sql::Statement> locality_statement{
+                static_cast<MySqlConnection&>(conn)->createStatement()
+        };
+        std::unique_ptr<sql::ResultSet> const locality_res{locality_statement->executeQuery(
+                "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, "
+                "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
+                "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
+                "= `data_locality`.`id` WHERE `task_inputs`.`task_id` IN (SELECT `id` "
+                "FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN (SELECT `job_id` "
+                "FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
+        )};
+
         while (locality_res->next()) {
             boost::uuids::uuid const task_id = read_id(locality_res->getBinaryStream("task_id"));
             bool const hard_locality = locality_res->getBoolean("hard_locality");
