@@ -30,6 +30,8 @@ public:
 private:
     auto fetch_tasks() -> void;
 
+    auto pop_next_task(std::string const& worker_addr) -> std::optional<boost::uuids::uuid>;
+
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::StorageConnection> m_conn;
