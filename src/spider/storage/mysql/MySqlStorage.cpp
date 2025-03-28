@@ -1268,7 +1268,10 @@ auto MySqlMetadataStorage::get_ready_tasks(
         // Get all job metadata
         std::unique_ptr<sql::PreparedStatement> job_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `client_id`, `creation_time` FROM `jobs` WHERE `id` = ?"
+                        "SELECT `id` , `client_id` , `creation_time` FROM `jobs` WHERE `id` "
+                        "IN (SELECT DISTINCT `job_id` FROM `tasks` WHERE `state` = 'ready' AND "
+                        "`job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' "
+                        "OR `state` = 'cancel'))"
                 )
         );
         for (auto const& iter : job_id_to_task_ids) {
@@ -1305,8 +1308,9 @@ auto MySqlMetadataStorage::get_ready_tasks(
                         "SELECT `task_inputs`.`task_id`, `data`.`hard_locality`, "
                         "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
                         "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
-                        "= `data_locality`.`id` WHERE `task_inputs`.`task_id` = ? AND "
-                        "`task_inputs`.`task_id` IS NOT NULL"
+                        "= `data_locality`.`id` WHERE `task_inputs`.`task_id` IN (SELECT `id` "
+                        "FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN (SELECT `job_id` "
+                        "FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
                 )
         );
         for (auto const& iter : new_tasks) {
@@ -1328,8 +1332,8 @@ auto MySqlMetadataStorage::get_ready_tasks(
         }
 
         // Add all tasks to the output
-        for (auto const& ite : new_tasks) {
-            tasks->emplace_back(ite.second);
+        for (auto const& it : new_tasks) {
+            tasks->emplace_back(it.second);
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
