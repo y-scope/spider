@@ -1321,8 +1321,14 @@ auto MySqlMetadataStorage::get_ready_tasks(
         }
 
         // Add all tasks to the output
-        for (auto const& iter : new_tasks) {
-            tasks->emplace_back(iter.second);
+        absl::flat_hash_set<boost::uuids::uuid> task_ids;
+        for (ScheduleTaskMetadata const& task : *tasks) {
+            task_ids.insert(task.get_id());
+        }
+        for (auto const& [task_id, task] : new_tasks) {
+            if (task_ids.find(task_id) == task_ids.end()) {
+                tasks->emplace_back(task);
+            }
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
@@ -1720,8 +1726,14 @@ auto MySqlMetadataStorage::get_task_timeout(
         }
 
         // Add all tasks to the output
-        for (auto const& iter : new_tasks) {
-            tasks->emplace_back(iter.second);
+        absl::flat_hash_set<boost::uuids::uuid> task_ids;
+        for (ScheduleTaskMetadata const& task : *tasks) {
+            task_ids.insert(task.get_id());
+        }
+        for (auto const& [task_id, task] : new_tasks) {
+            if (task_ids.find(task_id) == task_ids.end()) {
+                tasks->emplace_back(task);
+            }
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
