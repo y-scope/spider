@@ -23,6 +23,9 @@ jobs:
         os: ["ubuntu-22.04", "ubuntu-24.04"]
     runs-on: "${{matrix.os}}"
     steps:
+      - name: "Remove default CMake installation in the runner"
+        run: "rm '/usr/local/bin/cmake'"
+
       - uses: "actions/checkout@v4"
         with:
           submodules: "recursive"
@@ -34,8 +37,12 @@ jobs:
       - name: "Install task"
         run: "npm install -g @go-task/cli"
 
+      - name: "Install dev dependencies"
+        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+
       - name: "Log tool versions"
         run: |-
+          cmake --version
           md5sum --version
           python --version
           tar --version
