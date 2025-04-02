@@ -67,10 +67,10 @@ std::string const cCreateOutputTaskTable = R"(CREATE TABLE IF NOT EXISTS output_
 std::string const cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS `task_inputs` (
     `task_id` BINARY(16) NOT NULL,
     `position` INT UNSIGNED NOT NULL,
-    `type` VARCHAR(64) NOT NULL,
+    `type` VARCHAR(256) NOT NULL,
     `output_task_id` BINARY(16),
     `output_task_position` INT UNSIGNED,
-    `value` VARBINARY(64), -- Use VARBINARY for all types of values
+    `value` VARBINARY(999), -- Use VARBINARY for all types of values
     `data_id` BINARY(16),
     CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`) REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
@@ -81,8 +81,8 @@ std::string const cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS `task_in
 std::string const cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS `task_outputs` (
     `task_id` BINARY(16) NOT NULL,
     `position` INT UNSIGNED NOT NULL,
-    `type` VARCHAR(64) NOT NULL,
-    `value` VARBINARY(64),
+    `type` VARCHAR(256) NOT NULL,
+    `value` VARBINARY(999),
     `data_id` BINARY(16),
     CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
