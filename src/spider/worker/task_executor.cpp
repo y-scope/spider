@@ -142,13 +142,12 @@ auto main(int const argc, char** argv) -> int {
             return cFuncArgParseErr;
         }
         msgpack::sbuffer const& request_buffer = request_buffer_option.value();
-        if (spider::worker::TaskExecutorRequestType::Arguments
-            != spider::worker::get_request_type(request_buffer))
-        {
+        spider::worker::TaskExecutorRequestParser const request_parser{request_buffer};
+        if (spider::worker::TaskExecutorRequestType::Arguments != request_parser.get_type()) {
             spdlog::error("Expect args request.");
             return cFuncArgParseErr;
         }
-        msgpack::object const args_object = spider::worker::get_message_body(request_buffer);
+        msgpack::object const args_object = request_parser.get_body();
         msgpack::sbuffer args_buffer;
         msgpack::packer packer{args_buffer};
         packer.pack(args_object);

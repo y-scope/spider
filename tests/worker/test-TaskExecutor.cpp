@@ -208,6 +208,43 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
 }
 
+constexpr int cLargeInputSize = 300;
+
+TEMPLATE_LIST_TEST_CASE(
+        "Task execute large input&output",
+        "[worker][storage]",
+        spider::test::StorageFactoryTypeList
+) {
+    absl::flat_hash_map<
+            boost::process::v2::environment::key,
+            boost::process::v2::environment::value> const environment_variable
+            = get_environment_variable();
+
+    boost::asio::io_context context;
+
+    boost::uuids::random_generator gen;
+
+    std::string const input_1(cLargeInputSize, 'a');
+    std::string const input_2(cLargeInputSize, 'b');
+
+    spider::worker::TaskExecutor executor{
+            context,
+            "join_string_test",
+            gen(),
+            spider::test::get_storage_url<TestType>(),
+            get_libraries(),
+            environment_variable,
+            input_1,
+            input_2
+    };
+    context.run();
+    executor.wait();
+    REQUIRE(executor.succeed());
+    std::optional<std::string> const result_option = executor.get_result<std::string>();
+    REQUIRE(result_option.has_value());
+    REQUIRE(input_1 + input_2 == result_option.value_or(""));
+}
+
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-unix.BlockInCriticalSection)

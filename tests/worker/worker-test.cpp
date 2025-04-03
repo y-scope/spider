@@ -3,6 +3,7 @@
 #include <iostream>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 
 #include <spider/client/Data.hpp>
@@ -61,6 +62,14 @@ auto create_task_test(spider::TaskContext& context, int x, int y) -> int {
     return job.get_result();
 }
 
+auto join_string_test(
+        spider::TaskContext& /*context*/,
+        std::string const& input_1,
+        std::string const& input_2
+) -> std::string {
+    return input_1 + input_2;
+}
+
 // NOLINTBEGIN(cert-err58-cpp)
 SPIDER_REGISTER_TASK(sum_test);
 SPIDER_REGISTER_TASK(swap_test);
@@ -69,4 +78,5 @@ SPIDER_REGISTER_TASK(data_test);
 SPIDER_REGISTER_TASK(random_fail_test);
 SPIDER_REGISTER_TASK(create_data_test);
 SPIDER_REGISTER_TASK(create_task_test);
+SPIDER_REGISTER_TASK(join_string_test);
 // NOLINTEND(cert-err58-cpp)

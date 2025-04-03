@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -179,6 +180,33 @@ auto test_graph_batch_submission(spider::Driver& driver) -> int {
     return 0;
 }
 
+auto test_large_input_output(
+        spider::Driver& driver,
+        size_t const input_size_1,
+        size_t const input_size_2
+) -> int {
+    std::string input_1(input_size_1, 'a');
+    std::string input_2(input_size_2, 'b');
+
+    spider::Job<std::string> job = driver.start(&join_string_test, input_1, input_2);
+    job.wait_complete();
+    if (job.get_status() != spider::JobStatus::Succeeded) {
+        spdlog::error("Large input job failed");
+        return cJobFailed;
+    }
+    if (job.get_result() != input_1 + input_2) {
+        spdlog::error(
+                "Large input job wrong result. Expect {}. Get {}.",
+                input_1 + input_2,
+                job.get_result()
+        );
+        return cJobFailed;
+    }
+    return 0;
+}
+
+constexpr size_t cLargeInputSize = 300;
+
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -239,6 +267,11 @@ auto main(int argc, char** argv) -> int {
     }
 
     result = test_graph_batch_submission(driver);
+    if (0 != result) {
+        return result;
+    }
+
+    result = test_large_input_output(driver, cLargeInputSize, cLargeInputSize);
     if (0 != result) {
         return result;
     }
