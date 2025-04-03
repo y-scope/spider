@@ -37,29 +37,46 @@ enum class TaskExecutorRequestType : std::uint8_t {
     Resume,
 };
 
-inline auto get_request_type(msgpack::sbuffer const& buffer) -> TaskExecutorRequestType {
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
-    msgpack::object const object = handle.get();
-    if (object.type != msgpack::type::ARRAY || object.via.array.size < 2) {
-        return TaskExecutorRequestType::Unknown;
-    }
-    msgpack::object const header = object.via.array.ptr[0];
-    try {
-        return header.as<TaskExecutorRequestType>();
-    } catch (msgpack::type_error const&) {
-        return TaskExecutorRequestType::Unknown;
-    }
-    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-}
+class TaskExecutorRequestParser {
+public:
+    /**
+     * @param buffer
+     * @throw std::bad_cast if the buffer does not store a valid msgpack object
+     */
+    explicit TaskExecutorRequestParser(msgpack::sbuffer const& buffer)
+            : m_obj(msgpack::unpack(buffer.data(), buffer.size())) {}
 
-inline auto get_message_body(msgpack::sbuffer const& buffer) -> msgpack::object {
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
-    msgpack::object const object = handle.get();
-    return object.via.array.ptr[1];
-    // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
-}
+    /**
+     * @return The type of the message.
+     */
+    auto get_type() const -> TaskExecutorRequestType {
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        msgpack::object const object = m_obj.get();
+        if (object.type != msgpack::type::ARRAY || object.via.array.size < 2) {
+            return TaskExecutorRequestType::Unknown;
+        }
+        msgpack::object const header = object.via.array.ptr[0];
+        try {
+            return header.as<TaskExecutorRequestType>();
+        } catch (msgpack::type_error const&) {
+            return TaskExecutorRequestType::Unknown;
+        }
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    }
+
+    /**
+     * @return The body of the message. Cannot outlive the `TaskExecutorRequestParser` object.
+     */
+    auto get_body() const -> msgpack::object {
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        msgpack::object const object = m_obj.get();
+        return object.via.array.ptr[1];
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    }
+
+private:
+    msgpack::object_handle m_obj;
+};
 
 }  // namespace spider::worker
 
