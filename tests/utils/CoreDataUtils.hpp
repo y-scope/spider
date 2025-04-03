@@ -3,7 +3,6 @@
 #include "../../src/spider/core/Data.hpp"
 
 namespace spider::test {
-
 inline auto data_equal(core::Data const& d1, core::Data const& d2) -> bool {
     if (d1.get_id() != d2.get_id()) {
         return false;
@@ -23,7 +22,6 @@ inline auto data_equal(core::Data const& d1, core::Data const& d2) -> bool {
 
     return true;
 }
-
 }  // namespace spider::test
 
 #endif  // SPIDER_TESTS_COREDATAUTILS_HPP

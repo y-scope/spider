@@ -25,7 +25,6 @@
 #include "MySqlJobSubmissionBatch.hpp"
 
 namespace spider::core {
-
 // Forward declaration for friend class
 class MySqlStorageFactory;
 
@@ -76,8 +75,8 @@ public:
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr override;
-    auto
-    get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task) -> StorageErr override;
+    auto get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task)
+            -> StorageErr override;
     auto get_task_job_id(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid* job_id)
             -> StorageErr override;
     auto get_ready_tasks(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
@@ -85,8 +84,8 @@ public:
     auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
             -> StorageErr override;
     auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
-    auto
-    add_task_instance(StorageConnection& conn, TaskInstance const& instance) -> StorageErr override;
+    auto add_task_instance(StorageConnection& conn, TaskInstance const& instance)
+            -> StorageErr override;
     auto create_task_instance(StorageConnection& conn, TaskInstance const& instance)
             -> StorageErr override;
     auto task_finish(
@@ -98,32 +97,23 @@ public:
             -> StorageErr override;
     auto get_task_timeout(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
             -> StorageErr override;
-    auto get_child_tasks(
-            StorageConnection& conn,
-            boost::uuids::uuid id,
-            std::vector<Task>* children
-    ) -> StorageErr override;
+    auto
+    get_child_tasks(StorageConnection& conn, boost::uuids::uuid id, std::vector<Task>* children)
+            -> StorageErr override;
     auto get_parent_tasks(StorageConnection& conn, boost::uuids::uuid id, std::vector<Task>* tasks)
             -> StorageErr override;
     auto update_heartbeat(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
-    auto heartbeat_timeout(
-            StorageConnection& conn,
-            double timeout,
-            std::vector<boost::uuids::uuid>* ids
-    ) -> StorageErr override;
+    auto
+    heartbeat_timeout(StorageConnection& conn, double timeout, std::vector<boost::uuids::uuid>* ids)
+            -> StorageErr override;
     auto get_scheduler_state(StorageConnection& conn, boost::uuids::uuid id, std::string* state)
             -> StorageErr override;
-    auto get_scheduler_addr(
-            StorageConnection& conn,
-            boost::uuids::uuid id,
-            std::string* addr,
-            int* port
-    ) -> StorageErr override;
-    auto set_scheduler_state(
-            StorageConnection& conn,
-            boost::uuids::uuid id,
-            std::string const& state
-    ) -> StorageErr override;
+    auto
+    get_scheduler_addr(StorageConnection& conn, boost::uuids::uuid id, std::string* addr, int* port)
+            -> StorageErr override;
+    auto
+    set_scheduler_state(StorageConnection& conn, boost::uuids::uuid id, std::string const& state)
+            -> StorageErr override;
 
 private:
     MySqlMetadataStorage() = default;
@@ -140,8 +130,8 @@ private:
             Task const& task,
             std::optional<TaskState> const& state
     );
-    static auto
-    fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res) -> Task;
+    static auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
+            -> Task;
 
     friend class MySqlStorageFactory;
 };
@@ -158,15 +148,13 @@ public:
             -> StorageErr override;
     auto add_task_data(StorageConnection& conn, boost::uuids::uuid task_id, Data const& data)
             -> StorageErr override;
-    auto
-    get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data) -> StorageErr override;
+    auto get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data)
+            -> StorageErr override;
     auto set_data_locality(StorageConnection& conn, Data const& data) -> StorageErr override;
     auto remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
-    auto add_task_reference(
-            StorageConnection& conn,
-            boost::uuids::uuid id,
-            boost::uuids::uuid task_id
-    ) -> StorageErr override;
+    auto
+    add_task_reference(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid task_id)
+            -> StorageErr override;
     auto remove_task_reference(
             StorageConnection& conn,
             boost::uuids::uuid id,
@@ -184,8 +172,8 @@ public:
     ) -> StorageErr override;
     auto remove_dangling_data(StorageConnection& conn) -> StorageErr override;
 
-    auto
-    add_client_kv_data(StorageConnection& conn, KeyValueData const& data) -> StorageErr override;
+    auto add_client_kv_data(StorageConnection& conn, KeyValueData const& data)
+            -> StorageErr override;
     auto add_task_kv_data(StorageConnection& conn, KeyValueData const& data) -> StorageErr override;
     auto get_client_kv_data(
             StorageConnection& conn,

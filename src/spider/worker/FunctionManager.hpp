@@ -87,9 +87,8 @@ enum class FunctionInvokeError : std::uint8_t {
 MSGPACK_ADD_ENUM(spider::core::FunctionInvokeError);
 
 namespace spider::core {
-
-auto response_get_error(msgpack::sbuffer const& buffer
-) -> std::optional<std::tuple<FunctionInvokeError, std::string>>;
+auto response_get_error(msgpack::sbuffer const& buffer)
+        -> std::optional<std::tuple<FunctionInvokeError, std::string>>;
 
 auto create_error_response(FunctionInvokeError error, std::string const& message)
         -> msgpack::sbuffer;
@@ -162,8 +161,8 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<std::t
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-auto response_get_result_buffers(msgpack::sbuffer const& buffer
-) -> std::optional<std::vector<msgpack::sbuffer>>;
+auto response_get_result_buffers(msgpack::sbuffer const& buffer)
+        -> std::optional<std::vector<msgpack::sbuffer>>;
 
 template <TaskIo T>
 auto create_result_response(T const& t) -> msgpack::sbuffer {
@@ -218,8 +217,8 @@ auto create_args_request(Args&&... args) -> msgpack::sbuffer {
     return buffer;
 }
 
-inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers
-) -> msgpack::sbuffer {
+inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers)
+        -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
@@ -236,8 +235,8 @@ inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffer
 template <class F>
 class FunctionInvoker {
 public:
-    static auto
-    apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer) -> ResultBuffer {
+    static auto apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer)
+            -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;

@@ -1,4 +1,3 @@
-
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -81,8 +80,8 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 }
 
 auto get_environment_variable() -> absl::flat_hash_map<
-                                        boost::process::v2::environment::key,
-                                        boost::process::v2::environment::value> {
+        boost::process::v2::environment::key,
+        boost::process::v2::environment::value> {
     boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
 
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
@@ -121,8 +120,9 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
-        ));
+        auto conn = std::move(
+                std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
+        );
 
         spider::core::StorageErr const err
                 = metadata_store->update_heartbeat(*conn, driver.get_id());
@@ -141,10 +141,9 @@ auto heartbeat_loop(
 
 constexpr int cFetchTaskTimeout = 100;
 
-auto fetch_task(
-        spider::worker::WorkerClient& client,
-        std::optional<boost::uuids::uuid> fail_task_id
-) -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
+auto
+fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uuid> fail_task_id)
+        -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
     spdlog::debug("Fetching task");
     while (true) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
@@ -158,8 +157,8 @@ auto fetch_task(
     }
 }
 
-auto get_args_buffers(spider::core::Task const& task
-) -> std::optional<std::vector<msgpack::sbuffer>> {
+auto get_args_buffers(spider::core::Task const& task)
+        -> std::optional<std::vector<msgpack::sbuffer>> {
     std::vector<msgpack::sbuffer> args_buffers;
     size_t const num_inputs = task.get_num_inputs();
     for (size_t i = 0; i < num_inputs; ++i) {
@@ -189,10 +188,9 @@ auto get_args_buffers(spider::core::Task const& task
     return args_buffers;
 }
 
-auto parse_outputs(
-        spider::core::Task const& task,
-        std::vector<msgpack::sbuffer> const& result_buffers
-) -> std::optional<std::vector<spider::core::TaskOutput>> {
+auto
+parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> const& result_buffers)
+        -> std::optional<std::vector<spider::core::TaskOutput>> {
     std::vector<spider::core::TaskOutput> outputs;
     outputs.reserve(task.get_num_outputs());
     for (size_t i = 0; i < task.get_num_outputs(); ++i) {
@@ -303,8 +301,9 @@ auto task_loop(
             );
             continue;
         }
-        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
-        ));
+        auto conn = std::move(
+                std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
+        );
 
         if (!executor.succeed()) {
             spdlog::warn("Task {} failed", task.get_function_name());
@@ -373,7 +372,6 @@ auto task_loop(
 }
 
 // NOLINTEND(clang-analyzer-unix.BlockInCriticalSection)
-
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -436,8 +434,9 @@ auto main(int argc, char** argv) -> int {
             );
             return cStorageErr;
         }
-        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
-        ));
+        auto conn = std::move(
+                std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
+        );
 
         spider::core::StorageErr const err = metadata_store->add_driver(*conn, driver);
         if (!err.success()) {

@@ -24,7 +24,6 @@
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
-
 SchedulerServer::SchedulerServer(
         unsigned short const port,
         std::shared_ptr<SchedulerPolicy> policy,
@@ -115,8 +114,8 @@ auto deserialize_message(msgpack::sbuffer const& buffer) -> std::optional<Schedu
 }
 }  // namespace
 
-auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
-) -> boost::asio::awaitable<void> {
+auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket)
+        -> boost::asio::awaitable<void> {
     // NOLINTBEGIN(clang-analyzer-core.CallAndMessage)
     std::optional<msgpack::sbuffer> const& optional_message_buffer
             = co_await core::receive_message_async(socket);
@@ -174,5 +173,4 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
     }
     co_return;
 }
-
 }  // namespace spider::scheduler

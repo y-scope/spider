@@ -26,17 +26,16 @@ public:
         return task_context.m_data_store;
     }
 
-    static auto get_metadata_store(TaskContext const& task_context
-    ) -> std::shared_ptr<MetadataStorage> {
+    static auto get_metadata_store(TaskContext const& task_context)
+            -> std::shared_ptr<MetadataStorage> {
         return task_context.m_metadata_store;
     }
 
-    static auto get_storage_factory(TaskContext const& task_context
-    ) -> std::shared_ptr<StorageFactory> {
+    static auto get_storage_factory(TaskContext const& task_context)
+            -> std::shared_ptr<StorageFactory> {
         return task_context.m_storage_factory;
     }
 };
-
 }  // namespace spider::core
 
 #endif

@@ -15,10 +15,12 @@ class StorageFactory {
 public:
     virtual auto provide_data_storage() -> std::unique_ptr<DataStorage> = 0;
     virtual auto provide_metadata_storage() -> std::unique_ptr<MetadataStorage> = 0;
-    virtual auto provide_storage_connection(
-    ) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> = 0;
-    virtual auto
-    provide_job_submission_batch(StorageConnection&) -> std::unique_ptr<JobSubmissionBatch> = 0;
+    virtual auto provide_storage_connection()
+            -> std::variant<std::unique_ptr<StorageConnection>, StorageErr>
+            = 0;
+    virtual auto provide_job_submission_batch(StorageConnection&)
+            -> std::unique_ptr<JobSubmissionBatch>
+            = 0;
 
     StorageFactory() = default;
     StorageFactory(StorageFactory const&) = default;
@@ -27,7 +29,6 @@ public:
     auto operator=(StorageFactory&&) -> StorageFactory& = default;
     virtual ~StorageFactory() = default;
 };
-
 }  // namespace spider::core
 
 #endif

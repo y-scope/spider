@@ -77,7 +77,6 @@ public:
 private:
     msgpack::object_handle m_obj;
 };
-
 }  // namespace spider::worker
 
 // MSGPACK_ADD_ENUM must be called in global namespace
