@@ -67,7 +67,7 @@ std::string const cCreateOutputTaskTable = R"(CREATE TABLE IF NOT EXISTS output_
 std::string const cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS `task_inputs` (
     `task_id` BINARY(16) NOT NULL,
     `position` INT UNSIGNED NOT NULL,
-    `type` VARCHAR(999) NOT NULL,
+    `type` VARCHAR(256) NOT NULL,
     `output_task_id` BINARY(16),
     `output_task_position` INT UNSIGNED,
     `value` VARBINARY(999), -- Use VARBINARY for all types of values
@@ -81,7 +81,7 @@ std::string const cCreateTaskInputTable = R"(CREATE TABLE IF NOT EXISTS `task_in
 std::string const cCreateTaskOutputTable = R"(CREATE TABLE IF NOT EXISTS `task_outputs` (
     `task_id` BINARY(16) NOT NULL,
     `position` INT UNSIGNED NOT NULL,
-    `type` VARCHAR(999) NOT NULL,
+    `type` VARCHAR(256) NOT NULL,
     `value` VARBINARY(999),
     `data_id` BINARY(16),
     CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
@@ -108,7 +108,7 @@ std::string const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS `task
 
 std::string const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
     `id` BINARY(16) NOT NULL,
-    `value` VARBINARY(999) NOT NULL,
+    `value` VARBINARY(256) NOT NULL,
     `hard_locality` BOOL DEFAULT FALSE,
     `persisted` BOOL DEFAULT FALSE,
     PRIMARY KEY (`id`)
@@ -141,14 +141,14 @@ std::string const cCreateDataRefTaskTable = R"(CREATE TABLE IF NOT EXISTS `data_
 
 std::string const cCreateClientKVDataTable = R"(CREATE TABLE IF NOT EXISTS `client_kv_data` (
     `kv_key` VARCHAR(64) NOT NULL,
-    `value` VARBINARY(999) NOT NULL,
+    `value` VARBINARY(128) NOT NULL,
     `client_id` BINARY(16) NOT NULL,
     PRIMARY KEY (`client_id`, `kv_key`)
 ))";
 
 std::string const cCreateTaskKVDataTable = R"(CREATE TABLE IF NOT EXISTS `task_kv_data` (
     `kv_key` VARCHAR(64) NOT NULL,
-    `value` VARBINARY(999) NOT NULL,
+    `value` VARBINARY(128) NOT NULL,
     `task_id` BINARY(16) NOT NULL,
     PRIMARY KEY (`task_id`, `kv_key`),
     CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
