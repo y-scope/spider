@@ -74,7 +74,6 @@ tasks:
           ROOT_PATHS: *cpp_source_files
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
-
   cpp-static-check:
     # Alias task to `cpp-static-fix` since we don't currently support automatic fixes.
     # NOTE: clang-tidy does have the ability to fix some errors, but the fixes can be inaccurate.
@@ -144,7 +143,6 @@ tasks:
           lint-tasks.yaml \
           taskfile.yaml \
           test-tasks.yaml
-
 
   cmake:
     internal: true
