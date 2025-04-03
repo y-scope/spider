@@ -21,6 +21,7 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no
     g++ \
     gcc \
     git \
+    jq \
     libcurl4 \
     libcurl4-openssl-dev \
     libssl-dev \
