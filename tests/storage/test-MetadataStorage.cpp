@@ -72,11 +72,7 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFa
     }));
 }
 
-TEMPLATE_LIST_TEST_CASE(
-        "Scheduler state and addr",
-        "[storage]",
-        spider::test::StorageFactoryTypeList
-) {
+TEMPLATE_LIST_TEST_CASE("Scheduler addr", "[storage]", spider::test::StorageFactoryTypeList) {
     std::unique_ptr<spider::core::StorageFactory> storage_factory
             = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
@@ -105,20 +101,6 @@ TEMPLATE_LIST_TEST_CASE(
     // Get non-exist scheduler should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == storage->get_scheduler_addr(*conn, gen(), &addr_res, &port_res).type);
-
-    // Get default state
-    std::string state_res;
-    REQUIRE(storage->get_scheduler_state(*conn, scheduler_id, &state_res).success());
-    REQUIRE(state_res == "normal");
-    state_res.clear();
-
-    // Update scheduler state should succeed
-    std::string state = "recovery";
-    REQUIRE(storage->set_scheduler_state(*conn, scheduler_id, state).success());
-
-    // Get new state
-    REQUIRE(storage->get_scheduler_state(*conn, scheduler_id, &state_res).success());
-    REQUIRE(state_res == state);
 }
 
 TEMPLATE_LIST_TEST_CASE(
