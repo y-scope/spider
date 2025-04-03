@@ -206,7 +206,6 @@ auto test_large_input_output(
 }
 
 constexpr size_t cLargeInputSize = 300;
-;
 
 }  // namespace
 
