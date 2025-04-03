@@ -49,7 +49,7 @@ public:
     /**
      * @return The type of the message.
      */
-    auto get_type() const -> TaskExecutorRequestType {
+    [[nodiscard]] auto get_type() const -> TaskExecutorRequestType {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         msgpack::object const object = m_obj.get();
         if (object.type != msgpack::type::ARRAY || object.via.array.size < 2) {
@@ -67,7 +67,7 @@ public:
     /**
      * @return The body of the message. Cannot outlive the `TaskExecutorRequestParser` object.
      */
-    auto get_body() const -> msgpack::object {
+    [[nodiscard]] auto get_body() const -> msgpack::object {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         msgpack::object const object = m_obj.get();
         return object.via.array.ptr[1];
