@@ -6,7 +6,7 @@ includes:
   docs: "docs/tasks.yaml"
   lint: "lint-tasks.yaml"
   test: "test-tasks.yaml"
-  utils: "tools/yscope-dev-utils/taskfiles/utils.yml"
+  utils: "tools/yscope-dev-utils/exports/taskfiles/utils/utils.yaml"
 
 vars:
   G_BUILD_DIR: "{{.ROOT_DIR}}/build"

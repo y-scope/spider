@@ -32,7 +32,7 @@ tasks:
         vars:
           FLAGS: "--in-place"
 
-  cpp-configs: "tools/yscope-dev-utils/lint-configs/symlink-cpp-lint-configs.sh"
+  cpp-configs: "tools/yscope-dev-utils/exports/lint-configs/symlink-cpp-lint-configs.sh"
 
   cpp-check:
     cmds:
@@ -58,7 +58,7 @@ tasks:
       - "{{.G_TEST_DIR}}/**/*.h"
       - "{{.G_TEST_DIR}}/**/*.hpp"
       - "{{.TASKFILE}}"
-      - "tools/yscope-dev-utils/lint-configs/.clang-format"
+      - "tools/yscope-dev-utils/exports/lint-configs/.clang-format"
     deps: ["cpp-configs", "venv"]
     cmds:
       - task: "clang-format"
@@ -112,7 +112,7 @@ tasks:
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
       - "{{.TASKFILE}}"
       - "taskfile.yaml"
-      - "tools/yscope-dev-utils/lint-configs/.clang-tidy"
+      - "tools/yscope-dev-utils/exports/lint-configs/.clang-tidy"
     deps: [":config-cmake-project", "cpp-configs", "venv"]
     cmds:
       - task: "clang-tidy"
@@ -165,7 +165,7 @@ tasks:
       - |-
         . "{{.G_LINT_VENV_DIR}}/bin/activate"
         yamllint \
-          --config-file "tools/yscope-dev-utils/lint-configs/.yamllint.yml" \
+          --config-file "tools/yscope-dev-utils/exports/lint-configs/.yamllint.yml" \
           --strict \
           .gersemirc \
           .github/ \
@@ -229,18 +229,18 @@ tasks:
     run: "once"
     deps:
       - ":init"
-      - task: ":utils:validate-checksum"
+      - task: ":utils:checksum:validate"
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
-          DATA_DIR: "{{.OUTPUT_DIR}}"
+          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
     cmds:
-      - task: ":utils:create-venv"
+      - task: ":utils:misc:create-venv"
         vars:
           LABEL: "lint"
           OUTPUT_DIR: "{{.OUTPUT_DIR}}"
-          REQUIREMENTS_FILE: "lint-requirements.txt"
+          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/lint-requirements.txt"
       # This command must be last
-      - task: ":utils:compute-checksum"
+      - task: ":utils:checksum:compute"
         vars:
-          DATA_DIR: "{{.OUTPUT_DIR}}"
-          OUTPUT_FILE: "{{.CHECKSUM_FILE}}"
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
