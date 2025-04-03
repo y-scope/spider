@@ -180,7 +180,8 @@ std::array<std::string const, 17> const cCreateStorage = {
         cCreateTaskInputTable,
         cCreateTaskDependencyTable,
         cCreateTaskInstanceTable,
-        cCreateSchedulerLeaseTable // scheduler_lease table must be created after scheduler and task
+        cCreateSchedulerLeaseTable  // scheduler_lease table must be created after scheduler and
+                                    // task
 };
 
 std::string const cInsertJob = R"(INSERT INTO `jobs` (`id`, `client_id`) VALUES (?, ?))";
