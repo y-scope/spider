@@ -242,7 +242,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
     if (body_ec) {
-        if (boost::asio::error::eof != body_size_ec) {
+        if (boost::asio::error::eof != body_ec) {
             spdlog::error(
                     "Cannot read message body size or body from socket {}: {}",
                     body_ec.value(),
