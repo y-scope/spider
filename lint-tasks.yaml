@@ -45,51 +45,33 @@ tasks:
       - task: "cpp-static-fix"
 
   cpp-format-check:
-    sources: &cpp_format_src_files
-      - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
-      - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
-      - "{{.G_EXAMPLES_DIR}}/**/*.cpp"
-      - "{{.G_EXAMPLES_DIR}}/**/*.h"
-      - "{{.G_EXAMPLES_DIR}}/**/*.hpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
-      - "{{.G_TEST_DIR}}/**/*.cpp"
-      - "{{.G_TEST_DIR}}/**/*.h"
-      - "{{.G_TEST_DIR}}/**/*.hpp"
+    sources: &cpp_source_files
+      - "{{.ROOT_DIR}}/.clang-format"
+      - "{{.ROOT_DIR}}/.clang-tidy"
       - "{{.TASKFILE}}"
-      - "tools/yscope-dev-utils/exports/lint-configs/.clang-format"
+      - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
+      - "{{.G_EXAMPLES_DIR}}/**"
+      - "{{.G_SRC_SPIDER_DIR}}/**"
+      - "{{.G_TEST_DIR}}/**"
     deps: ["cpp-configs", "venv"]
     cmds:
-      - task: "clang-format"
+      - task: ":utils:cpp-lint:clang-format"
         vars:
-          FLAGS: "--dry-run"
-          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "--dry-run"
-          SRC_DIR: "{{.G_TEST_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "--dry-run"
-          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
+          FLAGS: ["--dry-run"]
+          INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
+          ROOT_PATHS: *cpp_source_files
+          VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   cpp-format-fix:
-    sources: *cpp_format_src_files
+    sources: *cpp_source_files
     deps: ["cpp-configs", "venv"]
     cmds:
-      - task: "clang-format"
+      - task: ":utils:cpp-lint:clang-format"
         vars:
-          FLAGS: "-i"
-          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "-i"
-          SRC_DIR: "{{.G_TEST_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "-i"
-          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
+          FLAGS: ["-i"]
+          INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
+          ROOT_PATHS: *cpp_source_files
+          VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   cpp-static-check:
     # Alias task to `cpp-static-fix` since we don't currently support automatic fixes.
@@ -175,18 +157,6 @@ tasks:
           lint-tasks.yaml \
           taskfile.yaml \
           test-tasks.yaml
-
-  clang-format:
-    internal: true
-    requires:
-      vars: ["FLAGS", "SRC_DIR"]
-    cmd: |-
-      . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find "{{.SRC_DIR}}" \
-        -type f \
-        \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
-        -print0 | \
-          xargs -0 --no-run-if-empty clang-format {{.FLAGS}} -Werror
 
   clang-tidy:
     internal: true
