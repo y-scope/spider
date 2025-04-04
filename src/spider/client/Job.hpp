@@ -223,7 +223,8 @@ private:
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
                 using T = std::tuple_element_t<i.cValue, ReturnType>;
                 if (task_index >= output_task_ids.size()) {
-                    throw ConnectionException{fmt::format("Not enough output tasks for job result")
+                    throw ConnectionException{
+                            fmt::format("Not enough output tasks for job result")
                     };
                 }
                 core::Task const& task = tasks[task_index];
@@ -266,7 +267,8 @@ private:
                         msgpack::object const& obj = handle.get();
                         std::get<i.cValue>(result) = obj.as<T>();
                     } catch (msgpack::type_error const& e) {
-                        throw ConnectionException{fmt::format("Failed to unpack data: {}", e.what())
+                        throw ConnectionException{
+                                fmt::format("Failed to unpack data: {}", e.what())
                         };
                     }
                 }
@@ -302,7 +304,8 @@ private:
                 }
                 err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
                 if (!err.success()) {
-                    throw ConnectionException{fmt::format("Failed to get data: {}", err.description)
+                    throw ConnectionException{
+                            fmt::format("Failed to get data: {}", err.description)
                     };
                 }
                 return core::DataImpl::create_data<DataType>(

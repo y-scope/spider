@@ -13,7 +13,6 @@
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
-
 class SchedulerServer {
 public:
     // Delete copy & move constructor and assignment operator
@@ -55,7 +54,6 @@ private:
 
     core::StopToken& m_stop_token;
 };
-
 }  // namespace spider::scheduler
 
 #endif  // SPIDER_SCHEDULER_SCHEDULERSERVER_HPP

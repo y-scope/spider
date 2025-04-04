@@ -31,8 +31,8 @@ public:
             std::shared_ptr<core::StorageFactory> storage_factory
     );
 
-    auto get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
-    ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>>;
+    auto get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id)
+            -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>>;
 
 private:
     boost::uuids::uuid m_worker_id;

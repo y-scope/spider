@@ -7,7 +7,6 @@
 #include <boost/uuid/uuid.hpp>
 
 namespace spider::core {
-
 class Driver {
 public:
     explicit Driver(boost::uuids::uuid const id) : m_id{id} {}
@@ -36,7 +35,6 @@ private:
     std::string m_addr;
     int m_port;
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_DRIVER_HPP

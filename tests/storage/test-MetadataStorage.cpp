@@ -26,7 +26,6 @@
 #include "StorageTestHelper.hpp"
 
 namespace {
-
 TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFactoryTypeList) {
     std::unique_ptr<spider::core::StorageFactory> storage_factory
             = spider::test::create_storage_factory<TestType>();
@@ -434,7 +433,8 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::StorageFactory
                            *conn,
                            parent_1_instance,
                            {spider::core::TaskOutput{"1.1", "float"}}
-    ).success());
+    )
+                    .success());
     // Parent 1 finish should not update state of any other tasks
     spider::core::Task res_task{""};
     REQUIRE(storage->get_task(*conn, parent_2.get_id(), &res_task).success());
@@ -510,7 +510,8 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::StorageFactoryTy
                            *conn,
                            parent_1_instance,
                            {spider::core::TaskOutput{"1.1", "float"}}
-    ).success());
+    )
+                    .success());
     // Task finish for parent 2 should success
     spider::core::TaskInstance const parent_2_instance{gen(), parent_2.get_id()};
     REQUIRE(storage->set_task_state(*conn, parent_2.get_id(), spider::core::TaskState::Running)
@@ -555,7 +556,6 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::StorageFactoryTy
     // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
 }
-
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

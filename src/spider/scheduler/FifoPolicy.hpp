@@ -15,7 +15,6 @@
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
-
 class FifoPolicy final : public SchedulerPolicy {
 public:
     FifoPolicy(
@@ -38,7 +37,6 @@ private:
 
     std::vector<core::ScheduleTaskMetadata> m_tasks;
 };
-
 }  // namespace spider::scheduler
 
 #endif  // SPIDER_SCHEDULER_FIFOPOLICY_HPP

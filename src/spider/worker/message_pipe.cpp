@@ -15,7 +15,6 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::worker {
-
 constexpr size_t cHeaderSize = 16;
 
 namespace {
@@ -85,8 +84,8 @@ auto receive_message(boost::asio::posix::stream_descriptor& fd) -> std::optional
     return buffer;
 }
 
-auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pipe
-) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
+auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pipe)
+        -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     std::array<char, cHeaderSize> header_buffer{0};
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     auto [header_ec, header_n] = co_await boost::asio::async_read(
@@ -142,5 +141,4 @@ auto receive_message_async(std::reference_wrapper<boost::asio::readable_pipe> pi
     buffer.write(body_buffer.data(), body_buffer.size());
     co_return buffer;
 }
-
 }  // namespace spider::worker

@@ -28,7 +28,6 @@
 #include "Process.hpp"
 
 namespace spider::worker {
-
 enum class TaskExecutorState : std::uint8_t {
     Running,
     Waiting,
@@ -183,7 +182,6 @@ private:
 
     msgpack::sbuffer m_result_buffer;
 };
-
 }  // namespace spider::worker
 
 #endif  // SPIDER_WORKER_TASKEXECUTOR_HPP

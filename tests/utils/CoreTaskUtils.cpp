@@ -17,7 +17,6 @@
 #include "../../src/spider/core/TaskGraph.hpp"
 
 namespace spider::test {
-
 namespace {
 constexpr double cEpsilon = 0.0001;
 
@@ -112,7 +111,6 @@ auto hash_map_equal(
 
     return true;
 }
-
 }  // namespace
 
 auto task_graph_equal(core::TaskGraph const& graph_1, core::TaskGraph const& graph_2) -> bool {
@@ -185,5 +183,4 @@ auto task_output_equal(core::TaskOutput const& output_1, core::TaskOutput const&
     }
     return true;
 }
-
 }  // namespace spider::test

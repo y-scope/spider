@@ -11,7 +11,6 @@
 #include "../../src/spider/worker/Process.hpp"
 
 namespace {
-
 TEST_CASE("Process exit", "[worker]") {
     spider::worker::Process const true_process
             = spider::worker::Process::spawn("true", {}, std::nullopt, std::nullopt, std::nullopt);
@@ -68,7 +67,6 @@ TEST_CASE("Process pipe", "[worker]") {
     close(read_pipe_fd[0]);
     REQUIRE(echo_process.wait() == 0);
 }
-
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

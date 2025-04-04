@@ -7,7 +7,6 @@
 #include <boost/dll/shared_library.hpp>
 
 namespace spider::worker {
-
 class DllLoader {
 public:
     static auto get_instance() -> DllLoader& {
@@ -22,7 +21,6 @@ public:
 private:
     absl::flat_hash_map<std::string, boost::dll::shared_library> m_libraries;
 };
-
 }  // namespace spider::worker
 
 #endif  // SPIDER_WORKER_DLLLOADER_HPP
