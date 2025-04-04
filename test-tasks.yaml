@@ -68,9 +68,9 @@ tasks:
     cmds:
       - task: ":utils:misc:create-venv"
         vars:
-          LABEL: "lint"
+          LABEL: "test"
           OUTPUT_DIR: "{{.OUTPUT_DIR}}"
-          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/lint-requirements.txt"
+          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/test-requirements.txt"
       # This command must be last
       - task: ":utils:checksum:compute"
         vars:
