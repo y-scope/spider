@@ -49,4 +49,4 @@ jobs:
         timeout-minutes: 10
         run: "task deps:lib_install"
 
-      - run: "task lint:check $(nproc)"
+      - run: "task lint:check -C $(nproc)"
