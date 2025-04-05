@@ -17,7 +17,6 @@ std::string const cCreateSchedulerTable = R"(CREATE TABLE IF NOT EXISTS `schedul
     `id` BINARY(16) NOT NULL,
     `address` VARCHAR(40) NOT NULL,
     `port` INT UNSIGNED NOT NULL,
-    `state` ENUM('normal', 'recovery', 'gc') NOT NULL,
     CONSTRAINT `scheduler_driver_id` FOREIGN KEY (`id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 ))";

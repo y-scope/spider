@@ -1,5 +1,4 @@
 #include <chrono>
-#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
@@ -111,10 +110,8 @@ auto heartbeat_loop(
 
 auto cleanup_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
-        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         std::shared_ptr<spider::core::DataStorage> const& data_store,
-        spider::core::Scheduler const& scheduler,
-        spider::core::StopToken& stop_token
+        spider::core::StopToken const& stop_token
 ) -> void {
     while (!stop_token.stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
@@ -132,25 +129,7 @@ auto cleanup_loop(
                 std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
         );
 
-        spider::core::StorageErr err
-                = metadata_store->set_scheduler_state(*conn, scheduler.get_id(), "gc");
-        if (!err.success()) {
-            spdlog::error("Failed to set scheduler state to gc: {}", err.description);
-            continue;
-        }
         data_store->remove_dangling_data(*conn);
-        for (size_t i = 0; i < cRetryCount; ++i) {
-            err = metadata_store->set_scheduler_state(*conn, scheduler.get_id(), "normal");
-            if (!err.success()) {
-                spdlog::error("Failed to set scheduler state to normal: {}", err.description);
-                if (i >= cRetryCount - 1) {
-                    stop_token.request_stop();
-                    return;
-                }
-            } else {
-                break;
-            }
-        }
         spdlog::debug("Finished cleanup");
     }
 }
@@ -256,9 +235,7 @@ auto main(int argc, char** argv) -> int {
         std::thread cleanup_thread{
                 cleanup_loop,
                 std::cref(storage_factory),
-                std::cref(metadata_store),
                 std::cref(data_store),
-                std::cref(scheduler),
                 std::ref(stop_token)
         };
 

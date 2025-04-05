@@ -1840,37 +1840,6 @@ auto MySqlMetadataStorage::heartbeat_timeout(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_scheduler_state(
-        StorageConnection& conn,
-        boost::uuids::uuid id,
-        std::string* state
-) -> StorageErr {
-    try {
-        std::unique_ptr<sql::PreparedStatement> statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `state` FROM `schedulers` WHERE `id` = ?"
-                )
-        );
-        sql::bytes id_bytes = uuid_get_bytes(id);
-        statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
-        if (res->rowsCount() == 0) {
-            static_cast<MySqlConnection&>(conn)->rollback();
-            return StorageErr{
-                    StorageErrType::KeyNotFoundErr,
-                    fmt::format("no scheduler with id {}", boost::uuids::to_string(id))
-            };
-        }
-        res->next();
-        *state = get_sql_string(res->getString(1));
-    } catch (sql::SQLException& e) {
-        static_cast<MySqlConnection&>(conn)->rollback();
-        return StorageErr{StorageErrType::OtherErr, e.what()};
-    }
-    static_cast<MySqlConnection&>(conn)->commit();
-    return StorageErr{};
-}
-
 auto MySqlMetadataStorage::get_scheduler_addr(
         StorageConnection& conn,
         boost::uuids::uuid id,
@@ -1896,29 +1865,6 @@ auto MySqlMetadataStorage::get_scheduler_addr(
         res->next();
         *addr = get_sql_string(res->getString(1));
         *port = res->getInt(2);
-    } catch (sql::SQLException& e) {
-        static_cast<MySqlConnection&>(conn)->rollback();
-        return StorageErr{StorageErrType::OtherErr, e.what()};
-    }
-    static_cast<MySqlConnection&>(conn)->commit();
-    return StorageErr{};
-}
-
-auto MySqlMetadataStorage::set_scheduler_state(
-        StorageConnection& conn,
-        boost::uuids::uuid id,
-        std::string const& state
-) -> StorageErr {
-    try {
-        std::unique_ptr<sql::PreparedStatement> statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "UPDATE `schedulers` SET `state` = ? WHERE `id` = ?"
-                )
-        );
-        statement->setString(1, state);
-        sql::bytes id_bytes = uuid_get_bytes(id);
-        statement->setBytes(2, &id_bytes);
-        statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
