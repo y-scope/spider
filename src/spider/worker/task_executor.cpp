@@ -1,4 +1,3 @@
-
 #include <unistd.h>
 
 #include <exception>
@@ -32,7 +31,6 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace {
-
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider task executor");
@@ -62,7 +60,6 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
     boost::program_options::notify(variables);
     return variables;
 }
-
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;

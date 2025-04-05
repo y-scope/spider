@@ -12,7 +12,6 @@
 #include "../worker/FunctionNameManager.hpp"
 
 namespace spider::worker {
-
 auto DllLoader::load_dll(std::string const& path_str) -> bool {
     std::filesystem::path const dll_path(path_str);
 
@@ -63,5 +62,4 @@ auto DllLoader::load_dll(std::string const& path_str) -> bool {
 
     return true;
 }
-
 }  // namespace spider::worker

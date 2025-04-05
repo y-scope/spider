@@ -11,7 +11,6 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 
 namespace spider::scheduler {
-
 class ScheduleTaskRequest {
 public:
     /**
@@ -68,7 +67,6 @@ public:
 private:
     std::optional<boost::uuids::uuid> m_task_id = std::nullopt;
 };
-
 }  // namespace spider::scheduler
 
 #endif  // SPIDER_SCHEDULER_SCHEDULERMESSAGE_HPP

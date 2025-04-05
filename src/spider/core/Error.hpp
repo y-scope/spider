@@ -29,7 +29,6 @@ struct StorageErr {
 
     [[nodiscard]] auto success() const -> bool { return StorageErrType::Success == type; }
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_ERROR_HPP

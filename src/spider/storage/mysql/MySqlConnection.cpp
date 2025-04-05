@@ -16,9 +16,8 @@
 #include "../StorageConnection.hpp"
 
 namespace spider::core {
-
-auto MySqlConnection::create(std::string const& url
-) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> {
+auto MySqlConnection::create(std::string const& url)
+        -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> {
     // Validate jdbc url
     std::regex const url_regex(R"(jdbc:mariadb://[^?]+(\?user=([^&]*)(&password=([^&]*))?)?)");
     std::smatch match;
@@ -53,5 +52,4 @@ auto MySqlConnection::operator*() const -> sql::Connection& {
 auto MySqlConnection::operator->() const -> sql::Connection* {
     return &*m_connection;
 }
-
 }  // namespace spider::core

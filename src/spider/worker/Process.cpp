@@ -17,9 +17,7 @@
 #include <vector>
 
 namespace spider::worker {
-
 namespace {
-
 auto close_all_fds(std::vector<int> const& whitelist) -> bool {
     std::unique_ptr<DIR, void (*)(DIR*)> const dir{opendir("/dev/fd"), [](DIR* p) { closedir(p); }};
     if (nullptr == dir) {
@@ -50,7 +48,6 @@ auto close_all_fds(std::vector<int> const& whitelist) -> bool {
 
     return true;
 }
-
 }  // namespace
 
 auto Process::spawn(
@@ -121,5 +118,4 @@ auto Process::terminate() const -> void {
         throw std::runtime_error("Failed to terminate process");
     }
 }
-
 }  // namespace spider::worker
