@@ -9,7 +9,6 @@
 #include "Data.hpp"
 
 namespace spider::core {
-
 class DataImpl {
 public:
     template <class T>
@@ -26,7 +25,6 @@ public:
         return data.get_impl();
     }
 };
-
 }  // namespace spider::core
 
 #endif

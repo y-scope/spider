@@ -17,7 +17,6 @@
             = spider::core::FunctionNameManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
-
 using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
 
 class FunctionNameManager {
@@ -51,7 +50,6 @@ private:
 
     FunctionNameMap m_name_map;
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP

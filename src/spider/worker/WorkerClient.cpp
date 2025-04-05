@@ -28,7 +28,6 @@
 #include "../storage/StorageFactory.hpp"
 
 namespace spider::worker {
-
 WorkerClient::WorkerClient(
         boost::uuids::uuid const worker_id,
         std::string worker_addr,
@@ -42,8 +41,8 @@ WorkerClient::WorkerClient(
           m_metadata_store(std::move(metadata_store)),
           m_storage_factory(std::move(storage_factory)) {}
 
-auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id
-) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
+auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id)
+        -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     // Get schedulers
     std::vector<core::Scheduler> schedulers;
 
@@ -141,5 +140,4 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         return std::nullopt;
     }
 }
-
 }  // namespace spider::worker

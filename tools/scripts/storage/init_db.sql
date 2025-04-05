@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS output_tasks
 CREATE TABLE IF NOT EXISTS `data`
 (
     `id`            BINARY(16)     NOT NULL,
-    `value`         VARBINARY(256) NOT NULL,
+    `value`         VARBINARY(999) NOT NULL,
     `hard_locality` BOOL DEFAULT FALSE,
     `persisted`     BOOL DEFAULT FALSE,
     PRIMARY KEY (`id`)
@@ -66,8 +66,8 @@ CREATE TABLE IF NOT EXISTS `task_outputs`
 (
     `task_id`  BINARY(16)   NOT NULL,
     `position` INT UNSIGNED NOT NULL,
-    `type`     VARCHAR(64)  NOT NULL,
-    `value`    VARBINARY(64),
+    `type`     VARCHAR(999)  NOT NULL,
+    `value`    VARBINARY(999),
     `data_id`  BINARY(16),
     CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
@@ -77,10 +77,10 @@ CREATE TABLE IF NOT EXISTS `task_inputs`
 (
     `task_id`              BINARY(16)   NOT NULL,
     `position`             INT UNSIGNED NOT NULL,
-    `type`                 VARCHAR(64)  NOT NULL,
+    `type`                 VARCHAR(999)  NOT NULL,
     `output_task_id`       BINARY(16),
     `output_task_position` INT UNSIGNED,
-    `value`                VARBINARY(64), -- Use VARBINARY for all types of values
+    `value`                VARBINARY(999), -- Use VARBINARY for all types of values
     `data_id`              BINARY(16),
     CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`) REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
@@ -144,14 +144,14 @@ CREATE TABLE IF NOT EXISTS `data_ref_task`
 CREATE TABLE IF NOT EXISTS `client_kv_data`
 (
     `kv_key`    VARCHAR(64)    NOT NULL,
-    `value`     VARBINARY(128) NOT NULL,
+    `value`     VARBINARY(999) NOT NULL,
     `client_id` BINARY(16)     NOT NULL,
     PRIMARY KEY (`client_id`, `kv_key`)
 );
 CREATE TABLE IF NOT EXISTS `task_kv_data`
 (
     `kv_key`  VARCHAR(64)    NOT NULL,
-    `value`   VARBINARY(128) NOT NULL,
+    `value`   VARBINARY(999) NOT NULL,
     `task_id` BINARY(16)     NOT NULL,
     PRIMARY KEY (`task_id`, `kv_key`),
     CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE

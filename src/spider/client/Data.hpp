@@ -20,7 +20,6 @@
 #include "Exception.hpp"
 
 namespace spider {
-
 namespace core {
 class Data;
 class DataStorage;

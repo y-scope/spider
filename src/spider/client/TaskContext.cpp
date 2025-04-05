@@ -15,7 +15,6 @@
 #include "Exception.hpp"
 
 namespace spider {
-
 auto TaskContext::get_id() const -> boost::uuids::uuid {
     return m_task_id;
 }
@@ -70,5 +69,4 @@ auto TaskContext::get_jobs() -> std::vector<boost::uuids::uuid> {
     }
     return job_ids;
 }
-
 }  // namespace spider

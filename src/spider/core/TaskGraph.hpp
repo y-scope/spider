@@ -65,8 +65,8 @@ public:
         return std::nullopt;
     }
 
-    [[nodiscard]] auto get_child_tasks(boost::uuids::uuid id
-    ) const -> std::vector<boost::uuids::uuid> {
+    [[nodiscard]] auto get_child_tasks(boost::uuids::uuid id) const
+            -> std::vector<boost::uuids::uuid> {
         std::vector<boost::uuids::uuid> children;
         for (std::pair<boost::uuids::uuid, boost::uuids::uuid> const dep : m_dependencies) {
             if (dep.first == id) {
@@ -76,8 +76,8 @@ public:
         return children;
     }
 
-    [[nodiscard]] auto get_parent_tasks(boost::uuids::uuid id
-    ) const -> std::vector<boost::uuids::uuid> {
+    [[nodiscard]] auto get_parent_tasks(boost::uuids::uuid id) const
+            -> std::vector<boost::uuids::uuid> {
         std::vector<boost::uuids::uuid> parents;
         for (std::pair<boost::uuids::uuid, boost::uuids::uuid> const dep : m_dependencies) {
             if (dep.second == id) {
@@ -88,8 +88,8 @@ public:
     }
 
     // NOLINTBEGIN(misc-include-cleaner)
-    [[nodiscard]] auto get_tasks(
-    ) const -> absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> const& {
+    [[nodiscard]] auto get_tasks() const
+            -> absl::flat_hash_map<boost::uuids::uuid, Task, std::hash<boost::uuids::uuid>> const& {
         return m_tasks;
     }
 
@@ -107,8 +107,8 @@ public:
 
     auto add_output_task(boost::uuids::uuid id) -> void { m_output_tasks.emplace_back(id); }
 
-    [[nodiscard]] auto get_dependencies(
-    ) const -> std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> const& {
+    [[nodiscard]] auto get_dependencies() const
+            -> std::vector<std::pair<boost::uuids::uuid, boost::uuids::uuid>> const& {
         return m_dependencies;
     }
 

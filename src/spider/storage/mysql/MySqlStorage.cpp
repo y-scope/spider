@@ -56,7 +56,6 @@ enum MariadbErr : uint16_t {
 
 namespace spider::core {
 namespace {
-
 auto uuid_get_bytes(boost::uuids::uuid const& id) -> sql::bytes {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast)
     return {(char const*)id.data(), id.size()};
@@ -227,8 +226,9 @@ void MySqlMetadataStorage::add_task(
         std::optional<TaskState> const& state
 ) {
     // Add task
-    std::unique_ptr<sql::PreparedStatement> task_statement(conn->prepareStatement(mysql::cInsertTask
-    ));
+    std::unique_ptr<sql::PreparedStatement> task_statement(
+            conn->prepareStatement(mysql::cInsertTask)
+    );
     sql::bytes task_id_bytes = uuid_get_bytes(task.get_id());
     // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement->setBytes(1, &task_id_bytes);
@@ -626,7 +626,6 @@ auto MySqlMetadataStorage::add_job_batch(
 // NOLINTEND(readability-function-cognitive-complexity)
 
 namespace {
-
 auto fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task {
     boost::uuids::uuid const id = read_id(res->getBinaryStream("id"));
     std::string const function_name = get_sql_string(res->getString("func_name"));
@@ -738,10 +737,10 @@ auto MySqlMetadataStorage::fetch_full_task(
     }
 
     // Get task outputs
-    std::unique_ptr<sql::PreparedStatement> output_statement{
-            conn->prepareStatement("SELECT `task_id`, `position`, `type`, `value`, `data_id` FROM "
-                                   "`task_outputs` WHERE `task_id` = ? ORDER BY `position`")
-    };
+    std::unique_ptr<sql::PreparedStatement> output_statement{conn->prepareStatement(
+            "SELECT `task_id`, `position`, `type`, `value`, `data_id` FROM "
+            "`task_outputs` WHERE `task_id` = ? ORDER BY `position`"
+    )};
     output_statement->setBytes(1, &id_bytes);
     std::unique_ptr<sql::ResultSet> const output_res{output_statement->executeQuery()};
     while (output_res->next()) {
@@ -870,9 +869,8 @@ auto MySqlMetadataStorage::get_task_graph(
 }  // namespace spider::core
 
 namespace {
-
-auto parse_timestamp(std::string const& timestamp
-) -> std::optional<std::chrono::system_clock::time_point> {
+auto parse_timestamp(std::string const& timestamp)
+        -> std::optional<std::chrono::system_clock::time_point> {
     std::tm time_date{};
     std::stringstream ss{timestamp};
     ss >> std::get_time(&time_date, "%Y-%m-%d %H:%M:%S");
@@ -881,11 +879,9 @@ auto parse_timestamp(std::string const& timestamp
     }
     return std::chrono::system_clock::from_time_t(std::mktime(&time_date));
 }
-
 }  // namespace
 
 namespace spider::core {
-
 auto MySqlMetadataStorage::get_job_metadata(
         StorageConnection& conn,
         boost::uuids::uuid id,
@@ -1413,10 +1409,9 @@ auto MySqlMetadataStorage::add_task_instance(StorageConnection& conn, TaskInstan
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::create_task_instance(
-        StorageConnection& conn,
-        TaskInstance const& instance
-) -> StorageErr {
+auto
+MySqlMetadataStorage::create_task_instance(StorageConnection& conn, TaskInstance const& instance)
+        -> StorageErr {
     try {
         // Check the state of the task
         std::unique_ptr<sql::PreparedStatement> ready_statement(
@@ -2196,9 +2191,11 @@ auto MySqlDataStorage::remove_dangling_data(StorageConnection& conn) -> StorageE
         std::unique_ptr<sql::Statement> statement{
                 static_cast<MySqlConnection&>(conn)->createStatement()
         };
-        statement->execute("DELETE FROM `data` WHERE `id` NOT IN (SELECT driver_ref.`id` FROM "
-                           "`data_ref_driver` driver_ref) AND `id` NOT IN (SELECT task_ref.`id` "
-                           "FROM `data_ref_task` task_ref)");
+        statement->execute(
+                "DELETE FROM `data` WHERE `id` NOT IN (SELECT driver_ref.`id` FROM "
+                "`data_ref_driver` driver_ref) AND `id` NOT IN (SELECT task_ref.`id` "
+                "FROM `data_ref_task` task_ref)"
+        );
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -2332,5 +2329,4 @@ auto MySqlDataStorage::get_task_kv_data(
 }
 
 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-
 }  // namespace spider::core
