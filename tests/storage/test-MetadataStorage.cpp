@@ -538,6 +538,59 @@ TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::StorageFactoryTy
     // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
 }
+
+TEMPLATE_LIST_TEST_CASE(
+        "Scheduler lease timeout",
+        "[storage]",
+        spider::test::StorageFactoryTypeList
+) {
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
+    std::unique_ptr<spider::core::MetadataStorage> storage
+            = storage_factory->provide_metadata_storage();
+
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+
+    boost::uuids::random_generator gen;
+
+    // Register scheduler
+    boost::uuids::uuid const scheduler_id = gen();
+    storage->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 3306});
+
+    // Add simple job
+    boost::uuids::uuid const job_id = gen();
+    spider::core::Task const task{"simple"};
+    spider::core::TaskGraph graph;
+    graph.add_task(task);
+    graph.add_input_task(task.get_id());
+    graph.add_output_task(task.get_id());
+    storage->add_job(*conn, job_id, gen(), graph);
+
+    // Get ready tasks should schedule the task
+    std::vector<spider::core::ScheduleTaskMetadata> tasks;
+    REQUIRE(storage->get_ready_tasks(*conn, scheduler_id, &tasks).success());
+    REQUIRE(1 == tasks.size());
+    REQUIRE(tasks[0].get_id() == task.get_id());
+
+    // Get again should not schedule the task
+    tasks.clear();
+    REQUIRE(storage->get_ready_tasks(*conn, scheduler_id, &tasks).success());
+    REQUIRE(tasks.empty());
+
+    // Wait for lease timeout
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // Get ready tasks should schedule the task again
+    tasks.clear();
+    REQUIRE(storage->get_ready_tasks(*conn, scheduler_id, &tasks).success());
+    REQUIRE(1 == tasks.size());
+    REQUIRE(tasks[0].get_id() == task.get_id());
+
+    // Clean up
+    REQUIRE(storage->remove_job(*conn, job_id).success());
+}
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
