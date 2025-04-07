@@ -1,9 +1,9 @@
-import subprocess
-import time
-from pathlib import Path
 import os
 import signal
+import subprocess
+import time
 import uuid
+from pathlib import Path
 
 import msgpack
 import pytest
@@ -19,6 +19,7 @@ from .client import (
     TaskInput,
     TaskOutput,
 )
+
 
 def start_scheduler_worker_no_exit(storage_url: str, scheduler_port: int):
     dir_path = Path(__file__).resolve().parent
@@ -41,13 +42,15 @@ def start_scheduler_worker_no_exit(storage_url: str, scheduler_port: int):
         storage_url,
         "--libs",
         "tests/libworker_test.so",
-        "--no-exit"
+        "--no-exit",
     ]
     worker_process = subprocess.Popen(worker_cmds)
 
     return scheduler_process, worker_process
 
+
 scheduler_port = 6103
+
 
 @pytest.fixture(scope="function")
 def scheduler_worker_no_exit(storage):
@@ -59,6 +62,7 @@ def scheduler_worker_no_exit(storage):
     yield scheduler_process, worker_process
     scheduler_process.kill()
     worker_process.kill()
+
 
 class TestWorkerNoExit:
     def test_noexit(self, storage, scheduler_worker_no_exit):
@@ -95,6 +99,3 @@ class TestWorkerNoExit:
 
         # Cleanup job
         remove_job(storage, job_id)
-
-
-
