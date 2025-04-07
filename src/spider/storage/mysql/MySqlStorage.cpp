@@ -1492,7 +1492,7 @@ MySqlMetadataStorage::create_task_instance(StorageConnection& conn, TaskInstance
         instance_statement->setBytes(1, &instance_id_bytes);
         instance_statement->setBytes(2, &id_bytes);
         instance_statement->executeUpdate();
-        // Remove task from scheulder leases
+        // Remove task from scheduler leases
         std::unique_ptr<sql::PreparedStatement> const lease_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
                         "DELETE FROM `scheduler_leases` WHERE `task_id` = ?"
