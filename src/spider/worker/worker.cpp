@@ -47,14 +47,16 @@
 #include "WorkerClient.hpp"
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cWorkerAddrErr = 2;
-constexpr int cStorageConnectionErr = 3;
-constexpr int cStorageErr = 4;
-constexpr int cTaskErr = 5;
+constexpr int cSignalHandleErr = 2;
+constexpr int cWorkerAddrErr = 3;
+constexpr int cStorageConnectionErr = 4;
+constexpr int cStorageErr = 5;
+constexpr int cTaskErr = 6;
 
 constexpr int cRetryCount = 5;
 
 namespace {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 spider::core::StopToken stop_token;
 
 auto stop_task_handler(int signal) -> void {
@@ -428,7 +430,10 @@ auto main(int argc, char** argv) -> int {
 
     // If not-exit is set, install signal handler for SIGTERM
     if (no_exit) {
-        std::signal(SIGTERM, stop_task_handler);
+        if (SIG_ERR == std::signal(SIGTERM, stop_task_handler)) {
+            spdlog::error("Failed to install signal handler for SIGTERM");
+            return cSignalHandleErr;
+        }
     }
 
     // Create storage
