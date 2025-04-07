@@ -7,7 +7,6 @@
 #include <boost/uuid/uuid.hpp>
 
 namespace spider::core {
-
 class JobMetadata {
 public:
     JobMetadata() = default;
@@ -41,7 +40,6 @@ enum class JobStatus : std::uint8_t {
     Failed,
     Cancelled
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_JOBMETADATA_HPP

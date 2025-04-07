@@ -21,7 +21,6 @@
 #include "Exception.hpp"
 
 namespace spider {
-
 Driver::Driver(std::string const& storage_url)
         : m_storage_factory{std::make_shared<core::MySqlStorageFactory>(storage_url)} {
     boost::uuids::random_generator gen;
@@ -126,5 +125,4 @@ auto Driver::kv_store_get(std::string const& key) -> std::optional<std::string> 
     }
     return value;
 }
-
 }  // namespace spider

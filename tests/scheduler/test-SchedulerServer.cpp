@@ -30,7 +30,6 @@
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
-
 constexpr int cServerWarmupTime = 5;
 
 TEMPLATE_LIST_TEST_CASE(

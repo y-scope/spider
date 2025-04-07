@@ -8,7 +8,6 @@
 #include "type_utils.hpp"
 
 namespace spider {
-
 /**
  * Concept that represents the input to or output from a Task.
  *
@@ -92,7 +91,6 @@ struct MergeTaskGraphTypes<TaskGraph<ReturnType, GraphParams...>, InputType, Inp
 
 template <TaskIo ReturnType, RunnableOrTaskIo... Inputs>
 using TaskGraphType = typename MergeTaskGraphTypes<TaskGraph<ReturnType>, Inputs...>::Type;
-
 }  // namespace spider
 
 #endif  // SPIDER_CLIENT_TASK_HPP

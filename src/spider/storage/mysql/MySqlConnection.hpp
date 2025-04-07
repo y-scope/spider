@@ -12,7 +12,6 @@
 #include "../StorageConnection.hpp"
 
 namespace spider::core {
-
 // Forward declaration for friend class
 class MySqlStorageFactory;
 
@@ -32,16 +31,16 @@ public:
     auto operator->() const -> sql::Connection*;
 
 private:
-    static auto create(std::string const& url
-    ) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr>;
+    static auto create(std::string const& url)
+            -> std::variant<std::unique_ptr<StorageConnection>, StorageErr>;
 
     explicit MySqlConnection(std::unique_ptr<sql::Connection> conn)
-            : m_connection{std::move(conn)} {};
+            : m_connection{std::move(conn)} {}
+
     std::unique_ptr<sql::Connection> m_connection;
 
     friend class MySqlStorageFactory;
 };
-
 }  // namespace spider::core
 
 #endif

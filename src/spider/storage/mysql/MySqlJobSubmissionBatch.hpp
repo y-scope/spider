@@ -10,7 +10,6 @@
 #include "../StorageConnection.hpp"
 
 namespace spider::core {
-
 // Forward declaration for friend class
 class MySqlStorageFactory;
 

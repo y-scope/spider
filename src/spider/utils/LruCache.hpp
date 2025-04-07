@@ -8,7 +8,6 @@
 #include <absl/container/flat_hash_map.h>
 
 namespace spider::core {
-
 namespace utils {
 constexpr size_t cDefaultCacheSize = 100;
 }  // namespace utils
@@ -63,7 +62,6 @@ private:
     std::list<std::pair<Key, Value>> m_list;
     absl::flat_hash_map<Key, typename std::list<std::pair<Key, Value>>::iterator> m_map;
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_UTILS_TIMEDCACHE_HPP

@@ -18,20 +18,22 @@
 namespace spider::core {
 class TaskInput {
 public:
-    explicit TaskInput(std::string type) : m_type(std::move(type)) {};
+    explicit TaskInput(std::string type) : m_type(std::move(type)) {}
 
     TaskInput(boost::uuids::uuid output_task_id, std::uint8_t position, std::string type)
             : m_task_output({output_task_id, position}),
-              m_type(std::move(type)) {};
+              m_type(std::move(type)) {}
+
     TaskInput(std::string value, std::string type)
             : m_value(std::move(value)),
-              m_type(std::move(type)) {};
+              m_type(std::move(type)) {}
+
     explicit TaskInput(boost::uuids::uuid data_id)
             : m_data_id(data_id),
-              m_type(typeid(spider::core::Data).name()) {};
+              m_type(typeid(spider::core::Data).name()) {}
 
-    [[nodiscard]] auto get_task_output(
-    ) const -> std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> {
+    [[nodiscard]] auto get_task_output() const
+            -> std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> {
         return m_task_output;
     }
 
@@ -145,8 +147,8 @@ public:
 
     auto set_client_id(boost::uuids::uuid const client_id) -> void { m_client_id = client_id; }
 
-    auto set_job_creation_time(std::chrono::system_clock::time_point const job_creation_time
-    ) -> void {
+    auto set_job_creation_time(std::chrono::system_clock::time_point const job_creation_time)
+            -> void {
         m_job_creation_time = job_creation_time;
     }
 
@@ -222,7 +224,6 @@ private:
     std::vector<TaskInput> m_inputs;
     std::vector<TaskOutput> m_outputs;
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_TASK_HPP

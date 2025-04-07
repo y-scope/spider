@@ -58,6 +58,5 @@ struct ExtractTemplateParam<t<P>> {
 
 template <class T>
 using ExtractTemplateParamT = typename ExtractTemplateParam<T>::Type;
-
 }  // namespace spider
 #endif  // SPIDER_CLIENT_TYPE_UTILS_HPP

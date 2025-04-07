@@ -19,8 +19,8 @@ public:
 
     auto provide_data_storage() -> std::unique_ptr<DataStorage> override;
     auto provide_metadata_storage() -> std::unique_ptr<MetadataStorage> override;
-    auto provide_storage_connection(
-    ) -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> override;
+    auto provide_storage_connection()
+            -> std::variant<std::unique_ptr<StorageConnection>, StorageErr> override;
     auto provide_job_submission_batch(StorageConnection&)
             -> std::unique_ptr<JobSubmissionBatch> override;
 

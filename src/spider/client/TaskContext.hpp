@@ -129,8 +129,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -187,8 +187,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),

@@ -10,7 +10,6 @@
 #include "MySqlConnection.hpp"
 
 namespace spider::core {
-
 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
 MySqlJobSubmissionBatch::MySqlJobSubmissionBatch(StorageConnection& conn)
         : m_job_stmt{static_cast<MySqlConnection&>(conn)->prepareStatement(mysql::cInsertJob)},
@@ -59,5 +58,4 @@ auto MySqlJobSubmissionBatch::submit_batch(StorageConnection& conn) -> StorageEr
     static_cast<MySqlConnection&>(conn)->commit();
     return StorageErr{};
 }
-
 }  // namespace spider::core
