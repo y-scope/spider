@@ -1,4 +1,5 @@
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
@@ -54,6 +55,14 @@ constexpr int cTaskErr = 5;
 constexpr int cRetryCount = 5;
 
 namespace {
+spider::core::StopToken stop_token;
+
+auto stop_task_handler(int signal) -> void {
+    if (SIGTERM == signal) {
+        stop_token.request_stop();
+    }
+}
+
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider scheduler");
@@ -68,6 +77,7 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             "dynamic libraries that include the spider tasks"
     );
     desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
+    desc.add_options()("no-exit", "Do not exit after receiving SIGTERM");
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
@@ -388,6 +398,7 @@ auto main(int argc, char** argv) -> int {
     std::string storage_url;
     std::vector<std::string> libs;
     std::string worker_addr;
+    bool no_exit = false;
     try {
         if (!args.contains("storage_url")) {
             spdlog::error("Missing storage_url");
@@ -404,12 +415,20 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         libs = args["libs"].as<std::vector<std::string>>();
+        if (args.contains("no-exit")) {
+            no_exit = true;
+        }
     } catch (boost::bad_any_cast const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
     } catch (boost::program_options::error const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
+    }
+
+    // If not-exit is set, install signal handler for SIGTERM
+    if (no_exit) {
+        std::signal(SIGTERM, stop_task_handler);
     }
 
     // Create storage
@@ -444,8 +463,6 @@ auto main(int argc, char** argv) -> int {
             return cStorageErr;
         }
     }
-
-    spider::core::StopToken stop_token;
 
     // Start client
     spider::worker::WorkerClient
