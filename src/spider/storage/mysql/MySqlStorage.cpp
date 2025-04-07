@@ -1226,12 +1226,23 @@ auto MySqlMetadataStorage::get_task_job_id(
     return StorageErr{};
 }
 
+constexpr int cLeaseExpireTime = 1000 * 10; // 10 ms
+
 auto MySqlMetadataStorage::get_ready_tasks(
         StorageConnection& conn,
         boost::uuids::uuid scheduler_id,
         std::vector<ScheduleTaskMetadata>* tasks
 ) -> StorageErr {
     try {
+        // Remove timeout scheduler leases
+        std::unique_ptr<sql::PreparedStatement> lease_timeout_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                "DELETE FROM `scheduler_leases` WHERE TIMESTAMPDIFF(MICROSECOND, `lease_time`, CURRENT_TIMESTAMP()) > ?"
+                )
+        );
+        lease_timeout_statement->setInt(1, cLeaseExpireTime);
+        lease_timeout_statement->executeUpdate();
+
         // Get all ready tasks from job that has not failed or cancelled
         std::unique_ptr<sql::Statement> task_statement(
                 static_cast<MySqlConnection&>(conn)->createStatement()
