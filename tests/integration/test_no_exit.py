@@ -56,9 +56,10 @@ def scheduler_worker_no_exit(storage):
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
-    yield
+    yield scheduler_process, worker_process
     scheduler_process.kill()
     worker_process.kill()
+
 class TestWorkerNoExit:
     def test_noexit(self, storage, scheduler_worker_no_exit):
         _, worker_process = scheduler_worker_no_exit
