@@ -174,8 +174,7 @@ auto MySqlMetadataStorage::add_scheduler(StorageConnection& conn, Scheduler cons
         driver_statement->executeUpdate();
         std::unique_ptr<sql::PreparedStatement> scheduler_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `schedulers` (`id`, `address`, `port`, `state`) VALUES (?, ?, "
-                        "?, 'normal')"
+                        "INSERT INTO `schedulers` (`id`, `address`, `port`) VALUES (?, ?, ?)"
                 )
         );
         scheduler_statement->setBytes(1, &id_bytes);
