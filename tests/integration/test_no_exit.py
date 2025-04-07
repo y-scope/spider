@@ -90,7 +90,7 @@ class TestWorkerNoExit:
         job_id = uuid.uuid4()
         submit_job(storage, job_id, graph)
         time.sleep(1)
-        assert get_task_state(storage, task.id) == "READY"
+        assert get_task_state(storage, task.id) == "ready"
 
         # Send a second SIGTERM should not kill worker
         os.kill(worker_process.pid, signal.SIGTERM)
