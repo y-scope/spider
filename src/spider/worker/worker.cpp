@@ -188,6 +188,42 @@ auto get_args_buffers(spider::core::Task const& task)
     return args_buffers;
 }
 
+auto get_args_buffers(
+        std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
+        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
+        spider::core::TaskInstance const& instance,
+        spider::core::Task& task
+) -> std::optional<std::vector<msgpack::sbuffer>> {
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+        spdlog::error(
+                "Failed to connect to storage: {}",
+                std::get<spider::core::StorageErr>(conn_result).description
+        );
+        return std::nullopt;
+    }
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+
+    spider::core::StorageErr err = metadata_store->get_task(*conn, instance.task_id, &task);
+    if (!err.success()) {
+        spdlog::error("Failed to fetch task detail: {}", err.description);
+        return std::nullopt;
+    }
+
+    // Set up arguments
+    std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers = get_args_buffers(task);
+    if (!optional_args_buffers.has_value()) {
+        metadata_store->task_fail(
+                *conn,
+                instance,
+                fmt::format("Task {} failed to parse arguments", task.get_function_name())
+        );
+        return std::nullopt;
+    }
+    return optional_args_buffers;
+}
+
 auto
 parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> const& result_buffers)
         -> std::optional<std::vector<spider::core::TaskOutput>> {
@@ -241,41 +277,12 @@ auto task_loop(
         fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
-        std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers;
-        spider::core::StorageErr err;
-
-        {
-            // Keep the scope of RAII storage connection
-            std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
-                    conn_result = storage_factory->provide_storage_connection();
-            if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
-                spdlog::error(
-                        "Failed to connect to storage: {}",
-                        std::get<spider::core::StorageErr>(conn_result).description
-                );
-                continue;
-            }
-            auto conn = std::move(
-                    std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
-            );
-
-            err = metadata_store->get_task(*conn, task_id, &task);
-            if (!err.success()) {
-                spdlog::error("Failed to fetch task detail: {}", err.description);
-                continue;
-            }
-
-            // Set up arguments
-            optional_args_buffers = get_args_buffers(task);
-            if (!optional_args_buffers.has_value()) {
-                metadata_store->task_fail(
-                        *conn,
-                        instance,
-                        fmt::format("Task {} failed to parse arguments", task.get_function_name())
-                );
-                continue;
-            }
+        std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers
+                = get_args_buffers(storage_factory, metadata_store, instance, task);
+        if (false == optional_args_buffers.has_value()) {
+            continue;
         }
+
         std::vector<msgpack::sbuffer> const& args_buffers = optional_args_buffers.value();
 
         // Execute task
@@ -350,6 +357,7 @@ auto task_loop(
         std::vector<spider::core::TaskOutput> const& outputs = optional_outputs.value();
         // Submit result
         spdlog::debug("Submitting result for task {}", boost::uuids::to_string(task_id));
+        spider::core::StorageErr err;
         for (int i = 0; i < cRetryCount; ++i) {
             err = metadata_store->task_finish(*conn, instance, outputs);
             if (err.success()) {
