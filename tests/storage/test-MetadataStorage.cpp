@@ -558,7 +558,9 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Register scheduler
     boost::uuids::uuid const scheduler_id = gen();
-    storage->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 3306});
+    constexpr int cPort = 3306;
+    REQUIRE(storage->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", cPort})
+                    .success());
 
     // Add simple job
     boost::uuids::uuid const job_id = gen();
@@ -567,7 +569,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_task(task);
     graph.add_input_task(task.get_id());
     graph.add_output_task(task.get_id());
-    storage->add_job(*conn, job_id, gen(), graph);
+    REQUIRE(storage->add_job(*conn, job_id, gen(), graph).success());
 
     // Get ready tasks should schedule the task
     std::vector<spider::core::ScheduleTaskMetadata> tasks;
