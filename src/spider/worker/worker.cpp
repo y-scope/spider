@@ -394,7 +394,7 @@ auto task_loop(
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
-auto main(int argc, char** argv) -> int {
+[[noreturn]]auto main(int argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
@@ -508,6 +508,12 @@ auto main(int argc, char** argv) -> int {
 
     heartbeat_thread.join();
     task_thread.join();
+
+    if (no_exit) {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
 
     return 0;
 }
