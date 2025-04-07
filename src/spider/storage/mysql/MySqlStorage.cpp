@@ -1226,7 +1226,7 @@ auto MySqlMetadataStorage::get_task_job_id(
     return StorageErr{};
 }
 
-constexpr int cLeaseExpireTime = 1000 * 10; // 10 ms
+constexpr int cLeaseExpireTime = 1000 * 10;  // 10 ms
 
 auto MySqlMetadataStorage::get_ready_tasks(
         StorageConnection& conn,
@@ -1237,7 +1237,8 @@ auto MySqlMetadataStorage::get_ready_tasks(
         // Remove timeout scheduler leases
         std::unique_ptr<sql::PreparedStatement> lease_timeout_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                "DELETE FROM `scheduler_leases` WHERE TIMESTAMPDIFF(MICROSECOND, `lease_time`, CURRENT_TIMESTAMP()) > ?"
+                        "DELETE FROM `scheduler_leases` WHERE TIMESTAMPDIFF(MICROSECOND, "
+                        "`lease_time`, CURRENT_TIMESTAMP()) > ?"
                 )
         );
         lease_timeout_statement->setInt(1, cLeaseExpireTime);
