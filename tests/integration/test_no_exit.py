@@ -65,7 +65,7 @@ def scheduler_worker_no_exit(storage):
 
 
 class TestWorkerNoExit:
-    def test_noexit(self, storage, scheduler_worker_no_exit):
+    def test_no_exit(self, storage, scheduler_worker_no_exit):
         _, worker_process = scheduler_worker_no_exit
         # Send SIGTERM should not kill worker
         os.kill(worker_process.pid, signal.SIGTERM)
