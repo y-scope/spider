@@ -402,7 +402,7 @@ auto task_loop(
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
-[[noreturn]] auto main(int argc, char** argv) -> int {
+auto main(int argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
