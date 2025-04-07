@@ -44,6 +44,13 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
+
+    // Add scheduler
+    boost::uuids::uuid const scheduler_id = gen();
+    REQUIRE(metadata_store
+                    ->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 8080})
+                    .success());
+
     boost::uuids::uuid const client_id = gen();
     // Submit tasks
     spider::core::Task const task_1{"task_1"};
@@ -62,7 +69,7 @@ TEMPLATE_LIST_TEST_CASE(
     boost::uuids::uuid const job_id_2 = gen();
     REQUIRE(metadata_store->add_job(*conn, job_id_2, client_id, graph_2).success());
 
-    spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
+    spider::scheduler::FifoPolicy policy{scheduler_id, metadata_store, data_store, conn};
 
     // Schedule the earlier task
     std::optional<boost::uuids::uuid> optional_task_id = policy.schedule_next(gen(), "");
@@ -107,6 +114,13 @@ TEMPLATE_LIST_TEST_CASE(
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     boost::uuids::random_generator gen;
+
+    // Add scheduler
+    boost::uuids::uuid const scheduler_id = gen();
+    REQUIRE(metadata_store
+                    ->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 8080})
+                    .success());
+
     boost::uuids::uuid const job_id = gen();
     boost::uuids::uuid const client_id = gen();
     // Submit task with hard locality
@@ -123,7 +137,7 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_output_task(task.get_id());
     REQUIRE(metadata_store->add_job(*conn, job_id, client_id, graph).success());
 
-    spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
+    spider::scheduler::FifoPolicy policy{scheduler_id, metadata_store, data_store, conn};
     // Schedule with wrong address
     REQUIRE_FALSE(policy.schedule_next(gen(), "").has_value());
     // Schedule with correct address
@@ -156,8 +170,15 @@ TEMPLATE_LIST_TEST_CASE(
     std::shared_ptr<spider::core::StorageConnection> const conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
-    // Add task
     boost::uuids::random_generator gen;
+
+    // Add scheduler
+    boost::uuids::uuid const scheduler_id = gen();
+    REQUIRE(metadata_store
+                    ->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 8080})
+                    .success());
+
+    // Add task
     boost::uuids::uuid const job_id = gen();
     boost::uuids::uuid const client_id = gen();
     spider::core::Task task{"task"};
@@ -173,7 +194,8 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_output_task(task.get_id());
     REQUIRE(metadata_store->add_job(*conn, job_id, client_id, graph).success());
 
-    spider::scheduler::FifoPolicy policy{metadata_store, data_store, conn};
+    spider::scheduler::FifoPolicy policy{scheduler_id, metadata_store, data_store, conn};
+
     // Schedule with wrong address
     std::optional<boost::uuids::uuid> const optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(optional_task_id.has_value());

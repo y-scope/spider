@@ -206,13 +206,6 @@ auto main(int argc, char** argv) -> int {
     boost::uuids::random_generator gen;
     boost::uuids::uuid const scheduler_id = gen();
 
-    // Start scheduler server
-    spider::core::StopToken stop_token;
-    std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
-    spider::scheduler::SchedulerServer
-            server{port, policy, metadata_store, data_store, conn, stop_token};
-
     // Register scheduler with storage
     spider::core::Scheduler const scheduler{scheduler_id, scheduler_addr, port};
     err = metadata_store->add_scheduler(*conn, scheduler);
@@ -220,6 +213,18 @@ auto main(int argc, char** argv) -> int {
         spdlog::error("Failed to register scheduler with storage server: {}", err.description);
         return cStorageErr;
     }
+
+    // Start scheduler server
+    spider::core::StopToken stop_token;
+    std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
+            = std::make_shared<spider::scheduler::FifoPolicy>(
+                    scheduler_id,
+                    metadata_store,
+                    data_store,
+                    conn
+            );
+    spider::scheduler::SchedulerServer
+            server{port, policy, metadata_store, data_store, conn, stop_token};
 
     try {
         // Start a thread that periodically updates the scheduler's heartbeat

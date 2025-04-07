@@ -17,11 +17,13 @@
 
 namespace spider::scheduler {
 FifoPolicy::FifoPolicy(
+        boost::uuids::uuid const scheduler_id,
         std::shared_ptr<core::MetadataStorage> const& metadata_store,
         std::shared_ptr<core::DataStorage> const& data_store,
         std::shared_ptr<core::StorageConnection> const& conn
 )
-        : m_metadata_store{metadata_store},
+        : m_scheduler_id{scheduler_id},
+          m_metadata_store{metadata_store},
           m_data_store{data_store},
           m_conn{conn} {}
 
@@ -63,7 +65,7 @@ auto FifoPolicy::pop_next_task(std::string const& worker_addr)
 }
 
 auto FifoPolicy::fetch_tasks() -> void {
-    m_metadata_store->get_ready_tasks(*m_conn, &m_tasks);
+    m_metadata_store->get_ready_tasks(*m_conn, m_scheduler_id, &m_tasks);
     m_metadata_store->get_task_timeout(*m_conn, &m_tasks);
 
     // Sort tasks based on job creation time in descending order.
