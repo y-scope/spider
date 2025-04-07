@@ -174,8 +174,7 @@ auto MySqlMetadataStorage::add_scheduler(StorageConnection& conn, Scheduler cons
         driver_statement->executeUpdate();
         std::unique_ptr<sql::PreparedStatement> scheduler_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `schedulers` (`id`, `address`, `port`, `state`) VALUES (?, ?, "
-                        "?, 'normal')"
+                        "INSERT INTO `schedulers` (`id`, `address`, `port`) VALUES (?, ?, ?)"
                 )
         );
         scheduler_statement->setBytes(1, &id_bytes);
@@ -203,7 +202,7 @@ auto MySqlMetadataStorage::get_active_scheduler(
         );
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery(
                 "SELECT `schedulers`.`id`, `address`, `port` FROM `schedulers` JOIN `drivers` ON "
-                "`schedulers`.`id` = `drivers`.`id` WHERE `state` = 'normal'"
+                "`schedulers`.`id` = `drivers`.`id`"
         ));
         while (res->next()) {
             boost::uuids::uuid const id = read_id(res->getBinaryStream(1));
