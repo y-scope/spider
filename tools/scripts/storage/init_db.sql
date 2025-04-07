@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS `schedulers`
     `id`      BINARY(16)                        NOT NULL,
     `address` VARCHAR(40)                       NOT NULL,
     `port`    INT UNSIGNED                      NOT NULL,
-    `state`   ENUM ('normal', 'recovery', 'gc') NOT NULL,
     CONSTRAINT `scheduler_driver_id` FOREIGN KEY (`id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 );
@@ -106,7 +105,6 @@ CREATE TABLE IF NOT EXISTS `task_instances`
     CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 );
-
 CREATE TABLE IF NOT EXISTS `data_locality`
 (
     `id`      BINARY(16)  NOT NULL,
