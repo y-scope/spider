@@ -42,7 +42,6 @@ private:
         m_id = gen();
     }
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_DATA_HPP

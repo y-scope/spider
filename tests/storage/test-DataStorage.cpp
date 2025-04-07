@@ -22,7 +22,6 @@
 #include "StorageTestHelper.hpp"
 
 namespace {
-
 TEMPLATE_LIST_TEST_CASE(
         "Add, get and remove data",
         "[storage]",

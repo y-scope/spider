@@ -2,7 +2,6 @@
 #define SPIDER_STORAGE_STORAGECONNECTION_HPP
 
 namespace spider::core {
-
 class StorageConnection {
 public:
     StorageConnection() = default;
@@ -12,7 +11,6 @@ public:
     auto operator=(StorageConnection&&) -> StorageConnection& = default;
     virtual ~StorageConnection() = default;
 };
-
 }  // namespace spider::core
 
 #endif

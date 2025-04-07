@@ -75,7 +75,6 @@ TEMPLATE_LIST_TEST_CASE(
     spider::TaskGraph<int> const graph_1 = driver.bind(&test_driver, data);
     spider::TaskGraph<int, int, int> const graph_2 = driver.bind(&sum, &sum, graph_1);
 }
-
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)

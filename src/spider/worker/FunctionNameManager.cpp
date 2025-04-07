@@ -6,7 +6,6 @@
 #include <boost/dll/alias.hpp>
 
 namespace spider::core {
-
 auto FunctionNameManager::get_instance() -> FunctionNameManager& {
     static FunctionNameManager instance;
     return instance;
@@ -18,7 +17,6 @@ auto FunctionNameManager::get_function_name(void const* ptr) const -> std::optio
     }
     return std::nullopt;
 }
-
 }  // namespace spider::core
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

@@ -1,4 +1,3 @@
-
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -90,8 +89,9 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
-        ));
+        auto conn = std::move(
+                std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
+        );
 
         spider::core::StorageErr const err
                 = metadata_store->update_heartbeat(*conn, scheduler.get_id());
@@ -125,8 +125,9 @@ auto cleanup_loop(
             );
             continue;
         }
-        auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result
-        ));
+        auto conn = std::move(
+                std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
+        );
 
         data_store->remove_dangling_data(*conn);
         spdlog::debug("Finished cleanup");

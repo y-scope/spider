@@ -27,7 +27,6 @@ requires std::same_as<T, core::MySqlStorageFactory>
 auto get_storage_url() -> std::string {
     return cMySqlStorageUrl;
 }
-
 }  // namespace spider::test
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity)

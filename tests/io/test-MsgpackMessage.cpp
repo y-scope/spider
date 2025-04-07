@@ -15,7 +15,6 @@
 #include "../../src/spider/io/msgpack_message.hpp"
 
 namespace {
-
 using namespace boost::asio::ip;
 
 constexpr std::array<size_t, 12> cBufferSizes{1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 257, 65'537};
@@ -129,5 +128,4 @@ TEST_CASE("Async socket msgpack", "[io]") {
 }
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-
 }  // namespace

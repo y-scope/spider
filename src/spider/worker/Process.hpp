@@ -8,7 +8,6 @@
 #include <vector>
 
 namespace spider::worker {
-
 class Process {
 public:
     static auto spawn(
@@ -43,7 +42,6 @@ private:
 
     explicit Process(pid_t const pid) : m_pid(pid) {}
 };
-
 }  // namespace spider::worker
 
 #endif

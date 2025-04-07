@@ -28,8 +28,8 @@ public:
     // NOLINTBEGIN(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
     template <TaskIo ReturnType, TaskIo... TaskParams, RunnableOrTaskIo... Inputs>
     static auto
-    bind(TaskFunction<ReturnType, TaskParams...> const& task_function,
-         Inputs&&... inputs) -> std::optional<TaskGraphImpl> {
+    bind(TaskFunction<ReturnType, TaskParams...> const& task_function, Inputs&&... inputs)
+            -> std::optional<TaskGraphImpl> {
         std::optional<Task> optional_task = create_task(task_function);
         if (!optional_task.has_value()) {
             return std::nullopt;
@@ -99,9 +99,11 @@ public:
                         fail = true;
                         return;
                     }
-                    input.set_data_id(std::get<i.cValue>(std::forward_as_tuple(inputs...))
-                                              .get_impl()
-                                              ->get_id());
+                    input.set_data_id(
+                            std::get<i.cValue>(std::forward_as_tuple(inputs...))
+                                    .get_impl()
+                                    ->get_id()
+                    );
                 } else if constexpr (Serializable<InputType>) {
                     if (input.get_type() != typeid(InputType).name()) {
                         fail = true;
@@ -131,8 +133,8 @@ public:
     // NOLINTEND(readability-function-cognitive-complexity, cppcoreguidelines-missing-std-forward)
 
     template <TaskIo ReturnType, TaskIo... TaskParams>
-    static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function
-    ) -> std::optional<Task> {
+    static auto create_task(TaskFunction<ReturnType, TaskParams...> const& task_function)
+            -> std::optional<Task> {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
         std::optional<std::string> const function_name
                 = FunctionNameManager::get_instance().get_function_name(
@@ -343,7 +345,6 @@ private:
 
     TaskGraph m_graph;
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_TASKGRAPHIMPL_HPP
