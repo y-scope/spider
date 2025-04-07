@@ -153,20 +153,23 @@ auto heartbeat_loop(
 
 constexpr int cFetchTaskTimeout = 100;
 
-auto
-fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uuid> fail_task_id)
-        -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
+auto fetch_task(
+        spider::core::StopToken const& stop_token,
+        spider::worker::WorkerClient& client,
+        std::optional<boost::uuids::uuid> fail_task_id
+) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     spdlog::debug("Fetching task");
-    while (true) {
+    while (!stop_token.stop_requested()) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
         if (optional_task_ids.has_value()) {
-            return optional_task_ids.value();
+            return optional_task_ids;
         }
         // If the first request succeeds, later requests should not include the failed task id
         fail_task_id = std::nullopt;
         std::this_thread::sleep_for(std::chrono::milliseconds(cFetchTaskTimeout));
     }
+    return std::nullopt;
 }
 
 auto get_args_buffers(spider::core::Task const& task)
@@ -247,7 +250,11 @@ auto task_loop(
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
 
-        auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
+        auto const& optional_task = fetch_task(stop_token, client, fail_task_id);
+        if (false == optional_task.has_value()) {
+            continue;
+        }
+        auto const [task_id, task_instance_id] = optional_task.value();
         spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         fail_task_id = std::nullopt;
