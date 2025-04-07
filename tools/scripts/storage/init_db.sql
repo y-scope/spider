@@ -105,7 +105,6 @@ CREATE TABLE IF NOT EXISTS `task_instances`
     CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`id`)
 );
-
 CREATE TABLE IF NOT EXISTS `scheduler_leases`
 (
     `scheduler_id` BINARY(16) NOT NULL,
@@ -115,7 +114,6 @@ CREATE TABLE IF NOT EXISTS `scheduler_leases`
     CONSTRAINT `lease_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     INDEX (`scheduler_id`)
 );
-
 CREATE TABLE IF NOT EXISTS `data_locality`
 (
     `id`      BINARY(16)  NOT NULL,
