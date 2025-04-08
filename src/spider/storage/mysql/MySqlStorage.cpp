@@ -1299,7 +1299,7 @@ auto MySqlMetadataStorage::get_ready_tasks(
                         )
                 };
             }
-            // Job id might not be in job_id_to_task_ids if the job's tasks are leased
+            // Job id will not be in job_id_to_task_ids if the job's tasks are leased
             if (job_id_to_task_ids.find(job_id) == job_id_to_task_ids.end()) {
                 continue;
             }
