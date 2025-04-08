@@ -157,24 +157,24 @@ fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uui
     }
 }
 
-auto get_args_buffers(spider::core::Task const& task)
+auto get_arg_buffers(spider::core::Task const& task)
         -> std::optional<std::vector<msgpack::sbuffer>> {
-    std::vector<msgpack::sbuffer> args_buffers;
+    std::vector<msgpack::sbuffer> arg_buffers;
     size_t const num_inputs = task.get_num_inputs();
     for (size_t i = 0; i < num_inputs; ++i) {
         spider::core::TaskInput const& input = task.get_input(i);
         std::optional<std::string> const optional_value = input.get_value();
         if (optional_value.has_value()) {
             std::string const& value = optional_value.value();
-            args_buffers.emplace_back();
-            args_buffers.back().write(value.data(), value.size());
+            arg_buffers.emplace_back();
+            arg_buffers.back().write(value.data(), value.size());
             continue;
         }
         std::optional<boost::uuids::uuid> const optional_data_id = input.get_data_id();
         if (optional_data_id.has_value()) {
             boost::uuids::uuid const data_id = optional_data_id.value();
-            args_buffers.emplace_back();
-            msgpack::pack(args_buffers.back(), data_id);
+            arg_buffers.emplace_back();
+            msgpack::pack(arg_buffers.back(), data_id);
             continue;
         }
         spdlog::error(
@@ -185,7 +185,7 @@ auto get_args_buffers(spider::core::Task const& task)
         );
         return std::nullopt;
     }
-    return args_buffers;
+    return arg_buffers;
 }
 
 auto get_task_details(
@@ -212,8 +212,8 @@ auto get_task_details(
     }
 
     // Set up arguments
-    std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers = get_args_buffers(task);
-    if (!optional_args_buffers.has_value()) {
+    std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers = get_arg_buffers(task);
+    if (!optional_arg_buffers.has_value()) {
         metadata_store->task_fail(
                 *conn,
                 instance,
@@ -221,7 +221,7 @@ auto get_task_details(
         );
         return std::nullopt;
     }
-    return optional_args_buffers;
+    return optional_arg_buffers;
 }
 
 auto
@@ -277,13 +277,13 @@ auto task_loop(
         fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
-        std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers
+        std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers
                 = get_task_details(storage_factory, metadata_store, instance, task);
-        if (false == optional_args_buffers.has_value()) {
+        if (false == optional_arg_buffers.has_value()) {
             continue;
         }
 
-        std::vector<msgpack::sbuffer> const& args_buffers = optional_args_buffers.value();
+        std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
 
         // Execute task
         spider::worker::TaskExecutor executor{
@@ -293,7 +293,7 @@ auto task_loop(
                 storage_url,
                 libs,
                 environment,
-                args_buffers
+                arg_buffers
         };
 
         context.run();
