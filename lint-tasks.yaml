@@ -50,9 +50,9 @@ tasks:
       - "{{.ROOT_DIR}}/.clang-tidy"
       - "{{.TASKFILE}}"
       - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
-      - "{{.G_EXAMPLES_DIR}}/**"
-      - "{{.G_SRC_SPIDER_DIR}}/**"
-      - "{{.G_TEST_DIR}}/**"
+      - "{{.G_EXAMPLES_DIR}}/**/*"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*"
+      - "{{.G_TEST_DIR}}/**/*"
     deps: ["cpp-configs", "venv"]
     cmds:
       - task: ":utils:cpp-lint:clang-format"
