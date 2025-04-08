@@ -188,7 +188,7 @@ auto get_args_buffers(spider::core::Task const& task)
     return args_buffers;
 }
 
-auto get_args_buffers(
+auto get_task_details(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::core::TaskInstance const& instance,
@@ -278,7 +278,7 @@ auto task_loop(
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
         std::optional<std::vector<msgpack::sbuffer>> optional_args_buffers
-                = get_args_buffers(storage_factory, metadata_store, instance, task);
+                = get_task_details(storage_factory, metadata_store, instance, task);
         if (false == optional_args_buffers.has_value()) {
             continue;
         }
