@@ -57,11 +57,11 @@ constexpr int cRetryCount = 5;
 
 namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-spider::core::StopToken stop_token;
+spider::core::StopToken g_stop_token;
 
 auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
-        stop_token.request_stop();
+        g_stop_token.request_stop();
     }
 }
 
@@ -499,7 +499,7 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
-            std::ref(stop_token)
+            std::ref(g_stop_token)
     };
 
     // Start a thread that processes tasks
@@ -511,7 +511,7 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
-            std::cref(stop_token),
+            std::cref(g_stop_token),
     };
 
     heartbeat_thread.join();
