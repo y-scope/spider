@@ -1,4 +1,5 @@
 #include <chrono>
+#include <csignal>
 #include <functional>
 #include <memory>
 #include <string>
@@ -41,6 +42,7 @@ constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 spider::core::StopToken g_stop_token;
 
 auto stop_scheduler_handler(int signal) -> void {
