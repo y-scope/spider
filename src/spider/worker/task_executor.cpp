@@ -32,7 +32,6 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace {
-
 auto sigterm_handler(int signal) -> void {
     // Do nothing. Just to catch the signal.
 }
