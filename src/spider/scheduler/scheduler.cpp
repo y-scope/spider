@@ -32,14 +32,23 @@
 #include "SchedulerServer.hpp"
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cStorageConnectionErr = 2;
-constexpr int cSchedulerAddrErr = 3;
-constexpr int cStorageErr = 4;
+constexpr int cSignalHandleErr = 2;
+constexpr int cStorageConnectionErr = 3;
+constexpr int cSchedulerAddrErr = 4;
+constexpr int cStorageErr = 5;
 
 constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
+spider::core::StopToken g_stop_token;
+
+auto stop_scheduler_handler(int signal) -> void {
+    if (SIGTERM == signal) {
+        g_stop_token.request_stop();
+    }
+}
+
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider scheduler");
@@ -58,6 +67,7 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             boost::program_options::value<std::string>(),
             "storage server url"
     );
+    desc.add_options()("no-exit", "Do not exit after receiving SIGTERM");
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
@@ -149,6 +159,7 @@ auto main(int argc, char** argv) -> int {
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
+    bool no_exit = false;
     try {
         if (!args.contains("port")) {
             spdlog::error("port is required");
@@ -165,10 +176,21 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         storage_url = args["storage_url"].as<std::string>();
+        if (args.contains("no-exit")) {
+            no_exit = true;
+        }
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {
         return cCmdArgParseErr;
+    }
+
+    // If not-exit is set, install signal handler for SIGTERM
+    if (no_exit) {
+        if (SIG_ERR == std::signal(SIGTERM, stop_scheduler_handler)) {
+            spdlog::error("Failed to install signal handler for SIGTERM");
+            return cSignalHandleErr;
+        }
     }
 
     // Create storages
@@ -206,13 +228,6 @@ auto main(int argc, char** argv) -> int {
     boost::uuids::random_generator gen;
     boost::uuids::uuid const scheduler_id = gen();
 
-    // Start scheduler server
-    spider::core::StopToken stop_token;
-    std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
-    spider::scheduler::SchedulerServer
-            server{port, policy, metadata_store, data_store, conn, stop_token};
-
     // Register scheduler with storage
     spider::core::Scheduler const scheduler{scheduler_id, scheduler_addr, port};
     err = metadata_store->add_scheduler(*conn, scheduler);
@@ -221,6 +236,12 @@ auto main(int argc, char** argv) -> int {
         return cStorageErr;
     }
 
+    // Start scheduler server
+    std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
+            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
+    spider::scheduler::SchedulerServer
+            server{port, policy, metadata_store, data_store, conn, g_stop_token};
+
     try {
         // Start a thread that periodically updates the scheduler's heartbeat
         std::thread heartbeat_thread{
@@ -228,7 +249,7 @@ auto main(int argc, char** argv) -> int {
                 std::cref(storage_factory),
                 std::cref(metadata_store),
                 std::ref(scheduler),
-                std::ref(stop_token),
+                std::ref(g_stop_token),
         };
 
         // Start a thread that periodically starts cleanup
@@ -236,7 +257,7 @@ auto main(int argc, char** argv) -> int {
                 cleanup_loop,
                 std::cref(storage_factory),
                 std::cref(data_store),
-                std::ref(stop_token)
+                std::ref(g_stop_token)
         };
 
         heartbeat_thread.join();
@@ -244,6 +265,12 @@ auto main(int argc, char** argv) -> int {
         server.stop();
     } catch (std::system_error& e) {
         spdlog::error("Failed to join thread: {}", e.what());
+    }
+
+    if (no_exit) {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
     }
 
     return 0;
