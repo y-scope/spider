@@ -111,7 +111,8 @@ std::string const cCreateSchedulerLeaseTable = R"(CREATE TABLE IF NOT EXISTS `sc
     `lease_time`   TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT `lease_scheduler_id` FOREIGN KEY (`scheduler_id`) REFERENCES `schedulers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     CONSTRAINT `lease_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    INDEX (`scheduler_id`)
+    INDEX (`scheduler_id`),
+    PRIMARY KEY (`scheduler_id`, `task_id`)
 ))";
 
 std::string const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
