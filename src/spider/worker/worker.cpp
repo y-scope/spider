@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <chrono>
 #include <csignal>
 #include <cstddef>
@@ -63,6 +65,7 @@ auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
         g_stop_token.request_stop();
         // Send SIGTERM to all processes in the process group, i.e. task executor
+        // NOLINTNEXTLINE(misc-include-cleaner)
         if (-1 == killpg(getpgrp(), SIGTERM)) {
             spdlog::error("Failed to send SIGTERM to task executor");
         }
