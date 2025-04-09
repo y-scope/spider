@@ -1,5 +1,6 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
+    core/Task.cpp
     storage/mysql/MySqlConnection.cpp
     storage/mysql/MySqlStorageFactory.cpp
     storage/mysql/MySqlJobSubmissionBatch.cpp
@@ -50,6 +51,7 @@ target_link_libraries(
         absl::flat_hash_map
         MariaDBClientCpp::MariaDBClientCpp
         msgpack-cxx
+        spdlog::spdlog
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
