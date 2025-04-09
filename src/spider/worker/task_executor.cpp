@@ -119,7 +119,7 @@ auto main(int const argc, char** argv) -> int {
     }
 
     // Setup signal handler to catch SIGTERM
-    if (SIG_ERR != std::signal(SIGTERM, sigterm_handler)) {
+    if (SIG_ERR == std::signal(SIGTERM, sigterm_handler)) {
         spdlog::error("Fail to install signal handler for SIGTERM");
         return cSignalHandleErr;
     }
