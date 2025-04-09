@@ -184,6 +184,12 @@ auto main(int const argc, char** argv) -> int {
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 
+        // Reinstall signal handler to catch SIGTERM in case user install another signal handler
+        if (SIG_ERR == std::signal(SIGTERM, sigterm_handler)) {
+            spdlog::error("Fail to install signal handler for SIGTERM");
+            return cSignalHandleErr;
+        }
+
         // Write result buffer to stdout
         spider::worker::send_message(out, result_buffer);
     } catch (std::exception& e) {
