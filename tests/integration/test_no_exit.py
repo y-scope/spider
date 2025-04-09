@@ -44,7 +44,7 @@ def start_scheduler_worker_no_exit(storage_url: str, scheduler_port: int):
         "tests/libworker_test.so",
         "--no-exit",
     ]
-    worker_process = subprocess.Popen(worker_cmds)
+    worker_process = subprocess.Popen(worker_cmds, start_new_session=True)
 
     return scheduler_process, worker_process
 
