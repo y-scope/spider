@@ -18,6 +18,7 @@ namespace spider::scheduler {
 class FifoPolicy final : public SchedulerPolicy {
 public:
     FifoPolicy(
+            boost::uuids::uuid scheduler_id,
             std::shared_ptr<core::MetadataStorage> const& metadata_store,
             std::shared_ptr<core::DataStorage> const& data_store,
             std::shared_ptr<core::StorageConnection> const& conn
@@ -30,6 +31,8 @@ private:
     auto fetch_tasks() -> void;
 
     auto pop_next_task(std::string const& worker_addr) -> std::optional<boost::uuids::uuid>;
+
+    boost::uuids::uuid m_scheduler_id;
 
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;

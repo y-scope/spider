@@ -1226,11 +1226,24 @@ auto MySqlMetadataStorage::get_task_job_id(
     return StorageErr{};
 }
 
+constexpr int cLeaseExpireTime = 1000 * 10;  // 10 ms
+
 auto MySqlMetadataStorage::get_ready_tasks(
         StorageConnection& conn,
+        boost::uuids::uuid scheduler_id,
         std::vector<ScheduleTaskMetadata>* tasks
 ) -> StorageErr {
     try {
+        // Remove timeout scheduler leases
+        std::unique_ptr<sql::PreparedStatement> lease_timeout_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "DELETE FROM `scheduler_leases` WHERE TIMESTAMPDIFF(MICROSECOND, "
+                        "`lease_time`, CURRENT_TIMESTAMP()) > ?"
+                )
+        );
+        lease_timeout_statement->setInt(1, cLeaseExpireTime);
+        lease_timeout_statement->executeUpdate();
+
         // Get all ready tasks from job that has not failed or cancelled
         std::unique_ptr<sql::Statement> task_statement(
                 static_cast<MySqlConnection&>(conn)->createStatement()
@@ -1238,7 +1251,7 @@ auto MySqlMetadataStorage::get_ready_tasks(
         std::unique_ptr<sql::ResultSet> const res{task_statement->executeQuery(
                 "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `state` = 'ready' "
                 "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
-                "`state` = 'cancel')"
+                "`state` = 'cancel') AND `id` NOT IN (SELECT `task_id` FROM `scheduler_leases`)"
         )};
 
         if (res->rowsCount() == 0) {
@@ -1270,6 +1283,7 @@ auto MySqlMetadataStorage::get_ready_tasks(
                 "(SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
         )};
 
+        // Get job metadata
         while (job_res->next()) {
             boost::uuids::uuid const job_id = read_id(job_res->getBinaryStream("id"));
             boost::uuids::uuid const client_id = read_id(job_res->getBinaryStream("client_id"));
@@ -1284,6 +1298,10 @@ auto MySqlMetadataStorage::get_ready_tasks(
                                 get_sql_string(job_res->getString("creation_time"))
                         )
                 };
+            }
+            // Job id will not be in job_id_to_task_ids if the job's tasks are leased
+            if (job_id_to_task_ids.find(job_id) == job_id_to_task_ids.end()) {
+                continue;
             }
             for (boost::uuids::uuid const& task_id : job_id_to_task_ids[job_id]) {
                 new_tasks[task_id].set_client_id(client_id);
@@ -1301,7 +1319,8 @@ auto MySqlMetadataStorage::get_ready_tasks(
                 "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
                 "= `data_locality`.`id` WHERE `task_inputs`.`task_id` IN (SELECT `id` "
                 "FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN (SELECT `job_id` "
-                "FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
+                "FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel')) AND "
+                "`task_inputs`.`task_id` NOT IN (SELECT `task_id` FROM `scheduler_leases`)"
         )};
 
         while (locality_res->next()) {
@@ -1314,6 +1333,21 @@ auto MySqlMetadataStorage::get_ready_tasks(
                 new_tasks[task_id].add_soft_locality(address);
             }
         }
+
+        // Add scheduler lease
+        std::unique_ptr<sql::PreparedStatement> lease_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "INSERT INTO `scheduler_leases` (`scheduler_id`, `task_id`) VALUES (?, ?)"
+                )
+        );
+        sql::bytes scheduler_id_bytes = uuid_get_bytes(scheduler_id);
+        for (auto const& [task_id, task] : new_tasks) {
+            sql::bytes task_id_bytes = uuid_get_bytes(task_id);
+            lease_statement->setBytes(1, &scheduler_id_bytes);
+            lease_statement->setBytes(2, &task_id_bytes);
+            lease_statement->addBatch();
+        }
+        lease_statement->executeBatch();
 
         // Add all tasks to the output
         absl::flat_hash_set<boost::uuids::uuid> task_ids;
@@ -1458,6 +1492,14 @@ MySqlMetadataStorage::create_task_instance(StorageConnection& conn, TaskInstance
         instance_statement->setBytes(1, &instance_id_bytes);
         instance_statement->setBytes(2, &id_bytes);
         instance_statement->executeUpdate();
+        // Remove task from scheduler leases
+        std::unique_ptr<sql::PreparedStatement> const lease_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "DELETE FROM `scheduler_leases` WHERE `task_id` = ?"
+                )
+        );
+        lease_statement->setBytes(1, &id_bytes);
+        lease_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

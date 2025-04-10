@@ -79,8 +79,11 @@ public:
             -> StorageErr override;
     auto get_task_job_id(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid* job_id)
             -> StorageErr override;
-    auto get_ready_tasks(StorageConnection& conn, std::vector<ScheduleTaskMetadata>* tasks)
-            -> StorageErr override;
+    auto get_ready_tasks(
+            StorageConnection& conn,
+            boost::uuids::uuid scheduler_id,
+            std::vector<ScheduleTaskMetadata>* tasks
+    ) -> StorageErr override;
     auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
             -> StorageErr override;
     auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
