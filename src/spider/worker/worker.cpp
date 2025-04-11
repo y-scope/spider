@@ -235,12 +235,12 @@ parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> cons
 /**
  * Handles the result of a task execution. Parse the task outputs and submit them to the storage.
  *
- * @param storage_factory Factory for creating storage connections
- * @param metadata_store Metadata storage for submitting results
- * @param instance Task instance that was executed
- * @param task The task that was executed
- * @param executor The executor that ran the task
- * @return true if results were successfully handled, false if any errors occurred
+ * @param storage_factory Factory for creating storage connections.
+ * @param metadata_store Metadata storage for submitting results.
+ * @param instance Task instance that was executed.
+ * @param task The task that was executed.
+ * @param executor The executor that ran the task.
+ * @return true if results were successfully handled, false if any errors occurred.
  */
 auto handle_executor_result(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
