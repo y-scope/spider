@@ -165,7 +165,8 @@ fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uui
  * @param metadata_store The metadata storage to fetch task details.
  * @param instance The task instance to set up.
  * @param task Output parameter to store the fetched task details.
- * @return An optional vector of argument buffers if successful, std::nullopt otherwise.
+ * @return A vector of argument buffers.
+ * @return std::nullopt if any failure occurs.
  */
 auto setup_task(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
