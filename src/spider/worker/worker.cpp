@@ -179,51 +179,17 @@ auto fetch_task(
     return std::nullopt;
 }
 
-auto get_arg_buffers(spider::core::Task const& task)
-        -> std::optional<std::vector<msgpack::sbuffer>> {
-    std::vector<msgpack::sbuffer> arg_buffers;
-    size_t const num_inputs = task.get_num_inputs();
-    for (size_t i = 0; i < num_inputs; ++i) {
-        spider::core::TaskInput const& input = task.get_input(i);
-        std::optional<std::string> const optional_value = input.get_value();
-        if (optional_value.has_value()) {
-            std::string const& value = optional_value.value();
-            arg_buffers.emplace_back();
-            arg_buffers.back().write(value.data(), value.size());
-            continue;
-        }
-        std::optional<boost::uuids::uuid> const optional_data_id = input.get_data_id();
-        if (optional_data_id.has_value()) {
-            boost::uuids::uuid const data_id = optional_data_id.value();
-            arg_buffers.emplace_back();
-            msgpack::pack(arg_buffers.back(), data_id);
-            continue;
-        }
-        spdlog::error(
-                "Task {} {} input {} has no value or data id",
-                task.get_function_name(),
-                boost::uuids::to_string(task.get_id()),
-                i
-        );
-        return std::nullopt;
-    }
-    return arg_buffers;
-}
-
-auto get_task_details(
-        std::shared_ptr<spider::core::StorageConnection> const& conn,
-        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::TaskInstance const& instance,
-        spider::core::Task& task
-) -> bool {
-    spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
-    if (!err.success()) {
-        spdlog::error("Failed to fetch task detail: {}", err.description);
-        return false;
-    }
-    return true;
-}
-
+/*
+ * Sets up a task by fetching the task metadata from storage and creating argument buffers from task
+ * inputs.
+ *
+ * @param storage_factory The storage factory to create a storage connection.
+ * @param metadata_store The metadata storage to fetch task details.
+ * @param instance The task instance to set up.
+ * @param task Output parameter to store the fetched task details.
+ * @return  A vector of buffers containing the serialized arguments of the task.
+ * @return std::nullopt if any failure occurs.
+ */
 auto setup_task(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
@@ -243,12 +209,19 @@ auto setup_task(
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     // Get task details
-    if (!get_task_details(conn, metadata_store, instance, task)) {
+    spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
+    if (!err.success()) {
+        spdlog::error("Failed to fetch task detail: {}", err.description);
         return std::nullopt;
     }
 
-    // Get task arguments
-    return get_arg_buffers(task);
+    std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers = task.get_arg_buffers();
+    if (!optional_arg_buffers.has_value()) {
+        spdlog::error("Failed to fetch task arguments");
+        metadata_store->task_fail(*conn, instance, fmt::format("Failed to fetch task arguments"));
+        return std::nullopt;
+    }
+    return optional_arg_buffers;
 }
 
 auto
@@ -282,6 +255,16 @@ parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> cons
     return outputs;
 }
 
+/**
+ * Handles the result of a task execution. Parse the task outputs and submit them to the storage.
+ *
+ * @param storage_factory Factory for creating storage connections.
+ * @param metadata_store Metadata storage for submitting results.
+ * @param instance Task instance that was executed.
+ * @param task The task that was executed.
+ * @param executor The executor that ran the task.
+ * @return true if results were successfully handled, false if any errors occurred.
+ */
 auto handle_executor_result(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
@@ -381,7 +364,6 @@ auto task_loop(
         auto const [task_id, task_instance_id] = optional_task.value();
         spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
-        fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
 

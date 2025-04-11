@@ -50,8 +50,20 @@ TEMPLATE_LIST_TEST_CASE(
     std::shared_ptr<spider::core::StorageConnection> const conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
+    // Add scheduler
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const scheduler_id = gen();
+    REQUIRE(metadata_store
+                    ->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 8080})
+                    .success());
+
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
+            = std::make_shared<spider::scheduler::FifoPolicy>(
+                    scheduler_id,
+                    metadata_store,
+                    data_store,
+                    conn
+            );
 
     constexpr unsigned short cPort = 6021;
     spider::core::StopToken stop_token;
@@ -79,7 +91,6 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_dependency(parent_task.get_id(), child_task.get_id());
     graph.add_input_task(parent_task.get_id());
     graph.add_output_task(child_task.get_id());
-    boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
     REQUIRE(metadata_store->add_job(*conn, job_id, gen(), graph).success());
 

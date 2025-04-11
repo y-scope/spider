@@ -105,6 +105,16 @@ std::string const cCreateTaskInstanceTable = R"(CREATE TABLE IF NOT EXISTS `task
     PRIMARY KEY (`id`)
 ))";
 
+std::string const cCreateSchedulerLeaseTable = R"(CREATE TABLE IF NOT EXISTS `scheduler_leases` (
+    `scheduler_id` BINARY(16) NOT NULL,
+    `task_id`      BINARY(16) NOT NULL,
+    `lease_time`   TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT `lease_scheduler_id` FOREIGN KEY (`scheduler_id`) REFERENCES `schedulers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `lease_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    INDEX (`scheduler_id`),
+    PRIMARY KEY (`scheduler_id`, `task_id`)
+))";
+
 std::string const cCreateDataTable = R"(CREATE TABLE IF NOT EXISTS `data` (
     `id` BINARY(16) NOT NULL,
     `value` VARBINARY(999) NOT NULL,
@@ -153,7 +163,7 @@ std::string const cCreateTaskKVDataTable = R"(CREATE TABLE IF NOT EXISTS `task_k
     CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-std::array<std::string const, 16> const cCreateStorage = {
+std::array<std::string const, 17> const cCreateStorage = {
         cCreateDriverTable,  // drivers table must be created before data_ref_driver
         cCreateSchedulerTable,
         cCreateJobTable,  // jobs table must be created before task
@@ -170,6 +180,8 @@ std::array<std::string const, 16> const cCreateStorage = {
         cCreateTaskInputTable,
         cCreateTaskDependencyTable,
         cCreateTaskInstanceTable,
+        cCreateSchedulerLeaseTable  // scheduler_lease table must be created after scheduler and
+                                    // task
 };
 
 std::string const cInsertJob = R"(INSERT INTO `jobs` (`id`, `client_id`) VALUES (?, ?))";

@@ -239,10 +239,16 @@ auto main(int argc, char** argv) -> int {
     }
 
     // Start scheduler server
+    spider::core::StopToken stop_token;
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store, conn);
+            = std::make_shared<spider::scheduler::FifoPolicy>(
+                    scheduler_id,
+                    metadata_store,
+                    data_store,
+                    conn
+            );
     spider::scheduler::SchedulerServer
-            server{port, policy, metadata_store, data_store, conn, g_stop_token};
+            server{port, policy, metadata_store, data_store, conn, stop_token};
 
     try {
         // Start a thread that periodically updates the scheduler's heartbeat

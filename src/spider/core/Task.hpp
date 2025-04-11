@@ -13,6 +13,7 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
+#include "../io/MsgPack.hpp"
 #include "Data.hpp"
 
 namespace spider::core {
@@ -214,6 +215,12 @@ public:
     [[nodiscard]] auto get_inputs() const -> std::vector<TaskInput> const& { return m_inputs; }
 
     [[nodiscard]] auto get_outputs() const -> std::vector<TaskOutput> const& { return m_outputs; }
+
+    /*
+     * @return A vector of buffers containing the serialized arguments of the task.
+     * @return std::nullopt if any argument cannot be serialized.
+     */
+    [[nodiscard]] auto get_arg_buffers() const -> std::optional<std::vector<msgpack::sbuffer>>;
 
 private:
     boost::uuids::uuid m_id;
