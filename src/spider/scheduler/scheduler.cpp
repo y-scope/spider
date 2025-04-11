@@ -42,12 +42,9 @@ constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-spider::core::StopToken g_stop_token;
-
 auto stop_scheduler_handler(int signal) -> void {
     if (SIGTERM == signal) {
-        g_stop_token.request_stop();
+        spider::core::StopToken::get_instance().request_stop();
     }
 }
 
@@ -257,7 +254,7 @@ auto main(int argc, char** argv) -> int {
                 std::cref(storage_factory),
                 std::cref(metadata_store),
                 std::ref(scheduler),
-                std::ref(g_stop_token),
+                std::ref(spider::core::StopToken::get_instance()),
         };
 
         // Start a thread that periodically starts cleanup
@@ -265,7 +262,7 @@ auto main(int argc, char** argv) -> int {
                 cleanup_loop,
                 std::cref(storage_factory),
                 std::cref(data_store),
-                std::ref(g_stop_token)
+                std::ref(spider::core::StopToken::get_instance())
         };
 
         heartbeat_thread.join();
