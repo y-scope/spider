@@ -336,7 +336,6 @@ auto task_loop(
         auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
         spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
-        fail_task_id = std::nullopt;
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
         std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers
