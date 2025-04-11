@@ -1,4 +1,7 @@
+#include <unistd.h>
+
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
@@ -46,14 +49,24 @@
 #include "WorkerClient.hpp"
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cWorkerAddrErr = 2;
-constexpr int cStorageConnectionErr = 3;
-constexpr int cStorageErr = 4;
-constexpr int cTaskErr = 5;
+constexpr int cSignalHandleErr = 2;
+constexpr int cWorkerAddrErr = 3;
+constexpr int cStorageConnectionErr = 4;
+constexpr int cStorageErr = 5;
+constexpr int cTaskErr = 6;
 
 constexpr int cRetryCount = 5;
 
 namespace {
+auto stop_task_handler(int signal) -> void {
+    if (SIGTERM == signal) {
+        spider::core::StopToken::get_instance().request_stop();
+        // Send SIGTERM to all processes in the process group, i.e. task executor
+        // NOLINTNEXTLINE(misc-include-cleaner)
+        killpg(getpgrp(), SIGTERM);
+    }
+}
+
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider scheduler");
@@ -68,6 +81,7 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             "dynamic libraries that include the spider tasks"
     );
     desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
+    desc.add_options()("no-exit", "Do not exit after receiving SIGTERM");
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
@@ -141,20 +155,23 @@ auto heartbeat_loop(
 
 constexpr int cFetchTaskTimeout = 100;
 
-auto
-fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uuid> fail_task_id)
-        -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
+auto fetch_task(
+        spider::core::StopToken const& stop_token,
+        spider::worker::WorkerClient& client,
+        std::optional<boost::uuids::uuid> fail_task_id
+) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     spdlog::debug("Fetching task");
-    while (true) {
+    while (!stop_token.stop_requested()) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
         if (optional_task_ids.has_value()) {
-            return optional_task_ids.value();
+            return optional_task_ids;
         }
         // If the first request succeeds, later requests should not include the failed task id
         fail_task_id = std::nullopt;
         std::this_thread::sleep_for(std::chrono::milliseconds(cFetchTaskTimeout));
     }
+    return std::nullopt;
 }
 
 /*
@@ -183,7 +200,8 @@ auto setup_task(
         );
         return std::nullopt;
     }
-    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    std::shared_ptr const conn
+            = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     // Get task details
     spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
@@ -334,11 +352,16 @@ auto task_loop(
     while (!stop_token.stop_requested()) {
         boost::asio::io_context context;
 
-        auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
+        auto const& optional_task = fetch_task(stop_token, client, fail_task_id);
+        if (false == optional_task.has_value()) {
+            continue;
+        }
+        auto const [task_id, task_instance_id] = optional_task.value();
         spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
+
         std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers
                 = setup_task(storage_factory, metadata_store, instance, task);
         if (!optional_arg_buffers.has_value()) {
@@ -387,6 +410,7 @@ auto main(int argc, char** argv) -> int {
     std::string storage_url;
     std::vector<std::string> libs;
     std::string worker_addr;
+    bool no_exit = false;
     try {
         if (!args.contains("storage_url")) {
             spdlog::error("Missing storage_url");
@@ -403,12 +427,23 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         libs = args["libs"].as<std::vector<std::string>>();
+        if (args.contains("no-exit")) {
+            no_exit = true;
+        }
     } catch (boost::bad_any_cast const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
     } catch (boost::program_options::error const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
+    }
+
+    // If not-exit is set, install signal handler for SIGTERM
+    if (no_exit) {
+        if (SIG_ERR == std::signal(SIGTERM, stop_task_handler)) {
+            spdlog::error("Failed to install signal handler for SIGTERM");
+            return cSignalHandleErr;
+        }
     }
 
     // Create storage
@@ -444,8 +479,6 @@ auto main(int argc, char** argv) -> int {
         }
     }
 
-    spider::core::StopToken stop_token;
-
     // Start client
     spider::worker::WorkerClient
             client{worker_id, worker_addr, data_store, metadata_store, storage_factory};
@@ -461,7 +494,7 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
-            std::ref(stop_token)
+            std::ref(spider::core::StopToken::get_instance()),
     };
 
     // Start a thread that processes tasks
@@ -473,11 +506,17 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
-            std::cref(stop_token),
+            std::cref(spider::core::StopToken::get_instance()),
     };
 
     heartbeat_thread.join();
     task_thread.join();
+
+    if (no_exit) {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
 
     return 0;
 }

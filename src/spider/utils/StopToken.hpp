@@ -1,21 +1,33 @@
 #ifndef SPIDER_UTILS_STOPTOKEN_HPP
 #define SPIDER_UTILS_STOPTOKEN_HPP
 
-#include <atomic>
+#include <csignal>
 
 namespace spider::core {
 class StopToken {
 public:
-    StopToken() : m_stop{false} {}
+    /*
+     * @return A reference to the singleton instance of StopToken.
+     */
+    static auto get_instance() -> StopToken&;
 
-    auto request_stop() -> void { m_stop = true; }
+    /*
+     * Request to token owners to stop.
+     */
+    auto request_stop() -> void;
 
-    [[nodiscard]] auto stop_requested() const -> bool { return m_stop; }
+    /*
+     * @return A boolean indicating whether the stop was requested.
+     */
+    [[nodiscard]] auto stop_requested() const -> bool;
 
-    auto reset() -> void { m_stop = false; }
+    /*
+     * Reset the stop token.
+     */
+    auto reset() -> void;
 
 private:
-    std::atomic<bool> m_stop;
+    std::sig_atomic_t volatile m_stop{0};
 };
 }  // namespace spider::core
 

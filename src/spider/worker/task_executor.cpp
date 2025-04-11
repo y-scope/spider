@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <csignal>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -31,6 +32,10 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace {
+auto sigterm_handler(int signal) -> void {
+    // Do nothing. Just to catch the signal.
+}
+
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider task executor");
@@ -63,11 +68,12 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cStorageErr = 2;
-constexpr int cDllErr = 3;
-constexpr int cFuncArgParseErr = 4;
-constexpr int cResultSendErr = 5;
-constexpr int cOtherErr = 6;
+constexpr int cSignalHandleErr = 2;
+constexpr int cStorageErr = 3;
+constexpr int cDllErr = 4;
+constexpr int cFuncArgParseErr = 5;
+constexpr int cResultSendErr = 6;
+constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
@@ -110,6 +116,12 @@ auto main(int const argc, char** argv) -> int {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {
         return cCmdArgParseErr;
+    }
+
+    // Setup signal handler to catch SIGTERM
+    if (SIG_ERR == std::signal(SIGTERM, sigterm_handler)) {
+        spdlog::error("Fail to install signal handler for SIGTERM");
+        return cSignalHandleErr;
     }
 
     spdlog::debug("Function to run: {}", func_name);
@@ -171,6 +183,12 @@ auto main(int const argc, char** argv) -> int {
         );
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
+
+        // Reinstall signal handler to catch SIGTERM in case user install another signal handler
+        if (SIG_ERR == std::signal(SIGTERM, sigterm_handler)) {
+            spdlog::error("Fail to install signal handler for SIGTERM");
+            return cSignalHandleErr;
+        }
 
         // Write result buffer to stdout
         spider::worker::send_message(out, result_buffer);
