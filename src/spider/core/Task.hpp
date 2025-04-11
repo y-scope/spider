@@ -218,7 +218,7 @@ public:
 
     /*
      * @return A vector of buffers containing the serialized arguments of the task.
-     * @return std::nullopt if any argument cannot be serialized
+     * @return std::nullopt if any argument cannot be serialized.
      */
     [[nodiscard]] auto get_arg_buffers() const -> std::optional<std::vector<msgpack::sbuffer>>;
 
