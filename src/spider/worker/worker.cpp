@@ -63,9 +63,7 @@ auto stop_task_handler(int signal) -> void {
         spider::core::StopToken::get_instance().request_stop();
         // Send SIGTERM to all processes in the process group, i.e. task executor
         // NOLINTNEXTLINE(misc-include-cleaner)
-        if (-1 == killpg(getpgrp(), SIGTERM)) {
-            spdlog::error("Failed to send SIGTERM to task executor");
-        }
+        killpg(getpgrp(), SIGTERM);
     }
 }
 
