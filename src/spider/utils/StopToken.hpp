@@ -1,7 +1,7 @@
 #ifndef SPIDER_UTILS_STOPTOKEN_HPP
 #define SPIDER_UTILS_STOPTOKEN_HPP
 
-#include <csignal>
+#include <atomic>
 
 namespace spider::core {
 class StopToken {
@@ -27,7 +27,7 @@ public:
     auto reset() -> void;
 
 private:
-    std::sig_atomic_t volatile m_stop{0};
+    std::atomic_flag m_stop;
 };
 }  // namespace spider::core
 
