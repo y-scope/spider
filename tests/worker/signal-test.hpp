@@ -30,12 +30,6 @@ private:
 };
 
 /*
- * Signal handler function for SIGTERM. Sets the signal number in the singleton instance.
- * @param signal_number The signal number to handle.
- */
-auto signal_handler(int signal_number) -> void;
-
-/*
  * Installs the signal handler on SIGTERM to watch for whether the signal handler is triggered.
  * @return Signal number if the installed signal handler is triggered, 0 otherwise.
  */

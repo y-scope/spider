@@ -22,6 +22,10 @@ auto SignalNumber::get_signal_number() const -> int {
 }
 
 namespace {
+/*
+ * Signal handler function for SIGTERM. Sets the signal number in the singleton instance.
+ * @param signal_number The signal number to handle.
+ */
 auto signal_handler(int const signal_number) -> void {
     SignalNumber::get_instance().set_signal_number(signal_number);
 }
