@@ -32,9 +32,6 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace {
-auto sigterm_handler(int signal) -> void {
-    // Do nothing. Just to catch the signal.
-}
 
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
@@ -118,8 +115,8 @@ auto main(int const argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    // Setup signal handler to catch SIGTERM
-    if (SIG_ERR == std::signal(SIGTERM, sigterm_handler)) {
+    // Ignore SIGTERM
+    if (SIG_ERR == std::signal(SIGTERM, SIG_IGN)) {
         spdlog::error("Fail to install signal handler for SIGTERM");
         return cSignalHandleErr;
     }
@@ -184,8 +181,8 @@ auto main(int const argc, char** argv) -> int {
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 
-        // Reinstall signal handler to catch SIGTERM in case user install another signal handler
-        if (SIG_ERR == std::signal(SIGTERM, sigterm_handler)) {
+        // Reinstall signal handler to ignore SIGTERM in case user install another signal handler
+        if (SIG_ERR == std::signal(SIGTERM, SIG_IGN)) {
             spdlog::error("Fail to install signal handler for SIGTERM");
             return cSignalHandleErr;
         }
