@@ -45,6 +45,7 @@
 #include "../storage/StorageConnection.hpp"
 #include "../storage/StorageFactory.hpp"
 #include "../utils/StopToken.hpp"
+#include "ChildPid.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
 
@@ -61,9 +62,12 @@ namespace {
 auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
         spider::core::StopToken::get_instance().request_stop();
-        // Send SIGTERM to all processes in the process group, i.e. task executor
-        // NOLINTNEXTLINE(misc-include-cleaner)
-        killpg(getpgrp(), SIGTERM);
+        // Send SIGTERM to task executor
+        pid_t const pid = spider::core::ChildPid::get_instance().get_pid();
+        if (pid > 0) {
+            // NOLINTNEXTLINE(misc-include-cleaner)
+            kill(pid, SIGTERM);
+        }
     }
 }
 
@@ -382,8 +386,18 @@ auto task_loop(
                 arg_buffers
         };
 
+        pid_t const pid = executor.get_pid();
+        spider::core::ChildPid::get_instance().set_pid(pid);
+        // Double check if stop token is set to avoid any missing signal
+        if (stop_token.stop_requested()) {
+            // NOLINTNEXTLINE(misc-include-cleaner)
+            kill(pid, SIGTERM);
+        }
+
         context.run();
         executor.wait();
+
+        spider::core::ChildPid::get_instance().set_pid(0);
 
         if (handle_executor_result(storage_factory, metadata_store, instance, task, executor)) {
             fail_task_id = std::nullopt;

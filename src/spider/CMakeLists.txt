@@ -56,6 +56,8 @@ target_link_libraries(
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
+    worker/ChildPid.hpp
+    worker/ChildPid.cpp
     worker/DllLoader.hpp
     worker/DllLoader.cpp
     worker/Process.hpp
