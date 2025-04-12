@@ -8,10 +8,19 @@
 namespace spider::core {
 class ChildPid {
 public:
+    /*
+     * @return Singleton instance of ChildPid.
+     */
     static auto get_instance() -> ChildPid&;
 
+    /*
+     * @return The process ID of the child process.
+     */
     [[nodiscard]] auto get_pid() const -> std::sig_atomic_t;
 
+    /*
+     * @param pid The process ID to set.
+     */
     auto set_pid(pid_t pid) -> void;
 
 private:

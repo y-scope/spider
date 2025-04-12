@@ -42,6 +42,10 @@ constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
+/*
+ * Signal handler for SIGTERM. Sets the stop token to request a stop.
+ * @param signal The signal number.
+ */
 auto stop_scheduler_handler(int signal) -> void {
     if (SIGTERM == signal) {
         spider::core::StopToken::get_instance().request_stop();

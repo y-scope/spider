@@ -59,6 +59,11 @@ constexpr int cTaskErr = 6;
 constexpr int cRetryCount = 5;
 
 namespace {
+/*
+ * Signal handler for SIGTERM. It sets the stop token to request a stop and sends SIGTERM to the
+ * task executor.
+ * @param signal The signal number.
+ */
 auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
         spider::core::StopToken::get_instance().request_stop();

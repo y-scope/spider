@@ -32,7 +32,6 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace {
-
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider task executor");
