@@ -66,9 +66,7 @@ TEMPLATE_LIST_TEST_CASE(
             );
 
     constexpr unsigned short cPort = 6021;
-    spider::core::StopToken& stop_token = spider::core::StopToken::get_instance();
-    spider::scheduler::SchedulerServer
-            server{cPort, policy, metadata_store, data_store, conn, stop_token};
+    spider::scheduler::SchedulerServer server{cPort, policy, metadata_store, data_store, conn};
 
     // Pause and resume server
     server.pause();
