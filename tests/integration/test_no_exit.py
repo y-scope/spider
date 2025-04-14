@@ -78,6 +78,7 @@ def scheduler_worker_signal(storage):
 
 
 class TestWorkerNoExit:
+    # Test that worker stop receiving tasks and does not exit when receiving SIGTERM if no-exit is set
     def test_no_exit(self, storage, scheduler_worker_no_exit):
         _, worker_process = scheduler_worker_no_exit
         # Send SIGTERM should not kill worker
@@ -113,6 +114,7 @@ class TestWorkerNoExit:
         # Cleanup job
         remove_job(storage, job_id)
 
+    # Test that worker propagates the SIGTERM signal to the task executor
     def test_signal(self, storage, scheduler_worker_signal):
         _, worker_process = scheduler_worker_signal
 
