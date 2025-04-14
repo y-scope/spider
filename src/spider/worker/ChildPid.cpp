@@ -1,5 +1,7 @@
 #include "ChildPid.hpp"
 
+#include <unistd.h>
+
 #include <csignal>
 
 namespace spider::core {

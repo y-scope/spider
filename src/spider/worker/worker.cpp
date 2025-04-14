@@ -1,4 +1,3 @@
-// NOLINTNEXTLINE(misc-include-cleaner)
 #include <unistd.h>
 
 #include <cerrno>
@@ -70,7 +69,6 @@ auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
         spider::core::StopToken::request_stop();
         // Send SIGTERM to task executor
-        // NOLINTNEXTLINE(misc-include-cleaner)
         pid_t const pid = spider::core::ChildPid::get_pid();
         if (pid > 0) {
             // NOLINTNEXTLINE(misc-include-cleaner)
