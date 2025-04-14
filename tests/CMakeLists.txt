@@ -74,12 +74,6 @@ target_link_libraries(
 )
 
 add_library(signal_test SHARED)
-set_target_properties(
-    signal_test
-    PROPERTIES
-        PREFIX
-            ""
-)
 target_sources(signal_test PUBLIC worker/signal-test.hpp)
 target_sources(signal_test PRIVATE worker/signal-test.cpp)
 target_link_libraries(
