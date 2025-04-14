@@ -10,7 +10,7 @@ auto StopToken::request_stop() -> void {
     m_stop.test_and_set();
 }
 
-auto StopToken::stop_requested() const -> bool {
+auto StopToken::is_stop_requested() const -> bool {
     return m_stop.test();
 }
 

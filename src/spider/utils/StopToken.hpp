@@ -19,7 +19,7 @@ public:
     /*
      * @return A boolean indicating whether the stop was requested.
      */
-    [[nodiscard]] auto stop_requested() const -> bool;
+    [[nodiscard]] auto is_stop_requested() const -> bool;
 
     /*
      * Reset the stop token.

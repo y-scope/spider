@@ -189,7 +189,7 @@ auto main(int const argc, char** argv) -> int {
         spdlog::debug("Function executed");
 
         // Reinstall signal handler to ignore SIGTERM in case user install another signal handler
-        //NOLINTNEXTLINE(misc-include-cleaner)
+        // NOLINTNEXTLINE(misc-include-cleaner)
         if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
             spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
             return cSignalHandleErr;
@@ -203,4 +203,5 @@ auto main(int const argc, char** argv) -> int {
     }
     return 0;
 }
+
 // NOLINTEND(bugprone-exception-escape)

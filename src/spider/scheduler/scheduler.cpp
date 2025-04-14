@@ -89,7 +89,7 @@ auto heartbeat_loop(
         spider::core::StopToken& stop_token
 ) -> void {
     int fail_count = 0;
-    while (!stop_token.stop_requested()) {
+    while (!stop_token.is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -126,7 +126,7 @@ auto cleanup_loop(
         std::shared_ptr<spider::core::DataStorage> const& data_store,
         spider::core::StopToken const& stop_token
 ) -> void {
-    while (!stop_token.stop_requested()) {
+    while (!stop_token.is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
         spdlog::debug("Starting cleanup");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -285,7 +285,7 @@ auto main(int argc, char** argv) -> int {
 
     // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
     // handled.
-    if (spider::core::StopToken::get_instance().stop_requested()) {
+    if (spider::core::StopToken::get_instance().is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
 

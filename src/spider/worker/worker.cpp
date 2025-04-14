@@ -1,4 +1,4 @@
-//NOLINTNEXTLINE(misc-include-cleaner)
+// NOLINTNEXTLINE(misc-include-cleaner)
 #include <unistd.h>
 
 #include <cerrno>
@@ -132,7 +132,7 @@ auto heartbeat_loop(
         spider::core::StopToken& stop_token
 ) -> void {
     int fail_count = 0;
-    while (!stop_token.stop_requested()) {
+    while (!stop_token.is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -172,7 +172,7 @@ auto fetch_task(
         std::optional<boost::uuids::uuid> fail_task_id
 ) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     spdlog::debug("Fetching task");
-    while (!stop_token.stop_requested()) {
+    while (!stop_token.is_stop_requested()) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
         if (optional_task_ids.has_value()) {
@@ -360,7 +360,7 @@ auto task_loop(
         spider::core::StopToken const& stop_token
 ) -> void {
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
-    while (!stop_token.stop_requested()) {
+    while (!stop_token.is_stop_requested()) {
         boost::asio::io_context context;
 
         auto const& optional_task = fetch_task(stop_token, client, fail_task_id);
@@ -396,7 +396,7 @@ auto task_loop(
         pid_t const pid = executor.get_pid();
         spider::core::ChildPid::get_instance().set_pid(pid);
         // Double check if stop token is set to avoid any missing signal
-        if (stop_token.stop_requested()) {
+        if (stop_token.is_stop_requested()) {
             // NOLINTNEXTLINE(misc-include-cleaner)
             kill(pid, SIGTERM);
         }
@@ -537,7 +537,7 @@ auto main(int argc, char** argv) -> int {
 
     // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
     // handled.
-    if (spider::core::StopToken::get_instance().stop_requested()) {
+    if (spider::core::StopToken::get_instance().is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
 
