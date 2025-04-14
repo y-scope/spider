@@ -70,7 +70,6 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             boost::program_options::value<std::string>(),
             "storage server url"
     );
-    desc.add_options()("no-exit", "Do not exit after receiving SIGTERM");
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
@@ -146,6 +145,8 @@ auto cleanup_loop(
         spdlog::debug("Finished cleanup");
     }
 }
+
+constexpr int cSignalExitBase = 128;
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -179,21 +180,16 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         storage_url = args["storage_url"].as<std::string>();
-        if (args.contains("no-exit")) {
-            no_exit = true;
-        }
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {
         return cCmdArgParseErr;
     }
 
-    // If not-exit is set, install signal handler for SIGTERM
-    if (no_exit) {
-        if (SIG_ERR == std::signal(SIGTERM, stop_scheduler_handler)) {
-            spdlog::error("Failed to install signal handler for SIGTERM");
-            return cSignalHandleErr;
-        }
+    // Install signal handler for SIGTERM
+    if (SIG_ERR == std::signal(SIGTERM, stop_scheduler_handler)) {
+        spdlog::error("Failed to install signal handler for SIGTERM");
+        return cSignalHandleErr;
     }
 
     // Create storages
@@ -281,10 +277,10 @@ auto main(int argc, char** argv) -> int {
         spdlog::error("Failed to join thread: {}", e.what());
     }
 
-    if (no_exit) {
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
+    // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
+    // handled.
+    if (spider::core::StopToken::get_instance().stop_requested()) {
+        return cSignalExitBase + SIGTERM;
     }
 
     return 0;
