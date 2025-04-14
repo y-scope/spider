@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <cerrno>
 #include <csignal>
 #include <exception>
 #include <memory>
@@ -71,6 +72,7 @@ constexpr int cFuncArgParseErr = 5;
 constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
+// NOLINTBEGIN(bugprone-exception-escape)
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
@@ -115,10 +117,16 @@ auto main(int const argc, char** argv) -> int {
     }
 
     // Ignore SIGTERM
-    if (SIG_ERR == std::signal(SIGTERM, SIG_IGN)) {
-        spdlog::error("Fail to install signal handler for SIGTERM");
+    // NOLINTBEGIN(misc-include-cleaner)
+    struct sigaction sig_action{};
+    sig_action.sa_handler = SIG_IGN;
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_flags |= SA_RESTART;
+    if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
+        spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
         return cSignalHandleErr;
     }
+    // NOLINTEND(misc-include-cleaner)
 
     spdlog::debug("Function to run: {}", func_name);
 
@@ -181,8 +189,9 @@ auto main(int const argc, char** argv) -> int {
         spdlog::debug("Function executed");
 
         // Reinstall signal handler to ignore SIGTERM in case user install another signal handler
-        if (SIG_ERR == std::signal(SIGTERM, SIG_IGN)) {
-            spdlog::error("Fail to install signal handler for SIGTERM");
+        //NOLINTNEXTLINE(misc-include-cleaner)
+        if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
+            spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
             return cSignalHandleErr;
         }
 
@@ -194,3 +203,4 @@ auto main(int const argc, char** argv) -> int {
     }
     return 0;
 }
+// NOLINTEND(bugprone-exception-escape)

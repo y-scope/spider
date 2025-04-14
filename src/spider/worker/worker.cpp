@@ -1,5 +1,7 @@
+//NOLINTNEXTLINE(misc-include-cleaner)
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstddef>
@@ -68,6 +70,7 @@ auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
         spider::core::StopToken::get_instance().request_stop();
         // Send SIGTERM to task executor
+        // NOLINTNEXTLINE(misc-include-cleaner)
         pid_t const pid = spider::core::ChildPid::get_instance().get_pid();
         if (pid > 0) {
             // NOLINTNEXTLINE(misc-include-cleaner)
@@ -454,11 +457,17 @@ auto main(int argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    // Install signal handler for SIGTERM
-    if (SIG_ERR == std::signal(SIGTERM, stop_task_handler)) {
-        spdlog::error("Failed to install signal handler for SIGTERM");
+    // Ignore SIGTERM
+    // NOLINTBEGIN(misc-include-cleaner)
+    struct sigaction sig_action{};
+    sig_action.sa_handler = stop_task_handler;
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_flags |= SA_RESTART;
+    if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
+        spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
         return cSignalHandleErr;
     }
+    // NOLINTEND(misc-include-cleaner)
 
     // Create storage
     std::shared_ptr<spider::core::StorageFactory> const storage_factory

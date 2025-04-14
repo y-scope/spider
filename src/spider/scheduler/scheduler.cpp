@@ -1,3 +1,4 @@
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <functional>
@@ -185,11 +186,17 @@ auto main(int argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    // Install signal handler for SIGTERM
-    if (SIG_ERR == std::signal(SIGTERM, stop_scheduler_handler)) {
-        spdlog::error("Failed to install signal handler for SIGTERM");
+    // Ignore SIGTERM
+    // NOLINTBEGIN(misc-include-cleaner)
+    struct sigaction sig_action{};
+    sig_action.sa_handler = stop_scheduler_handler;
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_flags |= SA_RESTART;
+    if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
+        spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
         return cSignalHandleErr;
     }
+    // NOLINTEND(misc-include-cleaner)
 
     // Create storages
     std::shared_ptr<spider::core::StorageFactory> const storage_factory
