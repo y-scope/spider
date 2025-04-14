@@ -29,6 +29,11 @@ public:
     // Delete copy constructor and assignment operator
     StopToken(StopToken const&) = delete;
     auto operator=(StopToken const&) -> StopToken& = delete;
+    // Delete move constructor and assignment operator
+    StopToken(StopToken&&) = delete;
+    auto operator=(StopToken&&) -> StopToken& = delete;
+    // Default destructor
+    ~StopToken() = default;
 
 private:
     // Private constructor for singleton class

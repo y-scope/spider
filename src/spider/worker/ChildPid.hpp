@@ -26,6 +26,12 @@ public:
     // Delete copy constructor and assignment operator
     ChildPid(ChildPid const&) = delete;
     auto operator=(ChildPid const&) -> ChildPid& = delete;
+    // Delete move constructor and assignment operator
+    ChildPid(ChildPid&&) = delete;
+    auto operator=(ChildPid&&) -> ChildPid& = delete;
+
+    // Default destructor
+    ~ChildPid() = default;
 
 private:
     // Private constructor for singleton class
