@@ -26,7 +26,14 @@ public:
      */
     auto reset() -> void;
 
+    // Delete copy constructor and assignment operator
+    StopToken(StopToken const&) = delete;
+    auto operator=(StopToken const&) -> StopToken& = delete;
+
 private:
+    // Private constructor for singleton class
+    StopToken() = default;
+
     std::atomic_flag m_stop;
 };
 }  // namespace spider::core
