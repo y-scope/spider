@@ -163,7 +163,6 @@ auto main(int argc, char** argv) -> int {
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
-    bool no_exit = false;
     try {
         if (!args.contains("port")) {
             spdlog::error("port is required");
