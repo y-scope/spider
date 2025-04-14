@@ -36,8 +36,7 @@ SchedulerServer::SchedulerServer(
           m_policy{std::move(policy)},
           m_metadata_store{std::move(metadata_store)},
           m_data_store{std::move(data_store)},
-          m_conn{std::move(conn)},
-          m_stop_token{stop_token} {
+          m_conn{std::move(conn)} {
     boost::asio::co_spawn(m_context, receive_message(), boost::asio::detached);
     std::lock_guard const lock{m_mutex};
     m_thread = std::make_unique<std::thread>([&] { m_context.run(); });
@@ -96,7 +95,7 @@ auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
         co_return;
     } catch (boost::system::system_error& e) {
         spdlog::error("Fail to accept connection: {}", e.what());
-        m_stop_token.request_stop();
+        spider::core::StopToken::request_stop();
         co_return;
     }
 }

@@ -7,24 +7,19 @@ namespace spider::core {
 class StopToken {
 public:
     /*
-     * @return A reference to the singleton instance of StopToken.
-     */
-    static auto get_instance() -> StopToken&;
-
-    /*
      * Request to token owners to stop.
      */
-    auto request_stop() -> void;
+    static auto request_stop() -> void;
 
     /*
      * @return A boolean indicating whether the stop was requested.
      */
-    [[nodiscard]] auto is_stop_requested() const -> bool;
+    [[nodiscard]] static auto is_stop_requested() -> bool;
 
     /*
      * Reset the stop token.
      */
-    auto reset() -> void;
+    static auto reset() -> void;
 
     // Delete copy constructor and assignment operator
     StopToken(StopToken const&) = delete;
@@ -39,7 +34,7 @@ private:
     // Private constructor for singleton class
     StopToken() = default;
 
-    std::atomic_flag m_stop;
+    static std::atomic_flag m_stop;
 };
 }  // namespace spider::core
 

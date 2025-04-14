@@ -49,7 +49,7 @@ namespace {
  */
 auto stop_scheduler_handler(int signal) -> void {
     if (SIGTERM == signal) {
-        spider::core::StopToken::get_instance().request_stop();
+        spider::core::StopToken::request_stop();
     }
 }
 
@@ -85,11 +85,10 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::Scheduler const& scheduler,
-        spider::core::StopToken& stop_token
+        spider::core::Scheduler const& scheduler
 ) -> void {
     int fail_count = 0;
-    while (!stop_token.is_stop_requested()) {
+    while (!spider::core::StopToken::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -115,7 +114,7 @@ auto heartbeat_loop(
             fail_count = 0;
         }
         if (fail_count >= cRetryCount - 1) {
-            stop_token.request_stop();
+            spider::core::StopToken::request_stop();
             break;
         }
     }
@@ -123,10 +122,9 @@ auto heartbeat_loop(
 
 auto cleanup_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
-        std::shared_ptr<spider::core::DataStorage> const& data_store,
-        spider::core::StopToken const& stop_token
+        std::shared_ptr<spider::core::DataStorage> const& data_store
 ) -> void {
-    while (!stop_token.is_stop_requested()) {
+    while (!spider::core::StopToken::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
         spdlog::debug("Starting cleanup");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -249,14 +247,7 @@ auto main(int argc, char** argv) -> int {
                     data_store,
                     conn
             );
-    spider::scheduler::SchedulerServer server{
-            port,
-            policy,
-            metadata_store,
-            data_store,
-            conn,
-            spider::core::StopToken::get_instance()
-    };
+    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, conn};
 
     try {
         // Start a thread that periodically updates the scheduler's heartbeat
@@ -264,17 +255,11 @@ auto main(int argc, char** argv) -> int {
                 heartbeat_loop,
                 std::cref(storage_factory),
                 std::cref(metadata_store),
-                std::ref(scheduler),
-                std::ref(spider::core::StopToken::get_instance()),
+                std::ref(scheduler)
         };
 
         // Start a thread that periodically starts cleanup
-        std::thread cleanup_thread{
-                cleanup_loop,
-                std::cref(storage_factory),
-                std::cref(data_store),
-                std::ref(spider::core::StopToken::get_instance())
-        };
+        std::thread cleanup_thread{cleanup_loop, std::cref(storage_factory), std::cref(data_store)};
 
         heartbeat_thread.join();
         cleanup_thread.join();
@@ -285,7 +270,7 @@ auto main(int argc, char** argv) -> int {
 
     // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
     // handled.
-    if (spider::core::StopToken::get_instance().is_stop_requested()) {
+    if (spider::core::StopToken::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
 

@@ -68,10 +68,10 @@ namespace {
  */
 auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
-        spider::core::StopToken::get_instance().request_stop();
+        spider::core::StopToken::request_stop();
         // Send SIGTERM to task executor
         // NOLINTNEXTLINE(misc-include-cleaner)
-        pid_t const pid = spider::core::ChildPid::get_instance().get_pid();
+        pid_t const pid = spider::core::ChildPid::get_pid();
         if (pid > 0) {
             // NOLINTNEXTLINE(misc-include-cleaner)
             kill(pid, SIGTERM);
@@ -128,11 +128,10 @@ auto get_environment_variable() -> absl::flat_hash_map<
 auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::Driver const& driver,
-        spider::core::StopToken& stop_token
+        spider::core::Driver const& driver
 ) -> void {
     int fail_count = 0;
-    while (!stop_token.is_stop_requested()) {
+    while (!spider::core::StopToken::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -158,7 +157,7 @@ auto heartbeat_loop(
             fail_count = 0;
         }
         if (fail_count >= cRetryCount - 1) {
-            stop_token.request_stop();
+            spider::core::StopToken::request_stop();
             break;
         }
     }
@@ -166,13 +165,11 @@ auto heartbeat_loop(
 
 constexpr int cFetchTaskTimeout = 100;
 
-auto fetch_task(
-        spider::core::StopToken const& stop_token,
-        spider::worker::WorkerClient& client,
-        std::optional<boost::uuids::uuid> fail_task_id
-) -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
+auto
+fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uuid> fail_task_id)
+        -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     spdlog::debug("Fetching task");
-    while (!stop_token.is_stop_requested()) {
+    while (!spider::core::StopToken::is_stop_requested()) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
         if (optional_task_ids.has_value()) {
@@ -356,14 +353,13 @@ auto task_loop(
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
-                boost::process::v2::environment::value> const& environment,
-        spider::core::StopToken const& stop_token
+                boost::process::v2::environment::value> const& environment
 ) -> void {
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
-    while (!stop_token.is_stop_requested()) {
+    while (!spider::core::StopToken::is_stop_requested()) {
         boost::asio::io_context context;
 
-        auto const& optional_task = fetch_task(stop_token, client, fail_task_id);
+        auto const& optional_task = fetch_task(client, fail_task_id);
         if (false == optional_task.has_value()) {
             continue;
         }
@@ -394,9 +390,9 @@ auto task_loop(
         };
 
         pid_t const pid = executor.get_pid();
-        spider::core::ChildPid::get_instance().set_pid(pid);
+        spider::core::ChildPid::set_pid(pid);
         // Double check if stop token is set to avoid any missing signal
-        if (stop_token.is_stop_requested()) {
+        if (spider::core::StopToken::is_stop_requested()) {
             // NOLINTNEXTLINE(misc-include-cleaner)
             kill(pid, SIGTERM);
         }
@@ -404,7 +400,7 @@ auto task_loop(
         context.run();
         executor.wait();
 
-        spider::core::ChildPid::get_instance().set_pid(0);
+        spider::core::ChildPid::set_pid(0);
 
         if (handle_executor_result(storage_factory, metadata_store, instance, task, executor)) {
             fail_task_id = std::nullopt;
@@ -517,7 +513,6 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
-            std::ref(spider::core::StopToken::get_instance()),
     };
 
     // Start a thread that processes tasks
@@ -529,7 +524,6 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
-            std::cref(spider::core::StopToken::get_instance()),
     };
 
     heartbeat_thread.join();
@@ -537,7 +531,7 @@ auto main(int argc, char** argv) -> int {
 
     // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
     // handled.
-    if (spider::core::StopToken::get_instance().is_stop_requested()) {
+    if (spider::core::StopToken::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
 
