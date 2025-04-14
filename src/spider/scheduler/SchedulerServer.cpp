@@ -29,8 +29,7 @@ SchedulerServer::SchedulerServer(
         std::shared_ptr<SchedulerPolicy> policy,
         std::shared_ptr<core::MetadataStorage> metadata_store,
         std::shared_ptr<core::DataStorage> data_store,
-        std::shared_ptr<core::StorageConnection> conn,
-        core::StopToken& stop_token
+        std::shared_ptr<core::StorageConnection> conn
 )
         : m_port{port},
           m_policy{std::move(policy)},
