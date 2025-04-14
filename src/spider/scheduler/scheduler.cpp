@@ -247,8 +247,14 @@ auto main(int argc, char** argv) -> int {
                     data_store,
                     conn
             );
-    spider::scheduler::SchedulerServer
-            server{port, policy, metadata_store, data_store, conn, spider::core::StopToken::get_instance()};
+    spider::scheduler::SchedulerServer server{
+            port,
+            policy,
+            metadata_store,
+            data_store,
+            conn,
+            spider::core::StopToken::get_instance()
+    };
 
     try {
         // Start a thread that periodically updates the scheduler's heartbeat
