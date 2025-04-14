@@ -40,6 +40,8 @@ private:
     StopToken() = default;
 
     std::atomic_flag m_stop;
+
+    static StopToken m_instance;
 };
 }  // namespace spider::core
 
