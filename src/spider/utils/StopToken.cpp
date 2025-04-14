@@ -2,7 +2,8 @@
 
 namespace spider::core {
 auto StopToken::get_instance() -> StopToken& {
-    return m_instance;
+    static StopToken instance;
+    return instance;
 }
 
 auto StopToken::request_stop() -> void {

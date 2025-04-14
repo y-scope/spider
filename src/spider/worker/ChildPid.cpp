@@ -6,7 +6,8 @@
 
 namespace spider::core {
 auto ChildPid::get_instance() -> ChildPid& {
-    return m_instance;
+    static ChildPid instance;
+    return instance;
 }
 
 auto ChildPid::get_pid() const -> std::sig_atomic_t {
