@@ -10,6 +10,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -25,6 +26,7 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
 #include "../storage/DataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "TaskExecutorMessage.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
@@ -85,9 +87,8 @@ enum class FunctionInvokeError : std::uint8_t {
 MSGPACK_ADD_ENUM(spider::core::FunctionInvokeError);
 
 namespace spider::core {
-
-auto response_get_error(msgpack::sbuffer const& buffer
-) -> std::optional<std::tuple<FunctionInvokeError, std::string>>;
+auto response_get_error(msgpack::sbuffer const& buffer)
+        -> std::optional<std::tuple<FunctionInvokeError, std::string>>;
 
 auto create_error_response(FunctionInvokeError error, std::string const& message)
         -> msgpack::sbuffer;
@@ -160,8 +161,8 @@ auto response_get_result(msgpack::sbuffer const& buffer) -> std::optional<std::t
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-auto response_get_result_buffers(msgpack::sbuffer const& buffer
-) -> std::optional<std::vector<msgpack::sbuffer>>;
+auto response_get_result_buffers(msgpack::sbuffer const& buffer)
+        -> std::optional<std::vector<msgpack::sbuffer>>;
 
 template <TaskIo T>
 auto create_result_response(T const& t) -> msgpack::sbuffer {
@@ -216,8 +217,8 @@ auto create_args_request(Args&&... args) -> msgpack::sbuffer {
     return buffer;
 }
 
-inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers
-) -> msgpack::sbuffer {
+inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffers)
+        -> msgpack::sbuffer {
     msgpack::sbuffer buffer;
     msgpack::packer packer{buffer};
     packer.pack_array(2);
@@ -234,8 +235,8 @@ inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffer
 template <class F>
 class FunctionInvoker {
 public:
-    static auto
-    apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer) -> ResultBuffer {
+    static auto apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer)
+            -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
@@ -281,6 +282,16 @@ public:
             // Fill args_tuple
             StorageErr err;
             std::get<0>(args_tuple) = context;
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = TaskContextImpl::get_storage_factory(context)->provide_storage_connection();
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                err = std::get<core::StorageErr>(conn_result);
+                return create_error_response(
+                        FunctionInvokeError::ArgumentParsingError,
+                        fmt::format("Cannot parse arguments: {}.", err.description)
+                );
+            }
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
             for_n<std::tuple_size_v<ArgsTuple> - 1>([&](auto i) {
                 if (!err.success()) {
                     return;
@@ -290,13 +301,17 @@ public:
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
                     std::unique_ptr<Data> data = std::make_unique<Data>();
-                    err = data_store->get_data(data_id, data.get());
+                    err = data_store->get_data(*conn, data_id, data.get());
                     if (!err.success()) {
                         return;
                     }
 
-                    std::get<i.cValue + 1>(args_tuple
-                    ) = DataImpl::create_data<TemplateParameterT<T>>(std::move(data), data_store);
+                    std::get<i.cValue + 1>(args_tuple)
+                            = DataImpl::create_data<TemplateParameterT<T>>(
+                                    std::move(data),
+                                    data_store,
+                                    TaskContextImpl::get_storage_factory(context)
+                            );
                 } else {
                     std::get<i.cValue + 1>(args_tuple)
                             = arg.as<std::tuple_element_t<i.cValue + 1, ArgsTuple>>();

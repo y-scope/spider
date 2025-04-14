@@ -10,6 +10,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -20,7 +21,10 @@
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "Data.hpp"
+#include "Exception.hpp"
 #include "task.hpp"
 #include "type_utils.hpp"
 
@@ -60,22 +64,16 @@ public:
      * @throw spider::ConnectionException
      */
     auto wait_complete() -> void {
-        bool complete = false;
-        core::StorageErr err = m_metadata_storage->get_job_complete(m_id, &complete);
-        if (!err.success()) {
-            throw ConnectionException{
-                    fmt::format("Failed to get job completion status: {}", err.description)
-            };
-        }
-        while (!complete) {
-            constexpr int cSleepMs = 10;
-            std::this_thread::sleep_for(std::chrono::milliseconds(cSleepMs));
-            err = m_metadata_storage->get_job_complete(m_id, &complete);
-            if (!err.success()) {
-                throw ConnectionException{
-                        fmt::format("Failed to get job completion status: {}", err.description)
-                };
+        if (nullptr == m_conn) {
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
             }
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+            wait_complete_conn(*conn);
+        } else {
+            wait_complete_conn(*m_conn);
         }
     }
 
@@ -92,7 +90,20 @@ public:
      */
     auto get_status() -> JobStatus {
         core::JobStatus status = core::JobStatus::Running;
-        core::StorageErr const err = m_metadata_storage->get_job_status(m_id, &status);
+        core::StorageErr err;
+
+        if (nullptr == m_conn) {
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+            err = m_metadata_storage->get_job_status(*conn, m_id, &status);
+        } else {
+            err = m_metadata_storage->get_job_status(*m_conn, m_id, &status);
+        }
         if (!err.success()) {
             throw ConnectionException{fmt::format("Failed to get job status: {}", err.description)};
         }
@@ -111,7 +122,6 @@ public:
         };
     }
 
-    // NOLINTBEGIN(readability-function-cognitive-complexity)
     /**
      * NOTE: It is undefined behavior to call this method for a job that is not in the `Succeeded`
      * state.
@@ -120,8 +130,78 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_result() -> ReturnType {
+        if (nullptr == m_conn) {
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+            return get_result_conn(*conn);
+        }
+        return get_result_conn(*m_conn);
+    }
+
+    /**
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
+     * state.
+     *
+     * @return A pair:
+     * - the name of the task function that failed.
+     * - the error message sent from the task through `TaskContext::abort` or from Spider.
+     * @throw spider::ConnectionException
+     */
+    auto get_error() -> std::pair<std::string, std::string> {
+        throw ConnectionException{"Not implemented"};
+    }
+
+private:
+    Job(boost::uuids::uuid id,
+        std::shared_ptr<core::MetadataStorage> metadata_storage,
+        std::shared_ptr<core::DataStorage> data_storage,
+        std::shared_ptr<core::StorageFactory> storage_factory)
+            : m_id{id},
+              m_metadata_storage{std::move(metadata_storage)},
+              m_data_storage{std::move(data_storage)},
+              m_storage_factory{std::move(storage_factory)} {}
+
+    Job(boost::uuids::uuid id,
+        std::shared_ptr<core::MetadataStorage> metadata_storage,
+        std::shared_ptr<core::DataStorage> data_storage,
+        std::shared_ptr<core::StorageFactory> storage_factory,
+        std::shared_ptr<core::StorageConnection> conn)
+            : m_id{id},
+              m_metadata_storage{std::move(metadata_storage)},
+              m_data_storage{std::move(data_storage)},
+              m_storage_factory{std::move(storage_factory)},
+              m_conn{std::move(conn)} {}
+
+    auto wait_complete_conn(core::StorageConnection& conn) -> void {
+        bool complete = false;
+        core::StorageErr err = m_metadata_storage->get_job_complete(conn, m_id, &complete);
+        if (!err.success()) {
+            throw ConnectionException{
+                    fmt::format("Failed to get job completion status: {}", err.description)
+            };
+        }
+        while (!complete) {
+            constexpr int cSleepMs = 10;
+            std::this_thread::sleep_for(std::chrono::milliseconds(cSleepMs));
+            err = m_metadata_storage->get_job_complete(conn, m_id, &complete);
+            if (!err.success()) {
+                throw ConnectionException{
+                        fmt::format("Failed to get job completion status: {}", err.description)
+                };
+            }
+        }
+    }
+
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
+    auto get_result_conn(core::StorageConnection& conn) -> ReturnType {
         std::vector<boost::uuids::uuid> output_task_ids;
-        core::StorageErr err = m_metadata_storage->get_job_output_tasks(m_id, &output_task_ids);
+        core::StorageErr err
+                = m_metadata_storage->get_job_output_tasks(conn, m_id, &output_task_ids);
         if (!err.success()) {
             throw ConnectionException{
                     fmt::format("Failed to get job output tasks: {}", err.description)
@@ -130,7 +210,7 @@ public:
         std::vector<core::Task> tasks;
         for (auto const& id : output_task_ids) {
             core::Task task{""};
-            err = m_metadata_storage->get_task(id, &task);
+            err = m_metadata_storage->get_task(conn, id, &task);
             if (!err.success()) {
                 throw ConnectionException{fmt::format("Failed to get task: {}", err.description)};
             }
@@ -143,7 +223,8 @@ public:
             for_n<std::tuple_size_v<ReturnType>>([&](auto i) {
                 using T = std::tuple_element_t<i.cValue, ReturnType>;
                 if (task_index >= output_task_ids.size()) {
-                    throw ConnectionException{fmt::format("Not enough output tasks for job result")
+                    throw ConnectionException{
+                            fmt::format("Not enough output tasks for job result")
                     };
                 }
                 core::Task const& task = tasks[task_index];
@@ -161,7 +242,7 @@ public:
                     if (!optional_data_id.has_value()) {
                         throw ConnectionException{fmt::format("Output data ID is missing")};
                     }
-                    err = m_data_storage->get_data(optional_data_id.value(), &data);
+                    err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
                     if (!err.success()) {
                         throw ConnectionException{
                                 fmt::format("Failed to get data: {}", err.description)
@@ -186,7 +267,8 @@ public:
                         msgpack::object const& obj = handle.get();
                         std::get<i.cValue>(result) = obj.as<T>();
                     } catch (msgpack::type_error const& e) {
-                        throw ConnectionException{fmt::format("Failed to unpack data: {}", e.what())
+                        throw ConnectionException{
+                                fmt::format("Failed to unpack data: {}", e.what())
                         };
                     }
                 }
@@ -202,7 +284,7 @@ public:
                 throw ConnectionException{fmt::format("Expected one output task for job result")};
             }
             core::Task task{""};
-            err = m_metadata_storage->get_task(output_task_ids[0], &task);
+            err = m_metadata_storage->get_task(conn, output_task_ids[0], &task);
             if (!err.success()) {
                 throw ConnectionException{fmt::format("Failed to get task: {}", err.description)};
             }
@@ -220,14 +302,16 @@ public:
                 if (!optional_data_id.has_value()) {
                     throw ConnectionException{fmt::format("Output data ID is missing")};
                 }
-                err = m_data_storage->get_data(optional_data_id.value(), &data);
+                err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
                 if (!err.success()) {
-                    throw ConnectionException{fmt::format("Failed to get data: {}", err.description)
+                    throw ConnectionException{
+                            fmt::format("Failed to get data: {}", err.description)
                     };
                 }
                 return core::DataImpl::create_data<DataType>(
                         std::make_unique<core::Data>(std::move(data)),
-                        m_data_storage
+                        m_data_storage,
+                        m_storage_factory
                 );
             } else {
                 if (output.get_type() != typeid(ReturnType).name()) {
@@ -252,30 +336,11 @@ public:
 
     // NOLINTEND(readability-function-cognitive-complexity)
 
-    /**
-     * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
-     * state.
-     *
-     * @return A pair:
-     * - the name of the task function that failed.
-     * - the error message sent from the task through `TaskContext::abort` or from Spider.
-     * @throw spider::ConnectionException
-     */
-    auto get_error() -> std::pair<std::string, std::string> {
-        throw ConnectionException{"Not implemented"};
-    }
-
-private:
-    Job(boost::uuids::uuid id,
-        std::shared_ptr<core::MetadataStorage> metadata_storage,
-        std::shared_ptr<core::DataStorage> data_storage)
-            : m_id{id},
-              m_metadata_storage{std::move(metadata_storage)},
-              m_data_storage{std::move(data_storage)} {}
-
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
+    std::shared_ptr<core::StorageFactory> m_storage_factory;
+    std::shared_ptr<core::StorageConnection> m_conn;
 
     friend class Driver;
     friend class TaskContext;

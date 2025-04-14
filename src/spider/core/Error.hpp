@@ -13,6 +13,7 @@ enum class StorageErrType : std::uint8_t {
     KeyNotFoundErr,
     DuplicateKeyErr,
     ConstraintViolationErr,
+    DeadLockErr,
     OtherErr
 };
 
@@ -28,7 +29,6 @@ struct StorageErr {
 
     [[nodiscard]] auto success() const -> bool { return StorageErrType::Success == type; }
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_ERROR_HPP

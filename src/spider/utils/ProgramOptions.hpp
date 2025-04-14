@@ -4,7 +4,6 @@
 #include <string_view>
 
 namespace spider::core {
-
 constexpr std::string_view cSchedulerUsage
         = {"Usage: spider_scheduler --host <host> --port <port> --storage-url <url>"};
 
@@ -58,7 +57,6 @@ constexpr std::string_view cFunctionMessage = {"The function to execute"};
 constexpr std::string_view cTaskIdOption = {"task-id"};
 
 constexpr std::string_view cTaskIdMessage = {"The id of the task to execute"};
-
 }  // namespace spider::core
 
 #endif

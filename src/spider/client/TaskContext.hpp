@@ -8,6 +8,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -18,6 +19,8 @@
 #include "../core/TaskGraph.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
+#include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "Data.hpp"
 #include "Exception.hpp"
 #include "Job.hpp"
@@ -57,7 +60,12 @@ public:
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
-        return DataBuilder{m_data_store, m_task_id, DataBuilder::DataSource::TaskContext};
+        return DataBuilder{
+                m_data_store,
+                m_task_id,
+                DataBuilder::DataSource::TaskContext,
+                m_storage_factory
+        };
     }
 
     /**
@@ -121,8 +129,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -151,12 +159,20 @@ public:
         graph.add_task(new_task);
         graph.add_input_task(new_task.get_id());
         graph.add_output_task(new_task.get_id());
-        core::StorageErr err = m_metadata_store->add_job(job_id, m_task_id, graph);
+
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+        core::StorageErr err = m_metadata_store->add_job(*conn, job_id, m_task_id, graph);
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_store, m_data_store};
+        return Job<ReturnType>{job_id, m_metadata_store, m_data_store, m_storage_factory};
     }
 
     /**
@@ -171,8 +187,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -194,13 +210,21 @@ public:
         graph.m_impl->reset_ids();
         boost::uuids::random_generator gen;
         boost::uuids::uuid const job_id = gen();
+
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
         core::StorageErr const err
-                = m_metadata_store->add_job(job_id, m_task_id, graph.m_impl->get_graph());
+                = m_metadata_store->add_job(*conn, job_id, m_task_id, graph.m_impl->get_graph());
         if (!err.success()) {
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_store, m_data_store};
+        return Job<ReturnType>{job_id, m_metadata_store, m_data_store, m_storage_factory};
     }
 
     /**
@@ -217,11 +241,13 @@ private:
     TaskContext(
             boost::uuids::uuid const task_id,
             std::shared_ptr<core::DataStorage> data_store,
-            std::shared_ptr<core::MetadataStorage> metadata_store
+            std::shared_ptr<core::MetadataStorage> metadata_store,
+            std::shared_ptr<core::StorageFactory> storage_factory
     )
             : m_task_id{task_id},
               m_data_store{std::move(data_store)},
-              m_metadata_store{std::move(metadata_store)} {}
+              m_metadata_store{std::move(metadata_store)},
+              m_storage_factory{std::move(storage_factory)} {}
 
     auto get_data_store() -> std::shared_ptr<core::DataStorage> { return m_data_store; }
 
@@ -231,6 +257,7 @@ private:
 
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
+    std::shared_ptr<core::StorageFactory> m_storage_factory;
 
     friend class core::TaskContextImpl;
 };

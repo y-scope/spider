@@ -6,7 +6,6 @@
 #include <tuple>
 #include <vector>
 
-#include <boost/process/v2/process.hpp>
 #include <fmt/format.h>
 
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -16,7 +15,6 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace spider::worker {
-
 auto TaskExecutor::completed() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Succeed == m_state || TaskExecutorState::Error == m_state
@@ -130,9 +128,11 @@ auto TaskExecutor::get_result_buffers() const -> std::optional<std::vector<msgpa
 
 auto TaskExecutor::get_error() const -> std::tuple<core::FunctionInvokeError, std::string> {
     return core::response_get_error(m_result_buffer)
-            .value_or(std::make_tuple(
-                    core::FunctionInvokeError::ResultParsingError,
-                    "Fail to parse error message"
-            ));
+            .value_or(
+                    std::make_tuple(
+                            core::FunctionInvokeError::ResultParsingError,
+                            "Fail to parse error message"
+                    )
+            );
 }
 }  // namespace spider::worker

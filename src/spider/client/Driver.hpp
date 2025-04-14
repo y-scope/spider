@@ -17,6 +17,9 @@
 #include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
+#include "../storage/JobSubmissionBatch.hpp"
+#include "../storage/StorageConnection.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "../worker/FunctionManager.hpp"
 #include "../worker/FunctionNameManager.hpp"
 #include "Data.hpp"
@@ -79,7 +82,13 @@ public:
     template <Serializable T>
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
-        return DataBuilder{m_data_storage, m_id, DataBuilder::DataSource::Driver};
+        return DataBuilder{
+                m_data_storage,
+                m_id,
+                DataBuilder::DataSource::Driver,
+                m_storage_factory,
+                m_conn
+        };
     }
 
     /**
@@ -132,6 +141,37 @@ public:
     }
 
     /**
+     * Begins a batch of `start` calls. This allows the driver to submit multiple jobs in a single
+     * batch, which can be more efficient than submitting jobs individually.
+     *
+     * Needs to be paired with `end_batch_start`.
+     *
+     * If a batch has already been started, this method is a no-op.
+     */
+    auto begin_batch_start() -> void {
+        if (nullptr != m_batch) {
+            return;
+        }
+        m_batch = m_storage_factory->provide_job_submission_batch(*m_conn);
+    }
+
+    /**
+     * Ends a batch of `start` calls. This submits all jobs in the batch to Spider.
+     *
+     * @throw spider::ConnectionException
+     */
+    auto end_batch_start() -> void {
+        if (nullptr == m_batch) {
+            return;
+        }
+        core::StorageErr const err = m_batch->submit_batch(*m_conn);
+        m_batch = nullptr;
+        if (!err.success()) {
+            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        }
+    }
+
+    /**
      * Starts running a task with the given inputs on Spider.
      *
      * @tparam ReturnType
@@ -143,8 +183,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskFunction<ReturnType, Params...> const& task, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -173,12 +213,26 @@ public:
         graph.add_task(new_task);
         graph.add_input_task(new_task.get_id());
         graph.add_output_task(new_task.get_id());
-        core::StorageErr err = m_metadata_storage->add_job(job_id, m_id, graph);
-        if (!err.success()) {
-            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        if (nullptr != m_batch) {
+            core::StorageErr const err
+                    = m_metadata_storage->add_job_batch(*m_conn, *m_batch, job_id, m_id, graph);
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
+        } else {
+            core::StorageErr const err = m_metadata_storage->add_job(*m_conn, job_id, m_id, graph);
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
         }
 
-        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+        return Job<ReturnType>{
+                job_id,
+                m_metadata_storage,
+                m_data_storage,
+                m_storage_factory,
+                m_conn
+        };
     }
 
     /**
@@ -193,8 +247,8 @@ public:
      * @throw spider::ConnectionException
      */
     template <TaskIo ReturnType, TaskIo... Params, TaskIo... Inputs>
-    auto
-    start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs) -> Job<ReturnType> {
+    auto start(TaskGraph<ReturnType, Params...> const& graph, Inputs&&... inputs)
+            -> Job<ReturnType> {
         // Check input type
         static_assert(
                 sizeof...(Inputs) == sizeof...(Params),
@@ -216,13 +270,32 @@ public:
         graph.m_impl->reset_ids();
         boost::uuids::random_generator gen;
         boost::uuids::uuid const job_id = gen();
-        core::StorageErr const err
-                = m_metadata_storage->add_job(job_id, m_id, graph.m_impl->get_graph());
-        if (!err.success()) {
-            throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+        if (nullptr != m_batch) {
+            core::StorageErr const err = m_metadata_storage->add_job_batch(
+                    *m_conn,
+                    *m_batch,
+                    job_id,
+                    m_id,
+                    graph.m_impl->get_graph()
+            );
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
+        } else {
+            core::StorageErr const err
+                    = m_metadata_storage->add_job(*m_conn, job_id, m_id, graph.m_impl->get_graph());
+            if (!err.success()) {
+                throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
+            }
         }
 
-        return Job<ReturnType>{job_id, m_metadata_storage, m_data_storage};
+        return Job<ReturnType>{
+                job_id,
+                m_metadata_storage,
+                m_data_storage,
+                m_storage_factory,
+                m_conn
+        };
     }
 
     /**
@@ -235,7 +308,8 @@ public:
      */
     auto get_jobs() -> std::vector<boost::uuids::uuid> {
         std::vector<boost::uuids::uuid> job_ids;
-        core::StorageErr const err = m_metadata_storage->get_jobs_by_client_id(m_id, &job_ids);
+        core::StorageErr const err
+                = m_metadata_storage->get_jobs_by_client_id(*m_conn, m_id, &job_ids);
         if (!err.success()) {
             throw ConnectionException("Failed to get jobs.");
         }
@@ -246,6 +320,9 @@ private:
     boost::uuids::uuid m_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
+    std::shared_ptr<core::StorageFactory> m_storage_factory;
+    std::shared_ptr<core::StorageConnection> m_conn;
+    std::shared_ptr<core::JobSubmissionBatch> m_batch{nullptr};
     std::jthread m_heartbeat_thread;
 };
 }  // namespace spider

@@ -18,7 +18,6 @@
 #include "MsgPack.hpp"  // IWYU pragma: keep
 
 namespace {
-
 /**
  * Read the type of ext msgpack message.
  *
@@ -70,11 +69,9 @@ auto read_ext_body_size(std::u8string_view const body_size) -> std::optional<siz
             return std::nullopt;
     }
 }
-
 }  // namespace
 
 namespace spider::core {
-
 auto send_message(boost::asio::ip::tcp::socket& socket, msgpack::sbuffer const& buffer) -> bool {
     msgpack::sbuffer message_buffer;
     msgpack::packer packer{message_buffer};
@@ -136,12 +133,13 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
                 return std::nullopt;
             }
             msgpack::sbuffer buffer;
+            // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
             buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
             return buffer;
         }
-        std::optional<size_t> const optional_body_size
-                = read_ext_body_size(std::u8string_view{body_size_vec.data(), body_size_vec.size()}
-                );
+        std::optional<size_t> const optional_body_size = read_ext_body_size(
+                std::u8string_view{body_size_vec.data(), body_size_vec.size()}
+        );
         if (false == optional_body_size.has_value()) {
             return std::nullopt;
         }
@@ -155,6 +153,7 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
             return std::nullopt;
         }
         msgpack::sbuffer buffer;
+        // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
         buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
         return buffer;
     } catch (boost::system::system_error& e) {
@@ -165,8 +164,8 @@ auto receive_message(boost::asio::ip::tcp::socket& socket) -> std::optional<msgp
     }
 }
 
-auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> socket
-) -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
+auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> socket)
+        -> boost::asio::awaitable<std::optional<msgpack::sbuffer>> {
     // Read header
     char8_t header = 0;
     // Suppress clang-tidy warning inside boost asio
@@ -221,6 +220,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             co_return std::nullopt;
         }
         msgpack::sbuffer buffer;
+        // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
         buffer.write(std::bit_cast<char*>(&body_size_vec[1]), body_size_vec.size() - 1);
         co_return buffer;
     }
@@ -239,7 +239,7 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
             boost::asio::as_tuple(boost::asio::use_awaitable)
     );
     if (body_ec) {
-        if (boost::asio::error::eof != body_size_ec) {
+        if (boost::asio::error::eof != body_ec) {
             spdlog::error(
                     "Cannot read message body size or body from socket {}: {}",
                     body_ec.value(),
@@ -257,8 +257,8 @@ auto receive_message_async(std::reference_wrapper<boost::asio::ip::tcp::socket> 
         co_return std::nullopt;
     }
     msgpack::sbuffer buffer;
+    // NOLINTNEXTLINE(bugprone-bitwise-pointer-cast)
     buffer.write(std::bit_cast<char*>(&body_vec[1]), body_vec.size() - 1);
     co_return buffer;
 }
-
 }  // namespace spider::core

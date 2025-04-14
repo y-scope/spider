@@ -3,7 +3,6 @@
 
 #include <optional>
 #include <string>
-#include <tuple>
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>
@@ -12,7 +11,6 @@
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 
 namespace spider::scheduler {
-
 class ScheduleTaskRequest {
 public:
     /**
@@ -55,30 +53,20 @@ class ScheduleTaskResponse {
 public:
     ScheduleTaskResponse() = default;
 
-    ScheduleTaskResponse(
-            boost::uuids::uuid const task_id,
-            boost::uuids::uuid const task_instance_id
-    )
-            : m_task_ids{std::make_tuple(task_id, task_instance_id)} {}
+    explicit ScheduleTaskResponse(boost::uuids::uuid const task_id) : m_task_id{task_id} {}
 
-    explicit ScheduleTaskResponse(std::tuple<boost::uuids::uuid, boost::uuids::uuid> const& task_ids
-    )
-            : m_task_ids{task_ids} {}
+    [[nodiscard]] auto has_task_id() const -> bool { return m_task_id.has_value(); }
 
-    [[nodiscard]] auto has_task_id() const -> bool { return m_task_ids.has_value(); }
-
-    [[nodiscard]] auto get_task_ids(
-    ) const -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> const& {
+    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid const& {
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-        return m_task_ids.value();
+        return m_task_id.value();
     }
 
-    MSGPACK_DEFINE_ARRAY(m_task_ids);
+    MSGPACK_DEFINE_ARRAY(m_task_id);
 
 private:
-    std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> m_task_ids = std::nullopt;
+    std::optional<boost::uuids::uuid> m_task_id = std::nullopt;
 };
-
 }  // namespace spider::scheduler
 
 #endif  // SPIDER_SCHEDULER_SCHEDULERMESSAGE_HPP

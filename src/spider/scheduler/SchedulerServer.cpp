@@ -12,30 +12,31 @@
 #include <spdlog/spdlog.h>
 
 #include "../core/Error.hpp"
-#include "../core/Task.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/msgpack_message.hpp"
 #include "../io/Serializer.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "../utils/StopToken.hpp"
 #include "SchedulerMessage.hpp"
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
-
 SchedulerServer::SchedulerServer(
         unsigned short const port,
         std::shared_ptr<SchedulerPolicy> policy,
         std::shared_ptr<core::MetadataStorage> metadata_store,
         std::shared_ptr<core::DataStorage> data_store,
+        std::shared_ptr<core::StorageConnection> conn,
         core::StopToken& stop_token
 )
         : m_port{port},
           m_policy{std::move(policy)},
           m_metadata_store{std::move(metadata_store)},
           m_data_store{std::move(data_store)},
+          m_conn{std::move(conn)},
           m_stop_token{stop_token} {
     boost::asio::co_spawn(m_context, receive_message(), boost::asio::detached);
     std::lock_guard const lock{m_mutex};
@@ -113,8 +114,8 @@ auto deserialize_message(msgpack::sbuffer const& buffer) -> std::optional<Schedu
 }
 }  // namespace
 
-auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
-) -> boost::asio::awaitable<void> {
+auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket)
+        -> boost::asio::awaitable<void> {
     // NOLINTBEGIN(clang-analyzer-core.CallAndMessage)
     std::optional<msgpack::sbuffer> const& optional_message_buffer
             = co_await core::receive_message_async(socket);
@@ -136,7 +137,8 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
     // Reset the whole job if the task fails
     if (request.has_task_id()) {
         boost::uuids::uuid job_id;
-        core::StorageErr err = m_metadata_store->get_task_job_id(request.get_task_id(), &job_id);
+        core::StorageErr err
+                = m_metadata_store->get_task_job_id(*m_conn, request.get_task_id(), &job_id);
         // It is possible the job is deleted, so we don't need to reset it
         if (!err.success()) {
             spdlog::error(
@@ -144,7 +146,7 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
                     boost::uuids::to_string(request.get_task_id())
             );
         } else {
-            err = m_metadata_store->reset_job(job_id);
+            err = m_metadata_store->reset_job(*m_conn, job_id);
             if (!err.success()) {
                 spdlog::error("Cannot reset job {}", boost::uuids::to_string(job_id));
                 co_return;
@@ -156,17 +158,7 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
             = m_policy->schedule_next(request.get_worker_id(), request.get_worker_addr());
     ScheduleTaskResponse response{};
     if (task_id.has_value()) {
-        core::TaskInstance const instance{task_id.value()};
-        core::StorageErr const err = m_metadata_store->create_task_instance(instance);
-        if (err.success()) {
-            response = ScheduleTaskResponse{task_id.value(), instance.id};
-        } else {
-            spdlog::error(
-                    "Cannot create task instance {}: {}",
-                    boost::uuids::to_string(task_id.value()),
-                    err.description
-            );
-        }
+        response = ScheduleTaskResponse{task_id.value()};
     }
     msgpack::sbuffer response_buffer;
     msgpack::pack(response_buffer, response);
@@ -181,5 +173,4 @@ auto SchedulerServer::process_message(boost::asio::ip::tcp::socket socket
     }
     co_return;
 }
-
 }  // namespace spider::scheduler

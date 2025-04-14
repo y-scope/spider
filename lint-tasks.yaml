@@ -32,7 +32,7 @@ tasks:
         vars:
           FLAGS: "--in-place"
 
-  cpp-configs: "tools/yscope-dev-utils/lint-configs/symlink-cpp-lint-configs.sh"
+  cpp-configs: "tools/yscope-dev-utils/exports/lint-configs/symlink-cpp-lint-configs.sh"
 
   cpp-check:
     cmds:
@@ -45,51 +45,33 @@ tasks:
       - task: "cpp-static-fix"
 
   cpp-format-check:
-    sources: &cpp_format_src_files
-      - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
-      - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
-      - "{{.G_EXAMPLES_DIR}}/**/*.cpp"
-      - "{{.G_EXAMPLES_DIR}}/**/*.h"
-      - "{{.G_EXAMPLES_DIR}}/**/*.hpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
-      - "{{.G_TEST_DIR}}/**/*.cpp"
-      - "{{.G_TEST_DIR}}/**/*.h"
-      - "{{.G_TEST_DIR}}/**/*.hpp"
+    sources: &cpp_source_files
+      - "{{.ROOT_DIR}}/.clang-format"
+      - "{{.ROOT_DIR}}/.clang-tidy"
       - "{{.TASKFILE}}"
-      - "tools/yscope-dev-utils/lint-configs/.clang-format"
+      - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
+      - "{{.G_EXAMPLES_DIR}}/**/*"
+      - "{{.G_SRC_SPIDER_DIR}}/**/*"
+      - "{{.G_TEST_DIR}}/**/*"
     deps: ["cpp-configs", "venv"]
     cmds:
-      - task: "clang-format"
+      - task: ":utils:cpp-lint:clang-format"
         vars:
-          FLAGS: "--dry-run"
-          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "--dry-run"
-          SRC_DIR: "{{.G_TEST_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "--dry-run"
-          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
+          FLAGS: ["--dry-run"]
+          INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
+          ROOT_PATHS: *cpp_source_files
+          VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   cpp-format-fix:
-    sources: *cpp_format_src_files
+    sources: *cpp_source_files
     deps: ["cpp-configs", "venv"]
     cmds:
-      - task: "clang-format"
+      - task: ":utils:cpp-lint:clang-format"
         vars:
-          FLAGS: "-i"
-          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "-i"
-          SRC_DIR: "{{.G_TEST_DIR}}"
-      - task: "clang-format"
-        vars:
-          FLAGS: "-i"
-          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
+          FLAGS: ["-i"]
+          INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
+          ROOT_PATHS: *cpp_source_files
+          VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   cpp-static-check:
     # Alias task to `cpp-static-fix` since we don't currently support automatic fixes.
@@ -97,36 +79,21 @@ tasks:
     # When we eventually determine which errors can be safely fixed, we'll allow clang-tidy to
     # fix them.
     aliases: ["cpp-static-fix"]
-    sources:
-      - "{{.G_LINT_VENV_CHECKSUM_FILE}}"
-      - "{{.G_EXAMPLES_DIR}}/**/*.cpp"
-      - "{{.G_EXAMPLES_DIR}}/**/*.h"
-      - "{{.G_EXAMPLES_DIR}}/**/*.hpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.cpp"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.h"
-      - "{{.G_SRC_SPIDER_DIR}}/**/*.hpp"
-      - "{{.G_TEST_DIR}}/**/*.cpp"
-      - "{{.G_TEST_DIR}}/**/*.h"
-      - "{{.G_TEST_DIR}}/**/*.hpp"
-      - "{{.G_SPIDER_CMAKE_CACHE}}"
-      - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
-      - "{{.TASKFILE}}"
-      - "taskfile.yaml"
-      - "tools/yscope-dev-utils/lint-configs/.clang-tidy"
+    sources: *cpp_source_files
     deps: [":config-cmake-project", "cpp-configs", "venv"]
     cmds:
-      - task: "clang-tidy"
+      - task: ":utils:cpp-lint:clang-tidy-find"
         vars:
-          FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
-          SRC_DIR: "{{.G_SRC_SPIDER_DIR}}"
-      - task: "clang-tidy"
-        vars:
-          FLAGS: "--config-file=.clang-tidy -p {{.G_SPIDER_COMPILE_COMMANDS_DB}}"
-          SRC_DIR: "{{.G_TEST_DIR}}"
-      - task: "clang-tidy"
-        vars:
-          FLAGS: "--config-file=.clang-tidy -p {{.G_EXAMPLES_COMPILE_COMMANDS_DB}}"
-          SRC_DIR: "{{.G_EXAMPLES_DIR}}"
+          FLAGS:
+            - "--config-file '{{.ROOT_DIR}}/.clang-tidy'"
+            - "-p '{{.G_SPIDER_COMPILE_COMMANDS_DB}}'"
+          INCLUDE_PATTERNS:
+            - "{{.G_EXAMPLES_DIR}}/**"
+            - "{{.G_SRC_SPIDER_DIR}}/**"
+            - "{{.G_TEST_DIR}}/**"
+          OUTPUT_DIR: "{{.G_LINT_CLANG_TIDY_DIR}}"
+          ROOT_PATHS: *cpp_source_files
+          VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   py-check:
     cmds:
@@ -165,7 +132,7 @@ tasks:
       - |-
         . "{{.G_LINT_VENV_DIR}}/bin/activate"
         yamllint \
-          --config-file "tools/yscope-dev-utils/lint-configs/.yamllint.yml" \
+          --config-file "tools/yscope-dev-utils/exports/lint-configs/.yamllint.yml" \
           --strict \
           .gersemirc \
           .github/ \
@@ -175,18 +142,6 @@ tasks:
           lint-tasks.yaml \
           taskfile.yaml \
           test-tasks.yaml
-
-  clang-format:
-    internal: true
-    requires:
-      vars: ["FLAGS", "SRC_DIR"]
-    cmd: |-
-      . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find "{{.SRC_DIR}}" \
-        -type f \
-        \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
-        -print0 | \
-          xargs -0 --no-run-if-empty clang-format {{.FLAGS}} -Werror
 
   clang-tidy:
     internal: true
@@ -229,18 +184,18 @@ tasks:
     run: "once"
     deps:
       - ":init"
-      - task: ":utils:validate-checksum"
+      - task: ":utils:checksum:validate"
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
-          DATA_DIR: "{{.OUTPUT_DIR}}"
+          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
     cmds:
-      - task: ":utils:create-venv"
+      - task: ":utils:misc:create-venv"
         vars:
           LABEL: "lint"
           OUTPUT_DIR: "{{.OUTPUT_DIR}}"
-          REQUIREMENTS_FILE: "lint-requirements.txt"
+          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/lint-requirements.txt"
       # This command must be last
-      - task: ":utils:compute-checksum"
+      - task: ":utils:checksum:compute"
         vars:
-          DATA_DIR: "{{.OUTPUT_DIR}}"
-          OUTPUT_FILE: "{{.CHECKSUM_FILE}}"
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]

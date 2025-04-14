@@ -8,6 +8,7 @@ set(SPIDER_TEST_SOURCES
     worker/test-FunctionManager.cpp
     worker/test-MessagePipe.cpp
     worker/test-TaskExecutor.cpp
+    worker/test-Process.cpp
     io/test-MsgpackMessage.cpp
     scheduler/test-SchedulerPolicy.cpp
     scheduler/test-SchedulerServer.cpp

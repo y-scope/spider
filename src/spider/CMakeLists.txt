@@ -1,7 +1,10 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
-    storage/MySqlConnection.cpp
-    storage/MySqlStorage.cpp
+    core/Task.cpp
+    storage/mysql/MySqlConnection.cpp
+    storage/mysql/MySqlStorageFactory.cpp
+    storage/mysql/MySqlJobSubmissionBatch.cpp
+    storage/mysql/MySqlStorage.cpp
     worker/FunctionManager.cpp
     worker/FunctionNameManager.cpp
     io/msgpack_message.cpp
@@ -21,10 +24,17 @@ set(SPIDER_CORE_HEADERS
     io/MsgPack.hpp
     io/msgpack_message.hpp
     io/Serializer.hpp
+    utils/LruCache.hpp
     storage/MetadataStorage.hpp
     storage/DataStorage.hpp
-    storage/MySqlConnection.hpp
-    storage/MySqlStorage.hpp
+    storage/StorageConnection.hpp
+    storage/mysql/mysql_stmt.hpp
+    storage/mysql/MySqlConnection.hpp
+    storage/mysql/MySqlStorageFactory.hpp
+    storage/mysql/MySqlStorage.hpp
+    storage/mysql/MySqlJobSubmissionBatch.hpp
+    storage/JobSubmissionBatch.hpp
+    storage/StorageFactory.hpp
     worker/FunctionManager.hpp
     worker/FunctionNameManager.hpp
     CACHE INTERNAL
@@ -41,12 +51,15 @@ target_link_libraries(
         absl::flat_hash_map
         MariaDBClientCpp::MariaDBClientCpp
         msgpack-cxx
+        spdlog::spdlog
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
     worker/DllLoader.hpp
     worker/DllLoader.cpp
+    worker/Process.hpp
+    worker/Process.cpp
     worker/TaskExecutor.hpp
     worker/TaskExecutor.cpp
     worker/TaskExecutorMessage.hpp
@@ -85,6 +98,8 @@ target_link_libraries(
         Boost::filesystem
         Boost::program_options
         Boost::system
+        ${CMAKE_DL_LIBS}
+        fmt::fmt
         spdlog::spdlog
 )
 
@@ -100,6 +115,8 @@ target_link_libraries(
         Boost::process
         Boost::program_options
         Boost::system
+        ${CMAKE_DL_LIBS}
+        fmt::fmt
         spdlog::spdlog
 )
 add_dependencies(spider_worker spider_task_executor)
@@ -111,11 +128,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
-    scheduler/SchedulerTaskCache.cpp
-    scheduler/SchedulerTaskCache.hpp
     utils/ProgramOptions.hpp
     utils/StopToken.hpp
-    utils/TimedCache.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
@@ -129,6 +143,7 @@ target_link_libraries(
         Boost::headers
         Boost::program_options
         absl::flat_hash_map
+        fmt::fmt
         spdlog::spdlog
 )
 

@@ -1,6 +1,7 @@
 #ifndef SPIDER_CORE_TASK_HPP
 #define SPIDER_CORE_TASK_HPP
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -12,25 +13,28 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
+#include "../io/MsgPack.hpp"
 #include "Data.hpp"
 
 namespace spider::core {
 class TaskInput {
 public:
-    explicit TaskInput(std::string type) : m_type(std::move(type)) {};
+    explicit TaskInput(std::string type) : m_type(std::move(type)) {}
 
     TaskInput(boost::uuids::uuid output_task_id, std::uint8_t position, std::string type)
             : m_task_output({output_task_id, position}),
-              m_type(std::move(type)) {};
+              m_type(std::move(type)) {}
+
     TaskInput(std::string value, std::string type)
             : m_value(std::move(value)),
-              m_type(std::move(type)) {};
+              m_type(std::move(type)) {}
+
     explicit TaskInput(boost::uuids::uuid data_id)
             : m_data_id(data_id),
-              m_type(typeid(spider::core::Data).name()) {};
+              m_type(typeid(spider::core::Data).name()) {}
 
-    [[nodiscard]] auto get_task_output(
-    ) const -> std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> {
+    [[nodiscard]] auto get_task_output() const
+            -> std::optional<std::tuple<boost::uuids::uuid, std::uint8_t>> {
         return m_task_output;
     }
 
@@ -109,6 +113,64 @@ enum class TaskState : std::uint8_t {
     Canceled,
 };
 
+class ScheduleTaskMetadata {
+public:
+    ScheduleTaskMetadata(
+            boost::uuids::uuid id,
+            std::string function_name,
+            boost::uuids::uuid job_id
+    )
+            : m_id(id),
+              m_function_name(std::move(function_name)),
+              m_job_id(job_id) {}
+
+    ScheduleTaskMetadata() = default;
+
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
+
+    [[nodiscard]] auto get_function_name() const -> std::string const& { return m_function_name; }
+
+    [[nodiscard]] auto get_job_id() const -> boost::uuids::uuid { return m_job_id; }
+
+    [[nodiscard]] auto get_client_id() const -> boost::uuids::uuid { return m_client_id; }
+
+    [[nodiscard]] auto get_job_creation_time() const -> std::chrono::system_clock::time_point {
+        return m_job_creation_time;
+    }
+
+    [[nodiscard]] auto get_hard_localities() const -> std::vector<std::string> const& {
+        return m_hard_localities;
+    }
+
+    [[nodiscard]] auto get_soft_localities() const -> std::vector<std::string> const& {
+        return m_soft_localities;
+    }
+
+    auto set_client_id(boost::uuids::uuid const client_id) -> void { m_client_id = client_id; }
+
+    auto set_job_creation_time(std::chrono::system_clock::time_point const job_creation_time)
+            -> void {
+        m_job_creation_time = job_creation_time;
+    }
+
+    auto add_hard_locality(std::string const& locality) -> void {
+        m_hard_localities.push_back(locality);
+    }
+
+    auto add_soft_locality(std::string const& locality) -> void {
+        m_soft_localities.push_back(locality);
+    }
+
+private:
+    boost::uuids::uuid m_id;
+    std::string m_function_name;
+    boost::uuids::uuid m_job_id;
+    boost::uuids::uuid m_client_id;
+    std::chrono::system_clock::time_point m_job_creation_time;
+    std::vector<std::string> m_hard_localities;
+    std::vector<std::string> m_soft_localities;
+};
+
 class Task {
 public:
     explicit Task(std::string function_name) : m_function_name(std::move(function_name)) {
@@ -154,6 +216,12 @@ public:
 
     [[nodiscard]] auto get_outputs() const -> std::vector<TaskOutput> const& { return m_outputs; }
 
+    /*
+     * @return A vector of buffers containing the serialized arguments of the task.
+     * @return std::nullopt if any argument cannot be serialized.
+     */
+    [[nodiscard]] auto get_arg_buffers() const -> std::optional<std::vector<msgpack::sbuffer>>;
+
 private:
     boost::uuids::uuid m_id;
     std::string m_function_name;
@@ -163,7 +231,6 @@ private:
     std::vector<TaskInput> m_inputs;
     std::vector<TaskOutput> m_outputs;
 };
-
 }  // namespace spider::core
 
 #endif  // SPIDER_CORE_TASK_HPP

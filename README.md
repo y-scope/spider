@@ -1,3 +1,7 @@
+# Docs
+
+You can find our docs [online][spider-docs]. 
+
 # Contributing
 Follow the steps below to develop and contribute to the project.
 
@@ -57,4 +61,5 @@ in the table below.
 | `lint:yml-check`        | Runs the YAML linters.                                   |
 | `lint:yml-fix`          | Runs the YAML linters and fixes some violations.         |
 
+[spider-docs]: https://docs.yscope.com/spider/main/
 [Task]: https://taskfile.dev

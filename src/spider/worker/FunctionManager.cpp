@@ -14,9 +14,8 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace spider::core {
-
-auto response_get_error(msgpack::sbuffer const& buffer
-) -> std::optional<std::tuple<FunctionInvokeError, std::string>> {
+auto response_get_error(msgpack::sbuffer const& buffer)
+        -> std::optional<std::tuple<FunctionInvokeError, std::string>> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
         msgpack::object_handle const handle = msgpack::unpack(buffer.data(), buffer.size());
@@ -64,8 +63,8 @@ void create_error_buffer(
     packer.pack(message);
 }
 
-auto response_get_result_buffers(msgpack::sbuffer const& buffer
-) -> std::optional<std::vector<msgpack::sbuffer>> {
+auto response_get_result_buffers(msgpack::sbuffer const& buffer)
+        -> std::optional<std::vector<msgpack::sbuffer>> {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
     try {
         std::vector<msgpack::sbuffer> result_buffers;
@@ -113,7 +112,6 @@ auto FunctionManager::get_function(std::string const& name) const -> Function co
     }
     return nullptr;
 }
-
 }  // namespace spider::core
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

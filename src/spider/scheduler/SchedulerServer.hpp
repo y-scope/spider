@@ -8,11 +8,11 @@
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
+#include "../storage/StorageConnection.hpp"
 #include "../utils/StopToken.hpp"
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
-
 class SchedulerServer {
 public:
     // Delete copy & move constructor and assignment operator
@@ -27,6 +27,7 @@ public:
             std::shared_ptr<SchedulerPolicy> policy,
             std::shared_ptr<core::MetadataStorage> metadata_store,
             std::shared_ptr<core::DataStorage> data_store,
+            std::shared_ptr<core::StorageConnection> conn,
             core::StopToken& stop_token
     );
 
@@ -44,6 +45,7 @@ private:
     std::shared_ptr<SchedulerPolicy> m_policy;
     std::shared_ptr<core::MetadataStorage> m_metadata_store;
     std::shared_ptr<core::DataStorage> m_data_store;
+    std::shared_ptr<core::StorageConnection> m_conn;
 
     boost::asio::io_context m_context;
 
@@ -52,7 +54,6 @@ private:
 
     core::StopToken& m_stop_token;
 };
-
 }  // namespace spider::scheduler
 
 #endif  // SPIDER_SCHEDULER_SCHEDULERSERVER_HPP

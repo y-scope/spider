@@ -1,11 +1,15 @@
 #ifndef SPIDER_WORKER_TASKEXECUTOR_HPP
 #define SPIDER_WORKER_TASKEXECUTOR_HPP
 
+#include <unistd.h>
+
+#include <array>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -14,8 +18,6 @@
 #include <absl/container/flat_hash_map.h>
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
-#include <boost/process/v2/process.hpp>
-#include <boost/process/v2/stdio.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
@@ -25,9 +27,9 @@
 #include "../utils/ProgramOptions.hpp"
 #include "FunctionManager.hpp"
 #include "message_pipe.hpp"
+#include "Process.hpp"
 
 namespace spider::worker {
-
 enum class TaskExecutorState : std::uint8_t {
     Running,
     Waiting,
@@ -66,17 +68,22 @@ public:
                 "spider_task_executor",
                 environment
         );
-        m_process = std::make_unique<boost::process::v2::process>(
-                context,
-                exe,
+        std::array<int, 2> write_pipe_fd{};
+        std::array<int, 2> read_pipe_fd{};
+        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
+            throw std::runtime_error("Failed to create pipe");
+        }
+        m_write_pipe.assign(write_pipe_fd[1]);
+        m_read_pipe.assign(read_pipe_fd[0]);
+        m_process = std::make_unique<Process>(Process::spawn(
+                exe.string(),
                 process_args,
-                boost::process::v2::process_stdio{
-                        .in = m_write_pipe,
-                        .out = m_read_pipe,
-                        .err = {/*stderr to default*/}
-                },
-                boost::process::v2::process_environment{environment}
-        );
+                write_pipe_fd[0],
+                read_pipe_fd[1],
+                std::nullopt
+        ));
+        close(write_pipe_fd[0]);
+        close(read_pipe_fd[1]);
 
         // Set up handler for output file
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
@@ -114,17 +121,22 @@ public:
                 "spider_task_executor",
                 environment
         );
-        m_process = std::make_unique<boost::process::v2::process>(
-                context,
-                exe,
+        std::array<int, 2> write_pipe_fd{};
+        std::array<int, 2> read_pipe_fd{};
+        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
+            throw std::runtime_error("Failed to create pipe");
+        }
+        m_write_pipe.assign(write_pipe_fd[1]);
+        m_read_pipe.assign(read_pipe_fd[0]);
+        m_process = std::make_unique<Process>(Process::spawn(
+                exe.string(),
                 process_args,
-                boost::process::v2::process_stdio{
-                        .in = m_write_pipe,
-                        .out = m_read_pipe,
-                        .err = {/*stderr to default*/}
-                },
-                boost::process::v2::process_environment{environment}
-        );
+                write_pipe_fd[0],
+                read_pipe_fd[1],
+                std::nullopt
+        ));
+        close(write_pipe_fd[0]);
+        close(read_pipe_fd[1]);
 
         // Set up handler for output file
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
@@ -166,13 +178,12 @@ private:
     TaskExecutorState m_state = TaskExecutorState::Running;
 
     // Use `std::unique_ptr` to work around requirement of default constructor
-    std::unique_ptr<boost::process::v2::process> m_process = nullptr;
+    std::unique_ptr<Process> m_process = nullptr;
     boost::asio::readable_pipe m_read_pipe;
     boost::asio::writable_pipe m_write_pipe;
 
     msgpack::sbuffer m_result_buffer;
 };
-
 }  // namespace spider::worker
 
 #endif  // SPIDER_WORKER_TASKEXECUTOR_HPP

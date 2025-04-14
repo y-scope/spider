@@ -3,8 +3,8 @@
 #include <memory>
 #include <optional>
 #include <thread>
-#include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
@@ -12,6 +12,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "../../src/spider/core/Error.hpp"
 #include "../../src/spider/core/Task.hpp"
 #include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -23,35 +24,51 @@
 #include "../../src/spider/scheduler/SchedulerServer.hpp"
 #include "../../src/spider/storage/DataStorage.hpp"
 #include "../../src/spider/storage/MetadataStorage.hpp"
+#include "../../src/spider/storage/StorageConnection.hpp"
+#include "../../src/spider/storage/StorageFactory.hpp"
 #include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
-
 constexpr int cServerWarmupTime = 5;
 
 TEMPLATE_LIST_TEST_CASE(
         "Scheduler server test",
         "[scheduler][server][storage]",
-        spider::test::StorageTypeList
+        spider::test::StorageFactoryTypeList
 ) {
-    std::tuple<
-            std::unique_ptr<spider::core::MetadataStorage>,
-            std::unique_ptr<spider::core::DataStorage>>
-            storages = spider::test::create_storage<
-                    std::tuple_element_t<0, TestType>,
-                    std::tuple_element_t<1, TestType>>();
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
     std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-            = std::move(std::get<0>(storages));
-    std::shared_ptr<spider::core::DataStorage> const data_store = std::move(std::get<1>(storages));
+            = storage_factory->provide_metadata_storage();
+    std::shared_ptr<spider::core::DataStorage> const data_store
+            = storage_factory->provide_data_storage();
+
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    std::shared_ptr<spider::core::StorageConnection> const conn
+            = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+
+    // Add scheduler
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const scheduler_id = gen();
+    REQUIRE(metadata_store
+                    ->add_scheduler(*conn, spider::core::Scheduler{scheduler_id, "127.0.0.1", 8080})
+                    .success());
 
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
-            = std::make_shared<spider::scheduler::FifoPolicy>(metadata_store, data_store);
+            = std::make_shared<spider::scheduler::FifoPolicy>(
+                    scheduler_id,
+                    metadata_store,
+                    data_store,
+                    conn
+            );
 
     constexpr unsigned short cPort = 6021;
     spider::core::StopToken stop_token;
     spider::scheduler::SchedulerServer
-            server{cPort, policy, metadata_store, data_store, stop_token};
+            server{cPort, policy, metadata_store, data_store, conn, stop_token};
 
     // Pause and resume server
     server.pause();
@@ -74,9 +91,8 @@ TEMPLATE_LIST_TEST_CASE(
     graph.add_dependency(parent_task.get_id(), child_task.get_id());
     graph.add_input_task(parent_task.get_id());
     graph.add_output_task(child_task.get_id());
-    boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
-    REQUIRE(metadata_store->add_job(job_id, gen(), graph).success());
+    REQUIRE(metadata_store->add_job(*conn, job_id, gen(), graph).success());
 
     // Schedule request should succeed
     spider::scheduler::ScheduleTaskRequest const req{gen(), ""};
@@ -91,7 +107,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Get response should succeed and get child task
     std::optional<msgpack::sbuffer> const& res_buffer = spider::core::receive_message(socket);
-    REQUIRE(metadata_store->remove_job(job_id).success());
+    REQUIRE(metadata_store->remove_job(*conn, job_id).success());
     REQUIRE(res_buffer.has_value());
     if (res_buffer.has_value()) {
         msgpack::object_handle const handle
@@ -100,7 +116,7 @@ TEMPLATE_LIST_TEST_CASE(
         spider::scheduler::ScheduleTaskResponse const res
                 = object.as<spider::scheduler::ScheduleTaskResponse>();
         REQUIRE(res.has_task_id());
-        REQUIRE(std::get<0>(res.get_task_ids()) == parent_task.get_id());
+        REQUIRE(res.get_task_id() == parent_task.get_id());
     }
     socket.close();
     server.stop();

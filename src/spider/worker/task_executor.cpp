@@ -1,4 +1,3 @@
-
 #include <unistd.h>
 
 #include <exception>
@@ -24,7 +23,8 @@
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
-#include "../storage/MySqlStorage.hpp"
+#include "../storage/mysql/MySqlStorageFactory.hpp"
+#include "../storage/StorageFactory.hpp"
 #include "../utils/ProgramOptions.hpp"
 #include "DllLoader.hpp"
 #include "FunctionManager.hpp"
@@ -32,7 +32,6 @@
 #include "TaskExecutorMessage.hpp"
 
 namespace {
-
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()(spider::core::cHelpOption.data(), spider::core::cHelpMessage.data());
@@ -66,7 +65,6 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
     boost::program_options::notify(variables);
     return variables;
 }
-
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;
@@ -128,10 +126,12 @@ auto main(int const argc, char** argv) -> int {
         boost::uuids::uuid const task_id = gen(task_id_string);
 
         // Set up storage
+        std::shared_ptr<spider::core::StorageFactory> const storage_factory
+                = std::make_shared<spider::core::MySqlStorageFactory>(storage_url);
         std::shared_ptr<spider::core::MetadataStorage> const metadata_store
-                = std::make_shared<spider::core::MySqlMetadataStorage>(storage_url);
+                = storage_factory->provide_metadata_storage();
         std::shared_ptr<spider::core::DataStorage> const data_store
-                = std::make_shared<spider::core::MySqlDataStorage>(storage_url);
+                = storage_factory->provide_data_storage();
 
         // Set up asio
         boost::asio::io_context context;
@@ -145,13 +145,12 @@ auto main(int const argc, char** argv) -> int {
             return cFuncArgParseErr;
         }
         msgpack::sbuffer const& request_buffer = request_buffer_option.value();
-        if (spider::worker::TaskExecutorRequestType::Arguments
-            != spider::worker::get_request_type(request_buffer))
-        {
+        spider::worker::TaskExecutorRequestParser const request_parser{request_buffer};
+        if (spider::worker::TaskExecutorRequestType::Arguments != request_parser.get_type()) {
             spdlog::error("Expect args request.");
             return cFuncArgParseErr;
         }
-        msgpack::object const args_object = spider::worker::get_message_body(request_buffer);
+        msgpack::object const args_object = request_parser.get_body();
         msgpack::sbuffer args_buffer;
         msgpack::packer packer{args_buffer};
         packer.pack(args_object);
@@ -173,7 +172,8 @@ auto main(int const argc, char** argv) -> int {
         spider::TaskContext task_context = spider::core::TaskContextImpl::create_task_context(
                 task_id,
                 data_store,
-                metadata_store
+                metadata_store,
+                storage_factory
         );
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
