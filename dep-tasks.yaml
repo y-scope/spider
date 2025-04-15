@@ -3,6 +3,13 @@ version: "3"
 vars:
   G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
 
+  G_CATCH2_LIB_NAME: "Catch2"
+  G_CATCH2_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_CATCH2_LIB_NAME}}"
+  G_OUTCOME_LIB_NAME: "outcome"
+  G_OUTCOME_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_OUTCOME_LIB_NAME}}"
+  G_QUICKCPPLIB_LIB_NAME: "quickcpplib"
+  G_QUICKCPPLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}"
+
 tasks:
 
   lib_install:
@@ -21,3 +28,101 @@ tasks:
     dir: "{{.G_SCRIPT_DIR}}/lib_install/linux"
     cmds:
       - "./install-lib.sh"
+
+  dep_install:
+    cmds:
+      - task: "install-all-init"
+      - task: "install-all-run"
+      - task: "install-all-finish"
+
+  install-all-init:
+    internal: true
+    cmds:
+      - "rm -rf {{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+      - "mkdir -p {{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+
+  install-all-run:
+    internal: true
+    deps:
+      - "install-Catch2"
+      - "install-outcome"
+
+  install-all-finish:
+    internal: true
+    cmds:
+      - >-
+        for file in {{.G_DEPS_CMAKE_SETTINGS_DIR}}/*.cmake; do
+          if [ "$file" != "{{.G_DEPS_CMAKE_SETTINGS_FILE}}" ]; then
+            echo "include(\"$file\")" >> "{{.G_DEPS_CMAKE_SETTINGS_FILE}}";
+          fi
+        done
+
+  add-package-root-to-cmake-settings:
+    internal: true
+    requires:
+      vars:
+        - "NAME"
+        - "INSTALL_PREFIX"
+    cmds:
+      - >-
+        echo "set(
+          {{.NAME}}_ROOT
+          \"{{.INSTALL_PREFIX}}\"
+          CACHE PATH
+          \"Path to {{.NAME}} settings\"
+        )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.NAME}}.cmake"
+
+  install-Catch2:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "{{.G_CATCH2_LIB_NAME}}"
+          WORK_DIR: "{{.G_CATCH2_WORK_DIR}}"
+          FILE_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
+          URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
+      - task: "add-package-root-to-cmake-settings"
+        vars:
+          NAME: "{{.G_CATCH2_LIB_NAME}}"
+          INSTALL_PREFIX: "{{.G_CATCH2_WORK_DIR}}/{{.G_CATCH2_LIB_NAME}}-install"
+
+  install-outcome:
+    internal: true
+    run: "once"
+    deps:
+      - "install-quickcpplib"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "{{.G_OUTCOME_LIB_NAME}}"
+          WORK_DIR: "{{.G_OUTCOME_WORK_DIR}}"
+          FILE_SHA256: "0382248cbb00806ce4b5f3ce6939797dc3b597c85fd3531614959e31ef488b39"
+          URL: "https://github.com/ned14/outcome/archive/refs/tags/v2.2.11.tar.gz"
+          GEN_ARGS:
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}.cmake"
+            - "-DBUILD_TESTING=OFF"
+            - "-DCMAKE_BUILD_TYPE=Release"
+            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
+      - task: "add-package-root-to-cmake-settings"
+        vars:
+          NAME: "{{.G_OUTCOME_LIB_NAME}}"
+          INSTALL_PREFIX: "{{.G_OUTCOME_WORK_DIR}}/{{.G_OUTCOME_LIB_NAME}}-install"
+
+  install-quickcpplib:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
+          WORK_DIR: "{{.G_QUICKCPPLIB_WORK_DIR}}"
+          FILE_SHA256: "5d4c9b2d6fa177d3fb14f3fe3086867e43b44f4a7a944eb10ee4616b2b0f3c05"
+          URL: "https://github.com/ned14/quickcpplib/archive/f3e452e.tar.gz"
+          GEN_ARGS:
+            - "-DBUILD_TESTING=OFF"
+            - "-DCMAKE_BUILD_TYPE=Release"
+      - task: "add-package-root-to-cmake-settings"
+        vars:
+          NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
+          INSTALL_PREFIX: "{{.G_QUICKCPPLIB_WORK_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}-install"
