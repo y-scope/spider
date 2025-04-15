@@ -156,12 +156,26 @@ else()
     message(FATAL_ERROR "Could not find msgpack-cxx")
 endif()
 
+# Include dependency settings.
+include("build/deps/cmake-settings/settings.cmake")
+
+find_package(outcome REQUIRED)
+if(outcome_FOUND)
+    message(STATUS "Found outcome.")
+else()
+    message(FATAL_ERROR "Could not find libraries for outcome.")
+endif()
+
+find_package(Catch2 3.8.0 REQUIRED)
+if(Catch2_FOUND)
+    message(STATUS "Found Catch2 ${Catch2_VERSION}.")
+else()
+    message(FATAL_ERROR "Could not find libraries for Catch2.")
+endif()
+
 # Add abseil-cpp
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(submodules/abseil-cpp)
-
-# Add catch2
-add_subdirectory(submodules/Catch2)
 
 find_package(Threads REQUIRED)
 
