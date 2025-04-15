@@ -87,6 +87,8 @@ tasks:
           WORK_DIR: "{{.G_ABSEIL_WORK_DIR}}"
           FILE_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
           URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
+          GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
       - task: "add-package-root-to-cmake-settings"
         vars:
           NAME: "{{.G_ABSEIL_LIB_NAME}}"
@@ -102,6 +104,8 @@ tasks:
           WORK_DIR: "{{.G_CATCH2_WORK_DIR}}"
           FILE_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
           URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
+          GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
       - task: "add-package-root-to-cmake-settings"
         vars:
           NAME: "{{.G_CATCH2_LIB_NAME}}"
@@ -124,6 +128,7 @@ tasks:
             - "-DBUILD_TESTING=OFF"
             - "-DCMAKE_BUILD_TYPE=Release"
             - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
       - task: "add-package-root-to-cmake-settings"
         vars:
           NAME: "{{.G_OUTCOME_LIB_NAME}}"
@@ -142,6 +147,7 @@ tasks:
           GEN_ARGS:
             - "-DBUILD_TESTING=OFF"
             - "-DCMAKE_BUILD_TYPE=Release"
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
       - task: "add-package-root-to-cmake-settings"
         vars:
           NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
