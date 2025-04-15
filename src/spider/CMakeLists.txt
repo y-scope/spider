@@ -52,6 +52,7 @@ target_link_libraries(
         MariaDBClientCpp::MariaDBClientCpp
         msgpack-cxx
         spdlog::spdlog
+        ystdlib::error_handling
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 

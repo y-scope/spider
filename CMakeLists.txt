@@ -182,6 +182,13 @@ else()
     message(FATAL_ERROR "Could not find libraries for abseil.")
 endif()
 
+# Add ystdlib-cpp
+add_subdirectory(
+    "${SPIDER_YSTDLIB_SOURCE_DIRECTORY}"
+    "${CMAKE_BINARY_DIR}/ystdlib"
+    EXCLUDE_FROM_ALL
+)
+
 find_package(Threads REQUIRED)
 
 add_subdirectory(src/spider)
