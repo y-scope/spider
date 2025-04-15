@@ -3,7 +3,7 @@ version: "3"
 vars:
   G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
 
-  G_ABSEIL_LIB_NAME: "abseil"
+  G_ABSEIL_LIB_NAME: "absl"
   G_ABSEIL_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_ABSEIL_LIB_NAME}}"
   G_CATCH2_LIB_NAME: "Catch2"
   G_CATCH2_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_CATCH2_LIB_NAME}}"
