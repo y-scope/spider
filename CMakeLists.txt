@@ -173,9 +173,14 @@ else()
     message(FATAL_ERROR "Could not find libraries for Catch2.")
 endif()
 
-# Add abseil-cpp
+# Add abseil
 set(ABSL_PROPAGATE_CXX_STD ON)
-add_subdirectory(submodules/abseil-cpp)
+find_package(absl REQUIRED)
+if(absl_FOUND)
+    message(STATUS "Found abseil ${absl_VERSION}.")
+else()
+    message(FATAL_ERROR "Could not find libraries for abseil.")
+endif()
 
 find_package(Threads REQUIRED)
 
