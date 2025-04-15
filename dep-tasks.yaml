@@ -21,6 +21,7 @@ tasks:
     dir: "{{.G_SCRIPT_DIR}}/lib_install/macOS"
     cmds:
       - "./install-lib.sh"
+      - task: "dep_install"
 
   lib_install_linux:
     internal: true
@@ -28,6 +29,7 @@ tasks:
     dir: "{{.G_SCRIPT_DIR}}/lib_install/linux"
     cmds:
       - "./install-lib.sh"
+      - task: "dep_install"
 
   dep_install:
     cmds:
