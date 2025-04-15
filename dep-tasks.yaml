@@ -3,6 +3,8 @@ version: "3"
 vars:
   G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
 
+  G_ABSEIL_LIB_NAME: "abseil"
+  G_ABSEIL_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_ABSEIL_LIB_NAME}}"
   G_CATCH2_LIB_NAME: "Catch2"
   G_CATCH2_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_CATCH2_LIB_NAME}}"
   G_OUTCOME_LIB_NAME: "outcome"
@@ -46,8 +48,9 @@ tasks:
   install-all-run:
     internal: true
     deps:
-      - "install-Catch2"
-      - "install-outcome"
+      - task: "install-abseil"
+      - task: "install-Catch2"
+      - task: "install-outcome"
 
   install-all-finish:
     internal: true
@@ -73,6 +76,21 @@ tasks:
           CACHE PATH
           \"Path to {{.NAME}} settings\"
         )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.NAME}}.cmake"
+
+  install-abseil:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "{{.G_ABSEIL_LIB_NAME}}"
+          WORK_DIR: "{{.G_ABSEIL_WORK_DIR}}"
+          FILE_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
+          URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
+      - task: "add-package-root-to-cmake-settings"
+        vars:
+          NAME: "{{.G_ABSEIL_LIB_NAME}}"
+          INSTALL_PREFIX: "{{.G_ABSEIL_WORK_DIR}}/{{.G_ABSEIL_LIB_NAME}}-install"
 
   install-Catch2:
     internal: true
