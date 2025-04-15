@@ -11,6 +11,8 @@ vars:
   G_OUTCOME_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_OUTCOME_LIB_NAME}}"
   G_QUICKCPPLIB_LIB_NAME: "quickcpplib"
   G_QUICKCPPLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}"
+  G_YSTDLIB_LIB_NAME: "ystdlib"
+  G_YSTDLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}"
 
 tasks:
 
@@ -51,6 +53,7 @@ tasks:
       - task: "install-abseil"
       - task: "install-Catch2"
       - task: "install-outcome"
+      - task: "download-ystdlib"
 
   install-all-finish:
     internal: true
@@ -152,3 +155,17 @@ tasks:
         vars:
           NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
           INSTALL_PREFIX: "{{.G_QUICKCPPLIB_WORK_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}-install"
+
+  download-ystdlib:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:remote:download-and-extract-tar"
+        vars:
+          FILE_SHA256: "d3fc9804eacb3ee4f156ae0ca37151cb04847580"
+          OUTPUT_DIR: "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
+          URL: "https://github.com/y-scope/ystdlib-cpp/archive/d3fc980.tar.gz"
+      - >-
+        echo "set(
+        SPIDER_YSTDLIB_SOURCE_DIRECTORY \"{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src\"
+        )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}.cmake"
