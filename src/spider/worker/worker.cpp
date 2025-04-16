@@ -28,6 +28,8 @@
 #include <fmt/format.h>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
+#include <ystdlib/error_handling/ErrorCode.hpp>
+#include <ystdlib/error_handling/Result.hpp>
 
 #include "../core/Data.hpp"
 #include "../core/Driver.hpp"
@@ -44,6 +46,7 @@
 #include "../utils/StopToken.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
+#include "WorkerErrorCode.hpp"
 
 constexpr int cCmdArgParseErr = 1;
 constexpr int cWorkerAddrErr = 2;
@@ -157,7 +160,7 @@ fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uui
     }
 }
 
-/*
+/**
  * Sets up a task by fetching the task metadata from storage and creating argument buffers from task
  * inputs.
  *
@@ -166,14 +169,15 @@ fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uui
  * @param instance The task instance to set up.
  * @param task Output parameter to store the fetched task details.
  * @return  A vector of buffers containing the serialized arguments of the task.
- * @return std::nullopt if any failure occurs.
+ * @return WorkerErrorCode if any failure occurs.
  */
 auto setup_task(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::core::TaskInstance const& instance,
         spider::core::Task& task
-) -> std::optional<std::vector<msgpack::sbuffer>> {
+) -> ystdlib::error_handling::
+        Result<std::vector<msgpack::sbuffer>, spider::worker::WorkerErrorCode> {
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
@@ -181,7 +185,7 @@ auto setup_task(
                 "Failed to connect to storage: {}",
                 std::get<spider::core::StorageErr>(conn_result).description
         );
-        return std::nullopt;
+        return spider::worker::WorkerErrorCodeEnum::StorageError;
     }
     auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
@@ -189,21 +193,30 @@ auto setup_task(
     spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
     if (!err.success()) {
         spdlog::error("Failed to fetch task detail: {}", err.description);
-        return std::nullopt;
+        return spider::worker::WorkerErrorCodeEnum::StorageError;
     }
 
     std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers = task.get_arg_buffers();
     if (!optional_arg_buffers.has_value()) {
         spdlog::error("Failed to fetch task arguments");
         metadata_store->task_fail(*conn, instance, fmt::format("Failed to fetch task arguments"));
-        return std::nullopt;
+        return spider::worker::WorkerErrorCodeEnum::TaskArgumentInvalid;
     }
-    return optional_arg_buffers;
+    return std::move(optional_arg_buffers.value());
 }
 
+/**
+ * Parses the task outputs from the result buffers.
+ *
+ * @param task The task that was executed.
+ * @param result_buffers The result buffers containing the outputs.
+ * @return A vector of TaskOutput objects if parsing is successful.
+ * @return WorkerErrorCode::TaskOutputInvalid if any failure occurs.
+ */
 auto
 parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> const& result_buffers)
-        -> std::optional<std::vector<spider::core::TaskOutput>> {
+        -> ystdlib::error_handling::
+                Result<std::vector<spider::core::TaskOutput>, spider::worker::WorkerErrorCode> {
     std::vector<spider::core::TaskOutput> outputs;
     outputs.reserve(task.get_num_outputs());
     for (size_t i = 0; i < task.get_num_outputs(); ++i) {
@@ -221,7 +234,7 @@ parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> cons
                         "Task {} failed to parse result as data id",
                         task.get_function_name()
                 );
-                return std::nullopt;
+                return spider::worker::WorkerErrorCodeEnum::TaskOutputInvalid;
             }
         } else {
             msgpack::sbuffer const& buffer = result_buffers[i];
@@ -240,7 +253,8 @@ parse_outputs(spider::core::Task const& task, std::vector<msgpack::sbuffer> cons
  * @param instance Task instance that was executed.
  * @param task The task that was executed.
  * @param executor The executor that ran the task.
- * @return true if results were successfully handled, false if any errors occurred.
+ * @return ystdlib::error_handling::success() if successful.
+ * @return WorkerErrorCode if any failure occurs.
  */
 auto handle_executor_result(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
@@ -248,7 +262,7 @@ auto handle_executor_result(
         spider::core::TaskInstance const& instance,
         spider::core::Task const& task,
         spider::worker::TaskExecutor& executor
-) -> bool {
+) -> ystdlib::error_handling::Result<void, spider::worker::WorkerErrorCode> {
     std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
             conn_result = storage_factory->provide_storage_connection();
     if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
@@ -256,7 +270,7 @@ auto handle_executor_result(
                 "Failed to connect to storage: {}",
                 std::get<spider::core::StorageErr>(conn_result).description
         );
-        return false;
+        return spider::worker::WorkerErrorCodeEnum::StorageError;
     }
     auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
@@ -267,7 +281,7 @@ auto handle_executor_result(
                 instance,
                 fmt::format("Task {} failed", task.get_function_name())
         );
-        return false;
+        return spider::worker::WorkerErrorCodeEnum::TaskFailed;
     }
 
     // Parse result
@@ -280,12 +294,14 @@ auto handle_executor_result(
                 instance,
                 fmt::format("Task {} failed to parse result into buffers", task.get_function_name())
         );
-        return false;
+        return spider::worker::WorkerErrorCodeEnum::TaskOutputUnavailable;
     }
     std::vector<msgpack::sbuffer> const& result_buffers = optional_result_buffers.value();
-    std::optional<std::vector<spider::core::TaskOutput>> const optional_outputs
+    ystdlib::error_handling::Result<
+            std::vector<spider::core::TaskOutput>,
+            spider::worker::WorkerErrorCode> const output_result
             = parse_outputs(task, result_buffers);
-    if (!optional_outputs.has_value()) {
+    if (!output_result.has_value()) {
         metadata_store->task_fail(
                 *conn,
                 instance,
@@ -294,10 +310,10 @@ auto handle_executor_result(
                         task.get_function_name()
                 )
         );
-        return false;
+        return output_result.error();
     }
 
-    std::vector<spider::core::TaskOutput> const& outputs = optional_outputs.value();
+    std::vector<spider::core::TaskOutput> const& outputs = output_result.value();
     // Submit result
     spdlog::debug("Submitting result for task {}", boost::uuids::to_string(task.get_id()));
     spider::core::StorageErr err;
@@ -313,9 +329,9 @@ auto handle_executor_result(
     }
     if (!err.success()) {
         spdlog::error("Submit task {} fails: {}", task.get_function_name(), err.description);
-        return false;
+        return spider::worker::WorkerErrorCodeEnum::StorageError;
     }
-    return true;
+    return ystdlib::error_handling::success();
 }
 
 // NOLINTBEGIN(clang-analyzer-unix.BlockInCriticalSection)
@@ -339,14 +355,16 @@ auto task_loop(
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
-        std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers
+        ystdlib::error_handling::
+                Result<std::vector<msgpack::sbuffer>, spider::worker::WorkerErrorCode>
+                        arg_buffers_result
                 = setup_task(storage_factory, metadata_store, instance, task);
-        if (!optional_arg_buffers.has_value()) {
+        if (!arg_buffers_result.has_value()) {
             spdlog::error("Failed to setup task {}", task.get_function_name());
             fail_task_id = task.get_id();
             continue;
         }
-        std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
+        std::vector<msgpack::sbuffer> const& arg_buffers = arg_buffers_result.value();
 
         // Execute task
         spider::worker::TaskExecutor executor{
@@ -362,7 +380,9 @@ auto task_loop(
         context.run();
         executor.wait();
 
-        if (handle_executor_result(storage_factory, metadata_store, instance, task, executor)) {
+        if (handle_executor_result(storage_factory, metadata_store, instance, task, executor)
+                    .has_value())
+        {
             fail_task_id = std::nullopt;
         } else {
             fail_task_id = task.get_id();
