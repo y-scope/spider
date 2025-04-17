@@ -19,7 +19,7 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/StorageConnection.hpp"
-#include "../utils/StopToken.hpp"
+#include "../utils/StopFlag.hpp"
 #include "SchedulerMessage.hpp"
 #include "SchedulerPolicy.hpp"
 
@@ -94,7 +94,7 @@ auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
         co_return;
     } catch (boost::system::system_error& e) {
         spdlog::error("Fail to accept connection: {}", e.what());
-        spider::core::StopToken::request_stop();
+        spider::core::StopFlag::request_stop();
         co_return;
     }
 }

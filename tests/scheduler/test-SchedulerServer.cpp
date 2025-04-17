@@ -26,7 +26,7 @@
 #include "../../src/spider/storage/MetadataStorage.hpp"
 #include "../../src/spider/storage/StorageConnection.hpp"
 #include "../../src/spider/storage/StorageFactory.hpp"
-#include "../../src/spider/utils/StopToken.hpp"
+#include "../../src/spider/utils/StopFlag.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
