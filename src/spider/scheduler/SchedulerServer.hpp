@@ -9,7 +9,6 @@
 #include "../storage/DataStorage.hpp"
 #include "../storage/MetadataStorage.hpp"
 #include "../storage/StorageConnection.hpp"
-#include "../utils/StopFlag.hpp"
 #include "SchedulerPolicy.hpp"
 
 namespace spider::scheduler {

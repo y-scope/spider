@@ -451,7 +451,6 @@ auto main(int argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    // Ignore SIGTERM
     // NOLINTBEGIN(misc-include-cleaner)
     struct sigaction sig_action{};
     sig_action.sa_handler = stop_task_handler;
@@ -527,8 +526,9 @@ auto main(int argc, char** argv) -> int {
     heartbeat_thread.join();
     task_thread.join();
 
-    // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
-    // handled.
+
+    // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
+    // SIGTERM.
     if (spider::core::StopFlag::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
