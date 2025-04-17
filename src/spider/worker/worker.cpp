@@ -451,7 +451,6 @@ auto main(int argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    // Ignore SIGTERM
     // NOLINTBEGIN(misc-include-cleaner)
     struct sigaction sig_action{};
     sig_action.sa_handler = stop_task_handler;
