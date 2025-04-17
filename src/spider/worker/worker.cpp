@@ -206,9 +206,8 @@ auto setup_task(
         );
         return std::nullopt;
     }
-    std::shared_ptr const conn
+    std::unique_ptr<spider::core::StorageConnection> conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-
     // Get task details
     spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
     if (!err.success()) {
