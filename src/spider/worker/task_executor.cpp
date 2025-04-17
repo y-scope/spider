@@ -72,7 +72,6 @@ constexpr int cFuncArgParseErr = 5;
 constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
-// NOLINTBEGIN(bugprone-exception-escape)
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
@@ -203,5 +202,3 @@ auto main(int const argc, char** argv) -> int {
     }
     return 0;
 }
-
-// NOLINTEND(bugprone-exception-escape)
