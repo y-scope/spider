@@ -132,4 +132,5 @@ class TestWorkerSignal:
         assert worker_process.poll() == signal.SIGTERM + 128
 
         # Cleanup job
+        remove_job(storage, new_job_id)
         remove_job(storage, job_id)
