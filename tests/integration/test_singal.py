@@ -166,15 +166,15 @@ class TestWorkerSignal:
         assert get_task_state(storage, task.id) == "running"
 
         # Send signal to worker
-        os.kill(worker_process.pid, signal.SIGKILL)
+        os.kill(worker_process.pid, signal.SIGTERM)
 
         # Sleep for 3 seconds to wait for the task executor and worker to exit
         time.sleep(3)
 
         # Check the task fails
-        assert get_task_state(storage, task.id) == "failed"
+        assert get_task_state(storage, task.id) == "fail"
         # Check the worker process exited with SIGTERM
         assert worker_process.poll() == signal.SIGTERM + 128
 
         # Cleanup job
-        # remove_job(storage, graph_id)
+        remove_job(storage, graph_id)
