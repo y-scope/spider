@@ -39,7 +39,6 @@ public:
     ~StopFlag() = default;
 
 private:
-
     static std::atomic_flag m_stop;
 };
 }  // namespace spider::core

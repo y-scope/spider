@@ -37,7 +37,6 @@ public:
     ~ChildPid() = default;
 
 private:
-
     static std::sig_atomic_t volatile m_pid;
 };
 }  // namespace spider::core

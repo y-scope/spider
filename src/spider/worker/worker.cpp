@@ -526,7 +526,6 @@ auto main(int argc, char** argv) -> int {
     heartbeat_thread.join();
     task_thread.join();
 
-
     // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
     // SIGTERM.
     if (spider::core::StopFlag::is_stop_requested()) {
