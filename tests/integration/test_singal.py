@@ -71,7 +71,7 @@ class TestWorkerSignal:
     # The task should return the SIGTERM signal number as the output.
     # Later task should not be executed.
     # Worker should exit with SIGTERM.
-    def test_signal(self, storage, scheduler_worker_signal):
+    def test_task_signal(self, storage, scheduler_worker_signal):
         _, worker_process = scheduler_worker_signal
 
         # Submit signal handler task to check for SIGTERM signal in task executor
@@ -134,3 +134,47 @@ class TestWorkerSignal:
         # Cleanup job
         remove_job(storage, new_job_id)
         remove_job(storage, job_id)
+
+    # Test that worker propagates the SIGTERM signal to the task executor.
+    # Task executor exits immediately after receiving the signal.
+    # The running task should be marked as failed.
+    # The worker should exit with SIGTERM.
+    def test_task_exit(self, storage, scheduler_worker_signal):
+        _, worker_process = scheduler_worker_signal
+
+        # Submit a task to sleep for 10 seconds
+        task = Task(
+            id=uuid.uuid4(),
+            function_name="sleep_test",
+            inputs=[
+                TaskInput(type="int", value=msgpack.packb(10)),
+            ],
+            outputs=[TaskOutput(type="int")],
+        )
+        graph = TaskGraph(
+            id=uuid.uuid4(),
+            tasks={task.id: task},
+            dependencies=[],
+        )
+        graph_id = uuid.uuid4()
+        submit_job(storage, graph_id, graph)
+
+        # Wait for the task start
+        time.sleep(1)
+
+        # Check if the task is running
+        assert get_task_state(storage, task.id) == "running"
+
+        # Send signal to worker
+        os.kill(worker_process.pid, signal.SIGKILL)
+
+        # Sleep for 3 seconds to wait for the task executor and worker to exit
+        time.sleep(3)
+
+        # Check the task fails
+        assert get_task_state(storage, task.id) == "failed"
+        # Check the worker process exited with SIGTERM
+        assert worker_process.poll() == signal.SIGTERM + 128
+
+        # Cleanup job
+        # remove_job(storage, graph_id)
