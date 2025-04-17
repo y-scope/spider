@@ -4,6 +4,12 @@
 #include <atomic>
 
 namespace spider::core {
+/**
+ * @brief A singleton class that provides a stop flag for threads and signal handlers.
+ *
+ * User can call request_stop() to set the stop flag, and check if the stop flag is set.
+ * This class is thread-safe and signal-safe.
+ */
 class StopFlag {
 public:
     /*
