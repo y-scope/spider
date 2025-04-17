@@ -526,8 +526,8 @@ auto main(int argc, char** argv) -> int {
     heartbeat_thread.join();
     task_thread.join();
 
-    // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
-    // handled.
+    // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
+    // SIGTERM.
     if (spider::core::StopToken::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
