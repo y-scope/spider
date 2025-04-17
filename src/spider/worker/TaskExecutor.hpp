@@ -150,6 +150,11 @@ public:
     auto operator=(TaskExecutor&&) -> TaskExecutor& = delete;
     ~TaskExecutor() = default;
 
+    /*
+     * @return The process ID of the task executor.
+     */
+    [[nodiscard]] auto get_pid() const -> pid_t;
+
     auto completed() -> bool;
     auto waiting() -> bool;
     auto succeed() -> bool;

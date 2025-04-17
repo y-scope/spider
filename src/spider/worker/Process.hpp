@@ -29,6 +29,11 @@ public:
      */
     auto terminate() const -> void;
 
+    /*
+     * @return the process ID of the spawned process.
+     */
+    [[nodiscard]] auto get_pid() const -> pid_t;
+
     // Delete copy constructor and assignment operator
     Process(Process const&) = delete;
     auto operator=(Process const&) -> Process& = delete;

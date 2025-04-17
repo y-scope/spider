@@ -118,4 +118,8 @@ auto Process::terminate() const -> void {
         throw std::runtime_error("Failed to terminate process");
     }
 }
+
+auto Process::get_pid() const -> pid_t {
+    return m_pid;
+}
 }  // namespace spider::worker

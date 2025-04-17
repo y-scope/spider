@@ -26,7 +26,6 @@
 #include "../../src/spider/storage/MetadataStorage.hpp"
 #include "../../src/spider/storage/StorageConnection.hpp"
 #include "../../src/spider/storage/StorageFactory.hpp"
-#include "../../src/spider/utils/StopToken.hpp"
 #include "../storage/StorageTestHelper.hpp"
 
 namespace {
@@ -66,9 +65,7 @@ TEMPLATE_LIST_TEST_CASE(
             );
 
     constexpr unsigned short cPort = 6021;
-    spider::core::StopToken stop_token;
-    spider::scheduler::SchedulerServer
-            server{cPort, policy, metadata_store, data_store, conn, stop_token};
+    spider::scheduler::SchedulerServer server{cPort, policy, metadata_store, data_store, conn};
 
     // Pause and resume server
     server.pause();
