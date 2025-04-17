@@ -27,6 +27,8 @@ public:
      */
     static auto reset() -> void;
 
+    // Delete constructor
+    StopFlag() = delete;
     // Delete copy constructor and assignment operator
     StopFlag(StopFlag const&) = delete;
     auto operator=(StopFlag const&) -> StopFlag& = delete;
@@ -37,8 +39,6 @@ public:
     ~StopFlag() = default;
 
 private:
-    // Private constructor for singleton class
-    StopFlag() = default;
 
     static std::atomic_flag m_stop;
 };

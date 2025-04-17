@@ -24,6 +24,8 @@ public:
      */
     static auto set_pid(pid_t pid) -> void;
 
+    // Delete constructor
+    ChildPid() = delete;
     // Delete copy constructor and assignment operator
     ChildPid(ChildPid const&) = delete;
     auto operator=(ChildPid const&) -> ChildPid& = delete;
@@ -35,8 +37,6 @@ public:
     ~ChildPid() = default;
 
 private:
-    // Private constructor for singleton class
-    ChildPid() = default;
 
     static std::sig_atomic_t volatile m_pid;
 };
