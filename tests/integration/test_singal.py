@@ -64,13 +64,17 @@ def scheduler_worker_signal(storage):
     scheduler_process.kill()
 
 
-class TestWorkerNoExit:
+class TestWorkerSignal:
 
-    # Test that worker propagates the SIGTERM signal to the task executor
+    # Test that worker propagates the SIGTERM signal to the task executor.
+    # Submit a task that checks whether the task executor receives the SIGTERM signal.
+    # The task should return the SIGTERM signal number as the output.
+    # Later task should not be executed.
+    # Worker should exit with SIGTERM.
     def test_signal(self, storage, scheduler_worker_signal):
         _, worker_process = scheduler_worker_signal
 
-        # New task should not be executed
+        # Submit signal handler task to check for SIGTERM signal in task executor
         task = Task(
             id=uuid.uuid4(),
             function_name="signal_handler_test",
@@ -95,7 +99,24 @@ class TestWorkerNoExit:
         # Send signal to worker
         os.kill(worker_process.pid, signal.SIGTERM)
 
-        # Sleep for the task to finish
+        # Submit new task
+        new_task = Task(
+            id=uuid.uuid4(),
+            function_name="signal_handler_test",
+            inputs=[
+                TaskInput(type="int", value=msgpack.packb(0)),
+            ],
+            outputs=[TaskOutput(type="int")],
+        )
+        new_graph = TaskGraph(
+            id=uuid.uuid4(),
+            tasks={new_task.id: new_task},
+            dependencies=[],
+        )
+        new_job_id = uuid.uuid4()
+        submit_job(storage, new_job_id, new_graph)
+
+        # Sleep for the signal handler task to finish
         time.sleep(15)
 
         # Check if the task is finished
@@ -103,6 +124,12 @@ class TestWorkerNoExit:
         # Check if the task output is correct
         results = get_task_outputs(storage, task.id)
         assert results[0].value == msgpack.packb(signal.SIGTERM)
+
+        # Check if the new task is not executed
+        assert get_task_state(storage, new_task.id) == "ready"
+
+        # Check the worker process exited with SIGTERM
+        assert worker_process.poll() == signal.SIGTERM + 128
 
         # Cleanup job
         remove_job(storage, job_id)
