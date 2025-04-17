@@ -413,7 +413,6 @@ auto task_loop(
 constexpr int cSignalExitBase = 128;
 }  // namespace
 
-// NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
