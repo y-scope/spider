@@ -9,7 +9,7 @@ from .client import (
     g_storage_url,
     storage,
 )
-from .utils import get_free_tcp_port
+from .utils import g_scheduler_port
 
 
 def start_scheduler_workers(
@@ -45,7 +45,7 @@ def start_scheduler_workers(
 @pytest.fixture(scope="class")
 def scheduler_worker(storage):
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
-        storage_url=g_storage_url, scheduler_port=get_free_tcp_port()
+        storage_url=g_storage_url, scheduler_port=g_scheduler_port
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
