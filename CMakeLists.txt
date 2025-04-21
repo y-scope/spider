@@ -157,7 +157,7 @@ else()
 endif()
 
 # Include dependency settings.
-include("build/deps/cmake-settings/settings.cmake")
+include("build/deps/cmake-settings/all.cmake")
 
 find_package(outcome REQUIRED)
 if(outcome_FOUND)
