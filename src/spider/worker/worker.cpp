@@ -45,7 +45,7 @@
 #include "../storage/mysql/MySqlStorageFactory.hpp"
 #include "../storage/StorageConnection.hpp"
 #include "../storage/StorageFactory.hpp"
-#include "../utils/StopToken.hpp"
+#include "../utils/StopFlag.hpp"
 #include "ChildPid.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
@@ -67,7 +67,7 @@ namespace {
  */
 auto stop_task_handler(int signal) -> void {
     if (SIGTERM == signal) {
-        spider::core::StopToken::request_stop();
+        spider::core::StopFlag::request_stop();
         // Send SIGTERM to task executor
         pid_t const pid = spider::core::ChildPid::get_pid();
         if (pid > 0) {
@@ -129,7 +129,7 @@ auto heartbeat_loop(
         spider::core::Driver const& driver
 ) -> void {
     int fail_count = 0;
-    while (!spider::core::StopToken::is_stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -155,7 +155,7 @@ auto heartbeat_loop(
             fail_count = 0;
         }
         if (fail_count >= cRetryCount - 1) {
-            spider::core::StopToken::request_stop();
+            spider::core::StopFlag::request_stop();
             break;
         }
     }
@@ -167,7 +167,7 @@ auto
 fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uuid> fail_task_id)
         -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     spdlog::debug("Fetching task");
-    while (!spider::core::StopToken::is_stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
         if (optional_task_ids.has_value()) {
@@ -206,9 +206,8 @@ auto setup_task(
         );
         return std::nullopt;
     }
-    std::shared_ptr const conn
+    std::unique_ptr<spider::core::StorageConnection> conn
             = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-
     // Get task details
     spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
     if (!err.success()) {
@@ -354,7 +353,7 @@ auto task_loop(
                 boost::process::v2::environment::value> const& environment
 ) -> void {
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
-    while (!spider::core::StopToken::is_stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         boost::asio::io_context context;
 
         auto const& optional_task = fetch_task(client, fail_task_id);
@@ -390,7 +389,7 @@ auto task_loop(
         pid_t const pid = executor.get_pid();
         spider::core::ChildPid::set_pid(pid);
         // Double check if stop token is set to avoid any missing signal
-        if (spider::core::StopToken::is_stop_requested()) {
+        if (spider::core::StopFlag::is_stop_requested()) {
             // NOLINTNEXTLINE(misc-include-cleaner)
             kill(pid, SIGTERM);
         }
@@ -413,7 +412,6 @@ auto task_loop(
 constexpr int cSignalExitBase = 128;
 }  // namespace
 
-// NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
@@ -451,7 +449,6 @@ auto main(int argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    // Ignore SIGTERM
     // NOLINTBEGIN(misc-include-cleaner)
     struct sigaction sig_action{};
     sig_action.sa_handler = stop_task_handler;
@@ -527,9 +524,9 @@ auto main(int argc, char** argv) -> int {
     heartbeat_thread.join();
     task_thread.join();
 
-    // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
-    // handled.
-    if (spider::core::StopToken::is_stop_requested()) {
+    // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
+    // SIGTERM.
+    if (spider::core::StopFlag::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
 

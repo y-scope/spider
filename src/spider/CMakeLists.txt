@@ -69,8 +69,8 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
-    utils/StopToken.hpp
-    utils/StopToken.cpp
+    utils/StopFlag.hpp
+    utils/StopFlag.cpp
     CACHE INTERNAL
     "spider worker source files"
 )
@@ -129,8 +129,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
-    utils/StopToken.hpp
-    utils/StopToken.cpp
+    utils/StopFlag.hpp
+    utils/StopFlag.cpp
     CACHE INTERNAL
     "spider scheduler source files"
 )

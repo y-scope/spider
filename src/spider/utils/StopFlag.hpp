@@ -4,7 +4,13 @@
 #include <atomic>
 
 namespace spider::core {
-class StopToken {
+/**
+ * @brief A singleton class that provides a stop flag for threads and signal handlers.
+ *
+ * User can call request_stop() to set the stop flag, and check if the stop flag is set.
+ * This class is thread-safe and signal-safe.
+ */
+class StopFlag {
 public:
     /*
      * Request to token owners to stop.
@@ -21,19 +27,18 @@ public:
      */
     static auto reset() -> void;
 
+    // Delete constructor
+    StopFlag() = delete;
     // Delete copy constructor and assignment operator
-    StopToken(StopToken const&) = delete;
-    auto operator=(StopToken const&) -> StopToken& = delete;
+    StopFlag(StopFlag const&) = delete;
+    auto operator=(StopFlag const&) -> StopFlag& = delete;
     // Delete move constructor and assignment operator
-    StopToken(StopToken&&) = delete;
-    auto operator=(StopToken&&) -> StopToken& = delete;
+    StopFlag(StopFlag&&) = delete;
+    auto operator=(StopFlag&&) -> StopFlag& = delete;
     // Default destructor
-    ~StopToken() = default;
+    ~StopFlag() = default;
 
 private:
-    // Private constructor for singleton class
-    StopToken() = default;
-
     static std::atomic_flag m_stop;
 };
 }  // namespace spider::core

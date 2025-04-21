@@ -35,4 +35,9 @@ private:
  */
 auto signal_handler_test(spider::TaskContext& /*context*/, int /*x*/) -> int;
 
+/**
+ * @param seconds time to sleep
+ */
+auto sleep_test(spider::TaskContext& /*context*/, int seconds) -> int;
+
 #endif

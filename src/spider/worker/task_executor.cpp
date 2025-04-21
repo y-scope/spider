@@ -72,7 +72,6 @@ constexpr int cFuncArgParseErr = 5;
 constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
-// NOLINTBEGIN(bugprone-exception-escape)
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
@@ -115,18 +114,6 @@ auto main(int const argc, char** argv) -> int {
     } catch (boost::program_options::error& e) {
         return cCmdArgParseErr;
     }
-
-    // Ignore SIGTERM
-    // NOLINTBEGIN(misc-include-cleaner)
-    struct sigaction sig_action{};
-    sig_action.sa_handler = SIG_IGN;
-    sigemptyset(&sig_action.sa_mask);
-    sig_action.sa_flags |= SA_RESTART;
-    if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
-        spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
-        return cSignalHandleErr;
-    }
-    // NOLINTEND(misc-include-cleaner)
 
     spdlog::debug("Function to run: {}", func_name);
 
@@ -188,13 +175,6 @@ auto main(int const argc, char** argv) -> int {
         msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
         spdlog::debug("Function executed");
 
-        // Reinstall signal handler to ignore SIGTERM in case user install another signal handler
-        // NOLINTNEXTLINE(misc-include-cleaner)
-        if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
-            spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
-            return cSignalHandleErr;
-        }
-
         // Write result buffer to stdout
         spider::worker::send_message(out, result_buffer);
     } catch (std::exception& e) {
@@ -203,5 +183,3 @@ auto main(int const argc, char** argv) -> int {
     }
     return 0;
 }
-
-// NOLINTEND(bugprone-exception-escape)

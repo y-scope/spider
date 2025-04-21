@@ -43,5 +43,12 @@ auto signal_handler_test(spider::TaskContext&, int const) -> int {
     return signal_number;
 }
 
+auto sleep_test(spider::TaskContext&, int const seconds) -> int {
+    std::this_thread::sleep_for(std::chrono::seconds(seconds));
+    return 0;
+}
+
 // NOLINTNEXTLINE(cert-err58-cpp)
 SPIDER_REGISTER_TASK(signal_handler_test);
+// NOLINTNEXTLINE(cert-err58-cpp)
+SPIDER_REGISTER_TASK(sleep_test);

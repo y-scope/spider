@@ -28,7 +28,7 @@
 #include "../storage/mysql/MySqlStorageFactory.hpp"
 #include "../storage/StorageConnection.hpp"
 #include "../storage/StorageFactory.hpp"
-#include "../utils/StopToken.hpp"
+#include "../utils/StopFlag.hpp"
 #include "FifoPolicy.hpp"
 #include "SchedulerPolicy.hpp"
 #include "SchedulerServer.hpp"
@@ -49,7 +49,7 @@ namespace {
  */
 auto stop_scheduler_handler(int signal) -> void {
     if (SIGTERM == signal) {
-        spider::core::StopToken::request_stop();
+        spider::core::StopFlag::request_stop();
     }
 }
 
@@ -88,7 +88,7 @@ auto heartbeat_loop(
         spider::core::Scheduler const& scheduler
 ) -> void {
     int fail_count = 0;
-    while (!spider::core::StopToken::is_stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -114,7 +114,7 @@ auto heartbeat_loop(
             fail_count = 0;
         }
         if (fail_count >= cRetryCount - 1) {
-            spider::core::StopToken::request_stop();
+            spider::core::StopFlag::request_stop();
             break;
         }
     }
@@ -124,7 +124,7 @@ auto cleanup_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::DataStorage> const& data_store
 ) -> void {
-    while (!spider::core::StopToken::is_stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
         spdlog::debug("Starting cleanup");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -268,9 +268,9 @@ auto main(int argc, char** argv) -> int {
         spdlog::error("Failed to join thread: {}", e.what());
     }
 
-    // If stop token is triggered, i.e. SIGTERM was caught, set exit value as if SIGTERM is not
-    // handled.
-    if (spider::core::StopToken::is_stop_requested()) {
+    // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
+    // SIGTERM.
+    if (spider::core::StopFlag::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
 
