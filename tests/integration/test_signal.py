@@ -87,8 +87,8 @@ class TestWorkerSignal:
             tasks={task.id: task},
             dependencies=[],
         )
-        job_id = uuid.uuid4()
-        submit_job(storage, job_id, graph)
+        client_id = uuid.uuid4()
+        submit_job(storage, client_id, graph)
         # Sleep for 1 second to wait for the task to start
         time.sleep(1)
 
@@ -112,8 +112,7 @@ class TestWorkerSignal:
             tasks={new_task.id: new_task},
             dependencies=[],
         )
-        new_job_id = uuid.uuid4()
-        submit_job(storage, new_job_id, new_graph)
+        submit_job(storage, client_id, new_graph)
 
         # Sleep for the signal handler task to finish
         time.sleep(15)
@@ -131,8 +130,8 @@ class TestWorkerSignal:
         assert worker_process.poll() == signal.SIGTERM + 128
 
         # Cleanup job
-        remove_job(storage, new_job_id)
-        remove_job(storage, job_id)
+        remove_job(storage, new_graph.id)
+        remove_job(storage, graph.id)
 
     # Test that worker propagates the SIGTERM signal to the task executor.
     # Task executor exits immediately after receiving the signal.
@@ -155,8 +154,8 @@ class TestWorkerSignal:
             tasks={task.id: task},
             dependencies=[],
         )
-        graph_id = uuid.uuid4()
-        submit_job(storage, graph_id, graph)
+        client_id = uuid.uuid4()
+        submit_job(storage, client_id, graph)
 
         # Wait for the task start
         time.sleep(1)
@@ -176,4 +175,4 @@ class TestWorkerSignal:
         assert worker_process.poll() == signal.SIGTERM + 128
 
         # Cleanup job
-        remove_job(storage, graph_id)
+        remove_job(storage, graph.id)
