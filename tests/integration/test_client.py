@@ -6,9 +6,10 @@ from typing import Tuple
 import pytest
 
 from .client import (
+    g_storage_url,
     storage,
-    storage_url,
 )
+from .utils import get_free_tcp_port
 
 
 def start_scheduler_workers(
@@ -41,13 +42,10 @@ def start_scheduler_workers(
     return scheduler_process, worker_process_0, worker_process_1
 
 
-scheduler_port = 6103
-
-
 @pytest.fixture(scope="class")
 def scheduler_worker(storage):
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
-        storage_url=storage_url, scheduler_port=scheduler_port
+        storage_url=g_storage_url, scheduler_port=get_free_tcp_port()
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
@@ -64,7 +62,7 @@ class TestClient:
         client_cmds = [
             str(dir_path / "client_test"),
             "--storage_url",
-            storage_url,
+            g_storage_url,
         ]
         p = subprocess.run(client_cmds, timeout=20)
         assert p.returncode == 0

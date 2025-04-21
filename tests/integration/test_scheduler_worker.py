@@ -12,18 +12,19 @@ from .client import (
     add_driver_data,
     Data,
     Driver,
+    g_storage_url,
     get_task_outputs,
     get_task_state,
     remove_data,
     remove_job,
     storage,
-    storage_url,
     submit_job,
     Task,
     TaskGraph,
     TaskInput,
     TaskOutput,
 )
+from .utils import get_free_tcp_port
 
 
 def start_scheduler_worker(
@@ -55,13 +56,10 @@ def start_scheduler_worker(
     return scheduler_process, worker_process
 
 
-scheduler_port = 6103
-
-
 @pytest.fixture(scope="class")
 def scheduler_worker(storage):
     scheduler_process, worker_process = start_scheduler_worker(
-        storage_url=storage_url, scheduler_port=scheduler_port
+        storage_url=g_storage_url, scheduler_port=get_free_tcp_port()
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
