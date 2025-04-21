@@ -23,10 +23,11 @@ from .client import (
 
 
 def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
-    dir_path = Path(__file__).resolve().parent
-    dir_path = dir_path / ".." / ".." / "src" / "spider"
+    root_dir = Path(__file__).resolve().parents[2]
+    bin_dir = root_dir / "src" / "spider"
+    popen_opts = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     scheduler_cmds = [
-        str(dir_path / "spider_scheduler"),
+        str(bin_dir / "spider_scheduler"),
         "--host",
         "127.0.0.1",
         "--port",
@@ -34,9 +35,9 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
         "--storage_url",
         storage_url,
     ]
-    scheduler_process = subprocess.Popen(scheduler_cmds)
+    scheduler_process = subprocess.Popen(scheduler_cmds, **popen_opts)
     worker_cmds = [
-        str(dir_path / "spider_worker"),
+        str(bin_dir / "spider_worker"),
         "--host",
         "127.0.0.1",
         "--storage_url",
@@ -44,7 +45,7 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
         "--libs",
         lib,
     ]
-    worker_process = subprocess.Popen(worker_cmds)
+    worker_process = subprocess.Popen(worker_cmds, **popen_opts)
 
     return scheduler_process, worker_process
 
