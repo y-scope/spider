@@ -25,7 +25,7 @@ auto DllLoader::load_dll(std::string const& path_str) -> bool {
 
         auto const function_manager_func = boost::dll::import_alias<core::FunctionManager&()>(
                 library,
-                "function_manager_get_instance"
+                "g_function_manager_get_instance"
         );
         core::FunctionManager const& function_manager = function_manager_func();
         core::FunctionMap const& function_map = function_manager.get_function_map();
