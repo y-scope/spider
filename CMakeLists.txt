@@ -83,6 +83,11 @@ else()
 endif()
 message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 
+if(PROJECT_IS_TOP_LEVEL)
+    # Include dependency settings if the project isn't being included as a subproject.
+    include("build/deps/cmake-settings/all.cmake")
+endif()
+
 # Find and setup Boost Library
 if(SPIDER_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS ON)
@@ -155,9 +160,6 @@ if(msgpack-cxx_FOUND)
 else()
     message(FATAL_ERROR "Could not find msgpack-cxx")
 endif()
-
-# Include dependency settings.
-include("build/deps/cmake-settings/all.cmake")
 
 find_package(outcome REQUIRED)
 if(outcome_FOUND)
