@@ -3,17 +3,6 @@ version: "3"
 vars:
   G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
 
-  G_ABSEIL_LIB_NAME: "absl"
-  G_ABSEIL_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_ABSEIL_LIB_NAME}}"
-  G_CATCH2_LIB_NAME: "Catch2"
-  G_CATCH2_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_CATCH2_LIB_NAME}}"
-  G_OUTCOME_LIB_NAME: "outcome"
-  G_OUTCOME_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_OUTCOME_LIB_NAME}}"
-  G_QUICKCPPLIB_LIB_NAME: "quickcpplib"
-  G_QUICKCPPLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}"
-  G_YSTDLIB_LIB_NAME: "ystdlib"
-  G_YSTDLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}"
-
 tasks:
 
   lib_install:
@@ -56,8 +45,8 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_ABSEIL_LIB_NAME}}"
-          WORK_DIR: "{{.G_ABSEIL_WORK_DIR}}"
+          NAME: "absl"
+          WORK_DIR: "{{.G_DEPS_DIR}}/absl"
           FILE_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
           URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
@@ -70,8 +59,8 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_CATCH2_LIB_NAME}}"
-          WORK_DIR: "{{.G_CATCH2_WORK_DIR}}"
+          NAME: "Catch2"
+          WORK_DIR: "{{.G_DEPS_DIR}}/Catch2"
           FILE_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
           URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
@@ -86,13 +75,13 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_OUTCOME_LIB_NAME}}"
-          WORK_DIR: "{{.G_OUTCOME_WORK_DIR}}"
+          NAME: "outcome"
+          WORK_DIR: "{{.G_DEPS_DIR}}/outcome"
           FILE_SHA256: "0382248cbb00806ce4b5f3ce6939797dc3b597c85fd3531614959e31ef488b39"
           URL: "https://github.com/ned14/outcome/archive/refs/tags/v2.2.11.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/quickcpplib.cmake"
             - "-DBUILD_TESTING=OFF"
             - "-DCMAKE_BUILD_TYPE=Release"
             - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
@@ -104,8 +93,8 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
-          WORK_DIR: "{{.G_QUICKCPPLIB_WORK_DIR}}"
+          NAME: "quickcpplib"
+          WORK_DIR: "{{.G_DEPS_DIR}}/quickcpplib"
           FILE_SHA256: "5d4c9b2d6fa177d3fb14f3fe3086867e43b44f4a7a944eb10ee4616b2b0f3c05"
           URL: "https://github.com/ned14/quickcpplib/archive/f3e452e.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
@@ -121,11 +110,11 @@ tasks:
       - task: ":utils:remote:download-and-extract-tar"
         vars:
           FILE_SHA256: "d3fc9804eacb3ee4f156ae0ca37151cb04847580"
-          OUTPUT_DIR: "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
+          OUTPUT_DIR: "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
           URL: "https://github.com/y-scope/ystdlib-cpp/archive/d3fc980.tar.gz"
       - |
-        cat <<EOF >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}.cmake"
+        cat <<EOF >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/ystdlib.cmake"
         set(
-        SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
+        SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
         )
         EOF
