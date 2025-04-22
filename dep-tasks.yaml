@@ -126,6 +126,6 @@ tasks:
       - |
         cat <<EOF >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}.cmake"
         set(
-          SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
+        SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
         )
         EOF
