@@ -50,21 +50,6 @@ tasks:
       - task: "install-outcome"
       - task: "download-ystdlib"
 
-  add-package-root-to-cmake-settings:
-    internal: true
-    requires:
-      vars:
-        - "NAME"
-        - "INSTALL_PREFIX"
-    cmds:
-      - >-
-        echo "set(
-          {{.NAME}}_ROOT
-          \"{{.INSTALL_PREFIX}}\"
-          CACHE PATH
-          \"Path to {{.NAME}} settings\"
-        )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.NAME}}.cmake"
-
   install-abseil:
     internal: true
     run: "once"
@@ -138,7 +123,9 @@ tasks:
           FILE_SHA256: "d3fc9804eacb3ee4f156ae0ca37151cb04847580"
           OUTPUT_DIR: "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
           URL: "https://github.com/y-scope/ystdlib-cpp/archive/d3fc980.tar.gz"
-      - >-
-        echo "set(
-        SPIDER_YSTDLIB_SOURCE_DIRECTORY \"{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src\"
-        )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}.cmake"
+      - |
+        cat <<EOF >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}.cmake"
+        set(
+          SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
+        )
+        EOF
