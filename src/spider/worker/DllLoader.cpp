@@ -39,7 +39,7 @@ auto DllLoader::load_dll(std::string const& path_str) -> bool {
         auto const function_name_manager_func
                 = boost::dll::import_alias<core::FunctionNameManager&()>(
                         library,
-                        "function_name_manager_get_instance"
+                        "g_function_name_manager_get_instance"
                 );
         core::FunctionNameManager const& function_name_manager = function_name_manager_func();
         core::FunctionNameMap const& function_name_map
