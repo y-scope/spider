@@ -44,7 +44,7 @@ constexpr int cRetryCount = 5;
 
 namespace {
 /*
- * Signal handler for SIGTERM. Sets the stop token to request a stop.
+ * Signal handler for SIGTERM. Sets the stop flag to request a stop.
  * @param signal The signal number.
  */
 auto stop_scheduler_handler(int signal) -> void {
@@ -268,8 +268,7 @@ auto main(int argc, char** argv) -> int {
         spdlog::error("Failed to join thread: {}", e.what());
     }
 
-    // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
-    // SIGTERM.
+    // If SIGTERM was caught and StopFlag is requested, set the exit value corresponding to SIGTERM.
     if (spider::core::StopFlag::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }

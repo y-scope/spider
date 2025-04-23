@@ -61,8 +61,8 @@ constexpr int cRetryCount = 5;
 
 namespace {
 /*
- * Signal handler for SIGTERM. It sets the stop token to request a stop and sends SIGTERM to the
- * task executor.
+ * Signal handler for SIGTERM. It sets the stop flag to request a stop and sends SIGTERM to the task
+ * executor.
  * @param signal The signal number.
  */
 auto stop_task_handler(int signal) -> void {
@@ -524,8 +524,7 @@ auto main(int argc, char** argv) -> int {
     heartbeat_thread.join();
     task_thread.join();
 
-    // If SIGTERM was caught and StopFlag is requested, set the exit value to corresponding to
-    // SIGTERM.
+    // If SIGTERM was caught and StopFlag is requested, set the exit value corresponding to SIGTERM.
     if (spider::core::StopFlag::is_stop_requested()) {
         return cSignalExitBase + SIGTERM;
     }
