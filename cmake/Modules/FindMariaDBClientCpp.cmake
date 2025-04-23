@@ -15,11 +15,16 @@ set(mariadbclientcpp_LIBNAME "mariadbcpp")
 
 include(cmake/Modules/FindLibraryDependencies.cmake)
 
+# Run pkg-config
+find_package(PkgConfig)
+pkg_check_modules(mariadbclientcpp_PKGCONF QUIET "lib${mariadbclientcpp_LIBNAME}")
+
 # Set include directory
 find_path(
     MariaDBClientCpp_INCLUDE_DIR
     mariadb/conncpp.hpp
     HINTS
+        ${mariadbclientcpp_PKGCONF_INCLUDEDIR}
         ${mariadb-connector-cpp_ROOT}
     PATH_SUFFIXES
         include
@@ -47,6 +52,7 @@ find_library(
     NAMES
         ${mariadbclientcpp_LIBNAME}
     HINTS
+        ${mariadbclientcpp_PKGCONF_LIBDIR}
         ${mariadb-connector-cpp_ROOT}
     PATH_SUFFIXES
         lib
