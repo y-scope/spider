@@ -49,7 +49,7 @@ jobs:
           task --version
 
       - name: "Install project dependencies "
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: "task deps:lib_install"
 
       - run: "task test:non-storage-unit-tests"
