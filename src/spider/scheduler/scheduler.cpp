@@ -44,7 +44,7 @@ constexpr int cRetryCount = 5;
 
 namespace {
 /*
- * Signal handler for SIGTERM. Sets the stop token to request a stop.
+ * Signal handler for SIGTERM. Sets the stop flag to request a stop.
  * @param signal The signal number.
  */
 auto stop_scheduler_handler(int signal) -> void {
