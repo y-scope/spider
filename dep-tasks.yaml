@@ -38,6 +38,9 @@ tasks:
       - task: "install-Catch2"
       - task: "install-outcome"
       - task: "download-ystdlib"
+      - task: "install-spdlog"
+      - task: "install-mariadb-connector-cpp"
+      - task: "install-msgpack"
 
   install-abseil:
     internal: true
@@ -118,3 +121,67 @@ tasks:
         SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
         )
         EOF
+
+  install-fmtlib:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "fmt"
+          WORK_DIR: "{{.G_DEPS_DIR}}/fmtlib"
+          FILE_SHA256: "6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f"
+          URL: "https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+          GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+
+  install-spdlog:
+    internal: true
+    run: "once"
+    deps:
+      - "install-fmtlib"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "spdlog"
+          WORK_DIR: "{{.G_DEPS_DIR}}/spdlog"
+          FILE_SHA256: "9962648c9b4f1a7bbc76fd8d9172555bad1871fdb14ff4f842ef87949682caa5"
+          URL: "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+          GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DUSE_EXTERNAL_FMT=ON"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
+
+  install-mariadb-connector-cpp:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "mariadb-connector-cpp"
+          WORK_DIR: "{{.G_DEPS_DIR}}/mariadb-connector-cpp"
+          FILE_SHA256: "0e3dfe9f2bc3f7bb6f7c159009556290064a7c23402ea08019fa8aebfc3ff2c9"
+          URL: "https://github.com/mariadb-corporation/mariadb-connector-cpp/archive/refs/tags/\
+            1.1.5.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+          GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DUSE_SYSTEM_INSTALLED_LIB=ON"
+            - "-DINSTALL_LAYOUT=RPM"
+
+  install-msgpack:
+    internal: true
+    run: "once"
+    cmds:
+      - task: ":utils:cmake:install-remote-tar"
+        vars:
+          NAME: "msgpack-cxx"
+          WORK_DIR: "{{.G_DEPS_DIR}}/msgpack"
+          FILE_SHA256: "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f"
+          URL: "https://github.com/msgpack/msgpack-c/releases/download/\
+            cpp-7.0.0/msgpack-cxx-7.0.0.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+          GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
