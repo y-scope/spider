@@ -22,5 +22,5 @@ auto FunctionNameManager::get_function_name(void const* ptr) const -> std::optio
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 BOOST_DLL_ALIAS(
         spider::core::FunctionNameManager::get_instance,
-        function_name_manager_get_instance
+        g_function_name_manager_get_instance
 );
