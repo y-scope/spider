@@ -42,6 +42,9 @@ else()
 endif()
 
 # Find library
+file(GLOB lib_files ${mariadb-connector-cpp_ROOT}/lib/**)
+message(STATUS "lib_files: ${lib_files}")
+set(CMAKE_FIND_DEBUG_MODE ON)
 find_library(
     MariaDBClientCpp_LIBRARY
     NAMES
@@ -51,6 +54,7 @@ find_library(
     PATH_SUFFIXES
         lib/${CMAKE_LIBRARY_ARCHITECTURE}
 )
+set(CMAKE_FIND_DEBUG_MODE OFF)
 if(MariaDBClientCpp_LIBRARY)
     # NOTE: This must be set for find_package_handle_standard_args to work
     set(MariaDBClientCpp_FOUND ON)
