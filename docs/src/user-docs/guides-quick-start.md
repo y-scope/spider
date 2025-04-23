@@ -224,16 +224,18 @@ storage backend URL in the command.
 
 # Exiting the cluster
 
-To stop the cluster, sends `SIGTERM` to the scheduler and all workers.
+To stop the cluster, send `SIGTERM` to the scheduler and all workers.
 
-A scheduler finishes the current tasks, e.g. scheduling task to worker, garbage collection, failure
-recovery, etc, then exits with `SIGTERM`.
+The scheduler finishes the current tasks (e.g., scheduling tasks to workers, garbage collection,
+failure recovery, etc.), then exits with `SIGTERM`.
 
 When a worker receives `SIGTERM`, if it has no task executor, it exits immediately with `SIGTERM`.
+
 If the worker has a task executor, it sends a `SIGTERM` to the task executor and waits for it to
-exit. Normally a task executor exits immediately, and the worker sets the task as failed. If a task
-installs a signal handler and catches SIGTERM, then the task executor completes the execution of the
-task, and worker handles the task output as usual. Then the worker exits with SIGTERM.
+exit.  
+Normally, the task executor exits immediately, and the worker sets the task as failed. If the task
+executor has a signal handler installed and catches `SIGTERM`, it completes the execution of the
+task, and the worker handles the task output as usual. Then the worker exits with `SIGTERM`.
 
 # Next steps
 
