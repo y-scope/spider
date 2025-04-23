@@ -24,6 +24,7 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no
     jq \
     libcurl4 \
     libcurl4-openssl-dev \
+    libmariadb-dev \
     libssl-dev \
     make \
     pkg-config \
