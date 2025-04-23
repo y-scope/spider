@@ -33,6 +33,6 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no
     python3-venv
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-lib_install_scripts_dir=$script_dir/..
+lib_install_scripts_dir="$script_dir/.."
 # TODO https://github.com/y-scope/spider/issues/86
 "$lib_install_scripts_dir"/check-cmake-version.sh
