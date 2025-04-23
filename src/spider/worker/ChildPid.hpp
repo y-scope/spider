@@ -10,7 +10,7 @@ namespace spider::core {
  * @brief A singleton class to manage the child process ID for signal handler.
  *
  * User can set the child process ID using set_pid() method, and retrieve it using get_pid() method.
- * This class is signal-safe but is <b>not</b> thread-safe.
+ * This class is signal-safe but is **not** thread-safe.
  */
 class ChildPid {
 public:
