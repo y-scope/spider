@@ -222,6 +222,19 @@ NOTE:
 If you used a different set of arguments to set up the storage backend, ensure you update the
 storage backend URL in the command.
 
+# Exiting the cluster
+
+To stop the cluster, sends `SIGTERM` to the scheduler and all workers.
+
+A scheduler finishes the current tasks, e.g. scheduling task to worker, garbage collection, failure
+recovery, etc, then exits with `SIGTERM`.
+
+When a worker receives `SIGTERM`, if it has no task executor, it exits immediately with `SIGTERM`.
+If the worker has a task executor, it sends a `SIGTERM` to the task executor and waits for it to
+exit. Normally a task executor exits immediately, and the worker sets the task as failed. If a task
+installs a signal handler and catches SIGTERM, then the task executor completes the execution of the
+task, and worker handles the task output as usual. Then the worker exits with SIGTERM.
+
 # Next steps
 
 In future guides, we'll explain how to write more complex tasks, as well as how to leverage Spider's
