@@ -61,8 +61,8 @@ constexpr int cRetryCount = 5;
 
 namespace {
 /*
- * Signal handler for SIGTERM. It sets the stop token to request a stop and sends SIGTERM to the
- * task executor.
+ * Signal handler for SIGTERM. It sets the stop flag to request a stop and sends SIGTERM to the task
+ * executor.
  * @param signal The signal number.
  */
 auto stop_task_handler(int signal) -> void {
