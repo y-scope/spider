@@ -16,12 +16,14 @@ tasks:
     internal: true
     deps:
       - task: "install-abseil"
+      - task: "install-boost"
       - task: "install-Catch2"
-      - task: "install-outcome"
-      - task: "download-ystdlib"
-      - task: "install-spdlog"
+      - task: "install-fmtlib"
       - task: "install-mariadb-connector-cpp"
       - task: "install-msgpack"
+      - task: "install-outcome"
+      - task: "install-spdlog"
+      - task: "download-ystdlib"
 
   install-abseil:
     internal: true
