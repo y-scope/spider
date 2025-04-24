@@ -32,6 +32,10 @@
 #include <fmt/format.h>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
+// Temporarily disable quickcpplib to include valgrind headers to avoid
+// conflicts with abseil valgrind headers, until the issue is resolved at
+// https://github.com/y-scope/ystdlib-cpp/issues/59.
+#undef QUICKCPPLIB_ENABLE_VALGRIND
 #include <ystdlib/error_handling/Result.hpp>
 
 #include "../core/Data.hpp"
