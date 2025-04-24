@@ -72,12 +72,12 @@ def is_head_task(task_id: uuid.UUID, dependencies: List[Tuple[uuid.UUID, uuid.UU
     return not any(dependency[1] == task_id for dependency in dependencies)
 
 
-storage_url = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
+g_storage_url = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
 
 
 @pytest.fixture(scope="session")
 def storage():
-    conn = create_connection(storage_url)
+    conn = create_connection(g_storage_url)
     yield conn
     conn.close()
 

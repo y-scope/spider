@@ -3,17 +3,6 @@ version: "3"
 vars:
   G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
 
-  G_ABSEIL_LIB_NAME: "absl"
-  G_ABSEIL_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_ABSEIL_LIB_NAME}}"
-  G_CATCH2_LIB_NAME: "Catch2"
-  G_CATCH2_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_CATCH2_LIB_NAME}}"
-  G_OUTCOME_LIB_NAME: "outcome"
-  G_OUTCOME_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_OUTCOME_LIB_NAME}}"
-  G_QUICKCPPLIB_LIB_NAME: "quickcpplib"
-  G_QUICKCPPLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}"
-  G_YSTDLIB_LIB_NAME: "ystdlib"
-  G_YSTDLIB_WORK_DIR: "{{.G_DEPS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}"
-
 tasks:
 
   lib_install:
@@ -37,15 +26,10 @@ tasks:
 
   dep_install:
     cmds:
-      - task: "install-all-init"
-      - task: "install-all-run"
-      - task: "install-all-finish"
-
-  install-all-init:
-    internal: true
-    cmds:
-      - "rm -rf {{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-      - "mkdir -p {{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+      - task: ":utils:cmake:install-deps-and-generate-settings"
+        vars:
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+          DEP_TASK: "deps:install-all-run"
 
   install-all-run:
     internal: true
@@ -55,47 +39,19 @@ tasks:
       - task: "install-outcome"
       - task: "download-ystdlib"
 
-  install-all-finish:
-    internal: true
-    cmds:
-      - >-
-        for file in {{.G_DEPS_CMAKE_SETTINGS_DIR}}/*.cmake; do
-          if [ "$file" != "{{.G_DEPS_CMAKE_SETTINGS_FILE}}" ]; then
-            echo "include(\"$file\")" >> "{{.G_DEPS_CMAKE_SETTINGS_FILE}}";
-          fi
-        done
-
-  add-package-root-to-cmake-settings:
-    internal: true
-    requires:
-      vars:
-        - "NAME"
-        - "INSTALL_PREFIX"
-    cmds:
-      - >-
-        echo "set(
-          {{.NAME}}_ROOT
-          \"{{.INSTALL_PREFIX}}\"
-          CACHE PATH
-          \"Path to {{.NAME}} settings\"
-        )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.NAME}}.cmake"
-
   install-abseil:
     internal: true
     run: "once"
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_ABSEIL_LIB_NAME}}"
-          WORK_DIR: "{{.G_ABSEIL_WORK_DIR}}"
+          NAME: "absl"
+          WORK_DIR: "{{.G_DEPS_DIR}}/absl"
           FILE_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
           URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-      - task: "add-package-root-to-cmake-settings"
-        vars:
-          NAME: "{{.G_ABSEIL_LIB_NAME}}"
-          INSTALL_PREFIX: "{{.G_ABSEIL_WORK_DIR}}/{{.G_ABSEIL_LIB_NAME}}-install"
 
   install-Catch2:
     internal: true
@@ -103,16 +59,13 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_CATCH2_LIB_NAME}}"
-          WORK_DIR: "{{.G_CATCH2_WORK_DIR}}"
+          NAME: "Catch2"
+          WORK_DIR: "{{.G_DEPS_DIR}}/Catch2"
           FILE_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
           URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-      - task: "add-package-root-to-cmake-settings"
-        vars:
-          NAME: "{{.G_CATCH2_LIB_NAME}}"
-          INSTALL_PREFIX: "{{.G_CATCH2_WORK_DIR}}/{{.G_CATCH2_LIB_NAME}}-install"
 
   install-outcome:
     internal: true
@@ -122,20 +75,17 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_OUTCOME_LIB_NAME}}"
-          WORK_DIR: "{{.G_OUTCOME_WORK_DIR}}"
+          NAME: "outcome"
+          WORK_DIR: "{{.G_DEPS_DIR}}/outcome"
           FILE_SHA256: "0382248cbb00806ce4b5f3ce6939797dc3b597c85fd3531614959e31ef488b39"
           URL: "https://github.com/ned14/outcome/archive/refs/tags/v2.2.11.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/quickcpplib.cmake"
             - "-DBUILD_TESTING=OFF"
             - "-DCMAKE_BUILD_TYPE=Release"
             - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-      - task: "add-package-root-to-cmake-settings"
-        vars:
-          NAME: "{{.G_OUTCOME_LIB_NAME}}"
-          INSTALL_PREFIX: "{{.G_OUTCOME_WORK_DIR}}/{{.G_OUTCOME_LIB_NAME}}-install"
 
   install-quickcpplib:
     internal: true
@@ -143,18 +93,15 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
-          WORK_DIR: "{{.G_QUICKCPPLIB_WORK_DIR}}"
+          NAME: "quickcpplib"
+          WORK_DIR: "{{.G_DEPS_DIR}}/quickcpplib"
           FILE_SHA256: "5d4c9b2d6fa177d3fb14f3fe3086867e43b44f4a7a944eb10ee4616b2b0f3c05"
           URL: "https://github.com/ned14/quickcpplib/archive/f3e452e.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DBUILD_TESTING=OFF"
             - "-DCMAKE_BUILD_TYPE=Release"
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-      - task: "add-package-root-to-cmake-settings"
-        vars:
-          NAME: "{{.G_QUICKCPPLIB_LIB_NAME}}"
-          INSTALL_PREFIX: "{{.G_QUICKCPPLIB_WORK_DIR}}/{{.G_QUICKCPPLIB_LIB_NAME}}-install"
 
   download-ystdlib:
     internal: true
@@ -163,9 +110,11 @@ tasks:
       - task: ":utils:remote:download-and-extract-tar"
         vars:
           FILE_SHA256: "d3fc9804eacb3ee4f156ae0ca37151cb04847580"
-          OUTPUT_DIR: "{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src"
+          OUTPUT_DIR: "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
           URL: "https://github.com/y-scope/ystdlib-cpp/archive/d3fc980.tar.gz"
-      - >-
-        echo "set(
-        SPIDER_YSTDLIB_SOURCE_DIRECTORY \"{{.G_YSTDLIB_WORK_DIR}}/{{.G_YSTDLIB_LIB_NAME}}-src\"
-        )" >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/{{.G_YSTDLIB_LIB_NAME}}.cmake"
+      - |
+        cat <<EOF >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/ystdlib.cmake"
+        set(
+        SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
+        )
+        EOF

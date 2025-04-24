@@ -1,4 +1,8 @@
+#include <unistd.h>
+
+#include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
@@ -43,20 +47,38 @@
 #include "../storage/mysql/MySqlStorageFactory.hpp"
 #include "../storage/StorageConnection.hpp"
 #include "../storage/StorageFactory.hpp"
-#include "../utils/StopToken.hpp"
+#include "../utils/StopFlag.hpp"
+#include "ChildPid.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
-#include "WorkerErrorCode.hpp"
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cWorkerAddrErr = 2;
-constexpr int cStorageConnectionErr = 3;
-constexpr int cStorageErr = 4;
-constexpr int cTaskErr = 5;
+constexpr int cSignalHandleErr = 2;
+constexpr int cWorkerAddrErr = 3;
+constexpr int cStorageConnectionErr = 4;
+constexpr int cStorageErr = 5;
+constexpr int cTaskErr = 6;
 
 constexpr int cRetryCount = 5;
 
 namespace {
+/*
+ * Signal handler for SIGTERM. It sets the stop flag to request a stop and sends SIGTERM to the task
+ * executor.
+ * @param signal The signal number.
+ */
+auto stop_task_handler(int signal) -> void {
+    if (SIGTERM == signal) {
+        spider::core::StopFlag::request_stop();
+        // Send SIGTERM to task executor
+        pid_t const pid = spider::core::ChildPid::get_pid();
+        if (pid > 0) {
+            // NOLINTNEXTLINE(misc-include-cleaner)
+            kill(pid, SIGTERM);
+        }
+    }
+}
+
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider scheduler");
@@ -106,11 +128,10 @@ auto get_environment_variable() -> absl::flat_hash_map<
 auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::Driver const& driver,
-        spider::core::StopToken& stop_token
+        spider::core::Driver const& driver
 ) -> void {
     int fail_count = 0;
-    while (!stop_token.stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -136,7 +157,7 @@ auto heartbeat_loop(
             fail_count = 0;
         }
         if (fail_count >= cRetryCount - 1) {
-            stop_token.request_stop();
+            spider::core::StopFlag::request_stop();
             break;
         }
     }
@@ -146,18 +167,19 @@ constexpr int cFetchTaskTimeout = 100;
 
 auto
 fetch_task(spider::worker::WorkerClient& client, std::optional<boost::uuids::uuid> fail_task_id)
-        -> std::tuple<boost::uuids::uuid, boost::uuids::uuid> {
+        -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     spdlog::debug("Fetching task");
-    while (true) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> const optional_task_ids
                 = client.get_next_task(fail_task_id);
         if (optional_task_ids.has_value()) {
-            return optional_task_ids.value();
+            return optional_task_ids;
         }
         // If the first request succeeds, later requests should not include the failed task id
         fail_task_id = std::nullopt;
         std::this_thread::sleep_for(std::chrono::milliseconds(cFetchTaskTimeout));
     }
+    return std::nullopt;
 }
 
 /**
@@ -187,8 +209,8 @@ auto setup_task(
         );
         return spider::worker::WorkerErrorCodeEnum::StorageError;
     }
-    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
-
+    std::unique_ptr<spider::core::StorageConnection> conn
+            = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
     // Get task details
     spider::core::StorageErr const err = metadata_store->get_task(*conn, instance.task_id, &task);
     if (!err.success()) {
@@ -343,14 +365,17 @@ auto task_loop(
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
-                boost::process::v2::environment::value> const& environment,
-        spider::core::StopToken const& stop_token
+                boost::process::v2::environment::value> const& environment
 ) -> void {
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
-    while (!stop_token.stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         boost::asio::io_context context;
 
-        auto const [task_id, task_instance_id] = fetch_task(client, fail_task_id);
+        auto const& optional_task = fetch_task(client, fail_task_id);
+        if (false == optional_task.has_value()) {
+            continue;
+        }
+        auto const [task_id, task_instance_id] = optional_task.value();
         spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         // Fetch task detail from metadata storage
@@ -377,6 +402,14 @@ auto task_loop(
                 arg_buffers
         };
 
+        pid_t const pid = executor.get_pid();
+        spider::core::ChildPid::set_pid(pid);
+        // Double check if stop token is set to avoid any missing signal
+        if (spider::core::StopFlag::is_stop_requested()) {
+            // NOLINTNEXTLINE(misc-include-cleaner)
+            kill(pid, SIGTERM);
+        }
+
         context.run();
         executor.wait();
 
@@ -391,9 +424,10 @@ auto task_loop(
 }
 
 // NOLINTEND(clang-analyzer-unix.BlockInCriticalSection)
+
+constexpr int cSignalExitBase = 128;
 }  // namespace
 
-// NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
     // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
@@ -431,6 +465,17 @@ auto main(int argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
+    // NOLINTBEGIN(misc-include-cleaner)
+    struct sigaction sig_action{};
+    sig_action.sa_handler = stop_task_handler;
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_flags |= SA_RESTART;
+    if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
+        spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
+        return cSignalHandleErr;
+    }
+    // NOLINTEND(misc-include-cleaner)
+
     // Create storage
     std::shared_ptr<spider::core::StorageFactory> const storage_factory
             = std::make_shared<spider::core::MySqlStorageFactory>(storage_url);
@@ -464,8 +509,6 @@ auto main(int argc, char** argv) -> int {
         }
     }
 
-    spider::core::StopToken stop_token;
-
     // Start client
     spider::worker::WorkerClient
             client{worker_id, worker_addr, data_store, metadata_store, storage_factory};
@@ -481,7 +524,6 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
-            std::ref(stop_token)
     };
 
     // Start a thread that processes tasks
@@ -493,11 +535,15 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_url),
             std::cref(libs),
             std::cref(environment_variables),
-            std::cref(stop_token),
     };
 
     heartbeat_thread.join();
     task_thread.join();
+
+    // If SIGTERM was caught and StopFlag is requested, set the exit value corresponding to SIGTERM.
+    if (spider::core::StopFlag::is_stop_requested()) {
+        return cSignalExitBase + SIGTERM;
+    }
 
     return 0;
 }

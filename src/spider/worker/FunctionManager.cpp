@@ -115,4 +115,4 @@ auto FunctionManager::get_function(std::string const& name) const -> Function co
 }  // namespace spider::core
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-BOOST_DLL_ALIAS(spider::core::FunctionManager::get_instance, function_manager_get_instance)
+BOOST_DLL_ALIAS(spider::core::FunctionManager::get_instance, g_function_manager_get_instance)
