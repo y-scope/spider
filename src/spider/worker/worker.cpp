@@ -51,6 +51,7 @@
 #include "ChildPid.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
+#include "WorkerErrorCode.hpp"
 
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;
