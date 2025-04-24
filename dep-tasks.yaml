@@ -36,6 +36,7 @@ tasks:
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DABSL_BUILD_TESTING=OFF"
 
   install-Catch2:
     internal: true
@@ -50,6 +51,7 @@ tasks:
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DCATCH_BUILD_TESTING=OFF"
 
   install-outcome:
     internal: true
@@ -116,6 +118,8 @@ tasks:
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DFMT_TEST=OFF"
+            - "-DFMT_DOC=OFF"
 
   install-spdlog:
     internal: true
@@ -133,6 +137,7 @@ tasks:
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DSPDLOG_BUILD_TESTS=OFF"
             - "-DUSE_EXTERNAL_FMT=ON"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
@@ -170,6 +175,7 @@ tasks:
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-DMSGPACK_BUILD_TESTS=OFF"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
 
   install-boost:
