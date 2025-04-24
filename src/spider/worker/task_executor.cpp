@@ -1,5 +1,7 @@
 #include <unistd.h>
 
+#include <cerrno>
+#include <csignal>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -63,11 +65,12 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cStorageErr = 2;
-constexpr int cDllErr = 3;
-constexpr int cFuncArgParseErr = 4;
-constexpr int cResultSendErr = 5;
-constexpr int cOtherErr = 6;
+constexpr int cSignalHandleErr = 2;
+constexpr int cStorageErr = 3;
+constexpr int cDllErr = 4;
+constexpr int cFuncArgParseErr = 5;
+constexpr int cResultSendErr = 6;
+constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr

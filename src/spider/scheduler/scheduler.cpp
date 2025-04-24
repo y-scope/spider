@@ -1,4 +1,6 @@
+#include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <functional>
 #include <memory>
 #include <string>
@@ -26,20 +28,31 @@
 #include "../storage/mysql/MySqlStorageFactory.hpp"
 #include "../storage/StorageConnection.hpp"
 #include "../storage/StorageFactory.hpp"
-#include "../utils/StopToken.hpp"
+#include "../utils/StopFlag.hpp"
 #include "FifoPolicy.hpp"
 #include "SchedulerPolicy.hpp"
 #include "SchedulerServer.hpp"
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cStorageConnectionErr = 2;
-constexpr int cSchedulerAddrErr = 3;
-constexpr int cStorageErr = 4;
+constexpr int cSignalHandleErr = 2;
+constexpr int cStorageConnectionErr = 3;
+constexpr int cSchedulerAddrErr = 4;
+constexpr int cStorageErr = 5;
 
 constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
 
 namespace {
+/*
+ * Signal handler for SIGTERM. Sets the stop flag to request a stop.
+ * @param signal The signal number.
+ */
+auto stop_scheduler_handler(int signal) -> void {
+    if (SIGTERM == signal) {
+        spider::core::StopFlag::request_stop();
+    }
+}
+
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
     desc.add_options()("help", "spider scheduler");
@@ -72,11 +85,10 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::Scheduler const& scheduler,
-        spider::core::StopToken& stop_token
+        spider::core::Scheduler const& scheduler
 ) -> void {
     int fail_count = 0;
-    while (!stop_token.stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -102,7 +114,7 @@ auto heartbeat_loop(
             fail_count = 0;
         }
         if (fail_count >= cRetryCount - 1) {
-            stop_token.request_stop();
+            spider::core::StopFlag::request_stop();
             break;
         }
     }
@@ -110,10 +122,9 @@ auto heartbeat_loop(
 
 auto cleanup_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
-        std::shared_ptr<spider::core::DataStorage> const& data_store,
-        spider::core::StopToken const& stop_token
+        std::shared_ptr<spider::core::DataStorage> const& data_store
 ) -> void {
-    while (!stop_token.stop_requested()) {
+    while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(cCleanupInterval));
         spdlog::debug("Starting cleanup");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -133,6 +144,8 @@ auto cleanup_loop(
         spdlog::debug("Finished cleanup");
     }
 }
+
+constexpr int cSignalExitBase = 128;
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -170,6 +183,18 @@ auto main(int argc, char** argv) -> int {
     } catch (boost::program_options::error& e) {
         return cCmdArgParseErr;
     }
+
+    // Ignore SIGTERM
+    // NOLINTBEGIN(misc-include-cleaner)
+    struct sigaction sig_action{};
+    sig_action.sa_handler = stop_scheduler_handler;
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_flags |= SA_RESTART;
+    if (0 != sigaction(SIGTERM, &sig_action, nullptr)) {
+        spdlog::error("Fail to install signal handler for SIGTERM: errno {}", errno);
+        return cSignalHandleErr;
+    }
+    // NOLINTEND(misc-include-cleaner)
 
     // Create storages
     std::shared_ptr<spider::core::StorageFactory> const storage_factory
@@ -215,7 +240,6 @@ auto main(int argc, char** argv) -> int {
     }
 
     // Start scheduler server
-    spider::core::StopToken stop_token;
     std::shared_ptr<spider::scheduler::SchedulerPolicy> const policy
             = std::make_shared<spider::scheduler::FifoPolicy>(
                     scheduler_id,
@@ -223,8 +247,7 @@ auto main(int argc, char** argv) -> int {
                     data_store,
                     conn
             );
-    spider::scheduler::SchedulerServer
-            server{port, policy, metadata_store, data_store, conn, stop_token};
+    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, conn};
 
     try {
         // Start a thread that periodically updates the scheduler's heartbeat
@@ -232,23 +255,22 @@ auto main(int argc, char** argv) -> int {
                 heartbeat_loop,
                 std::cref(storage_factory),
                 std::cref(metadata_store),
-                std::ref(scheduler),
-                std::ref(stop_token),
+                std::ref(scheduler)
         };
 
         // Start a thread that periodically starts cleanup
-        std::thread cleanup_thread{
-                cleanup_loop,
-                std::cref(storage_factory),
-                std::cref(data_store),
-                std::ref(stop_token)
-        };
+        std::thread cleanup_thread{cleanup_loop, std::cref(storage_factory), std::cref(data_store)};
 
         heartbeat_thread.join();
         cleanup_thread.join();
         server.stop();
     } catch (std::system_error& e) {
         spdlog::error("Failed to join thread: {}", e.what());
+    }
+
+    // If SIGTERM was caught and StopFlag is requested, set the exit value corresponding to SIGTERM.
+    if (spider::core::StopFlag::is_stop_requested()) {
+        return cSignalExitBase + SIGTERM;
     }
 
     return 0;

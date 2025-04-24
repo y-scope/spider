@@ -57,6 +57,8 @@ target_link_libraries(
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
+    worker/ChildPid.hpp
+    worker/ChildPid.cpp
     worker/DllLoader.hpp
     worker/DllLoader.cpp
     worker/Process.hpp
@@ -68,7 +70,8 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
-    utils/StopToken.hpp
+    utils/StopFlag.hpp
+    utils/StopFlag.cpp
     CACHE INTERNAL
     "spider worker source files"
 )
@@ -127,7 +130,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
-    utils/StopToken.hpp
+    utils/StopFlag.hpp
+    utils/StopFlag.cpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
