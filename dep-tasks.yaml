@@ -273,19 +273,19 @@ tasks:
   # @param {string} FILE_SHA256 Content hash to verify the downloaded tar file against.
   # @param {string} URL
   #
-  # Generate parameters
+  # Boost generate parameters
   # @param {string} [INSTALL_PREFIX={{.WORK_DIR}}/boost-install] Path prefix of where the project
   # should be installed.
   # @param {string[]} TARGETS Target libraries to build.
   # @param {string[]} [GEN_ARGS] Any additional arguments to pass to the generate command.
   #
-  # Build parameters
+  # Boost build parameters
   # @param {int} [JOBS] The maximum number of concurrent processes to use when building. If
   # omitted, the b2 default number is used. Before 1.76.0, the number was 1. Since 1.76.0, the
   # default is the number of cores.
   # @param {string[]} [BUILD_ARGS] Any additional arguments to pass to the build command.
   #
-  # Install parameters
+  # Boost install parameters
   # @param {string[]} [INSTALL_ARGS] Any additional arguments to pass to the install command.
   # @param {string} [CMAKE_SETTINGS_DIR] If set, the directory where the project's CMake settings
   # file should be stored.
@@ -299,7 +299,7 @@ tasks:
       SOURCE_DIR: >-
         {{default (printf "%s/boost-src" .WORK_DIR) .SOURCE_DIR}}
 
-      # Generate parameters
+      # Boost generate parameters
       INSTALL_PREFIX: >-
         {{default (printf "%s/boost-install" .WORK_DIR) .INSTALL_PREFIX}}
       TARGETS:
@@ -307,7 +307,7 @@ tasks:
       GEN_ARGS:
         ref: "default (list) .GEN_ARGS"
 
-      # Build parameters
+      # Boost build parameters
       BUILD_ARGS:
         ref: "default (list) .BUILD_ARGS"
       JOBS: >-
