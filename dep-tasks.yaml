@@ -313,7 +313,7 @@ tasks:
       JOBS: >-
         {{default "" .JOBS}}
 
-      # Install parameters
+      # Boost install parameters
       INSTALL_ARGS:
         ref: "default (list) .INSTALL_ARGS"
       CMAKE_SETTINGS_DIR: >-
