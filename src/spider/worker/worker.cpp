@@ -32,7 +32,6 @@
 #include <fmt/format.h>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
-#include <ystdlib/error_handling/ErrorCode.hpp>
 #include <ystdlib/error_handling/Result.hpp>
 
 #include "../core/Data.hpp"
