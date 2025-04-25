@@ -13,7 +13,7 @@ enum class WorkerErrorCodeEnum : uint8_t {
     TaskFailed = 3,
     TaskOutputUnavailable = 4,
     TaskOutputInvalid = 5,
-    // Storage related errors will be removed and use storage error codes instead
+    // TODO: Move storage related errors to an ErrorCode in the storage namespace.
     StorageError = 6,
 };
 
