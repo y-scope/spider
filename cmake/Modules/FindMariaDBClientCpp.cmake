@@ -22,11 +22,12 @@ pkg_check_modules(mariadbclientcpp_PKGCONF QUIET "lib${mariadbclientcpp_LIBNAME}
 # Set include directory
 find_path(
     MariaDBClientCpp_INCLUDE_DIR
-    conncpp.hpp
+    mariadb/conncpp.hpp
     HINTS
         ${mariadbclientcpp_PKGCONF_INCLUDEDIR}
+        ${mariadb-connector-cpp_ROOT}
     PATH_SUFFIXES
-        mariadb
+        include
 )
 
 # Handle static libraries
@@ -52,8 +53,10 @@ find_library(
         ${mariadbclientcpp_LIBNAME}
     HINTS
         ${mariadbclientcpp_PKGCONF_LIBDIR}
+        ${mariadb-connector-cpp_ROOT}
     PATH_SUFFIXES
-        mariadb
+        lib
+        lib/${CMAKE_LIBRARY_ARCHITECTURE}
 )
 if(MariaDBClientCpp_LIBRARY)
     # NOTE: This must be set for find_package_handle_standard_args to work
@@ -61,10 +64,6 @@ if(MariaDBClientCpp_LIBRARY)
 endif()
 
 if(MariaDBClientCpp_USE_STATIC_LIBS)
-    findstaticlibrarydependencies(${mariadbclientcpp_LIBNAME} mariadbclientcpp
-        "${mariadbclientcpp_PKGCONF_STATIC_LIBRARIES}"
-    )
-
     # Restore original value of CMAKE_FIND_LIBRARY_SUFFIXES
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${mariadbclientcpp_ORIG_CMAKE_FIND_LIBRARY_SUFFIXES})
     unset(mariadbclientcpp_ORIG_CMAKE_FIND_LIBRARY_SUFFIXES)
@@ -104,7 +103,7 @@ if(NOT TARGET MariaDBClientCpp::MariaDBClientCpp)
             MariaDBClientCpp::MariaDBClientCpp
             PROPERTIES
                 INTERFACE_INCLUDE_DIRECTORIES
-                    "${MariaDBClientCpp_INCLUDE_DIR};${MariaDBClientCpp_INCLUDE_DIR}/conncpp;${MariaDBClientCpp_INCLUDE_DIR}/conncpp/compat"
+                    "${MariaDBClientCpp_INCLUDE_DIR}"
         )
     endif()
 

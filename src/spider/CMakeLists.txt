@@ -183,6 +183,7 @@ target_link_libraries(
         spider_core
         Boost::boost
         absl::flat_hash_map
+        fmt::fmt
 )
 
 add_library(spider::spider ALIAS spider_client)
