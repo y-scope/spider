@@ -7,13 +7,13 @@
 
 namespace spider::worker {
 using WorkerErrorCategory = ystdlib::error_handling::ErrorCategory<WorkerErrorCodeEnum>;
-}  // namespace spider::worker
 
 constexpr std::string_view cWorkerErrorCategoryName = "Worker Error Code";
+}  // namespace spider::worker
 
 template <>
 auto spider::worker::WorkerErrorCategory::name() const noexcept -> char const* {
-    return cWorkerErrorCategoryName.data();
+    return spider::worker::cWorkerErrorCategoryName.data();
 }
 
 template <>
