@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS jobs
     `creation_time` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `state`         ENUM ('running', 'success', 'fail', 'cancel') NOT NULL DEFAULT 'running',
     KEY (`client_id`) USING BTREE,
-    INDEX (`creation_time`),
+    INDEX idx_jobs_creation_time (`creation_time`),
+    INDEX idx_jobs_state (`state`),
     PRIMARY KEY (`id`)
 );
 CREATE TABLE IF NOT EXISTS tasks

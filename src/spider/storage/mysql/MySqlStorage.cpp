@@ -933,14 +933,22 @@ auto MySqlMetadataStorage::get_job_complete(
     try {
         std::unique_ptr<sql::PreparedStatement> const statement{
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `state` FROM `jobs` WHERE `id` = ? AND `state` NOT IN ('success', "
-                        "'cancel', 'fail') "
+                        "SELECT `state` FROM `jobs` WHERE `id` = ?"
                 )
         };
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const res{statement->executeQuery()};
-        *complete = 0 == res->rowsCount();
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("No job with id {} ", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        std::string const state = get_sql_string(res->getString("state"));
+        *complete = ("running" != state);
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -1621,7 +1629,7 @@ auto MySqlMetadataStorage::task_finish(
                         "UPDATE `jobs` SET `state` = 'success' WHERE `id` = (SELECT `job_id` FROM "
                         "`tasks` WHERE `id` = ?) AND NOT EXISTS (SELECT `job_id` FROM `tasks` "
                         "WHERE `job_id` = (SELECT `job_id` FROM `tasks` WHERE `id` = ?) AND "
-                        "`state` != 'success')"
+                        "`state` != 'success') AND `state` = 'running'"
                 )
         );
         job_statement->setBytes(1, &task_id_bytes);
