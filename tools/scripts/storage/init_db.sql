@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS jobs
     `id`            BINARY(16) NOT NULL,
     `client_id`     BINARY(16) NOT NULL,
     `creation_time` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `state`         ENUM ('running', 'success', 'fail', 'cancel') NOT NULL DEFAULT 'running',
     KEY (`client_id`) USING BTREE,
     INDEX (`creation_time`),
     PRIMARY KEY (`id`)
