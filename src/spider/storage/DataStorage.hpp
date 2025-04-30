@@ -32,6 +32,20 @@ public:
             = 0;
     virtual auto get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data) -> StorageErr
             = 0;
+    virtual auto get_data_driver(
+            StorageConnection& conn,
+            boost::uuids::uuid driver_id,
+            boost::uuids::uuid data_id,
+            Data* data
+    ) -> StorageErr
+            = 0;
+    virtual auto get_data_task(
+            StorageConnection& conn,
+            boost::uuids::uuid task_id,
+            boost::uuids::uuid data_id,
+            Data* data
+    ) -> StorageErr
+            = 0;
     virtual auto set_data_locality(StorageConnection& conn, Data const& data) -> StorageErr = 0;
     virtual auto remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto

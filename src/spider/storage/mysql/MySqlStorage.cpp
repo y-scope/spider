@@ -2027,47 +2027,114 @@ auto MySqlDataStorage::add_task_data(
     return StorageErr{};
 }
 
-auto MySqlDataStorage::get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data)
+auto MySqlDataStorage::get_data_with_locality(
+        StorageConnection& conn,
+        boost::uuids::uuid const id,
+        Data* data
+) -> StorageErr {
+    std::unique_ptr<sql::PreparedStatement> statement(
+            static_cast<MySqlConnection&>(conn)->prepareStatement(
+                    "SELECT `id`, `value`, `hard_locality` FROM `data` WHERE `id` = ?"
+            )
+    );
+    sql::bytes id_bytes = uuid_get_bytes(id);
+    statement->setBytes(1, &id_bytes);
+    std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
+    if (res->rowsCount() == 0) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{
+                StorageErrType::KeyNotFoundErr,
+                fmt::format("no data with id {}", boost::uuids::to_string(id))
+        };
+    }
+    res->next();
+    *data = Data{id, get_sql_string(res->getString(2))};
+    data->set_hard_locality(res->getBoolean(3));
+
+    std::unique_ptr<sql::PreparedStatement> locality_statement(
+            static_cast<MySqlConnection&>(conn)->prepareStatement(
+                    "SELECT `address` FROM `data_locality` WHERE `id` = ?"
+            )
+    );
+    locality_statement->setBytes(1, &id_bytes);
+    std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->executeQuery());
+    std::vector<std::string> locality;
+    while (locality_res->next()) {
+        locality.emplace_back(get_sql_string(locality_res->getString(1)));
+    }
+    if (!locality.empty()) {
+        data->set_locality(locality);
+    }
+    return StorageErr{};
+}
+
+auto MySqlDataStorage::get_data(StorageConnection& conn, boost::uuids::uuid const id, Data* data)
         -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `value`, `hard_locality` FROM `data` WHERE `id` = ?"
-                )
-        );
-        sql::bytes id_bytes = uuid_get_bytes(id);
-        statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
-        if (res->rowsCount() == 0) {
-            static_cast<MySqlConnection&>(conn)->rollback();
-            return StorageErr{
-                    StorageErrType::KeyNotFoundErr,
-                    fmt::format("no data with id {}", boost::uuids::to_string(id))
-            };
-        }
-        res->next();
-        *data = Data{id, get_sql_string(res->getString(2))};
-        data->set_hard_locality(res->getBoolean(3));
-
-        std::unique_ptr<sql::PreparedStatement> locality_statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `address` FROM `data_locality` WHERE `id` = ?"
-                )
-        );
-        locality_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const locality_res(locality_statement->executeQuery());
-        std::vector<std::string> locality;
-        while (locality_res->next()) {
-            locality.emplace_back(get_sql_string(locality_res->getString(1)));
-        }
-        if (!locality.empty()) {
-            data->set_locality(locality);
-        }
+        return get_data_with_locality(conn, id, data);
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
-    static_cast<MySqlConnection&>(conn)->commit();
+}
+
+auto MySqlDataStorage::get_data_driver(
+        StorageConnection& conn,
+        boost::uuids::uuid const driver_id,
+        boost::uuids::uuid const data_id,
+        Data* data
+) -> StorageErr {
+    try {
+        StorageErr const err = get_data_with_locality(conn, data_id, data);
+        if (false == err.success()) {
+            return err;
+        }
+        // Add data reference from driver
+        std::unique_ptr<sql::PreparedStatement> statement{
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "INSERT INTO `data_ref_driver` (`id`, `driver_id`) VALUES (?, ?)"
+                )
+        };
+        sql::bytes id_bytes = uuid_get_bytes(data_id);
+        sql::bytes driver_id_bytes = uuid_get_bytes(driver_id);
+        statement->setBytes(1, &id_bytes);
+        statement->setBytes(2, &driver_id_bytes);
+        statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->rollback();
+    return StorageErr{};
+}
+
+auto MySqlDataStorage::get_data_task(
+        StorageConnection& conn,
+        boost::uuids::uuid const task_id,
+        boost::uuids::uuid const data_id,
+        Data* data
+) -> StorageErr {
+    try {
+        StorageErr const err = get_data_with_locality(conn, data_id, data);
+        if (false == err.success()) {
+            return err;
+        }
+        // Add data reference from task
+        std::unique_ptr<sql::PreparedStatement> statement{
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "INSERT INTO `data_ref_task` (`id`, `task_id`) VALUES (?, ?)"
+                )
+        };
+        sql::bytes id_bytes = uuid_get_bytes(data_id);
+        sql::bytes task_id_bytes = uuid_get_bytes(task_id);
+        statement->setBytes(1, &id_bytes);
+        statement->setBytes(2, &task_id_bytes);
+        statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->rollback();
     return StorageErr{};
 }
 
