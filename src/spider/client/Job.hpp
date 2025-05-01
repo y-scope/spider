@@ -157,21 +157,34 @@ public:
     }
 
 private:
-    Job(boost::uuids::uuid id,
+    enum class JobSource : uint8_t {
+        Driver,
+        Task,
+    };
+
+    Job(boost::uuids::uuid const id,
+        JobSource const source,
+        boost::uuids::uuid const source_id,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
         std::shared_ptr<core::DataStorage> data_storage,
         std::shared_ptr<core::StorageFactory> storage_factory)
             : m_id{id},
+              m_source{source},
+              m_source_id{source_id},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)} {}
 
-    Job(boost::uuids::uuid id,
+    Job(boost::uuids::uuid const id,
+        JobSource const source,
+        boost::uuids::uuid const source_id,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
         std::shared_ptr<core::DataStorage> data_storage,
         std::shared_ptr<core::StorageFactory> storage_factory,
         std::shared_ptr<core::StorageConnection> conn)
             : m_id{id},
+              m_source{source},
+              m_source_id{source_id},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)},
@@ -242,7 +255,21 @@ private:
                     if (!optional_data_id.has_value()) {
                         throw ConnectionException{fmt::format("Output data ID is missing")};
                     }
-                    err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
+                    if (m_source == JobSource::Driver) {
+                        err = m_data_storage->get_data_driver(
+                                conn,
+                                m_source_id,
+                                optional_data_id.value(),
+                                &data
+                        );
+                    } else {
+                        err = m_data_storage->get_data_task(
+                                conn,
+                                m_source_id,
+                                optional_data_id.value(),
+                                &data
+                        );
+                    }
                     if (!err.success()) {
                         throw ConnectionException{
                                 fmt::format("Failed to get data: {}", err.description)
@@ -302,7 +329,21 @@ private:
                 if (!optional_data_id.has_value()) {
                     throw ConnectionException{fmt::format("Output data ID is missing")};
                 }
-                err = m_data_storage->get_data(conn, optional_data_id.value(), &data);
+                if (m_source == JobSource::Driver) {
+                    err = m_data_storage->get_data_driver(
+                            conn,
+                            m_source_id,
+                            optional_data_id.value(),
+                            &data
+                    );
+                } else {
+                    err = m_data_storage->get_data_task(
+                            conn,
+                            m_source_id,
+                            optional_data_id.value(),
+                            &data
+                    );
+                }
                 if (!err.success()) {
                     throw ConnectionException{
                             fmt::format("Failed to get data: {}", err.description)
@@ -337,6 +378,8 @@ private:
     // NOLINTEND(readability-function-cognitive-complexity)
 
     boost::uuids::uuid m_id;
+    JobSource m_source;
+    boost::uuids::uuid m_source_id;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
     std::shared_ptr<core::StorageFactory> m_storage_factory;

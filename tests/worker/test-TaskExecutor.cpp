@@ -19,6 +19,8 @@
 #include "../../src/spider/core/Data.hpp"
 #include "../../src/spider/core/Driver.hpp"
 #include "../../src/spider/core/Error.hpp"
+#include "../../src/spider/core/Task.hpp"
+#include "../../src/spider/core/TaskGraph.hpp"
 #include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
 #include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../../src/spider/storage/DataStorage.hpp"
@@ -179,6 +181,18 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(metadata_storage->add_driver(*conn, driver).success());
     REQUIRE(data_storage->add_driver_data(*conn, driver_id, data).success());
 
+    // Submit a job for a valid task id
+    boost::uuids::uuid const task_id = gen();
+    spider::core::Task task{"data_test"};
+    task.set_id(task_id);
+    task.add_input(spider::core::TaskInput{data.get_id()});
+    spider::core::TaskGraph graph;
+    graph.add_task(task);
+    graph.add_input_task(task_id);
+    graph.add_output_task(task_id);
+    boost::uuids::uuid const job_id = gen();
+    REQUIRE(metadata_storage->add_job(*conn, job_id, driver_id, graph).success());
+
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value> const environment_variable
@@ -189,7 +203,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::worker::TaskExecutor executor{
             context,
             "data_test",
-            gen(),
+            task_id,
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
@@ -205,6 +219,7 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     // Clean up
+    REQUIRE(metadata_storage->remove_job(*conn, job_id).success());
     REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
 }
 

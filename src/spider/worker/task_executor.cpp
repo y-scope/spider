@@ -172,7 +172,7 @@ auto main(int const argc, char** argv) -> int {
                 metadata_store,
                 storage_factory
         );
-        msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
+        msgpack::sbuffer const result_buffer = (*function)(task_context, task_id, args_buffer);
         spdlog::debug("Function executed");
 
         // Write result buffer to stdout

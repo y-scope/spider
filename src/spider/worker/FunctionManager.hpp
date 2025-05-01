@@ -44,7 +44,8 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<ResultBuffer(TaskContext& context, ArgsBuffer const&)>;
+using Function = std::function<
+        ResultBuffer(TaskContext& context, boost::uuids::uuid task_id, ArgsBuffer const&)>;
 
 using FunctionMap = absl::flat_hash_map<std::string, Function>;
 
@@ -235,8 +236,12 @@ inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffer
 template <class F>
 class FunctionInvoker {
 public:
-    static auto apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer)
-            -> ResultBuffer {
+    static auto apply(
+            F const& function,
+            TaskContext& context,
+            boost::uuids::uuid const task_id,
+            ArgsBuffer const& args_buffer
+    ) -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
@@ -301,7 +306,7 @@ public:
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
                     std::unique_ptr<Data> data = std::make_unique<Data>();
-                    err = data_store->get_data(*conn, data_id, data.get());
+                    err = data_store->get_data_task(*conn, task_id, data_id, data.get());
                     if (!err.success()) {
                         return;
                     }
@@ -372,7 +377,8 @@ public:
                                 &FunctionInvoker<F>::apply,
                                 std::move(f),
                                 std::placeholders::_1,
-                                std::placeholders::_2
+                                std::placeholders::_2,
+                                std::placeholders::_3
                         )
                 )
                 .second;
