@@ -2071,11 +2071,16 @@ auto MySqlDataStorage::get_data_with_locality(
 auto MySqlDataStorage::get_data(StorageConnection& conn, boost::uuids::uuid const id, Data* data)
         -> StorageErr {
     try {
-        return get_data_with_locality(conn, id, data);
+        StorageErr const err = get_data_with_locality(conn, id, data);
+        if (false == err.success()) {
+            return err;
+        }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
 }
 
 auto MySqlDataStorage::get_data_driver(
@@ -2104,7 +2109,7 @@ auto MySqlDataStorage::get_data_driver(
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
-    static_cast<MySqlConnection&>(conn)->rollback();
+    static_cast<MySqlConnection&>(conn)->commit();
     return StorageErr{};
 }
 
@@ -2134,7 +2139,7 @@ auto MySqlDataStorage::get_data_task(
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
     }
-    static_cast<MySqlConnection&>(conn)->rollback();
+    static_cast<MySqlConnection&>(conn)->commit();
     return StorageErr{};
 }
 
