@@ -83,9 +83,8 @@ public:
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
         return DataBuilder{
+                core::Context{core::Context::Source::Driver, m_id},
                 m_data_storage,
-                m_id,
-                DataBuilder::DataSource::Driver,
                 m_storage_factory,
                 m_conn
         };
@@ -228,8 +227,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Driver,
-                m_id,
+                core::Context{core::Context::Source::Driver, m_id},
                 m_metadata_storage,
                 m_data_storage,
                 m_storage_factory,
@@ -293,8 +291,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Driver,
-                m_id,
+                core::Context{core::Context::Source::Driver, m_id},
                 m_metadata_storage,
                 m_data_storage,
                 m_storage_factory,

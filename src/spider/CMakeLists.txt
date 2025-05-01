@@ -13,6 +13,7 @@ set(SPIDER_CORE_SOURCES
 )
 
 set(SPIDER_CORE_HEADERS
+    core/Context.hpp
     core/Error.hpp
     core/Data.hpp
     core/Driver.hpp

@@ -16,6 +16,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
+#include "../core/Context.hpp"
 #include "../core/DataImpl.hpp"
 #include "../core/Error.hpp"
 #include "../core/JobMetadata.hpp"
@@ -157,34 +158,25 @@ public:
     }
 
 private:
-    enum class JobSource : uint8_t {
-        Driver,
-        Task,
-    };
-
     Job(boost::uuids::uuid const id,
-        JobSource const source,
-        boost::uuids::uuid const source_id,
+        core::Context context,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
         std::shared_ptr<core::DataStorage> data_storage,
         std::shared_ptr<core::StorageFactory> storage_factory)
             : m_id{id},
-              m_source{source},
-              m_source_id{source_id},
+              m_context{std::move(context)},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)} {}
 
     Job(boost::uuids::uuid const id,
-        JobSource const source,
-        boost::uuids::uuid const source_id,
+        core::Context context,
         std::shared_ptr<core::MetadataStorage> metadata_storage,
         std::shared_ptr<core::DataStorage> data_storage,
         std::shared_ptr<core::StorageFactory> storage_factory,
         std::shared_ptr<core::StorageConnection> conn)
             : m_id{id},
-              m_source{source},
-              m_source_id{source_id},
+              m_context{std::move(context)},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)},
@@ -255,17 +247,17 @@ private:
                     if (!optional_data_id.has_value()) {
                         throw ConnectionException{fmt::format("Output data ID is missing")};
                     }
-                    if (m_source == JobSource::Driver) {
+                    if (m_context.get_source() == core::Context::Source::Driver) {
                         err = m_data_storage->get_driver_data(
                                 conn,
-                                m_source_id,
+                                m_context.get_id(),
                                 optional_data_id.value(),
                                 &data
                         );
                     } else {
                         err = m_data_storage->get_task_data(
                                 conn,
-                                m_source_id,
+                                m_context.get_id(),
                                 optional_data_id.value(),
                                 &data
                         );
@@ -277,7 +269,9 @@ private:
                     }
                     std::get<i.cValue>(result) = core::DataImpl::create_data<DataType>(
                             std::make_unique<core::Data>(std::move(data)),
-                            m_data_storage
+                            m_context,
+                            m_data_storage,
+                            m_storage_factory
                     );
                 } else {
                     if (output.get_type() != typeid(T).name()) {
@@ -329,17 +323,17 @@ private:
                 if (!optional_data_id.has_value()) {
                     throw ConnectionException{fmt::format("Output data ID is missing")};
                 }
-                if (m_source == JobSource::Driver) {
+                if (m_context.get_source() == core::Context::Source::Driver) {
                     err = m_data_storage->get_driver_data(
                             conn,
-                            m_source_id,
+                            m_context.get_id(),
                             optional_data_id.value(),
                             &data
                     );
                 } else {
                     err = m_data_storage->get_task_data(
                             conn,
-                            m_source_id,
+                            m_context.get_id(),
                             optional_data_id.value(),
                             &data
                     );
@@ -351,6 +345,7 @@ private:
                 }
                 return core::DataImpl::create_data<DataType>(
                         std::make_unique<core::Data>(std::move(data)),
+                        m_context,
                         m_data_storage,
                         m_storage_factory
                 );
@@ -378,8 +373,7 @@ private:
     // NOLINTEND(readability-function-cognitive-complexity)
 
     boost::uuids::uuid m_id;
-    JobSource m_source;
-    boost::uuids::uuid m_source_id;
+    core::Context m_context;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
     std::shared_ptr<core::StorageFactory> m_storage_factory;

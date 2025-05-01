@@ -2,6 +2,7 @@
 #define SPIDER_CLIENT_DATA_HPP
 
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
@@ -11,6 +12,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "../core/Context.hpp"
 #include "../core/Error.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
@@ -130,46 +132,37 @@ public:
                 conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
             }
             core::StorageErr err;
-            switch (m_data_source) {
-                case DataSource::Driver:
-                    err = m_data_store->add_driver_data(*conn, m_source_id, *data);
+            switch (m_context.get_source()) {
+                case core::Context::Source::Driver:
+                    err = m_data_store->add_driver_data(*conn, m_context.get_id(), *data);
                     if (!err.success()) {
                         throw ConnectionException(err.description);
                     }
                     break;
-                case DataSource::TaskContext:
-                    err = m_data_store->add_task_data(*conn, m_source_id, *data);
+                case core::Context::Source::Task:
+                    err = m_data_store->add_task_data(*conn, m_context.get_id(), *data);
                     if (!err.success()) {
                         throw ConnectionException(err.description);
                     }
                     break;
             }
-            return Data{std::move(data), m_data_store, m_storage_factory, m_connection};
+            return Data{std::move(data), m_context, m_data_store, m_storage_factory, m_connection};
         }
 
     private:
-        enum class DataSource : std::uint8_t {
-            Driver,
-            TaskContext
-        };
-
-        Builder(std::shared_ptr<core::DataStorage> data_store,
-                boost::uuids::uuid const source_id,
-                DataSource const data_source,
+        Builder(core::Context context,
+                std::shared_ptr<core::DataStorage> data_store,
                 std::shared_ptr<core::StorageFactory> storage_factory)
-                : m_data_store{std::move(data_store)},
-                  m_source_id{source_id},
-                  m_data_source{data_source},
+                : m_context{std::move(context)},
+                  m_data_store{std::move(data_store)},
                   m_storage_factory{std::move(storage_factory)} {}
 
-        Builder(std::shared_ptr<core::DataStorage> data_store,
-                boost::uuids::uuid const source_id,
-                DataSource const data_source,
+        Builder(core::Context context,
+                std::shared_ptr<core::DataStorage> data_store,
                 std::shared_ptr<core::StorageFactory> storage_factory,
                 std::shared_ptr<core::StorageConnection> connection)
-                : m_data_store{std::move(data_store)},
-                  m_source_id{source_id},
-                  m_data_source{data_source},
+                : m_context{std::move(context)},
+                  m_data_store{std::move(data_store)},
                   m_storage_factory{std::move(storage_factory)},
                   m_connection{std::move(connection)} {}
 
@@ -181,8 +174,7 @@ public:
         std::shared_ptr<core::StorageFactory> m_storage_factory;
         std::shared_ptr<core::StorageConnection> m_connection = nullptr;
 
-        boost::uuids::uuid m_source_id;
-        DataSource m_data_source;
+        core::Context m_context;
 
         friend class Driver;
         friend class TaskContext;
@@ -190,24 +182,55 @@ public:
 
     Data() = default;
 
+    // Default copy constructor and assignment operator
+    Data(Data const&) = default;
+    auto operator=(Data const&) -> Data& = default;
+    // Default move constructor and assignment operator
+    Data(Data&&) = default;
+    auto operator=(Data&&) -> Data& = default;
+
+    ~Data() {
+        int const num_exceptions = std::uncaught_exceptions();
+        // If destructor is called during stack unwinding, do not remove data reference.
+        if (num_exceptions > m_num_exceptions) {
+            return;
+        }
+        if (m_context.get_source() == core::Context::Source::Driver) {
+            m_data_store
+                    ->remove_driver_reference(*m_connection, m_impl->get_id(), m_context.get_id());
+        } else {
+            m_data_store
+                    ->remove_task_reference(*m_connection, m_impl->get_id(), m_context.get_id());
+        }
+    }
+
 private:
     Data(std::unique_ptr<core::Data> impl,
+         core::Context context,
          std::shared_ptr<core::DataStorage> data_store,
          std::shared_ptr<core::StorageFactory> storage_factory)
             : m_impl{std::move(impl)},
+              m_context{std::move(context)},
               m_data_store{std::move(data_store)},
               m_storage_factory{std::move(storage_factory)} {}
 
     Data(std::unique_ptr<core::Data> impl,
+         core::Context context,
          std::shared_ptr<core::DataStorage> data_store,
          std::shared_ptr<core::StorageFactory> storage_factory,
          std::shared_ptr<core::StorageConnection> connection)
             : m_impl{std::move(impl)},
+              m_context{std::move(context)},
               m_data_store{std::move(data_store)},
               m_storage_factory{std::move(storage_factory)},
               m_connection{std::move(connection)} {}
 
     [[nodiscard]] auto get_impl() const -> std::unique_ptr<core::Data> const& { return m_impl; }
+
+    int m_num_exceptions = std::uncaught_exceptions();
+
+    // Provide a default context so that Data can be used in std::tuple.
+    core::Context m_context = core::Context{core::Context::Source::Driver, boost::uuids::uuid{}};
 
     std::unique_ptr<core::Data> m_impl;
     std::shared_ptr<core::DataStorage> m_data_store;
