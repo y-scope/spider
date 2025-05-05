@@ -1,12 +1,12 @@
 #ifndef SPIDER_WORKER_FUNCTIONMANAGER_HPP
 #define SPIDER_WORKER_FUNCTIONMANAGER_HPP
 
+#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -378,7 +378,7 @@ public:
         return true;
     }
 
-    auto register_function_invoker(std::string_view name, Function f) -> bool {
+    auto register_function_invoker(std::string_view name, Function const& f) -> bool {
         if (contains(name)) {
             return false;
         }

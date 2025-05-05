@@ -1,8 +1,8 @@
 #ifndef SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 #define SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 
+#include <algorithm>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
