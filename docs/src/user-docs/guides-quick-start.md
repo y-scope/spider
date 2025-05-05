@@ -4,7 +4,7 @@ The guide below briefly describes how to get started with running a task on Spid
 you'll need to:
 
 * Write a task
-* (Optional) Install Dependencies
+* Install Spider's dependencies
 * Build the task into a shared library
 * Write a client to manage the task
 * Build the client
@@ -29,7 +29,7 @@ In the guide below, you'll need:
 * [Docker] 20.10+
   * If you're not running as root, ensure `docker` can be run
     [without superuser privileges][docker-non-root].
-* [Task](https://taskfile.dev/) v3.30.0+ if you want to install dependencies locally.
+* [Task] v3.30.0+ if you want to install Spider's dependencies within its build directory.
 
 # Writing a task
 
@@ -66,9 +66,9 @@ The integer parameters and return value are `Serializable` values.
 The `SPIDER_REGISTER_TASK` macro at the bottom of `src/tasks.cpp` is how we inform Spider that a
 function should be treated as a task.
 
-# (Optional) Installing dependencies
+# Installing dependencies
 
-You can install `Spider` dependencies locally using the `task` command by running:
+You can install `Spider` dependencies within its build directory by running:
 
 ```shell
 task deps:lib_install
@@ -76,8 +76,8 @@ task deps:lib_install
 
 This will install all dependencies in the `build/deps` directory.
 
-Alternatively, you can install the dependencies yourself. Check the `CMakeLists.txt` file for the
-list of dependencies.
+Alternatively, you can install the dependencies to the system. See the `install-all-run` task in
+[deps-task.yaml] for the list of dependencies to install.
 
 # Building the task into a shared library
 
