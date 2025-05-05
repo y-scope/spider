@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -101,14 +102,16 @@ auto response_get_result_buffers(msgpack::sbuffer const& buffer)
     // NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-auto FunctionManager::get_instance() -> FunctionManager& {
+auto FunctionManager::get_instance() noexcept -> FunctionManager& {
     static FunctionManager instance;
     return instance;
 }
 
-auto FunctionManager::get_function(std::string const& name) const -> Function const* {
-    if (auto const func_iter = m_function_map.find(name); func_iter != m_function_map.end()) {
-        return &(func_iter->second);
+auto FunctionManager::get_function(std::string_view name) const -> Function const* {
+    for (auto const& pair : m_function_map) {
+        if (pair.first == name) {
+            return &pair.second;
+        }
     }
     return nullptr;
 }

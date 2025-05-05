@@ -2,7 +2,11 @@
 #define SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 
 #include <optional>
+#include <ranges>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include <absl/container/flat_hash_map.h>
 
@@ -17,7 +21,7 @@
             = spider::core::FunctionNameManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
-using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
+using FunctionNameMap = std::vector<std::pair<void*, std::string_view>>;
 
 class FunctionNameManager {
 public:
@@ -29,12 +33,22 @@ public:
 
     auto operator=(FunctionNameManager&&) -> FunctionNameManager& = delete;
 
-    static auto get_instance() -> FunctionNameManager&;
+    static auto get_instance() noexcept -> FunctionNameManager&;
 
     template <typename F>
-    auto register_function(std::string const& name, F function_pointer) -> bool {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        return m_name_map.emplace(reinterpret_cast<void*>(function_pointer), name).second;
+    auto register_function(std::string_view name, F function_pointer) noexcept -> bool {
+        if (std::ranges::find_if(
+                    m_name_map,
+                    [function_pointer](auto const& pair) {
+                        return pair.first == reinterpret_cast<void*>(function_pointer);
+                    }
+            )
+            != m_name_map.end())
+        {
+            return false;
+        }
+        m_name_map.emplace_back(reinterpret_cast<void*>(function_pointer), name);
+        return true;
     }
 
     [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;

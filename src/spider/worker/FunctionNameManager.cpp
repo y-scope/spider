@@ -6,14 +6,16 @@
 #include <boost/dll/alias.hpp>
 
 namespace spider::core {
-auto FunctionNameManager::get_instance() -> FunctionNameManager& {
+auto FunctionNameManager::get_instance() noexcept -> FunctionNameManager& {
     static FunctionNameManager instance;
     return instance;
 }
 
 auto FunctionNameManager::get_function_name(void const* ptr) const -> std::optional<std::string> {
-    if (auto const& it = m_name_map.find(ptr); it != m_name_map.end()) {
-        return it->second;
+    for (auto const& it : m_name_map) {
+        if (it.first == ptr) {
+            return std::string{it.second};
+        }
     }
     return std::nullopt;
 }

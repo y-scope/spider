@@ -6,14 +6,15 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
-#include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
@@ -46,7 +47,7 @@ using ResultBuffer = msgpack::sbuffer;
 
 using Function = std::function<ResultBuffer(TaskContext& context, ArgsBuffer const&)>;
 
-using FunctionMap = absl::flat_hash_map<std::string, Function>;
+using FunctionMap = std::vector<std::pair<std::string_view, Function>>;
 
 template <class T>
 struct TemplateParameter;
@@ -358,35 +359,44 @@ public:
 
     auto operator=(FunctionManager&&) -> FunctionManager& = delete;
 
-    static auto get_instance() -> FunctionManager&;
+    static auto get_instance() noexcept -> FunctionManager&;
 
     template <class F>
-    auto register_function(std::string const& name, F f) -> bool {
-        if (m_function_map.contains(name)) {
+    auto register_function(std::string_view name, F f) noexcept -> bool {
+        if (contains(name)) {
             return false;
         }
-        return m_function_map
-                .emplace(
-                        name,
-                        std::bind(
-                                &FunctionInvoker<F>::apply,
-                                std::move(f),
-                                std::placeholders::_1,
-                                std::placeholders::_2
-                        )
+        m_function_map.emplace_back(
+                name,
+                std::bind(
+                        &FunctionInvoker<F>::apply,
+                        std::move(f),
+                        std::placeholders::_1,
+                        std::placeholders::_2
                 )
-                .second;
+        );
+        return true;
     }
 
-    auto register_function_invoker(std::string const& name, Function f) -> bool {
-        return m_function_map.emplace(name, f).second;
+    auto register_function_invoker(std::string_view name, Function f) -> bool {
+        if (contains(name)) {
+            return false;
+        }
+        m_function_map.emplace_back(name, f);
+        return true;
     }
 
-    [[nodiscard]] auto get_function(std::string const& name) const -> Function const*;
+    [[nodiscard]] auto get_function(std::string_view name) const -> Function const*;
 
     [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_function_map; }
 
 private:
+    [[nodiscard]] auto contains(std::string_view name) const -> bool {
+        return std::ranges::any_of(m_function_map, [&name](auto const& pair) {
+            return pair.first == name;
+        });
+    }
+
     FunctionManager() = default;
 
     ~FunctionManager() = default;
