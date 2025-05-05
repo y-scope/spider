@@ -229,7 +229,7 @@ cluster.
 To run the client:
 
 ```shell
-build/spider/client "jdbc:mariadb://localhost:3307/spider-storage?user=spider&password=password"
+build/spider/client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
 ```
 
 NOTE:
