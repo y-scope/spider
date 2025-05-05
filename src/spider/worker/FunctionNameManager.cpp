@@ -1,5 +1,6 @@
 #include "FunctionNameManager.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -11,7 +12,8 @@ auto FunctionNameManager::get_instance() noexcept -> FunctionNameManager& {
     return instance;
 }
 
-auto FunctionNameManager::get_function_name(void const* ptr) const -> std::optional<std::string> {
+auto FunctionNameManager::get_function_name(uintptr_t const ptr) const
+        -> std::optional<std::string> {
     for (auto const& it : m_name_map) {
         if (it.first == ptr) {
             return std::string{it.second};

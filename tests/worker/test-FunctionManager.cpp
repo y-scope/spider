@@ -1,4 +1,5 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -56,11 +57,11 @@ TEST_CASE("Register and get function name", "[core]") {
 
     // Get the function name of non-registered function should return std::nullopt
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    REQUIRE(!manager.get_function_name(reinterpret_cast<void*>(not_registered)).has_value());
+    REQUIRE(!manager.get_function_name(reinterpret_cast<uintptr_t>(not_registered)).has_value());
     // Get the function name of registered function should return the name
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    REQUIRE("int_test" == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or("")
-    );
+    REQUIRE("int_test"
+            == manager.get_function_name(reinterpret_cast<uintptr_t>(int_test)).value_or(""));
 }
 
 TEMPLATE_LIST_TEST_CASE(

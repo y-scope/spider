@@ -2,6 +2,7 @@
 #define SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,7 +20,7 @@
             = spider::core::FunctionNameManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
-using FunctionNameMap = std::vector<std::pair<void*, std::string_view>>;
+using FunctionNameMap = std::vector<std::pair<std::uintptr_t, std::string_view>>;
 
 class FunctionNameManager {
 public:
@@ -39,7 +40,7 @@ public:
                     m_name_map,
                     [function_pointer](auto const& pair) {
                         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                        return pair.first == reinterpret_cast<void*>(function_pointer);
+                        return pair.first == reinterpret_cast<uintptr_t>(function_pointer);
                     }
             )
             != m_name_map.end())
@@ -47,11 +48,11 @@ public:
             return false;
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        m_name_map.emplace_back(reinterpret_cast<void*>(function_pointer), name);
+        m_name_map.emplace_back(reinterpret_cast<uintptr_t>(function_pointer), name);
         return true;
     }
 
-    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
+    [[nodiscard]] auto get_function_name(uintptr_t ptr) const -> std::optional<std::string>;
 
     [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
         return m_name_map;
