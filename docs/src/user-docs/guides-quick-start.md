@@ -4,6 +4,7 @@ The guide below briefly describes how to get started with running a task on Spid
 you'll need to:
 
 * Write a task
+* (Optional) Install Dependencies
 * Build the task into a shared library
 * Write a client to manage the task
 * Build the client
@@ -28,6 +29,7 @@ In the guide below, you'll need:
 * [Docker] 20.10+
   * If you're not running as root, ensure `docker` can be run
     [without superuser privileges][docker-non-root].
+* [Task](https://taskfile.dev/) v3.30.0+ if you want to install dependencies locally.
 
 # Writing a task
 
@@ -64,6 +66,19 @@ The integer parameters and return value are `Serializable` values.
 The `SPIDER_REGISTER_TASK` macro at the bottom of `src/tasks.cpp` is how we inform Spider that a
 function should be treated as a task.
 
+# (Optional) Installing dependencies
+
+You can install `Spider` dependencies locally using the `task` command by running:
+
+```shell
+task deps:lib_install
+```
+
+This will install all dependencies in the `build/deps` directory.
+
+Alternatively, you can install the dependencies yourself. Check the `CMakeLists.txt` file for the
+list of dependencies.
+
 # Building the task into a shared library
 
 In order for Spider to run a task, the task needs to be compiled into a shared library that Spider
@@ -72,8 +87,8 @@ can load. The example's `CMakeLists.txt` demonstrates how to do this.
 To build the shared library, run:
 
 ```shell
-cmake -S . -B build
-cmake --build build --parallel $(nproc) --target tasks
+cmake -S . -B build/spider
+cmake --build build/spider --parallel $(nproc) --target tasks
 ```
 
 # Writing a client to manage the task
@@ -112,7 +127,7 @@ this.
 To build the client executable, run:
 
 ```shell
-cmake --build build --parallel $(nproc) --target client
+cmake --build build/spider --parallel $(nproc) --target client
 ```
 
 # Setting up a Spider cluster
@@ -158,7 +173,7 @@ create a database and authorize a user to access it.
 To build the scheduler, run:
 
 ```shell
-cmake --build build --parallel $(nproc) --target spider_scheduler
+cmake --build build/spider --parallel $(nproc) --target spider_scheduler
 ```
 
 To start the scheduler, run:
@@ -183,7 +198,7 @@ NOTE:
 To build the worker, run:
 
 ```shell
-cmake --build build --parallel $(nproc) --target spider_worker
+cmake --build build/spider --parallel $(nproc) --target spider_worker
 ```
 
 To start a worker, run:
@@ -214,7 +229,7 @@ cluster.
 To run the client:
 
 ```shell
-build/client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
+build/spider/client "jdbc:mariadb://localhost:3307/spider-storage?user=spider&password=password"
 ```
 
 NOTE:
