@@ -257,6 +257,8 @@ task, and the worker handles the task output as usual. Then the worker exits wit
 In future guides, we'll explain how to write more complex tasks, as well as how to leverage Spider's
 support for fault tolerance.
 
+[deps-task.yaml]: https://github.com/y-scope/spider/blob/main/dep-tasks.yaml
 [Docker]: https://docs.docker.com/engine/install/
 [docker-non-root]: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
 [examples/quick-start]: https://github.com/y-scope/spider/tree/main/examples/quick-start
+[Task]: https://taskfile.dev/
