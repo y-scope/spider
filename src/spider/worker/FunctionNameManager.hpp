@@ -8,8 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include <absl/container/flat_hash_map.h>
-
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define NAME_CONCAT_DIRECT(s1, s2) s1##s2
 #define NAME_CONCAT(s1, s2) NAME_CONCAT_DIRECT(s1, s2)
@@ -40,6 +38,7 @@ public:
         if (std::ranges::find_if(
                     m_name_map,
                     [function_pointer](auto const& pair) {
+                        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                         return pair.first == reinterpret_cast<void*>(function_pointer);
                     }
             )
@@ -47,6 +46,7 @@ public:
         {
             return false;
         }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         m_name_map.emplace_back(reinterpret_cast<void*>(function_pointer), name);
         return true;
     }
