@@ -179,7 +179,7 @@ cmake --build build/spider --parallel $(nproc) --target spider_scheduler
 To start the scheduler, run:
 
 ```shell
-build/spider/src/spider/spider_scheduler \
+build/spider/spider/src/spider/spider_scheduler \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --host "127.0.0.1" \
@@ -204,11 +204,11 @@ cmake --build build/spider --parallel $(nproc) --target spider_worker
 To start a worker, run:
 
 ```shell
-build/spider/src/spider/spider_worker \
+build/spider/spider/src/spider/spider_worker \
         --storage_url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --host "127.0.0.1" \
-        --libs "build/libtasks.so"
+        --libs "build/spider/libtasks.so"
 ```
 
 NOTE:
