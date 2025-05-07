@@ -849,7 +849,8 @@ auto MySqlMetadataStorage::get_task_graph(
                 )
         );
         output_task_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const output_task_res(output_task_statement->executeQuery()
+        std::unique_ptr<sql::ResultSet> const output_task_res(
+                output_task_statement->executeQuery()
         );
         while (output_task_res->next()) {
             task_graph->add_output_task(read_id(output_task_res->getBinaryStream(1)));
@@ -1471,7 +1472,8 @@ MySqlMetadataStorage::create_task_instance(StorageConnection& conn, TaskInstance
                 )
         );
         not_timeout_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const not_timeout_res(not_timeout_statement->executeQuery()
+        std::unique_ptr<sql::ResultSet> const not_timeout_res(
+                not_timeout_statement->executeQuery()
         );
         bool const all_timeout = not_timeout_res->rowsCount() == 0;
         if (!task_ready && !all_timeout) {
