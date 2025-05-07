@@ -12,7 +12,7 @@ Follow the steps below to develop and contribute to the project.
 ## Set up
 Run dependency installation task:
 ```shell
-task deps:dep_install
+task deps:lib_install
 ```
 
 Set up the config files for our C++ linting tools:

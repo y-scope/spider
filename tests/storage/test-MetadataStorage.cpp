@@ -171,7 +171,8 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Submit job should success
     REQUIRE(storage->add_job_batch(*conn, *batch, job_id, client_id, graph).success());
-    REQUIRE(storage->add_job_batch(*conn, *batch, simple_job_id, client_id, simple_graph).success()
+    REQUIRE(
+            storage->add_job_batch(*conn, *batch, simple_job_id, client_id, simple_graph).success()
     );
     batch->submit_batch(*conn);
 

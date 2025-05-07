@@ -849,7 +849,8 @@ auto MySqlMetadataStorage::get_task_graph(
                 )
         );
         output_task_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const output_task_res(output_task_statement->executeQuery()
+        std::unique_ptr<sql::ResultSet> const output_task_res(
+                output_task_statement->executeQuery()
         );
         while (output_task_res->next()) {
             task_graph->add_output_task(read_id(output_task_res->getBinaryStream(1)));
@@ -933,14 +934,22 @@ auto MySqlMetadataStorage::get_job_complete(
     try {
         std::unique_ptr<sql::PreparedStatement> const statement{
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `state` FROM `tasks` WHERE `job_id` = ? AND `state` NOT IN "
-                        "('success', 'cancel', 'fail') "
+                        "SELECT `state` FROM `jobs` WHERE `id` = ?"
                 )
         };
         sql::bytes id_bytes = uuid_get_bytes(id);
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const res{statement->executeQuery()};
-        *complete = 0 == res->rowsCount();
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("No job with id {} ", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        std::string const state = get_sql_string(res->getString("state"));
+        *complete = ("running" != state);
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -955,45 +964,35 @@ auto MySqlMetadataStorage::get_job_status(
         JobStatus* status
 ) -> StorageErr {
     try {
-        std::unique_ptr<sql::PreparedStatement> const running_statement{
+        std::unique_ptr<sql::PreparedStatement> const job_statement{
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `state` FROM `tasks` WHERE `job_id` = ? AND `state` NOT IN "
-                        "('success', 'cancel', 'fail')"
+                        "SELECT `state` FROM `jobs` WHERE `id` = ?"
                 )
         };
         sql::bytes id_bytes = uuid_get_bytes(id);
-        running_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const running_res{running_statement->executeQuery()};
-        if (running_res->rowsCount() > 0) {
+        job_statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const res{job_statement->executeQuery()};
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("No job with id {} ", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        std::string const state = get_sql_string(res->getString("state"));
+        if ("running" == state) {
             *status = JobStatus::Running;
-            static_cast<MySqlConnection&>(conn)->commit();
-            return StorageErr{};
-        }
-        std::unique_ptr<sql::PreparedStatement> failed_statement{
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `state` FROM `tasks` WHERE `job_id` = ? AND `state` = 'fail'"
-                )
-        };
-        failed_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const failed_res{failed_statement->executeQuery()};
-        if (failed_res->rowsCount() > 0) {
+        } else if ("success" == state) {
+            *status = JobStatus::Succeeded;
+        } else if ("fail" == state) {
             *status = JobStatus::Failed;
-            static_cast<MySqlConnection&>(conn)->commit();
-            return StorageErr{};
-        }
-        std::unique_ptr<sql::PreparedStatement> canceled_statement{
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `state` FROM `tasks` WHERE `job_id` = ? AND `state` = 'cancel'"
-                )
-        };
-        canceled_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const canceled_res{canceled_statement->executeQuery()};
-        if (canceled_res->rowsCount() > 0) {
+        } else if ("cancel" == state) {
             *status = JobStatus::Cancelled;
-            static_cast<MySqlConnection&>(conn)->commit();
-            return StorageErr{};
+        } else {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{StorageErrType::OtherErr, "Unknown job status"};
         }
-        *status = JobStatus::Succeeded;
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -1128,6 +1127,14 @@ auto MySqlMetadataStorage::reset_job(StorageConnection& conn, boost::uuids::uuid
         );
         input_statement->setBytes(1, &job_id_bytes);
         input_statement->executeUpdate();
+        // Reset job state
+        std::unique_ptr<sql::PreparedStatement> job_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `jobs` SET `state` = 'running' WHERE `id` = ?"
+                )
+        );
+        job_statement->setBytes(1, &job_id_bytes);
+        job_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -1250,8 +1257,8 @@ auto MySqlMetadataStorage::get_ready_tasks(
         );
         std::unique_ptr<sql::ResultSet> const res{task_statement->executeQuery(
                 "SELECT `id`, `func_name`, `job_id` FROM `tasks` WHERE `state` = 'ready' "
-                "AND `job_id` NOT IN (SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR "
-                "`state` = 'cancel') AND `id` NOT IN (SELECT `task_id` FROM `scheduler_leases`)"
+                "AND `job_id` NOT IN (SELECT `id` FROM `jobs` WHERE `state` != 'running') AND `id` "
+                "NOT IN (SELECT `task_id` FROM `scheduler_leases`)"
         )};
 
         if (res->rowsCount() == 0) {
@@ -1279,8 +1286,7 @@ auto MySqlMetadataStorage::get_ready_tasks(
         };
         std::unique_ptr<sql::ResultSet> const job_res{job_statement->executeQuery(
                 "SELECT `id` , `client_id` , `creation_time` FROM `jobs` WHERE `id` IN (SELECT "
-                "DISTINCT `job_id` FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN "
-                "(SELECT `job_id` FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel'))"
+                "`id` FROM `jobs` WHERE `state` = 'running')"
         )};
 
         // Get job metadata
@@ -1318,9 +1324,9 @@ auto MySqlMetadataStorage::get_ready_tasks(
                 "`data_locality`.`address` FROM `task_inputs` JOIN `data` ON "
                 "`task_inputs`.`data_id` = `data`.`id` JOIN `data_locality` ON `data`.`id` "
                 "= `data_locality`.`id` WHERE `task_inputs`.`task_id` IN (SELECT `id` "
-                "FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN (SELECT `job_id` "
-                "FROM `tasks` WHERE `state` = 'fail' OR `state` = 'cancel')) AND "
-                "`task_inputs`.`task_id` NOT IN (SELECT `task_id` FROM `scheduler_leases`)"
+                "FROM `tasks` WHERE `state` = 'ready' AND `job_id` NOT IN (SELECT `id` FROM `jobs` "
+                "WHERE `state` != 'running')) AND `task_inputs`.`task_id` NOT IN (SELECT `task_id` "
+                "FROM `scheduler_leases`)"
         )};
 
         while (locality_res->next()) {
@@ -1466,14 +1472,34 @@ MySqlMetadataStorage::create_task_instance(StorageConnection& conn, TaskInstance
                 )
         );
         not_timeout_statement->setBytes(1, &id_bytes);
-        std::unique_ptr<sql::ResultSet> const not_timeout_res(not_timeout_statement->executeQuery()
+        std::unique_ptr<sql::ResultSet> const not_timeout_res(
+                not_timeout_statement->executeQuery()
         );
         bool const all_timeout = not_timeout_res->rowsCount() == 0;
         if (!task_ready && !all_timeout) {
             static_cast<MySqlConnection&>(conn)->rollback();
             return StorageErr{StorageErrType::OtherErr, "Task not ready or timed out"};
         }
-        // Set the state to running
+        // Check the job state
+        std::unique_ptr<sql::PreparedStatement> job_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `state` FROM `jobs` WHERE `id` = (SELECT `job_id` FROM "
+                        "`tasks` WHERE `id` = ?)"
+                )
+        );
+        job_statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const job_res(job_statement->executeQuery());
+        if (job_res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{StorageErrType::KeyNotFoundErr, "Job not found"};
+        }
+        job_res->next();
+        std::string const job_state = get_sql_string(job_res->getString("state"));
+        if (job_state != "running") {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{StorageErrType::OtherErr, "Job state wrong"};
+        }
+        // Set the task state to running
         std::unique_ptr<sql::PreparedStatement> const running_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
                         "UPDATE `tasks` SET `state` = 'running' WHERE `id` = ?"
@@ -1599,6 +1625,18 @@ auto MySqlMetadataStorage::task_finish(
         ready_statement->setBytes(1, &task_id_bytes);
         ready_statement->setBytes(2, &task_id_bytes);
         ready_statement->executeUpdate();
+        // If all tasks in the job finishes, set the job state to success
+        std::unique_ptr<sql::PreparedStatement> job_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `jobs` SET `state` = 'success' WHERE `id` = (SELECT `job_id` FROM "
+                        "`tasks` WHERE `id` = ?) AND NOT EXISTS (SELECT `job_id` FROM `tasks` "
+                        "WHERE `job_id` = (SELECT `job_id` FROM `tasks` WHERE `id` = ?) AND "
+                        "`state` != 'success') AND `state` = 'running'"
+                )
+        );
+        job_statement->setBytes(1, &task_id_bytes);
+        job_statement->setBytes(2, &task_id_bytes);
+        job_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
@@ -1649,6 +1687,15 @@ auto MySqlMetadataStorage::task_fail(
             );
             task_statement->setBytes(1, &task_id_bytes);
             task_statement->executeUpdate();
+            // Set the job fails
+            std::unique_ptr<sql::PreparedStatement> const job_statement(
+                    static_cast<MySqlConnection&>(conn)->prepareStatement(
+                            "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` FROM "
+                            "`tasks` WHERE `id` = ?)"
+                    )
+            );
+            job_statement->setBytes(1, &task_id_bytes);
+            job_statement->executeUpdate();
         }
     } catch (sql::SQLException& e) {
         spdlog::error("Task fail error: {}", e.what());

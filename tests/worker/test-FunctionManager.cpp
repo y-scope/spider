@@ -61,8 +61,8 @@ TEST_CASE("Register and get function name", "[core]") {
     REQUIRE(!manager.get_function_name(reinterpret_cast<void*>(not_registered)).has_value());
     // Get the function name of registered function should return the name
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    REQUIRE("int_test" == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or("")
-    );
+    REQUIRE("int_test"
+            == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or(""));
 }
 
 TEMPLATE_LIST_TEST_CASE(

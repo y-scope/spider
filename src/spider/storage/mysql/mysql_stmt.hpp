@@ -25,8 +25,10 @@ std::string const cCreateJobTable = R"(CREATE TABLE IF NOT EXISTS jobs (
     `id` BINARY(16) NOT NULL,
     `client_id` BINARY(16) NOT NULL,
     `creation_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `state` ENUM('running', 'success', 'cancel', 'fail') NOT NULL DEFAULT 'running',
     KEY (`client_id`) USING BTREE,
-    INDEX (`creation_time`),
+    INDEX idx_jobs_creation_time (`creation_time`),
+    INDEX idx_jobs_state (`state`),
     PRIMARY KEY (`id`)
 ))";
 
@@ -40,6 +42,8 @@ std::string const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `retry` INT UNSIGNED DEFAULT 0,
     `instance_id` BINARY(16),
     CONSTRAINT `task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    INDEX (`state`),
+    INDEX (`func_name`),
     PRIMARY KEY (`id`)
 ))";
 
