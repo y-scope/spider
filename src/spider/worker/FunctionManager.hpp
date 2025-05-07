@@ -262,7 +262,7 @@ public:
                     = msgpack::unpack(args_buffer.data(), args_buffer.size());
             msgpack::object const object = handle.get();
 
-            if (msgpack::type::ARRAY != object.type && object.via.array.size < 1) {
+            if (msgpack::type::ARRAY != object.type || object.via.array.size < 1) {
                 return create_error_response(
                         FunctionInvokeError::ArgumentParsingError,
                         fmt::format("Cannot parse arguments.")
