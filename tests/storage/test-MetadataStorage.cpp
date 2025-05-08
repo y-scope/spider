@@ -442,6 +442,81 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::StorageFactory
     REQUIRE(storage->remove_job(*conn, job_id).success());
 }
 
+TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryTypeList) {
+    std::unique_ptr<spider::core::StorageFactory> storage_factory
+            = spider::test::create_storage_factory<TestType>();
+    std::unique_ptr<spider::core::MetadataStorage> storage
+            = storage_factory->provide_metadata_storage();
+
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    REQUIRE(std::holds_alternative<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const job_id = gen();
+
+    // Create a complicated task graph
+    spider::core::Task child_task{"child"};
+    spider::core::Task parent_1{"p1"};
+    spider::core::Task parent_2{"p2"};
+    parent_1.add_input(spider::core::TaskInput{"1", "float"});
+    parent_1.add_input(spider::core::TaskInput{"2", "float"});
+    parent_2.add_input(spider::core::TaskInput{"3", "int"});
+    parent_2.add_input(spider::core::TaskInput{"4", "int"});
+    parent_1.add_output(spider::core::TaskOutput{"float"});
+    parent_2.add_output(spider::core::TaskOutput{"int"});
+    child_task.add_input(spider::core::TaskInput{parent_1.get_id(), 0, "float"});
+    child_task.add_input(spider::core::TaskInput{parent_2.get_id(), 0, "int"});
+    child_task.add_output(spider::core::TaskOutput{"float"});
+    parent_1.set_max_retries(1);
+    parent_2.set_max_retries(1);
+    child_task.set_max_retries(1);
+    spider::core::TaskGraph graph;
+    // Add task and dependencies to task graph in wrong order
+    graph.add_task(child_task);
+    graph.add_task(parent_1);
+    graph.add_task(parent_2);
+    graph.add_dependency(parent_2.get_id(), child_task.get_id());
+    graph.add_dependency(parent_1.get_id(), child_task.get_id());
+    graph.add_input_task(parent_1.get_id());
+    graph.add_input_task(parent_2.get_id());
+    graph.add_output_task(child_task.get_id());
+    // Submit job should success
+    REQUIRE(storage->add_job(*conn, job_id, gen(), graph).success());
+
+    // Task finish for parent 1 should succeed
+    spider::core::TaskInstance const parent_1_instance{gen(), parent_1.get_id()};
+    REQUIRE(storage->set_task_state(*conn, parent_1.get_id(), spider::core::TaskState::Running)
+                    .success());
+    REQUIRE(storage->task_finish(
+                           *conn,
+                           parent_1_instance,
+                           {spider::core::TaskOutput{"1.1", "float"}}
+    )
+                    .success());
+
+    // Cancel job should succeed
+    REQUIRE(storage->cancel_job(*conn, job_id).success());
+    // Job status should be cancelled
+    spider::core::JobStatus job_status = spider::core::JobStatus::Running;
+    REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());
+    REQUIRE(spider::core::JobStatus::Cancelled == job_status);
+
+    // Parent 1 state should be success
+    spider::core::Task task_res{""};
+    REQUIRE(storage->get_task(*conn, parent_1.get_id(), &task_res).success());
+    REQUIRE(spider::core::TaskState::Succeed == task_res.get_state());
+    // Parent 2 and child states should be cancelled
+    REQUIRE(storage->get_task(*conn, parent_2.get_id(), &task_res).success());
+    REQUIRE(spider::core::TaskState::Canceled == task_res.get_state());
+    REQUIRE(storage->get_task(*conn, child_task.get_id(), &task_res).success());
+    REQUIRE(spider::core::TaskState::Canceled == task_res.get_state());
+
+    // Clean up
+    REQUIRE(storage->remove_job(*conn, job_id).success());
+}
+
 TEMPLATE_LIST_TEST_CASE("Job reset", "[storage]", spider::test::StorageFactoryTypeList) {
     std::unique_ptr<spider::core::StorageFactory> storage_factory
             = spider::test::create_storage_factory<TestType>();
