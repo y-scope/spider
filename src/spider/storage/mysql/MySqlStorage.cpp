@@ -1080,11 +1080,11 @@ auto MySqlMetadataStorage::cancel_job(
         // Set the cancel message
         std::unique_ptr<sql::PreparedStatement> message_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "UPDATE `jobs` SET `message` = ? WHERE `id` = ?"
+                        "INSERT INTO `job_errors` (`job_id`, `message`) VALUES (?, ?) "
                 )
         );
-        message_statement->setString(1, message);
-        message_statement->setBytes(2, &id_bytes);
+        message_statement->setBytes(1, &id_bytes);
+        message_statement->setString(2, message);
         message_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
