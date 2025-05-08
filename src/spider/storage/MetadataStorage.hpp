@@ -72,6 +72,14 @@ public:
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr
             = 0;
+    /**
+     * Cancel a job. This will set the job state to CANCELED and set all tasks that have not
+     * finished or started to CANCELED.
+     * @param conn
+     * @param id The job id.
+     * @return The error code.
+     */
+    virtual auto cancel_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
