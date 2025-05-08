@@ -87,6 +87,8 @@ public:
     ) -> StorageErr override;
     auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
             -> StorageErr override;
+    auto get_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState* state)
+            -> StorageErr override;
     auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(StorageConnection& conn, TaskInstance const& instance)
             -> StorageErr override;

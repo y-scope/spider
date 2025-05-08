@@ -1428,6 +1428,39 @@ auto MySqlMetadataStorage::set_task_state(
     return StorageErr{};
 }
 
+auto MySqlMetadataStorage::get_task_state(
+        StorageConnection& conn,
+        boost::uuids::uuid const id,
+        TaskState* state
+) -> StorageErr {
+    try {
+        // Get the state of the task
+        std::unique_ptr<sql::PreparedStatement> statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `state` FROM `tasks` WHERE `id` = ?"
+                )
+        );
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->commit();
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("No task with id {} ", boost::uuids::to_string(id))
+            };
+        }
+        res->next();
+        std::string const state_str = get_sql_string(res->getString("state"));
+        *state = string_to_task_state(state_str);
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
 auto MySqlMetadataStorage::set_task_running(StorageConnection& conn, boost::uuids::uuid id)
         -> StorageErr {
     try {

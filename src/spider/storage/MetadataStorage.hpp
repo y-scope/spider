@@ -100,6 +100,9 @@ public:
     virtual auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
             -> StorageErr
             = 0;
+    virtual auto get_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState* state)
+            -> StorageErr
+            = 0;
     virtual auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_task_instance(StorageConnection& conn, TaskInstance const& instance)
             -> StorageErr

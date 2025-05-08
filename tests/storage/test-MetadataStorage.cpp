@@ -504,14 +504,14 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
     REQUIRE(spider::core::JobStatus::Cancelled == job_status);
 
     // Parent 1 state should be success
-    spider::core::Task task_res{""};
-    REQUIRE(storage->get_task(*conn, parent_1.get_id(), &task_res).success());
-    REQUIRE(spider::core::TaskState::Succeed == task_res.get_state());
+    spider::core::TaskState task_state = spider::core::TaskState::Running;
+    REQUIRE(storage->get_task_state(*conn, parent_1.get_id(), &task_state).success());
+    REQUIRE(spider::core::TaskState::Succeed == task_state);
     // Parent 2 and child states should be cancelled
-    REQUIRE(storage->get_task(*conn, parent_2.get_id(), &task_res).success());
-    REQUIRE(spider::core::TaskState::Canceled == task_res.get_state());
-    REQUIRE(storage->get_task(*conn, child_task.get_id(), &task_res).success());
-    REQUIRE(spider::core::TaskState::Canceled == task_res.get_state());
+    REQUIRE(storage->get_task_state(*conn, parent_2.get_id(), &task_state).success());
+    REQUIRE(spider::core::TaskState::Canceled == task_state);
+    REQUIRE(storage->get_task_state(*conn, child_task.get_id(), &task_state).success());
+    REQUIRE(spider::core::TaskState::Canceled == task_state);
 
     // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
