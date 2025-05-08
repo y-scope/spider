@@ -1,6 +1,7 @@
 #ifndef SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 #define SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -17,7 +18,9 @@
             = spider::core::FunctionNameManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
-using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
+using TaskFunctionPointer = uintptr_t;
+
+using FunctionNameMap = absl::flat_hash_map<TaskFunctionPointer, std::string>;
 
 class FunctionNameManager {
 public:
@@ -34,10 +37,12 @@ public:
     template <typename F>
     auto register_function(std::string const& name, F function_pointer) -> bool {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        return m_name_map.emplace(reinterpret_cast<void*>(function_pointer), name).second;
+        return m_name_map.emplace(reinterpret_cast<TaskFunctionPointer>(function_pointer), name)
+                .second;
     }
 
-    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
+    [[nodiscard]] auto get_function_name(TaskFunctionPointer ptr) const
+            -> std::optional<std::string>;
 
     [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
         return m_name_map;
