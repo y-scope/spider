@@ -497,7 +497,8 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
                     .success());
 
     // Cancel job should succeed
-    REQUIRE(storage->cancel_job(*conn, job_id).success());
+    std::string const error_message = "test error message";
+    REQUIRE(storage->cancel_job(*conn, job_id, error_message).success());
     // Job status should be cancelled
     spider::core::JobStatus job_status = spider::core::JobStatus::Running;
     REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());

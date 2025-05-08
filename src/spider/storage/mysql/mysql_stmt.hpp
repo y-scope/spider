@@ -32,6 +32,13 @@ std::string const cCreateJobTable = R"(CREATE TABLE IF NOT EXISTS jobs (
     PRIMARY KEY (`id`)
 ))";
 
+std::string const cCreateJobErrorTable = R"(CREATE TABLE IF NOT EXISTS `job_errors` (
+    `job_id` BINARY(16) NOT NULL,
+    `message` VARCHAR(999) NOT NULL,
+    CONSTRAINT `job_error_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    PRIMARY KEY (`job_id`)
+))";
+
 std::string const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `id` BINARY(16) NOT NULL,
     `job_id` BINARY(16) NOT NULL,
@@ -167,10 +174,11 @@ std::string const cCreateTaskKVDataTable = R"(CREATE TABLE IF NOT EXISTS `task_k
     CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 ))";
 
-std::array<std::string const, 17> const cCreateStorage = {
+std::array<std::string const, 18> const cCreateStorage = {
         cCreateDriverTable,  // drivers table must be created before data_ref_driver
         cCreateSchedulerTable,
-        cCreateJobTable,  // jobs table must be created before task
+        cCreateJobTable,  // jobs table must be created before task and job_error
+        cCreateJobErrorTable,
         cCreateTaskTable,  // tasks table must be created before data_ref_task
         cCreateDataTable,  // data table must be created before task_outputs
         cCreateDataLocalityTable,

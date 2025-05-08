@@ -1053,8 +1053,11 @@ auto MySqlMetadataStorage::get_jobs_by_client_id(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::cancel_job(StorageConnection& conn, boost::uuids::uuid const id)
-        -> StorageErr {
+auto MySqlMetadataStorage::cancel_job(
+        StorageConnection& conn,
+        boost::uuids::uuid const id,
+        std::string const& message
+) -> StorageErr {
     try {
         // Set all pending/ready/running tasks from the job to cancelled
         std::unique_ptr<sql::PreparedStatement> task_statement(
@@ -1074,6 +1077,15 @@ auto MySqlMetadataStorage::cancel_job(StorageConnection& conn, boost::uuids::uui
         );
         job_statement->setBytes(1, &id_bytes);
         job_statement->executeUpdate();
+        // Set the cancel message
+        std::unique_ptr<sql::PreparedStatement> msg_statemement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `jobs` SET `message` = ? WHERE `id` = ?"
+                )
+        );
+        msg_statemement->setString(1, message);
+        msg_statemement->setBytes(2, &id_bytes);
+        msg_statemement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

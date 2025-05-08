@@ -73,13 +73,17 @@ public:
     ) -> StorageErr
             = 0;
     /**
-     * Cancel a job. This will set the job state to CANCELED and set all tasks that have not
-     * finished or started to CANCELED.
+     * Cancel a job. This will set the job state to CANCEL and set all tasks that have not
+     * finished or started to CANCEL.
      * @param conn
      * @param id The job id.
+     * @param message The error message of the cancellation.
      * @return The error code.
      */
-    virtual auto cancel_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
+    virtual auto
+    cancel_job(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
+            -> StorageErr
+            = 0;
     virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
