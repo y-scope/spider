@@ -1,5 +1,6 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
+    core/DataCleaner.cpp
     core/Task.cpp
     storage/mysql/MySqlConnection.cpp
     storage/mysql/MySqlStorageFactory.cpp
@@ -16,6 +17,7 @@ set(SPIDER_CORE_HEADERS
     core/Context.hpp
     core/Error.hpp
     core/Data.hpp
+    core/DataCleaner.hpp
     core/Driver.hpp
     core/KeyValueData.hpp
     core/Task.hpp

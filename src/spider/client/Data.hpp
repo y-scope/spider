@@ -1,8 +1,6 @@
 #ifndef SPIDER_CLIENT_DATA_HPP
 #define SPIDER_CLIENT_DATA_HPP
 
-#include <cstdint>
-#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
@@ -10,9 +8,8 @@
 #include <variant>
 #include <vector>
 
-#include <boost/uuid/uuid.hpp>
-
 #include "../core/Context.hpp"
+#include "../core/DataCleaner.hpp"
 #include "../core/Error.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../io/Serializer.hpp"
@@ -153,7 +150,7 @@ public:
         Builder(core::Context context,
                 std::shared_ptr<core::DataStorage> data_store,
                 std::shared_ptr<core::StorageFactory> storage_factory)
-                : m_context{std::move(context)},
+                : m_context{context},
                   m_data_store{std::move(data_store)},
                   m_storage_factory{std::move(storage_factory)} {}
 
@@ -161,7 +158,7 @@ public:
                 std::shared_ptr<core::DataStorage> data_store,
                 std::shared_ptr<core::StorageFactory> storage_factory,
                 std::shared_ptr<core::StorageConnection> connection)
-                : m_context{std::move(context)},
+                : m_context{context},
                   m_data_store{std::move(data_store)},
                   m_storage_factory{std::move(storage_factory)},
                   m_connection{std::move(connection)} {}
@@ -182,35 +179,19 @@ public:
 
     Data() = default;
 
-    // Default copy constructor and assignment operator
-    Data(Data const&) = default;
-    auto operator=(Data const&) -> Data& = default;
-    // Default move constructor and assignment operator
-    Data(Data&&) = default;
-    auto operator=(Data&&) -> Data& = default;
-
-    ~Data() {
-        int const num_exceptions = std::uncaught_exceptions();
-        // If destructor is called during stack unwinding, do not remove data reference.
-        if (num_exceptions > m_num_exceptions) {
-            return;
-        }
-        if (m_context.get_source() == core::Context::Source::Driver) {
-            m_data_store
-                    ->remove_driver_reference(*m_connection, m_impl->get_id(), m_context.get_id());
-        } else {
-            m_data_store
-                    ->remove_task_reference(*m_connection, m_impl->get_id(), m_context.get_id());
-        }
-    }
-
 private:
     Data(std::unique_ptr<core::Data> impl,
          core::Context context,
          std::shared_ptr<core::DataStorage> data_store,
          std::shared_ptr<core::StorageFactory> storage_factory)
-            : m_impl{std::move(impl)},
-              m_context{std::move(context)},
+            : m_data_cleaner{std::make_unique<core::DataCleaner>(
+                      impl->get_id(),
+                      context,
+                      data_store,
+                      storage_factory,
+                      nullptr
+              )},
+              m_impl{std::move(impl)},
               m_data_store{std::move(data_store)},
               m_storage_factory{std::move(storage_factory)} {}
 
@@ -219,18 +200,21 @@ private:
          std::shared_ptr<core::DataStorage> data_store,
          std::shared_ptr<core::StorageFactory> storage_factory,
          std::shared_ptr<core::StorageConnection> connection)
-            : m_impl{std::move(impl)},
-              m_context{std::move(context)},
+            : m_data_cleaner{std::make_unique<core::DataCleaner>(
+                      impl->get_id(),
+                      context,
+                      data_store,
+                      storage_factory,
+                      connection
+              )},
+              m_impl{std::move(impl)},
               m_data_store{std::move(data_store)},
               m_storage_factory{std::move(storage_factory)},
               m_connection{std::move(connection)} {}
 
     [[nodiscard]] auto get_impl() const -> std::unique_ptr<core::Data> const& { return m_impl; }
 
-    int m_num_exceptions = std::uncaught_exceptions();
-
-    // Provide a default context so that Data can be used in std::tuple.
-    core::Context m_context = core::Context{core::Context::Source::Driver, boost::uuids::uuid{}};
+    std::unique_ptr<core::DataCleaner> m_data_cleaner;
 
     std::unique_ptr<core::Data> m_impl;
     std::shared_ptr<core::DataStorage> m_data_store;
