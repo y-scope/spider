@@ -84,6 +84,17 @@ public:
     cancel_job(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
             -> StorageErr
             = 0;
+    /**
+     * Get the error message of a cancelled job.
+     * @param conn
+     * @param id The job id.
+     * @param message The error message of the cancellation.
+     * @return The error code.
+     */
+    virtual auto
+    get_job_message(StorageConnection& conn, boost::uuids::uuid id, std::string* message)
+            -> StorageErr
+            = 0;
     virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)

@@ -1078,14 +1078,42 @@ auto MySqlMetadataStorage::cancel_job(
         job_statement->setBytes(1, &id_bytes);
         job_statement->executeUpdate();
         // Set the cancel message
-        std::unique_ptr<sql::PreparedStatement> msg_statemement(
+        std::unique_ptr<sql::PreparedStatement> message_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
                         "UPDATE `jobs` SET `message` = ? WHERE `id` = ?"
                 )
         );
-        msg_statemement->setString(1, message);
-        msg_statemement->setBytes(2, &id_bytes);
-        msg_statemement->executeUpdate();
+        message_statement->setString(1, message);
+        message_statement->setBytes(2, &id_bytes);
+        message_statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::get_job_message(
+        StorageConnection& conn,
+        boost::uuids::uuid const id,
+        std::string* message
+) -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement{
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `message` FROM `job_errors` WHERE `job_id` = ?"
+                )
+        };
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        std::unique_ptr<sql::ResultSet> const res{statement->executeQuery()};
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->commit();
+            return StorageErr{StorageErrType::KeyNotFoundErr, "No messages found"};
+        }
+        res->next();
+        *message = get_sql_string(res->getString("message"));
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

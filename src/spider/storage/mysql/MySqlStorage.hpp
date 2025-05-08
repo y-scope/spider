@@ -73,6 +73,8 @@ public:
     ) -> StorageErr override;
     auto cancel_job(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
             -> StorageErr override;
+    auto get_job_message(StorageConnection& conn, boost::uuids::uuid id, std::string* message)
+            -> StorageErr override;
     auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
