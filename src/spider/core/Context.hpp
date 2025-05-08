@@ -19,9 +19,9 @@ public:
 
     Context(Source const source, boost::uuids::uuid const id) : m_source{source}, m_id{id} {}
 
-    auto get_source() const -> Source { return m_source; }
+    [[nodiscard]] auto get_source() const -> Source { return m_source; }
 
-    auto get_id() const -> boost::uuids::uuid { return m_id; }
+    [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
 private:
     Source m_source;
