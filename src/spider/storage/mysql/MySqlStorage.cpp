@@ -1094,6 +1094,62 @@ auto MySqlMetadataStorage::cancel_job(
     return StorageErr{};
 }
 
+auto MySqlMetadataStorage::cancel_job_by_task(
+        StorageConnection& conn,
+        boost::uuids::uuid id,
+        std::string const& message
+) -> StorageErr {
+    try {
+        // Get job id
+        sql::bytes task_id_bytes = uuid_get_bytes(id);
+        std::unique_ptr<sql::PreparedStatement> statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `job_id` FROM `tasks` WHERE `id` = ?"
+                )
+        );
+        statement->setBytes(1, &task_id_bytes);
+        std::unique_ptr<sql::ResultSet> const res{statement->executeQuery()};
+        if (res->rowsCount() == 0) {
+            static_cast<MySqlConnection&>(conn)->rollback();
+            return StorageErr{StorageErrType::KeyNotFoundErr, "No task with id"};
+        }
+        res->next();
+        boost::uuids::uuid const job_id = read_id(res->getBinaryStream("job_id"));
+        sql::bytes job_id_bytes = uuid_get_bytes(job_id);
+        // Set all pending/ready/running tasks from the job to cancelled
+        std::unique_ptr<sql::PreparedStatement> task_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `tasks` SET `state` = 'cancel' WHERE `job_id` = ? AND "
+                        "`state` IN ('pending', 'ready', 'running')"
+                )
+        );
+        task_statement->setBytes(1, &job_id_bytes);
+        task_statement->executeUpdate();
+        // Set job state to cancelled
+        std::unique_ptr<sql::PreparedStatement> job_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `jobs` SET `state` = 'cancel' WHERE `id` = ?"
+                )
+        );
+        job_statement->setBytes(1, &job_id_bytes);
+        job_statement->executeUpdate();
+        // Set the cancel message
+        std::unique_ptr<sql::PreparedStatement> message_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "INSERT INTO `job_errors` (`job_id`, `message`) VALUES (?, ?) "
+                )
+        );
+        message_statement->setBytes(1, &job_id_bytes);
+        message_statement->setString(2, message);
+        message_statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
 auto MySqlMetadataStorage::get_job_message(
         StorageConnection& conn,
         boost::uuids::uuid const id,

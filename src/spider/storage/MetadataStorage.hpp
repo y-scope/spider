@@ -85,6 +85,18 @@ public:
             -> StorageErr
             = 0;
     /**
+     * Cancel a job that owns the task. This will set the job state to CANCEL and set all tasks
+     * that have not finished or started to CANCEL.
+     * @param conn
+     * @param id The task id.
+     * @param message The error message of the cancellation.
+     * @return The error code.
+     */
+    virtual auto
+    cancel_job_by_task(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
+            -> StorageErr
+            = 0;
+    /**
      * Get the error message of a cancelled job.
      * @param conn
      * @param id The job id.
