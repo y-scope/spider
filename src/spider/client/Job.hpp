@@ -164,7 +164,7 @@ private:
         std::shared_ptr<core::DataStorage> data_storage,
         std::shared_ptr<core::StorageFactory> storage_factory)
             : m_id{id},
-              m_context{std::move(context)},
+              m_context{context},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)} {}
@@ -176,7 +176,7 @@ private:
         std::shared_ptr<core::StorageFactory> storage_factory,
         std::shared_ptr<core::StorageConnection> conn)
             : m_id{id},
-              m_context{std::move(context)},
+              m_context{context},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)},
