@@ -1,7 +1,6 @@
 #ifndef SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 #define SPIDER_CORE_FUNCTIONNAMEMANAGER_HPP
 
-#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -18,7 +17,7 @@
             = spider::core::FunctionNameManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
-using TaskFunctionPointer = uintptr_t;
+using TaskFunctionPointer = void (*)();
 
 using FunctionNameMap = absl::flat_hash_map<TaskFunctionPointer, std::string>;
 
