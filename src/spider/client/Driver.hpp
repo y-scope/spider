@@ -228,6 +228,8 @@ public:
 
         return Job<ReturnType>{
                 job_id,
+                Job<ReturnType>::JobSource::Driver,
+                m_id,
                 m_metadata_storage,
                 m_data_storage,
                 m_storage_factory,
@@ -291,6 +293,8 @@ public:
 
         return Job<ReturnType>{
                 job_id,
+                Job<ReturnType>::JobSource::Driver,
+                m_id,
                 m_metadata_storage,
                 m_data_storage,
                 m_storage_factory,

@@ -172,7 +172,14 @@ public:
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_store, m_data_store, m_storage_factory};
+        return Job<ReturnType>{
+                job_id,
+                Job<ReturnType>::JobSource::Task,
+                m_task_id,
+                m_metadata_store,
+                m_data_store,
+                m_storage_factory
+        };
     }
 
     /**
@@ -224,7 +231,14 @@ public:
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_store, m_data_store, m_storage_factory};
+        return Job<ReturnType>{
+                job_id,
+                Job<ReturnType>::JobSource::Task,
+                m_task_id,
+                m_metadata_store,
+                m_data_store,
+                m_storage_factory
+        };
     }
 
     /**
