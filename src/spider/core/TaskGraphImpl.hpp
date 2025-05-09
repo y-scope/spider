@@ -138,7 +138,7 @@ public:
         // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
         std::optional<std::string> const function_name
                 = FunctionNameManager::get_instance().get_function_name(
-                        reinterpret_cast<void const*>(task_function)
+                        reinterpret_cast<TaskFunctionPointer const>(task_function)
                 );
         // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
         if (!function_name.has_value()) {
