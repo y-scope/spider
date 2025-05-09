@@ -33,14 +33,15 @@ public:
     virtual auto get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data) -> StorageErr
             = 0;
     /**
-     * Get data and register data reference from a driver in a single transaction.
+     * Get a data object and register a reference for it from the given driver in a single
+     * transaction.
      * @param conn
      * @param driver_id
      * @param data_id
      * @param data output data
      * @return StorageErr::Success if the transaction succeed. Error types otherwise.
      */
-    virtual auto get_data_driver(
+    virtual auto get_driver_data(
             StorageConnection& conn,
             boost::uuids::uuid driver_id,
             boost::uuids::uuid data_id,
@@ -48,14 +49,15 @@ public:
     ) -> StorageErr
             = 0;
     /**
-     * Get data and register data reference from a task in a single transaction.
+     * Get a data object and register a reference for it from the given task in a single
+     * transaction.
      * @param conn
      * @param task_id
      * @param data_id
      * @param data output data
      * @return StorageErr::Success if the transaction succeed. Error types otherwise.
      */
-    virtual auto get_data_task(
+    virtual auto get_task_data(
             StorageConnection& conn,
             boost::uuids::uuid task_id,
             boost::uuids::uuid data_id,

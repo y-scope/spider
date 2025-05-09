@@ -256,14 +256,14 @@ private:
                         throw ConnectionException{fmt::format("Output data ID is missing")};
                     }
                     if (m_source == JobSource::Driver) {
-                        err = m_data_storage->get_data_driver(
+                        err = m_data_storage->get_driver_data(
                                 conn,
                                 m_source_id,
                                 optional_data_id.value(),
                                 &data
                         );
                     } else {
-                        err = m_data_storage->get_data_task(
+                        err = m_data_storage->get_task_data(
                                 conn,
                                 m_source_id,
                                 optional_data_id.value(),
@@ -330,14 +330,14 @@ private:
                     throw ConnectionException{fmt::format("Output data ID is missing")};
                 }
                 if (m_source == JobSource::Driver) {
-                    err = m_data_storage->get_data_driver(
+                    err = m_data_storage->get_driver_data(
                             conn,
                             m_source_id,
                             optional_data_id.value(),
                             &data
                     );
                 } else {
-                    err = m_data_storage->get_data_task(
+                    err = m_data_storage->get_task_data(
                             conn,
                             m_source_id,
                             optional_data_id.value(),

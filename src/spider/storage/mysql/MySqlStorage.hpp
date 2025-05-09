@@ -148,13 +148,13 @@ public:
             -> StorageErr override;
     auto get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data)
             -> StorageErr override;
-    auto get_data_driver(
+    auto get_driver_data(
             StorageConnection& conn,
             boost::uuids::uuid driver_id,
             boost::uuids::uuid data_id,
             Data* data
     ) -> StorageErr override;
-    auto get_data_task(
+    auto get_task_data(
             StorageConnection& conn,
             boost::uuids::uuid task_id,
             boost::uuids::uuid data_id,

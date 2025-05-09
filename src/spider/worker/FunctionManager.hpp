@@ -306,7 +306,7 @@ public:
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
                     std::unique_ptr<Data> data = std::make_unique<Data>();
-                    err = data_store->get_data_task(*conn, task_id, data_id, data.get());
+                    err = data_store->get_task_data(*conn, task_id, data_id, data.get());
                     if (!err.success()) {
                         return;
                     }

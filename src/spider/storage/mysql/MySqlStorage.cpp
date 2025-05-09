@@ -2130,7 +2130,7 @@ auto MySqlDataStorage::get_data(StorageConnection& conn, boost::uuids::uuid cons
     return StorageErr{};
 }
 
-auto MySqlDataStorage::get_data_driver(
+auto MySqlDataStorage::get_driver_data(
         StorageConnection& conn,
         boost::uuids::uuid const driver_id,
         boost::uuids::uuid const data_id,
@@ -2160,7 +2160,7 @@ auto MySqlDataStorage::get_data_driver(
     return StorageErr{};
 }
 
-auto MySqlDataStorage::get_data_task(
+auto MySqlDataStorage::get_task_data(
         StorageConnection& conn,
         boost::uuids::uuid const task_id,
         boost::uuids::uuid const data_id,
