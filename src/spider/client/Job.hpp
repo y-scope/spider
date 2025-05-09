@@ -82,7 +82,20 @@ public:
      *
      * @throw spider::ConnectionException
      */
-    auto cancel();
+    auto cancel() -> void {
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+        core::StorageErr const err
+                = m_metadata_storage->cancel_job(*conn, m_id, "Job cancelled by user");
+        if (!err.success()) {
+            throw ConnectionException(err.description);
+        }
+    }
 
     /**
      * @return Status of the job.

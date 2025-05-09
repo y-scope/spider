@@ -69,4 +69,19 @@ auto TaskContext::get_jobs() -> std::vector<boost::uuids::uuid> {
     }
     return job_ids;
 }
+
+auto TaskContext::abort(std::string const& message) -> void {
+    std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+            = m_storage_factory->provide_storage_connection();
+    if (std::holds_alternative<core::StorageErr>(conn_result)) {
+        throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+    }
+    auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+    core::StorageErr const err = m_metadata_store->cancel_job_by_task(*conn, m_task_id, message);
+    if (!err.success()) {
+        throw ConnectionException(err.description);
+    }
+    std::quick_exit(1);
+}
 }  // namespace spider
