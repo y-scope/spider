@@ -11,7 +11,8 @@ auto FunctionNameManager::get_instance() -> FunctionNameManager& {
     return instance;
 }
 
-auto FunctionNameManager::get_function_name(void const* ptr) const -> std::optional<std::string> {
+auto FunctionNameManager::get_function_name(TaskFunctionPointer const ptr) const
+        -> std::optional<std::string> {
     if (auto const& it = m_name_map.find(ptr); it != m_name_map.end()) {
         return it->second;
     }
