@@ -273,5 +273,8 @@ auto main(int argc, char** argv) -> int {
         return cSignalExitBase + SIGTERM;
     }
 
+    // Clean up driver in storage
+    metadata_store->remove_driver(*conn, scheduler_id);
+
     return 0;
 }
