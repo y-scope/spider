@@ -14,6 +14,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
+#include "../core/DriverCleaner.hpp"
 #include "../core/Error.hpp"
 #include "../core/TaskGraphImpl.hpp"
 #include "../io/Serializer.hpp"
@@ -319,6 +320,7 @@ public:
 
 private:
     boost::uuids::uuid m_id;
+    std::unique_ptr<core::DriverCleaner> m_driver_cleaner;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
     std::shared_ptr<core::StorageFactory> m_storage_factory;

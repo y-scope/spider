@@ -44,6 +44,13 @@ Driver::Driver(std::string const& storage_url)
         throw ConnectionException(err.description);
     }
 
+    m_driver_cleaner = std::make_unique<core::DriverCleaner>(
+            m_id,
+            m_metadata_storage,
+            m_storage_factory,
+            m_conn
+    );
+
     // Start a thread to send heartbeats
     // NOLINTNEXTLINE(performance-unnecessary-value-param)
     m_heartbeat_thread = std::jthread([this](std::stop_token stoken) {
@@ -84,6 +91,13 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id)
         }
         throw ConnectionException(err.description);
     }
+
+    m_driver_cleaner = std::make_unique<core::DriverCleaner>(
+            m_id,
+            m_metadata_storage,
+            m_storage_factory,
+            m_conn
+    );
 
     // Start a thread to send heartbeats
     // NOLINTNEXTLINE(performance-unnecessary-value-param)
