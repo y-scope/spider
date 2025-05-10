@@ -19,6 +19,7 @@
 #include "../core/Context.hpp"
 #include "../core/DataImpl.hpp"
 #include "../core/Error.hpp"
+#include "../core/JobCleaner.hpp"
 #include "../core/JobMetadata.hpp"
 #include "../io/MsgPack.hpp"  // IWYU pragma: keep
 #include "../storage/MetadataStorage.hpp"
@@ -165,6 +166,12 @@ private:
         std::shared_ptr<core::StorageFactory> storage_factory)
             : m_id{id},
               m_context{context},
+              m_job_cleaner{std::make_unique<core::JobCleaner>(
+                      id,
+                      metadata_storage,
+                      storage_factory,
+                      nullptr
+              )},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)} {}
@@ -177,6 +184,12 @@ private:
         std::shared_ptr<core::StorageConnection> conn)
             : m_id{id},
               m_context{context},
+              m_job_cleaner{std::make_unique<core::JobCleaner>(
+                      id,
+                      metadata_storage,
+                      storage_factory,
+                      conn
+              )},
               m_metadata_storage{std::move(metadata_storage)},
               m_data_storage{std::move(data_storage)},
               m_storage_factory{std::move(storage_factory)},
@@ -374,6 +387,7 @@ private:
 
     boost::uuids::uuid m_id;
     core::Context m_context;
+    std::unique_ptr<core::JobCleaner> m_job_cleaner;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
     std::shared_ptr<core::StorageFactory> m_storage_factory;
