@@ -69,6 +69,9 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFa
     REQUIRE(std::ranges::none_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
     }));
+
+    // Clean up
+    REQUIRE(storage->remove_driver(*conn, driver_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE("Scheduler addr", "[storage]", spider::test::StorageFactoryTypeList) {
@@ -100,6 +103,9 @@ TEMPLATE_LIST_TEST_CASE("Scheduler addr", "[storage]", spider::test::StorageFact
     // Get non-exist scheduler should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == storage->get_scheduler_addr(*conn, gen(), &addr_res, &port_res).type);
+
+    // Clean up
+    REQUIRE(storage->remove_driver(*conn, scheduler_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -593,6 +599,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
+    REQUIRE(storage->remove_driver(*conn, scheduler_id).success());
 }
 }  // namespace
 
