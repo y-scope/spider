@@ -34,8 +34,7 @@ JobCleaner::~JobCleaner() {
     if (nullptr == conn) {
         std::variant<std::unique_ptr<StorageConnection>, StorageErr> conn_result
                 = m_storage_factory->provide_storage_connection();
-        // If we cannot get the connection, that means we are in a worker.
-        // Just let the reference stays until the job is removed.
+        // If we cannot get the connection, we cannot remove the job.
         if (std::holds_alternative<StorageErr>(conn_result)) {
             return;
         }

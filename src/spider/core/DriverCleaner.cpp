@@ -34,13 +34,14 @@ DriverCleaner::~DriverCleaner() {
     if (nullptr == conn) {
         std::variant<std::unique_ptr<StorageConnection>, StorageErr> conn_result
                 = m_storage_factory->provide_storage_connection();
-        // If we cannot get the connection, that means we are in a worker.
-        // Just let the reference stays until the job is removed.
+        // If we cannot get the connection, just wait for the heartbeat to fail
+        // and remove the driver.
         if (std::holds_alternative<StorageErr>(conn_result)) {
             return;
         }
         conn = std::move(std::get<std::unique_ptr<StorageConnection>>(conn_result));
     }
+    std::cout << "DriverCleaner: removing driver.\n";
     m_metadata_store->remove_driver(*conn, m_driver_id);
 }
 }  // namespace spider::core
