@@ -28,7 +28,7 @@ public:
             std::shared_ptr<StorageConnection> connection
     );
 
-    ~DriverCleaner();
+    ~DriverCleaner() noexcept;
 
     // Delete copy constructor and assignment operator
     DriverCleaner(DriverCleaner const&) = delete;

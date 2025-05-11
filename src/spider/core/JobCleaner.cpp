@@ -24,7 +24,7 @@ JobCleaner::JobCleaner(
           m_storage_factory{std::move(storage_factory)},
           m_connection{std::move(connection)} {}
 
-JobCleaner::~JobCleaner() {
+JobCleaner::~JobCleaner() noexcept {
     int const num_exceptions = std::uncaught_exceptions();
     // If destructor is called during stack unwinding, do not remove data reference.
     if (num_exceptions > m_num_exceptions) {

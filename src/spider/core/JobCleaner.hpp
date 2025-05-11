@@ -28,7 +28,7 @@ public:
             std::shared_ptr<StorageConnection> connection
     );
 
-    ~JobCleaner();
+    ~JobCleaner() noexcept;
 
     // Delete copy constructor and assignment operator
     JobCleaner(JobCleaner const&) = delete;

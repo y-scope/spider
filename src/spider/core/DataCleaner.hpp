@@ -29,7 +29,7 @@ public:
             std::shared_ptr<StorageFactory> storage_factory,
             std::shared_ptr<StorageConnection> storage_connection
     );
-    ~DataCleaner();
+    ~DataCleaner() noexcept;
 
     // Delete copy constructor and assignment operator
     DataCleaner(DataCleaner const&) = delete;

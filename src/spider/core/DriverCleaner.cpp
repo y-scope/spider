@@ -24,7 +24,7 @@ DriverCleaner::DriverCleaner(
           m_storage_factory{std::move(storage_factory)},
           m_connection{std::move(connection)} {}
 
-DriverCleaner::~DriverCleaner() {
+DriverCleaner::~DriverCleaner() noexcept {
     int const num_exceptions = std::uncaught_exceptions();
     // If destructor is called during stack unwinding, do not remove data reference.
     if (num_exceptions > m_num_exceptions) {
