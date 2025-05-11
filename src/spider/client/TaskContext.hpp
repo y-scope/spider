@@ -15,6 +15,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
+#include "../core/Context.hpp"
 #include "../core/Error.hpp"
 #include "../core/TaskGraph.hpp"
 #include "../core/TaskGraphImpl.hpp"
@@ -61,9 +62,8 @@ public:
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
         return DataBuilder{
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_data_store,
-                m_task_id,
-                DataBuilder::DataSource::TaskContext,
                 m_storage_factory
         };
     }
@@ -174,8 +174,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Task,
-                m_task_id,
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_metadata_store,
                 m_data_store,
                 m_storage_factory
@@ -233,8 +232,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Task,
-                m_task_id,
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_metadata_store,
                 m_data_store,
                 m_storage_factory

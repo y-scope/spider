@@ -32,6 +32,15 @@ public:
     virtual auto get_active_scheduler(StorageConnection& conn, std::vector<Scheduler>* schedulers)
             -> StorageErr
             = 0;
+    /*
+     * Remove the driver from the storage.
+     * @param conn The connection to the storage.
+     * @param id The id of the driver to remove.
+     * @return The error code.
+     */
+    virtual auto remove_driver(StorageConnection& conn, boost::uuids::uuid id) noexcept
+            -> StorageErr
+            = 0;
 
     virtual auto
     add_job(StorageConnection& conn,
@@ -72,7 +81,8 @@ public:
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr
             = 0;
-    virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
+    virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr
+            = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr

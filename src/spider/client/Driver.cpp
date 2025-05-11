@@ -13,6 +13,7 @@
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Driver.hpp"
+#include "../core/DriverCleaner.hpp"
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
@@ -43,6 +44,13 @@ Driver::Driver(std::string const& storage_url)
         }
         throw ConnectionException(err.description);
     }
+
+    m_driver_cleaner = std::make_unique<core::DriverCleaner>(
+            m_id,
+            m_metadata_storage,
+            m_storage_factory,
+            m_conn
+    );
 
     // Start a thread to send heartbeats
     // NOLINTNEXTLINE(performance-unnecessary-value-param)
@@ -84,6 +92,13 @@ Driver::Driver(std::string const& storage_url, boost::uuids::uuid const id)
         }
         throw ConnectionException(err.description);
     }
+
+    m_driver_cleaner = std::make_unique<core::DriverCleaner>(
+            m_id,
+            m_metadata_storage,
+            m_storage_factory,
+            m_conn
+    );
 
     // Start a thread to send heartbeats
     // NOLINTNEXTLINE(performance-unnecessary-value-param)
