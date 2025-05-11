@@ -93,6 +93,9 @@ TEMPLATE_LIST_TEST_CASE(
     // Schedule when no task available
     optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(!optional_task_id.has_value());
+
+    // Clean up
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -150,6 +153,9 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
+    REQUIRE(data_store->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -205,6 +211,9 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
+    REQUIRE(data_store->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 }  // namespace
 
