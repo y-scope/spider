@@ -30,9 +30,9 @@ public:
 
     ~DriverCleaner();
 
-    // Default copy constructor and assignment operator
-    DriverCleaner(DriverCleaner const&) = default;
-    auto operator=(DriverCleaner const&) -> DriverCleaner& = default;
+    // Delete copy constructor and assignment operator
+    DriverCleaner(DriverCleaner const&) = delete;
+    auto operator=(DriverCleaner const&) -> DriverCleaner& = delete;
     // Default move constructor and assignment operator
     DriverCleaner(DriverCleaner&&) = default;
     auto operator=(DriverCleaner&&) -> DriverCleaner& = default;

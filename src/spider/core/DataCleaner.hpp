@@ -31,9 +31,9 @@ public:
     );
     ~DataCleaner();
 
-    // Default copy constructor and assignment operator
-    DataCleaner(DataCleaner const&) = default;
-    auto operator=(DataCleaner const&) -> DataCleaner& = default;
+    // Delete copy constructor and assignment operator
+    DataCleaner(DataCleaner const&) = delete;
+    auto operator=(DataCleaner const&) -> DataCleaner& = delete;
     // Default move constructor and assignment operator
     DataCleaner(DataCleaner&&) = default;
     auto operator=(DataCleaner&&) -> DataCleaner& = default;

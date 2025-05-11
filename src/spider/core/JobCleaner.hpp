@@ -30,9 +30,9 @@ public:
 
     ~JobCleaner();
 
-    // Default copy constructor and assignment operator
-    JobCleaner(JobCleaner const&) = default;
-    auto operator=(JobCleaner const&) -> JobCleaner& = default;
+    // Delete copy constructor and assignment operator
+    JobCleaner(JobCleaner const&) = delete;
+    auto operator=(JobCleaner const&) -> JobCleaner& = delete;
     // Default move constructor and assignment operator
     JobCleaner(JobCleaner&&) = default;
     auto operator=(JobCleaner&&) -> JobCleaner& = default;
