@@ -218,7 +218,8 @@ auto MySqlMetadataStorage::get_active_scheduler(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::remove_driver(StorageConnection& conn, boost::uuids::uuid const id)
+auto
+MySqlMetadataStorage::remove_driver(StorageConnection& conn, boost::uuids::uuid const id) noexcept
         -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
@@ -1075,7 +1076,7 @@ auto MySqlMetadataStorage::get_jobs_by_client_id(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::remove_job(StorageConnection& conn, boost::uuids::uuid id)
+auto MySqlMetadataStorage::remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept
         -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
@@ -2297,7 +2298,7 @@ auto MySqlDataStorage::remove_task_reference(
         StorageConnection& conn,
         boost::uuids::uuid id,
         boost::uuids::uuid task_id
-) -> StorageErr {
+) noexcept -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
@@ -2348,7 +2349,7 @@ auto MySqlDataStorage::remove_driver_reference(
         StorageConnection& conn,
         boost::uuids::uuid id,
         boost::uuids::uuid driver_id
-) -> StorageErr {
+) noexcept -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(

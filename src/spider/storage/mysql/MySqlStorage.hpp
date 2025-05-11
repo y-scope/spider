@@ -40,7 +40,8 @@ public:
     auto add_scheduler(StorageConnection& conn, Scheduler const& scheduler) -> StorageErr override;
     auto get_active_scheduler(StorageConnection& conn, std::vector<Scheduler>* schedulers)
             -> StorageErr override;
-    auto remove_driver(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
+    auto remove_driver(StorageConnection& conn, boost::uuids::uuid id) noexcept
+            -> StorageErr override;
     auto add_job(
             StorageConnection& conn,
             boost::uuids::uuid job_id,
@@ -72,7 +73,7 @@ public:
             boost::uuids::uuid client_id,
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr override;
-    auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
+    auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr override;
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr override;
@@ -170,7 +171,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid task_id
-    ) -> StorageErr override;
+    ) noexcept -> StorageErr override;
     auto add_driver_reference(
             StorageConnection& conn,
             boost::uuids::uuid id,
@@ -180,7 +181,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid driver_id
-    ) -> StorageErr override;
+    ) noexcept -> StorageErr override;
     auto remove_dangling_data(StorageConnection& conn) -> StorageErr override;
 
     auto add_client_kv_data(StorageConnection& conn, KeyValueData const& data)
