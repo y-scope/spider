@@ -13,6 +13,7 @@
 #include <boost/uuid/uuid.hpp>
 
 #include "../core/Driver.hpp"
+#include "../core/DriverCleaner.hpp"
 #include "../core/Error.hpp"
 #include "../core/KeyValueData.hpp"
 #include "../io/BoostAsio.hpp"  // IWYU pragma: keep
