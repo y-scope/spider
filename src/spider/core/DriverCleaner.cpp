@@ -41,7 +41,6 @@ DriverCleaner::~DriverCleaner() noexcept {
         }
         conn = std::move(std::get<std::unique_ptr<StorageConnection>>(conn_result));
     }
-    std::cout << "DriverCleaner: removing driver.\n";
     m_metadata_store->remove_driver(*conn, m_driver_id);
 }
 }  // namespace spider::core
