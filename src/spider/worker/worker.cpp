@@ -47,6 +47,7 @@
 #include "../storage/StorageFactory.hpp"
 #include "../utils/StopFlag.hpp"
 #include "ChildPid.hpp"
+#include "ExecutorHandle.hpp"
 #include "TaskExecutor.hpp"
 #include "WorkerClient.hpp"
 
@@ -123,14 +124,62 @@ auto get_environment_variable() -> absl::flat_hash_map<
     return environment_variables;
 }
 
+/**
+ * Checks if the task is cancelled. If the task state is set to cancelled, cancels the running task.
+ * @param storage_factory
+ * @param metadata_store
+ * @param executor_handle Handle to the task id and executor.
+ */
+auto check_task_cancel(
+        std::shared_ptr<spider::core::StorageFactory> storage_factory,
+        std::shared_ptr<spider::core::MetadataStorage> metadata_store,
+        spider::worker::ExecutorHandle const& executor_handle
+) -> void {
+    std::optional<boost::uuids::uuid> const optional_task_id = executor_handle.get_task_id();
+    if (!optional_task_id.has_value()) {
+        return;
+    }
+    boost::uuids::uuid const task_id = optional_task_id.value();
+
+    // Check if the task is cancelled
+    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+            conn_result = storage_factory->provide_storage_connection();
+    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+        spdlog::error(
+                "Failed to connect to storage: {}",
+                std::get<spider::core::StorageErr>(conn_result).description
+        );
+        return;
+    }
+    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
+    spider::core::TaskState task_state = spider::core::TaskState::Running;
+    spider::core::StorageErr err = metadata_store->get_task_state(*conn, task_id, &task_state);
+    if (false == err.success()) {
+        spdlog::error("Failed to get task state: {}", err.description);
+        return;
+    }
+
+    if (spider::core::TaskState::Canceled != task_state) {
+        return;
+    }
+
+    // Cancel thet task.
+    spider::worker::TaskExecutor* executor = executor_handle.get_executor();
+    executor->cancel();
+}
+
 auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::Driver const& driver
+        spider::core::Driver const& driver,
+        spider::worker::ExecutorHandle const& executor_handle
 ) -> void {
     int fail_count = 0;
     while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        check_task_cancel(storage_factory, metadata_store, executor_handle);
+
         spdlog::debug("Updating heartbeat");
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
                 conn_result = storage_factory->provide_storage_connection();
@@ -345,6 +394,7 @@ auto handle_executor_result(
 auto task_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
+        spider::worker::ExecutorHandle& executor_handle,
         spider::worker::WorkerClient& client,
         std::string const& storage_url,
         std::vector<std::string> const& libs,
@@ -386,6 +436,8 @@ auto task_loop(
                 arg_buffers
         };
 
+        executor_handle.set(task_id, &executor);
+
         pid_t const pid = executor.get_pid();
         spider::core::ChildPid::set_pid(pid);
         // Double check if stop token is set to avoid any missing signal
@@ -397,6 +449,7 @@ auto task_loop(
         context.run();
         executor.wait();
 
+        executor_handle.clear();
         spider::core::ChildPid::set_pid(0);
 
         if (executor.is_cancelled()) {
