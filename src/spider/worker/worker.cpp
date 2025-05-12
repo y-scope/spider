@@ -133,7 +133,7 @@ auto get_environment_variable() -> absl::flat_hash_map<
 auto check_task_cancel(
         std::shared_ptr<spider::core::StorageFactory> storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> metadata_store,
-        spider::worker::ExecutorHandle const& executor_handle
+        spider::worker::ExecutorHandle& executor_handle
 ) -> void {
     std::optional<boost::uuids::uuid> const optional_task_id = executor_handle.get_task_id();
     if (!optional_task_id.has_value()) {
@@ -172,7 +172,7 @@ auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::core::Driver const& driver,
-        spider::worker::ExecutorHandle const& executor_handle
+        spider::worker::ExecutorHandle& executor_handle
 ) -> void {
     int fail_count = 0;
     while (!spider::core::StopFlag::is_stop_requested()) {
@@ -572,7 +572,7 @@ auto main(int argc, char** argv) -> int {
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
-            std::cref(executor_handle),
+            std::ref(executor_handle),
     };
 
     // Start a thread that processes tasks

@@ -3,7 +3,7 @@
 #include <mutex>
 
 namespace spider::worker {
-auto ExecutorHandle::get_task_id() const -> std::optional<boost::uuids::uuid> {
+auto ExecutorHandle::get_task_id() -> std::optional<boost::uuids::uuid> {
     std::lock_guard const lock_guard{m_mutex};
     if (nullptr != m_executor) {
         return m_task_id;
@@ -11,7 +11,7 @@ auto ExecutorHandle::get_task_id() const -> std::optional<boost::uuids::uuid> {
     return std::nullopt;
 }
 
-auto ExecutorHandle::get_executor() const -> TaskExecutor* {
+auto ExecutorHandle::get_executor() -> TaskExecutor* {
     std::lock_guard const lock_guard{m_mutex};
     return m_executor;
 }
