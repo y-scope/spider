@@ -27,4 +27,8 @@ auto join_string_test(
         std::string const& input_2
 ) -> std::string;
 
+auto sleep_test(spider::TaskContext& context, int milliseconds) -> int;
+
+auto abort_test(spider::TaskContext& context) -> int;
+
 #endif
