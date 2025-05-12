@@ -126,12 +126,12 @@ auto get_environment_variable() -> absl::flat_hash_map<
 
 /**
  * Checks if the task is cancelled. If the task state is set to cancelled, cancels the running task.
- * @param storage_factory
+ * @param conn The storage connection to use.
  * @param metadata_store
  * @param executor_handle Handle to the task id and executor.
  */
 auto check_task_cancel(
-        std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
+        std::shared_ptr<spider::core::StorageConnection> const& conn,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::worker::ExecutorHandle& executor_handle
 ) -> void {
@@ -142,16 +142,6 @@ auto check_task_cancel(
     boost::uuids::uuid const task_id = optional_task_id.value();
 
     // Check if the task is cancelled
-    std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
-            conn_result = storage_factory->provide_storage_connection();
-    if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
-        spdlog::error(
-                "Failed to connect to storage: {}",
-                std::get<spider::core::StorageErr>(conn_result).description
-        );
-        return;
-    }
-    auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
     spider::core::TaskState task_state = spider::core::TaskState::Running;
     spider::core::StorageErr err = metadata_store->get_task_state(*conn, task_id, &task_state);
     if (false == err.success()) {
@@ -178,9 +168,7 @@ auto heartbeat_loop(
     while (!spider::core::StopFlag::is_stop_requested()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
-        check_task_cancel(storage_factory, metadata_store, executor_handle);
-
-        spdlog::debug("Updating heartbeat");
+        // Getting a storage connection
         std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
                 conn_result = storage_factory->provide_storage_connection();
         if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
@@ -191,9 +179,13 @@ auto heartbeat_loop(
             fail_count++;
             continue;
         }
-        auto conn = std::move(
+        std::shared_ptr const conn = std::move(
                 std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
         );
+
+        check_task_cancel(conn, metadata_store, executor_handle);
+
+        spdlog::debug("Updating heartbeat");
 
         spider::core::StorageErr const err
                 = metadata_store->update_heartbeat(*conn, driver.get_id());
