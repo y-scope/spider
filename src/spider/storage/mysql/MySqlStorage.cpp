@@ -1157,12 +1157,13 @@ auto MySqlMetadataStorage::cancel_job_by_task(
 auto MySqlMetadataStorage::get_job_message(
         StorageConnection& conn,
         boost::uuids::uuid const id,
+        std::string* function_name,
         std::string* message
 ) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement{
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `message` FROM `job_errors` WHERE `job_id` = ?"
+                        "SELECT `func_name`, `message` FROM `job_errors` WHERE `job_id` = ?"
                 )
         };
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -1173,6 +1174,7 @@ auto MySqlMetadataStorage::get_job_message(
             return StorageErr{StorageErrType::KeyNotFoundErr, "No messages found"};
         }
         res->next();
+        *function_name = get_sql_string(res->getString("func_name"));
         *message = get_sql_string(res->getString("message"));
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
