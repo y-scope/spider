@@ -131,8 +131,8 @@ auto get_environment_variable() -> absl::flat_hash_map<
  * @param executor_handle Handle to the task id and executor.
  */
 auto check_task_cancel(
-        std::shared_ptr<spider::core::StorageFactory> storage_factory,
-        std::shared_ptr<spider::core::MetadataStorage> metadata_store,
+        std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
+        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         spider::worker::ExecutorHandle& executor_handle
 ) -> void {
     std::optional<boost::uuids::uuid> const optional_task_id = executor_handle.get_task_id();
