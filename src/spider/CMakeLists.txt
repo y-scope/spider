@@ -61,6 +61,8 @@ set(SPIDER_WORKER_SOURCES
     worker/ChildPid.cpp
     worker/DllLoader.hpp
     worker/DllLoader.cpp
+    worker/ExecutorHandle.hpp
+    worker/ExecutorHandle.cpp
     worker/Process.hpp
     worker/Process.cpp
     worker/TaskExecutor.hpp
