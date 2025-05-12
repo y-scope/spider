@@ -21,6 +21,13 @@ auto ExecutorHandle::get_executor() -> TaskExecutor* {
     return m_executor;
 }
 
+auto ExecutorHandle::executor_cancel() -> void {
+    std::lock_guard const lock_guard{m_mutex};
+    if (nullptr != m_executor) {
+        m_executor->cancel();
+    }
+}
+
 auto ExecutorHandle::set(boost::uuids::uuid const task_id, TaskExecutor* executor) -> void {
     std::lock_guard const lock_guard{m_mutex};
     m_task_id = task_id;

@@ -17,6 +17,7 @@ class ExecutorHandle {
 public:
     [[nodiscard]] auto get_task_id() -> std::optional<boost::uuids::uuid>;
     [[nodiscard]] auto get_executor() -> TaskExecutor*;
+    auto executor_cancel() -> void;
     auto set(boost::uuids::uuid task_id, TaskExecutor* executor) -> void;
     auto clear() -> void;
 
