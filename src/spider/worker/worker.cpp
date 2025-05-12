@@ -564,12 +564,15 @@ auto main(int argc, char** argv) -> int {
             boost::process::v2::environment::value> const environment_variables
             = get_environment_variable();
 
+    spider::worker::ExecutorHandle executor_handle;
+
     // Start a thread that periodically updates the scheduler's heartbeat
     std::thread heartbeat_thread{
             heartbeat_loop,
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
+            std::cref(executor_handle),
     };
 
     // Start a thread that processes tasks
@@ -577,6 +580,7 @@ auto main(int argc, char** argv) -> int {
             task_loop,
             std::cref(storage_factory),
             std::cref(metadata_store),
+            std::ref(executor_handle),
             std::ref(client),
             std::cref(storage_url),
             std::cref(libs),
