@@ -1840,7 +1840,8 @@ auto MySqlMetadataStorage::task_fail(
             // Set the task fail if the last task instance fails
             std::unique_ptr<sql::PreparedStatement> const task_statement(
                     static_cast<MySqlConnection&>(conn)->prepareStatement(
-                            "UPDATE `tasks` SET `state` = 'fail' WHERE `id` = ?"
+                            "UPDATE `tasks` SET `state` = 'fail' WHERE `id` = ? AND `state` = "
+                            "'running'"
                     )
             );
             task_statement->setBytes(1, &task_id_bytes);
@@ -1849,7 +1850,7 @@ auto MySqlMetadataStorage::task_fail(
             std::unique_ptr<sql::PreparedStatement> const job_statement(
                     static_cast<MySqlConnection&>(conn)->prepareStatement(
                             "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` FROM "
-                            "`tasks` WHERE `id` = ?)"
+                            "`tasks` WHERE `id` = ?) AND `state` = 'running'"
                     )
             );
             job_statement->setBytes(1, &task_id_bytes);
