@@ -108,4 +108,5 @@ add_dependencies(
     worker_test
     client_test
     signal_test
+    cancel_test
 )

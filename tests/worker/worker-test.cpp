@@ -77,7 +77,7 @@ auto sleep_test(spider::TaskContext& /*context*/, int milliseconds) -> int {
     return milliseconds;
 }
 
-auto abort_test(spider::TaskContext& context) -> int {
+auto abort_test(spider::TaskContext& context, int /*x*/) -> int {
     context.abort("Abort test");
     return 0;
 }

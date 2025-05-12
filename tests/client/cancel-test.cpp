@@ -71,19 +71,21 @@ auto main(int argc, char** argv) -> int {
 
     // Cancel task from user
     spider::Job<int> sleep_job = driver.start(&sleep_test, 3);
+    // Wait for the task to run
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     sleep_job.cancel();
     // Check for job status
     sleep_job.wait_complete();
     if (spider::JobStatus::Cancelled != sleep_job.get_status()) {
-        spdlog::error("Job status is not cancelled.");
+        spdlog::error("Sleep job status is not cancelled");
         return cJobNotCancelled;
     }
 
     // Cancel task from task
-    spider::Job<int> abort_job = driver.start(&abort_test);
+    spider::Job<int> abort_job = driver.start(&abort_test, 0);
     abort_job.wait_complete();
     if (spider::JobStatus::Cancelled != abort_job.get_status()) {
-        spdlog::error("Job status is not cancelled.");
+        spdlog::error("Abort job status is not cancelled");
         return cJobNotCancelled;
     }
     std::pair<std::string, std::string> const job_errors = abort_job.get_error();

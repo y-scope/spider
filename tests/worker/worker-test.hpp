@@ -29,6 +29,6 @@ auto join_string_test(
 
 auto sleep_test(spider::TaskContext& context, int milliseconds) -> int;
 
-auto abort_test(spider::TaskContext& context) -> int;
+auto abort_test(spider::TaskContext& context, int /*x*/) -> int;
 
 #endif
