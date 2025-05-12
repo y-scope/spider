@@ -82,6 +82,12 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
     while (true) {
         std::optional<msgpack::sbuffer> const response_option
                 = co_await receive_message_async(m_read_pipe);
+        {
+            std::lock_guard const lock(m_state_mutex);
+            if (m_state != TaskExecutorState::Waiting && m_state != TaskExecutorState::Running) {
+                co_return;
+            }
+        }
         if (!response_option.has_value()) {
             std::lock_guard const lock(m_state_mutex);
             m_state = TaskExecutorState::Error;
