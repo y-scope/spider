@@ -90,8 +90,7 @@ public:
         }
         auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
 
-        core::StorageErr const err
-                = m_metadata_storage->cancel_job(*conn, m_id, "Job cancelled by user");
+        core::StorageErr const err = m_metadata_storage->cancel_job(*conn, m_id);
         if (!err.success()) {
             throw ConnectionException(err.description);
         }

@@ -77,13 +77,9 @@ public:
      * finished or started to CANCEL.
      * @param conn
      * @param id The job id.
-     * @param message The error message of the cancellation.
      * @return The error code.
      */
-    virtual auto
-    cancel_job(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
-            -> StorageErr
-            = 0;
+    virtual auto cancel_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     /**
      * Cancel a job that owns the task. This will set the job state to CANCEL and set all tasks
      * that have not finished or started to CANCEL.
