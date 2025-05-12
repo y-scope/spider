@@ -2,6 +2,7 @@
 #define SPIDER_WORKER_EXECUTORHANDLE_HPP
 
 #include <mutex>
+#include <optional>
 
 #include <boost/uuid/uuid.hpp>
 
