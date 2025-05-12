@@ -504,8 +504,10 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
     REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());
     REQUIRE(spider::core::JobStatus::Cancelled == job_status);
     // Job error message should be set
+    std::string error_task_res{"random"};
     std::string error_message_res;
-    REQUIRE(storage->get_job_message(*conn, job_id, &error_message_res).success());
+    REQUIRE(storage->get_job_message(*conn, job_id, &error_task_res, &error_message_res).success());
+    REQUIRE(error_task_res.empty());
     REQUIRE(error_message == error_message_res);
 
     // Parent 1 state should be success
@@ -584,8 +586,10 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());
     REQUIRE(spider::core::JobStatus::Cancelled == job_status);
     // Job error message should be set
+    std::string error_task_res;
     std::string error_message_res;
-    REQUIRE(storage->get_job_message(*conn, job_id, &error_message_res).success());
+    REQUIRE(storage->get_job_message(*conn, job_id, &error_task_res, &error_message_res).success());
+    REQUIRE("p2" == error_task_res);
     REQUIRE(error_message == error_message_res);
 
     // Parent 1 state should be success
