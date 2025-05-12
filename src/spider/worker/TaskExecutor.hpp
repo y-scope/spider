@@ -155,10 +155,11 @@ public:
      */
     [[nodiscard]] auto get_pid() const -> pid_t;
 
-    auto completed() -> bool;
-    auto waiting() -> bool;
-    auto succeed() -> bool;
-    auto error() -> bool;
+    auto is_completed() -> bool;
+    auto is_waiting() -> bool;
+    auto is_succeeded() -> bool;
+    auto is_error() -> bool;
+    auto is_cancelled() -> bool;
 
     void wait();
 

@@ -283,7 +283,7 @@ auto handle_executor_result(
     }
     auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
-    if (!executor.succeed()) {
+    if (!executor.is_succeeded()) {
         spdlog::warn("Task {} failed", task.get_function_name());
         metadata_store->task_fail(
                 *conn,
@@ -398,6 +398,15 @@ auto task_loop(
         executor.wait();
 
         spider::core::ChildPid::set_pid(0);
+
+        if (executor.is_cancelled()) {
+            // If task is cancelled by user or other tasks, the states have been updated in the
+            // storage, no need to do anything.
+            // If task is cancelled by calling `TaskContext::abort`, the storage has also been
+            // updated, so we also don't need to do anything.
+            spdlog::debug("Task {} was cancelled", task.get_function_name());
+            continue;
+        }
 
         if (handle_executor_result(storage_factory, metadata_store, instance, task, executor)) {
             fail_task_id = std::nullopt;
