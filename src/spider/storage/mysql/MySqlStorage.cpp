@@ -1080,7 +1080,8 @@ auto MySqlMetadataStorage::cancel_job(
         // Set the cancel message
         std::unique_ptr<sql::PreparedStatement> message_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `job_errors` (`job_id`, `message`) VALUES (?, ?) "
+                        "INSERT INTO `job_errors` (`job_id`, `func_name`, `message`) VALUES (?, "
+                        "'', ?) "
                 )
         );
         message_statement->setBytes(1, &id_bytes);
@@ -1104,7 +1105,7 @@ auto MySqlMetadataStorage::cancel_job_by_task(
         sql::bytes task_id_bytes = uuid_get_bytes(id);
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `job_id` FROM `tasks` WHERE `id` = ?"
+                        "SELECT `job_id`, `func_name` FROM `tasks` WHERE `id` = ?"
                 )
         );
         statement->setBytes(1, &task_id_bytes);
@@ -1116,6 +1117,7 @@ auto MySqlMetadataStorage::cancel_job_by_task(
         res->next();
         boost::uuids::uuid const job_id = read_id(res->getBinaryStream("job_id"));
         sql::bytes job_id_bytes = uuid_get_bytes(job_id);
+        std::string const function_name = get_sql_string(res->getString("func_name"));
         // Set all pending/ready/running tasks from the job to cancelled
         std::unique_ptr<sql::PreparedStatement> task_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
@@ -1136,11 +1138,13 @@ auto MySqlMetadataStorage::cancel_job_by_task(
         // Set the cancel message
         std::unique_ptr<sql::PreparedStatement> message_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `job_errors` (`job_id`, `message`) VALUES (?, ?) "
+                        "INSERT INTO `job_errors` (`job_id`, `func_name`, `message`) VALUES (?, ?, "
+                        "?) "
                 )
         );
         message_statement->setBytes(1, &job_id_bytes);
-        message_statement->setString(2, message);
+        message_statement->setString(2, function_name);
+        message_statement->setString(3, message);
         message_statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();

@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS jobs
 );
 CREATE TABLE IF NOT EXISTS `job_errors` (
     `job_id` BINARY(16) NOT NULL,
+    `func_name` VARCHAR(64) NOT NULL,
     `message` VARCHAR(999) NOT NULL,
     CONSTRAINT `job_error_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     PRIMARY KEY (`job_id`)
