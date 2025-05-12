@@ -100,7 +100,7 @@ public:
      * Get the error message of a cancelled job.
      * @param conn
      * @param id The job id.
-     * @page function_name The function name of the cancelled task.
+     * @param function_name The function name of the cancelled task.
      * @param message The error message of the cancellation.
      * @return The error code.
      */
