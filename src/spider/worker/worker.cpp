@@ -153,7 +153,7 @@ auto check_task_cancel(
         return;
     }
 
-    // Cancel thet task.
+    // Cancel the task.
     spider::worker::TaskExecutor* executor = executor_handle.get_executor();
     executor->cancel();
 }
