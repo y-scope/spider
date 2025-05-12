@@ -1,5 +1,6 @@
 #include "TaskContext.hpp"
 
+#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <string>
