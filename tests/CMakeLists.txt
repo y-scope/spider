@@ -92,7 +92,7 @@ target_link_libraries(
         spider_client
         worker_test
         Boost::program_options
-        spider_client
+        spdlog::spdlog
 )
 
 add_custom_target(integrationTest ALL)
