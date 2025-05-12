@@ -1851,12 +1851,16 @@ auto MySqlMetadataStorage::task_fail(
                     )
             );
             task_statement->setBytes(1, &task_id_bytes);
-            task_statement->executeUpdate();
+            int32_t const task_count = task_statement->executeUpdate();
+            if (task_count == 0) {
+                static_cast<MySqlConnection&>(conn)->commit();
+                return StorageErr{};
+            }
             // Set the job fails
             std::unique_ptr<sql::PreparedStatement> const job_statement(
                     static_cast<MySqlConnection&>(conn)->prepareStatement(
                             "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` FROM "
-                            "`tasks` WHERE `id` = ?) AND `state` = 'running'"
+                            "`tasks` WHERE `id` = ?)"
                     )
             );
             job_statement->setBytes(1, &task_id_bytes);
