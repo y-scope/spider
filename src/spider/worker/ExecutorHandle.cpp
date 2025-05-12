@@ -1,6 +1,11 @@
 #include "ExecutorHandle.hpp"
 
 #include <mutex>
+#include <optional>
+
+#include <boost/uuid/uuid.hpp>
+
+#include "TaskExecutor.hpp"
 
 namespace spider::worker {
 auto ExecutorHandle::get_task_id() -> std::optional<boost::uuids::uuid> {
