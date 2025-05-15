@@ -1177,7 +1177,8 @@ auto MySqlMetadataStorage::reset_tasks(
         // Reset ready tasks and update retry count
         std::unique_ptr<sql::PreparedStatement> ready_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "UPDATE `tasks` SET `state` = 'ready', `retry` = `retry` + ` WHERE `id` = ?"
+                        "UPDATE `tasks` SET `state` = 'ready', `retry` = `retry` + 1 WHERE `id` "
+                        "= ?"
                 )
         );
         for (boost::uuids::uuid const& id : ready_tasks) {
@@ -1841,7 +1842,8 @@ auto MySqlMetadataStorage::task_fail(
                 // Set the job fails
                 std::unique_ptr<sql::PreparedStatement> const job_statement(
                         static_cast<MySqlConnection&>(conn)->prepareStatement(
-                                "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` FROM "
+                                "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` "
+                                "FROM "
                                 "`tasks` WHERE `id` = ?)"
                         )
                 );
