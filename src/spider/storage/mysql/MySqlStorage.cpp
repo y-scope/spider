@@ -1151,8 +1151,9 @@ auto MySqlMetadataStorage::get_failed_jobs(
         std::unique_ptr<sql::Statement> statement{
                 static_cast<MySqlConnection&>(conn)->createStatement()
         };
+        // Every task should have at least one retry
         std::unique_ptr<sql::ResultSet> result{statement->executeQuery(
-                "SELECT `job_id` FROM `tasks` WHERE `state` = 'failed' AND (`max_retry` = 0 OR "
+                "SELECT `job_id` FROM `tasks` WHERE `state` = 'failed' AND (`retry` = 0 OR "
                 "`retry` < `max_retry`)"
         )};
         job_ids->reserve(result->rowsCount());
