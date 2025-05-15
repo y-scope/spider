@@ -1143,6 +1143,139 @@ auto MySqlMetadataStorage::reset_job(StorageConnection& conn, boost::uuids::uuid
     return StorageErr{};
 }
 
+auto MySqlMetadataStorage::get_failed_jobs(
+        StorageConnection& conn,
+        std::vector<boost::uuids::uuid>* job_ids
+) -> StorageErr {
+    try {
+        std::unique_ptr<sql::Statement> statement{
+                static_cast<MySqlConnection&>(conn)->createStatement()
+        };
+        std::unique_ptr<sql::ResultSet> result{statement->executeQuery(
+                "SELECT `job_id` FROM `tasks` WHERE `state` = 'failed' AND (`max_retry` = 0 OR "
+                "`retry` < `max_retry`)"
+        )};
+        job_ids->reserve(result->rowsCount());
+        while (result->next()) {
+            job_ids->emplace_back(read_id(result->getBinaryStream("job_id")));
+        }
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
+auto MySqlMetadataStorage::reset_tasks(
+        StorageConnection& conn,
+        std::vector<boost::uuids::uuid> const& ready_tasks,
+        std::vector<boost::uuids::uuid> const& pending_tasks
+) -> StorageErr {
+    try {
+        // Reset ready tasks
+        std::unique_ptr<sql::PreparedStatement> ready_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `tasks` SET `state` = 'ready' WHERE `id` = ?"
+                )
+        );
+        for (boost::uuids::uuid const& id : ready_tasks) {
+            sql::bytes id_bytes = uuid_get_bytes(id);
+            ready_statement->setBytes(1, &id_bytes);
+            ready_statement->addBatch();
+        }
+        ready_statement->executeBatch();
+        // Reset pending tasks
+        std::unique_ptr<sql::PreparedStatement> pending_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `tasks` SET `state` = 'pending' WHERE `id` = ?"
+                )
+        );
+        for (boost::uuids::uuid const& id : pending_tasks) {
+            sql::bytes id_bytes = uuid_get_bytes(id);
+            pending_statement->setBytes(1, &id_bytes);
+            pending_statement->addBatch();
+        }
+        pending_statement->executeBatch();
+        // Clear all the task outputs
+        std::unique_ptr<sql::PreparedStatement> output_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `task_outputs` SET `value` = NULL, `data_id` = NULL WHERE "
+                        "`task_id` = ?"
+                )
+        );
+        for (boost::uuids::uuid const& id : ready_tasks) {
+            sql::bytes id_bytes = uuid_get_bytes(id);
+            output_statement->setBytes(1, &id_bytes);
+            output_statement->addBatch();
+        }
+        for (boost::uuids::uuid const& id : pending_tasks) {
+            sql::bytes id_bytes = uuid_get_bytes(id);
+            output_statement->setBytes(1, &id_bytes);
+            output_statement->addBatch();
+        }
+        output_statement->executeBatch();
+        // Clear the task inputs value or data for pending tasks
+        std::unique_ptr<sql::PreparedStatement> input_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `task_inputs` SET `value` = NULL, `data_id` = NULL WHERE `task_id` "
+                        "= ?"
+                )
+        );
+        for (boost::uuids::uuid const& id : pending_tasks) {
+            sql::bytes id_bytes = uuid_get_bytes(id);
+            input_statement->setBytes(1, &id_bytes);
+            input_statement->addBatch();
+        }
+        input_statement->executeBatch();
+        // Set the data to be not persisted if it is only owned by ready and pending tasks.
+        // 1. Get the list of data that are persisted and referenced by a task.
+        // 2. Filter out the data that is reference by driver of other tasks.
+        // 3. Set the data to be not persisted.
+        std::unique_ptr<sql::PreparedStatement> get_data_statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "SELECT `data`.`id`, `data_ref_task`.`task_id` FROM `data` JOIN "
+                        "`data_ref_task` ON `data`.`id` = `data_ref_task`.`id` WHERE "
+                        "`data`.`persisted` = 1"
+                )
+        );
+        std::unique_ptr<sql::ResultSet> const data_res(get_data_statement->executeQuery());
+        absl::flat_hash_set<boost::uuids::uuid> data_ids;
+        absl::flat_hash_set<boost::uuids::uuid> remove_data_ids;
+        while (data_res->next()) {
+            boost::uuids::uuid const data_id = read_id(data_res->getBinaryStream("id"));
+            boost::uuids::uuid const task_id = read_id(data_res->getBinaryStream("task_id"));
+            data_ids.insert(data_id);
+            if (std::ranges::find(ready_tasks, task_id) == ready_tasks.end()
+                && std::ranges::find(pending_tasks, task_id) == pending_tasks.end())
+            {
+                remove_data_ids.insert(task_id);
+            }
+        }
+        for (boost::uuids::uuid const& id : remove_data_ids) {
+            data_ids.erase(id);
+        }
+        if (!data_ids.empty()) {
+            std::unique_ptr<sql::PreparedStatement> set_data_statement(
+                    static_cast<MySqlConnection&>(conn)->prepareStatement(
+                            "UPDATE `data` SET `persisted` = 0 WHERE `id` = ?"
+                    )
+            );
+            for (boost::uuids::uuid const& id : data_ids) {
+                sql::bytes id_bytes = uuid_get_bytes(id);
+                set_data_statement->setBytes(1, &id_bytes);
+                set_data_statement->addBatch();
+            }
+            set_data_statement->executeBatch();
+        }
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
 auto MySqlMetadataStorage::add_child(
         StorageConnection& conn,
         boost::uuids::uuid parent_id,
