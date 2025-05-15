@@ -1822,15 +1822,32 @@ auto MySqlMetadataStorage::task_fail(
             );
             task_statement->setBytes(1, &task_id_bytes);
             task_statement->executeUpdate();
-            // Set the job fails
-            std::unique_ptr<sql::PreparedStatement> const job_statement(
+            // Check if we run out of retry
+            std::unique_ptr<sql::PreparedStatement> const retry_statement(
                     static_cast<MySqlConnection&>(conn)->prepareStatement(
-                            "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` FROM "
-                            "`tasks` WHERE `id` = ?)"
+                            "SELECT `retry`, `max_retry` FROM `tasks` WHERE `id` = ?"
                     )
             );
-            job_statement->setBytes(1, &task_id_bytes);
-            job_statement->executeUpdate();
+            retry_statement->setBytes(1, &task_id_bytes);
+            std::unique_ptr<sql::ResultSet> const retry_res{retry_statement->executeQuery()};
+            if (retry_res->rowsCount() == 0) {
+                static_cast<MySqlConnection&>(conn)->rollback();
+                return StorageErr{StorageErrType::KeyNotFoundErr, "Task not found"};
+            }
+            retry_res->next();
+            int32_t const retry = retry_res->getInt("retry");
+            int32_t const max_retry = retry_res->getInt("max_retry");
+            if (retry == 0 || retry >= max_retry) {
+                // Set the job fails
+                std::unique_ptr<sql::PreparedStatement> const job_statement(
+                        static_cast<MySqlConnection&>(conn)->prepareStatement(
+                                "UPDATE `jobs` SET `state` = 'fail' WHERE `id` = (SELECT `job_id` FROM "
+                                "`tasks` WHERE `id` = ?)"
+                        )
+                );
+                job_statement->setBytes(1, &task_id_bytes);
+                job_statement->executeUpdate();
+            }
         }
     } catch (sql::SQLException& e) {
         spdlog::error("Task fail error: {}", e.what());
