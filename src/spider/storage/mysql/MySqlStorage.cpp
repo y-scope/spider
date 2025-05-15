@@ -1173,10 +1173,10 @@ auto MySqlMetadataStorage::reset_tasks(
         std::vector<boost::uuids::uuid> const& pending_tasks
 ) -> StorageErr {
     try {
-        // Reset ready tasks
+        // Reset ready tasks and update retry count
         std::unique_ptr<sql::PreparedStatement> ready_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "UPDATE `tasks` SET `state` = 'ready' WHERE `id` = ?"
+                        "UPDATE `tasks` SET `state` = 'ready', `retry` = `retry` + ` WHERE `id` = ?"
                 )
         );
         for (boost::uuids::uuid const& id : ready_tasks) {
@@ -1188,7 +1188,8 @@ auto MySqlMetadataStorage::reset_tasks(
         // Reset pending tasks
         std::unique_ptr<sql::PreparedStatement> pending_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "UPDATE `tasks` SET `state` = 'pending' WHERE `id` = ?"
+                        "UPDATE `tasks` SET `state` = 'pending', `retry` = `retry` + 1 WHERE `id` "
+                        "= ?"
                 )
         );
         for (boost::uuids::uuid const& id : pending_tasks) {
