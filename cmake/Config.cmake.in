@@ -1,0 +1,25 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Boost 1.74 REQUIRED COMPONENTS headers process program_options filesystem system)
+find_dependency(fmt 8.0.1 REQUIRED)
+find_dependency(spdlog 1.9.2 REQUIRED)
+find_dependency(MariaDBClientCpp 1.0 REQUIRED)
+find_dependency(msgpack-cxx 7.0.0 REQUIRED)
+find_dependency(outcome REQUIRED)
+find_dependency(absl REQUIRED)
+find_dependency(Threads REQUIRED)
+
+if(NOT DEFINED SPIDER_YSTDLIB_SOURCE_DIRECTORY)
+    message(FATAL_ERROR "SPIDER_YSTDLIB_SOURCE_DIRECTORY must be set to use spider")
+endif()
+
+add_subdirectory(
+    "${SPIDER_YSTDLIB_SOURCE_DIRECTORY}"
+    "${CMAKE_BINARY_DIR}/ystdlib"
+    EXCLUDE_FROM_ALL
+)
+
+include("${CMAKE_CURRENT_LIST_DIR}/spider_core_export.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/spider_client_export.cmake")
