@@ -13,7 +13,7 @@
 
 set(mariadbclientcpp_LIBNAME "mariadbcpp")
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/FindLibraryDependencies.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/Modules/FindLibraryDependencies.cmake)
 
 # Run pkg-config
 find_package(PkgConfig)
