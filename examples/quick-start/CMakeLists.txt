@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.22.1)
 project(spider_getting_started)
 
 include("../../build/deps/cmake-settings/all.cmake")
-set(CMAKE_MODULE_PATH "../../cmake/Modules")
 set(SPIDER_YSTDLIB_SOURCE_DIRECTORY "../../build/deps/ystdlib/ystdlib-src")
 find_package(spider REQUIRED)
 

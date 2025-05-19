@@ -2,14 +2,14 @@
 
 include(CMakeFindDependencyMacro)
 
-find_dependency(Boost 1.74 REQUIRED COMPONENTS headers process program_options filesystem system)
-find_dependency(fmt 8.0.1 REQUIRED)
-find_dependency(spdlog 1.9.2 REQUIRED)
-find_dependency(MariaDBClientCpp 1.0 REQUIRED)
-find_dependency(msgpack-cxx 7.0.0 REQUIRED)
-find_dependency(outcome REQUIRED)
-find_dependency(absl REQUIRED)
-find_dependency(Threads REQUIRED)
+find_package(Boost 1.74 REQUIRED COMPONENTS headers process program_options filesystem system)
+find_package(fmt 8.0.1 REQUIRED)
+find_package(spdlog 1.9.2 REQUIRED)
+find_package(MariaDBClientCpp 1.0 REQUIRED)
+find_package(msgpack-cxx 7.0.0 REQUIRED)
+find_package(outcome REQUIRED)
+find_package(absl REQUIRED)
+find_package(Threads REQUIRED)
 
 if(NOT DEFINED SPIDER_YSTDLIB_SOURCE_DIRECTORY)
     message(FATAL_ERROR "SPIDER_YSTDLIB_SOURCE_DIRECTORY must be set to use spider")

@@ -44,7 +44,7 @@ tasks:
     cmds:
       - "cmake -S '{{.ROOT_DIR}}' -B '{{.G_BUILD_SPIDER_DIR}}' -DCMAKE_INSTALL_PREFIX='{{.ROOT_DIR}}/install-test'"
       - "cmake --build '{{.G_BUILD_SPIDER_DIR}}' --target install -j$(nproc)"
-      - "cmake -S '{{.ROOT_DIR}}/examples/quick-start' -B '{{.G_BUILD_EXAMPLES_DIR}}' -DCMAKE_PREFIX_PATH='{{.ROOT_DIR}}/install-test;'"
+      - "cmake -S '{{.ROOT_DIR}}/examples/quick-start' -B '{{.G_BUILD_EXAMPLES_DIR}}' -DCMAKE_PREFIX_PATH='{{.ROOT_DIR}}/install-test;'  -DCMAKE_MODULE_PATH='{{.ROOT_DIR}}/cmake/Modules;'"
 
   init:
     internal: true
