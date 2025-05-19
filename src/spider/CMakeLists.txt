@@ -44,7 +44,8 @@ set(SPIDER_CORE_HEADERS
 add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
 target_sources(spider_core PRIVATE ${SPIDER_CORE_HEADERS})
-target_include_directories(spider_core
+target_include_directories(
+    spider_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
         $<INSTALL_INTERFACE:include/>
@@ -64,58 +65,55 @@ add_library(${PROJECT_NAME}::spider_core ALIAS spider_core)
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/Error.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/Data.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/Driver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/KeyValueData.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/Task.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/TaskGraph.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/JobMetadata.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/Error.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/Data.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/Driver.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/KeyValueData.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/Task.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/TaskGraph.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/JobMetadata.hpp
     DESTINATION include/${PROJECT_NAME}/core
 )
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/BoostAsio.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/MsgPack.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/msgpack_message.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/Serializer.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/BoostAsio.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/MsgPack.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/msgpack_message.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/Serializer.hpp
     DESTINATION include/${PROJECT_NAME}/io
 )
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/LruCache.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/utils/LruCache.hpp
     DESTINATION include/${PROJECT_NAME}/utils
 )
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/MetadataStorage.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/DataStorage.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/StorageConnection.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/mysql_stmt.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlConnection.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlStorageFactory.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlStorage.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlJobSubmissionBatch.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/JobSubmissionBatch.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/StorageFactory.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/MetadataStorage.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/DataStorage.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/StorageConnection.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/mysql_stmt.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlConnection.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlStorageFactory.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlStorage.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/mysql/MySqlJobSubmissionBatch.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/JobSubmissionBatch.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/storage/StorageFactory.hpp
     DESTINATION include/${PROJECT_NAME}/storage
 )
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/worker/FunctionManager.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/worker/FunctionNameManager.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/worker/TaskExecutorMessage.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/worker/FunctionManager.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/worker/FunctionNameManager.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/worker/TaskExecutorMessage.hpp
     DESTINATION include/${PROJECT_NAME}/worker
 )
 
-install(
-    TARGETS spider_core
-    EXPORT spider_core_export
-)
+install(TARGETS spider_core EXPORT spider_core_export)
 
 install(
     EXPORT spider_core_export
@@ -124,10 +122,7 @@ install(
     DESTINATION share/cmake/${PROJECT_NAME}
 )
 
-install(
-    TARGETS error_handling
-    EXPORT ystdlib_error_handling_export
-)
+install(TARGETS error_handling EXPORT ystdlib_error_handling_export)
 
 install(
     EXPORT ystdlib_error_handling_export
@@ -256,7 +251,8 @@ set(SPIDER_CLIENT_SHARED_HEADERS
 add_library(spider_client)
 target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SHARED_SOURCES})
 target_sources(spider_client PRIVATE ${SPIDER_CLIENT_SHARED_HEADERS})
-target_include_directories(spider_client
+target_include_directories(
+    spider_client
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
         $<INSTALL_INTERFACE:include/>
@@ -274,32 +270,30 @@ add_library(${PROJECT_NAME}::spider ALIAS spider_client)
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/Data.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/Driver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/Job.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/task.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/spider.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/TaskContext.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/TaskGraph.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/type_utils.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client/Exception.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/Data.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/Driver.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/Job.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/task.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/spider.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/TaskContext.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/TaskGraph.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/type_utils.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/client/Exception.hpp
     DESTINATION include/${PROJECT_NAME}/client
 )
 
 install(
     FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/DataImpl.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/TaskContextImpl.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/TaskGraphImpl.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/DataImpl.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/TaskContextImpl.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/TaskGraphImpl.hpp
     DESTINATION include/${PROJECT_NAME}/core
 )
 
-install(
-    TARGETS spider_client
-    EXPORT spider_client_export
-)
+install(TARGETS spider_client EXPORT spider_client_export)
 
-install(EXPORT spider_client_export
+install(
+    EXPORT spider_client_export
     FILE spider_client_export.cmake
     NAMESPACE ${PROJECT_NAME}::
     DESTINATION share/cmake/${PROJECT_NAME}
