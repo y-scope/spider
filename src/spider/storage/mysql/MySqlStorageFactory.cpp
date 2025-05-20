@@ -9,10 +9,10 @@
 #include "spider/storage/DataStorage.hpp"
 #include "spider/storage/JobSubmissionBatch.hpp"
 #include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
 #include "spider/storage/mysql/MySqlConnection.hpp"
 #include "spider/storage/mysql/MySqlJobSubmissionBatch.hpp"
 #include "spider/storage/mysql/MySqlStorage.hpp"
+#include "spider/storage/StorageConnection.hpp"
 
 namespace spider::core {
 MySqlStorageFactory::MySqlStorageFactory(std::string url) : m_url{std::move(url)} {}

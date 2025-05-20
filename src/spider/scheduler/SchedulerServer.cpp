@@ -16,12 +16,12 @@
 #include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
 #include "spider/io/msgpack_message.hpp"
 #include "spider/io/Serializer.hpp"  // IWYU pragma: keep
+#include "spider/scheduler/SchedulerMessage.hpp"
+#include "spider/scheduler/SchedulerPolicy.hpp"
 #include "spider/storage/DataStorage.hpp"
 #include "spider/storage/MetadataStorage.hpp"
 #include "spider/storage/StorageConnection.hpp"
 #include "spider/utils/StopFlag.hpp"
-#include "spider/scheduler/SchedulerMessage.hpp"
-#include "spider/scheduler/SchedulerPolicy.hpp"
 
 namespace spider::scheduler {
 SchedulerServer::SchedulerServer(

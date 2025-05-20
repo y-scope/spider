@@ -13,8 +13,8 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
-#include "spider/io/MsgPack.hpp"
 #include "spider/core/Data.hpp"
+#include "spider/io/MsgPack.hpp"
 
 namespace spider::core {
 class TaskInput {

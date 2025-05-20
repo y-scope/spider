@@ -23,15 +23,15 @@
 #include "spider/core/Driver.hpp"
 #include "spider/core/Error.hpp"
 #include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "spider/scheduler/FifoPolicy.hpp"
+#include "spider/scheduler/SchedulerPolicy.hpp"
+#include "spider/scheduler/SchedulerServer.hpp"
 #include "spider/storage/DataStorage.hpp"
 #include "spider/storage/MetadataStorage.hpp"
 #include "spider/storage/mysql/MySqlStorageFactory.hpp"
 #include "spider/storage/StorageConnection.hpp"
 #include "spider/storage/StorageFactory.hpp"
 #include "spider/utils/StopFlag.hpp"
-#include "spider/scheduler/FifoPolicy.hpp"
-#include "spider/scheduler/SchedulerPolicy.hpp"
-#include "spider/scheduler/SchedulerServer.hpp"
 
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;

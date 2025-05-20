@@ -20,9 +20,9 @@
 #include "spider/storage/DataStorage.hpp"
 #include "spider/storage/JobSubmissionBatch.hpp"
 #include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
 #include "spider/storage/mysql/MySqlConnection.hpp"
 #include "spider/storage/mysql/MySqlJobSubmissionBatch.hpp"
+#include "spider/storage/StorageConnection.hpp"
 
 namespace spider::core {
 // Forward declaration for friend class

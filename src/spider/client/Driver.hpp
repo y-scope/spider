@@ -15,6 +15,11 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
+#include "spider/client/Data.hpp"
+#include "spider/client/Exception.hpp"
+#include "spider/client/Job.hpp"
+#include "spider/client/task.hpp"
+#include "spider/client/TaskGraph.hpp"
 #include "spider/core/Error.hpp"
 #include "spider/core/TaskGraphImpl.hpp"
 #include "spider/io/Serializer.hpp"
@@ -23,11 +28,6 @@
 #include "spider/storage/StorageFactory.hpp"
 #include "spider/worker/FunctionManager.hpp"
 #include "spider/worker/FunctionNameManager.hpp"
-#include "spider/client/Data.hpp"
-#include "spider/client/Exception.hpp"
-#include "spider/client/Job.hpp"
-#include "spider/client/task.hpp"
-#include "spider/client/TaskGraph.hpp"
 
 /**
  * Registers a Task function with Spider

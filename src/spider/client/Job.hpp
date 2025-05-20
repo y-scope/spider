@@ -16,6 +16,10 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
+#include "spider/client/Data.hpp"
+#include "spider/client/Exception.hpp"
+#include "spider/client/task.hpp"
+#include "spider/client/type_utils.hpp"
 #include "spider/core/DataImpl.hpp"
 #include "spider/core/Error.hpp"
 #include "spider/core/JobMetadata.hpp"
@@ -23,10 +27,6 @@
 #include "spider/storage/MetadataStorage.hpp"
 #include "spider/storage/StorageConnection.hpp"
 #include "spider/storage/StorageFactory.hpp"
-#include "spider/client/Data.hpp"
-#include "spider/client/Exception.hpp"
-#include "spider/client/task.hpp"
-#include "spider/client/type_utils.hpp"
 
 namespace spider {
 namespace core {
