@@ -13,8 +13,8 @@
 #include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
+#include "spider/core/Task.hpp"
+#include "spider/core/TaskGraph.hpp"
 
 namespace spider::test {
 namespace {

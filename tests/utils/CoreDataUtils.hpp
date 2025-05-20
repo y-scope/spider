@@ -1,6 +1,6 @@
 #ifndef SPIDER_TESTS_COREDATAUTILS_HPP
 #define SPIDER_TESTS_COREDATAUTILS_HPP
-#include "../../src/spider/core/Data.hpp"
+#include "spider/core/Data.hpp"
 
 namespace spider::test {
 inline auto data_equal(core::Data const& d1, core::Data const& d2) -> bool {

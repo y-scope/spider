@@ -11,21 +11,21 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/client/Data.hpp"
-#include "../../src/spider/client/TaskContext.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskContextImpl.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../../src/spider/worker/FunctionManager.hpp"
-#include "../../src/spider/worker/FunctionNameManager.hpp"
-#include "../storage/StorageTestHelper.hpp"
+#include "spider/client/Data.hpp"
+#include "spider/client/TaskContext.hpp"
+#include "spider/core/Driver.hpp"
+#include "spider/core/Error.hpp"
+#include "spider/core/Task.hpp"
+#include "spider/core/TaskContextImpl.hpp"
+#include "spider/core/TaskGraph.hpp"
+#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
+#include "spider/storage/DataStorage.hpp"
+#include "spider/storage/MetadataStorage.hpp"
+#include "spider/storage/StorageConnection.hpp"
+#include "spider/storage/StorageFactory.hpp"
+#include "spider/worker/FunctionManager.hpp"
+#include "spider/worker/FunctionNameManager.hpp"
+#include "tests/storage/StorageTestHelper.hpp"
 
 namespace {
 auto int_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {

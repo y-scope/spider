@@ -7,8 +7,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../../src/spider/worker/Process.hpp"
+#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "spider/worker/Process.hpp"
 
 namespace {
 TEST_CASE("Process exit", "[worker]") {

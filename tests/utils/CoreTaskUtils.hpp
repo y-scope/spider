@@ -1,8 +1,8 @@
 #ifndef SPIDER_TESTS_CORETASKUTILS_HPP
 #define SPIDER_TESTS_CORETASKUTILS_HPP
 
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
+#include "spider/core/Task.hpp"
+#include "spider/core/TaskGraph.hpp"
 
 namespace spider::test {
 auto task_equal(core::Task const& t1, core::Task const& t2) -> bool;
