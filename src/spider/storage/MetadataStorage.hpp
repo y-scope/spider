@@ -6,13 +6,13 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Driver.hpp"
-#include "../core/Error.hpp"
-#include "../core/JobMetadata.hpp"
-#include "../core/Task.hpp"
-#include "../core/TaskGraph.hpp"
-#include "JobSubmissionBatch.hpp"
-#include "StorageConnection.hpp"
+#include "spider/core/Driver.hpp"
+#include "spider/core/Error.hpp"
+#include "spider/core/JobMetadata.hpp"
+#include "spider/core/Task.hpp"
+#include "spider/core/TaskGraph.hpp"
+#include "spider/storage/JobSubmissionBatch.hpp"
+#include "spider/storage/StorageConnection.hpp"
 
 namespace spider::core {
 class MetadataStorage {

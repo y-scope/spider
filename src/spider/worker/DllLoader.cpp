@@ -8,8 +8,8 @@
 #include <boost/dll/shared_library.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../worker/FunctionManager.hpp"
-#include "../worker/FunctionNameManager.hpp"
+#include "spider/worker/FunctionManager.hpp"
+#include "spider/worker/FunctionNameManager.hpp"
 
 namespace spider::worker {
 auto DllLoader::load_dll(std::string const& path_str) -> bool {

@@ -43,7 +43,7 @@ set(SPIDER_CORE_HEADERS
 
 add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
+target_include_directories(spider_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_core
     PUBLIC
@@ -88,6 +88,7 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
 
 add_executable(spider_task_executor)
 target_sources(spider_task_executor PRIVATE ${SPIDER_TASK_EXECUTOR_SOURCES})
+target_include_directories(spider_task_executor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_task_executor
     PRIVATE
@@ -108,6 +109,7 @@ target_link_libraries(
 add_executable(spider_worker)
 target_sources(spider_worker PRIVATE ${SPIDER_WORKER_SOURCES})
 target_sources(spider_worker PRIVATE worker/worker.cpp)
+target_include_directories(spider_worker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(spider_worker PRIVATE spider_core)
 target_link_libraries(
     spider_worker
@@ -138,6 +140,7 @@ set(SPIDER_SCHEDULER_SOURCES
 add_executable(spider_scheduler)
 target_sources(spider_scheduler PRIVATE ${SPIDER_SCHEDULER_SOURCES})
 target_sources(spider_scheduler PRIVATE scheduler/scheduler.cpp)
+target_include_directories(spider_scheduler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(spider_scheduler PRIVATE spider_core)
 target_link_libraries(
     spider_scheduler

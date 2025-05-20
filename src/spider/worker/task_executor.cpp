@@ -20,17 +20,17 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
-#include "../client/TaskContext.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlStorageFactory.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "DllLoader.hpp"
-#include "FunctionManager.hpp"
-#include "message_pipe.hpp"
-#include "TaskExecutorMessage.hpp"
+#include "spider/client/TaskContext.hpp"
+#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
+#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
+#include "spider/storage/DataStorage.hpp"
+#include "spider/storage/MetadataStorage.hpp"
+#include "spider/storage/mysql/MySqlStorageFactory.hpp"
+#include "spider/storage/StorageFactory.hpp"
+#include "spider/worker/DllLoader.hpp"
+#include "spider/worker/FunctionManager.hpp"
+#include "spider/worker/message_pipe.hpp"
+#include "spider/worker/TaskExecutorMessage.hpp"
 
 namespace {
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {

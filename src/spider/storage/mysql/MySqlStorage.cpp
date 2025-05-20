@@ -28,18 +28,18 @@
 #include <mariadb/conncpp/Types.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../../core/Data.hpp"
-#include "../../core/Driver.hpp"
-#include "../../core/Error.hpp"
-#include "../../core/JobMetadata.hpp"
-#include "../../core/KeyValueData.hpp"
-#include "../../core/Task.hpp"
-#include "../../core/TaskGraph.hpp"
-#include "../JobSubmissionBatch.hpp"
-#include "../StorageConnection.hpp"
-#include "mysql_stmt.hpp"
-#include "MySqlConnection.hpp"
-#include "MySqlJobSubmissionBatch.hpp"
+#include "spider/core/Data.hpp"
+#include "spider/core/Driver.hpp"
+#include "spider/core/Error.hpp"
+#include "spider/core/JobMetadata.hpp"
+#include "spider/core/KeyValueData.hpp"
+#include "spider/core/Task.hpp"
+#include "spider/core/TaskGraph.hpp"
+#include "spider/storage/JobSubmissionBatch.hpp"
+#include "spider/storage/StorageConnection.hpp"
+#include "spider/storage/mysql/mysql_stmt.hpp"
+#include "spider/storage/mysql/MySqlConnection.hpp"
+#include "spider/storage/mysql/MySqlJobSubmissionBatch.hpp"
 
 // mariadb-connector-cpp does not define SQL errcode. Just include some useful ones.
 enum MariadbErr : uint16_t {
