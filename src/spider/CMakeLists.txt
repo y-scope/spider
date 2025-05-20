@@ -1,6 +1,7 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
     core/Task.cpp
+    core/JobRecovery.cpp
     storage/mysql/MySqlConnection.cpp
     storage/mysql/MySqlStorageFactory.cpp
     storage/mysql/MySqlJobSubmissionBatch.cpp
@@ -20,6 +21,7 @@ set(SPIDER_CORE_HEADERS
     core/Task.hpp
     core/TaskGraph.hpp
     core/JobMetadata.hpp
+    core/JobRecovery.hpp
     io/BoostAsio.hpp
     io/MsgPack.hpp
     io/msgpack_message.hpp
