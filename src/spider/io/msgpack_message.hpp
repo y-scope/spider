@@ -5,7 +5,7 @@
 #include <optional>
 
 #include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma :keep
+#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
 
 namespace spider::core {
 auto send_message(boost::asio::ip::tcp::socket& socket, msgpack::sbuffer const& buffer) -> bool;
