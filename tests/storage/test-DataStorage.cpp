@@ -57,7 +57,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(spider::test::data_equal(data, result));
 
     // Set data persisted should succeed
-    data.set_persisted(false);
+    data.set_persisted(true);
     REQUIRE(data_storage->set_data_persisted(*conn, data).success());
     // Get data should match
     REQUIRE(data_storage->get_data(*conn, data.get_id(), &result).success());
