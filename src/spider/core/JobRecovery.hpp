@@ -26,13 +26,7 @@ public:
     auto get_pending_tasks() -> std::vector<boost::uuids::uuid>;
 
 private:
-
-    /**
-     * Check if all the task input data are persisted.
-     * @param persisted True if all the task input data are persisted, false otherwise.
-     * @return The storage error code from accessing the storage.
-     */
-    auto check_task_input(bool& persisted) -> StorageErr;
+    auto check_task_input(Task const& task, bool& not_persisted) -> StorageErr;
 
     boost::uuids::uuid m_job_id;
 
