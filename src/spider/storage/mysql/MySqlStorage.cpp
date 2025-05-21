@@ -2385,6 +2385,25 @@ auto MySqlDataStorage::set_data_locality(StorageConnection& conn, Data const& da
     return StorageErr{};
 }
 
+auto MySqlDataStorage::set_data_persisted(StorageConnection& conn, Data const& data) -> StorageErr {
+    try {
+        sql::bytes id_bytes = uuid_get_bytes(data.get_id());
+        std::unique_ptr<sql::PreparedStatement> statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `data` SET `persisted` = ? WHERE `id` = ?"
+                )
+        );
+        statement->setBoolean(1, data.is_persisted());
+        statement->setBytes(2, &id_bytes);
+        statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
 auto MySqlDataStorage::remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
