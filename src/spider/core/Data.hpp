@@ -31,11 +31,16 @@ public:
 
     void set_hard_locality(bool const hard) { m_hard_locality = hard; }
 
+    void set_persisted(bool const persisted) { this->m_persisted = persisted; }
+
+    [[nodiscard]] auto is_persisted() const -> bool { return m_persisted; }
+
 private:
     boost::uuids::uuid m_id;
     std::string m_value;
     std::vector<std::string> m_locality;
     bool m_hard_locality = false;
+    bool m_persisted = false;
 
     void init_id() {
         boost::uuids::random_generator gen;
