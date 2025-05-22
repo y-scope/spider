@@ -26,8 +26,7 @@
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
-
-#include "tests/storage/StorageTestHelper.hpp"
+#include <tests/storage/StorageTestHelper.hpp>
 
 namespace {
 constexpr int cServerWarmupTime = 5;

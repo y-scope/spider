@@ -29,8 +29,7 @@
 #include <spider/storage/StorageFactory.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/TaskExecutor.hpp>
-
-#include "tests/storage/StorageTestHelper.hpp"
+#include <tests/storage/StorageTestHelper.hpp>
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-unix.BlockInCriticalSection)
 

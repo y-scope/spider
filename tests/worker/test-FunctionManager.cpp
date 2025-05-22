@@ -25,8 +25,7 @@
 #include <spider/storage/StorageFactory.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/FunctionNameManager.hpp>
-
-#include "tests/storage/StorageTestHelper.hpp"
+#include <tests/storage/StorageTestHelper.hpp>
 
 namespace {
 auto int_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {

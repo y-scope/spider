@@ -16,8 +16,7 @@
 #include <spider/client/Driver.hpp>
 #include <spider/client/Job.hpp>
 #include <spider/client/TaskGraph.hpp>
-
-#include "tests/worker/worker-test.hpp"
+#include <tests/worker/worker-test.hpp>
 
 namespace {
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
