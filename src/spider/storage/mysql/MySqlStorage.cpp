@@ -1987,13 +1987,15 @@ auto MySqlDataStorage::add_driver_data(
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `data` (`id`, `value`, `hard_locality`) VALUES(?, ?, ?)"
+                        "INSERT INTO `data` (`id`, `value`, `hard_locality`, `persisted`) "
+                        "VALUES(?, ?, ?, ?)"
                 )
         );
         sql::bytes id_bytes = uuid_get_bytes(data.get_id());
         statement->setBytes(1, &id_bytes);
         statement->setString(2, data.get_value());
         statement->setBoolean(3, data.is_hard_locality());
+        statement->setBoolean(4, data.is_persisted());
         statement->executeUpdate();
 
         for (std::string const& addr : data.get_locality()) {
@@ -2035,13 +2037,15 @@ auto MySqlDataStorage::add_task_data(
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `data` (`id`, `value`, `hard_locality`) VALUES(?, ?, ?)"
+                        "INSERT INTO `data` (`id`, `value`, `hard_locality`, `persisted`) "
+                        "VALUES(?, ?, ?, ?)"
                 )
         );
         sql::bytes id_bytes = uuid_get_bytes(data.get_id());
         statement->setBytes(1, &id_bytes);
         statement->setString(2, data.get_value());
         statement->setBoolean(3, data.is_hard_locality());
+        statement->setBoolean(4, data.is_persisted());
         statement->executeUpdate();
 
         for (std::string const& addr : data.get_locality()) {
@@ -2081,7 +2085,7 @@ auto MySqlDataStorage::get_data_with_locality(
 ) -> StorageErr {
     std::unique_ptr<sql::PreparedStatement> statement(
             static_cast<MySqlConnection&>(conn)->prepareStatement(
-                    "SELECT `id`, `value`, `hard_locality` FROM `data` WHERE `id` = ?"
+                    "SELECT `id`, `value`, `hard_locality`, `persisted` FROM `data` WHERE `id` = ?"
             )
     );
     sql::bytes id_bytes = uuid_get_bytes(id);
@@ -2097,6 +2101,7 @@ auto MySqlDataStorage::get_data_with_locality(
     res->next();
     *data = Data{id, get_sql_string(res->getString(2))};
     data->set_hard_locality(res->getBoolean(3));
+    data->set_persisted(res->getBoolean(4));
 
     std::unique_ptr<sql::PreparedStatement> locality_statement(
             static_cast<MySqlConnection&>(conn)->prepareStatement(
@@ -2218,6 +2223,25 @@ auto MySqlDataStorage::set_data_locality(StorageConnection& conn, Data const& da
         hard_locality_statement->setBoolean(1, data.is_hard_locality());
         hard_locality_statement->setBytes(2, &id_bytes);
         hard_locality_statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
+auto MySqlDataStorage::set_data_persisted(StorageConnection& conn, Data const& data) -> StorageErr {
+    try {
+        sql::bytes id_bytes = uuid_get_bytes(data.get_id());
+        std::unique_ptr<sql::PreparedStatement> statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "UPDATE `data` SET `persisted` = ? WHERE `id` = ?"
+                )
+        );
+        statement->setBoolean(1, data.is_persisted());
+        statement->setBytes(2, &id_bytes);
+        statement->executeUpdate();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};

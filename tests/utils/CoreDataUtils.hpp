@@ -20,6 +20,10 @@ inline auto data_equal(core::Data const& d1, core::Data const& d2) -> bool {
         return false;
     }
 
+    if (d1.is_persisted() != d2.is_persisted()) {
+        return false;
+    }
+
     return true;
 }
 }  // namespace spider::test

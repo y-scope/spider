@@ -65,6 +65,7 @@ public:
     ) -> StorageErr
             = 0;
     virtual auto set_data_locality(StorageConnection& conn, Data const& data) -> StorageErr = 0;
+    virtual auto set_data_persisted(StorageConnection& conn, Data const& data) -> StorageErr = 0;
     virtual auto remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto
     add_task_reference(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid task_id)
