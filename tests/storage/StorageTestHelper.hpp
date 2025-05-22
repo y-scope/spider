@@ -7,8 +7,8 @@
 #include <string>
 #include <tuple>
 
-#include "spider/storage/mysql/MySqlStorageFactory.hpp"
-#include "spider/storage/StorageFactory.hpp"
+#include <spider/storage/mysql/MySqlStorageFactory.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::test {
 std::string const cMySqlStorageUrl

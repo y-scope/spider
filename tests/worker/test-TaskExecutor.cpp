@@ -16,19 +16,20 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "spider/core/Data.hpp"
-#include "spider/core/Driver.hpp"
-#include "spider/core/Error.hpp"
-#include "spider/core/Task.hpp"
-#include "spider/core/TaskGraph.hpp"
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
-#include "spider/storage/StorageFactory.hpp"
-#include "spider/worker/FunctionManager.hpp"
-#include "spider/worker/TaskExecutor.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/TaskExecutor.hpp>
+
 #include "tests/storage/StorageTestHelper.hpp"
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-unix.BlockInCriticalSection)

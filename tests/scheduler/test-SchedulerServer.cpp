@@ -12,20 +12,21 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "spider/core/Error.hpp"
-#include "spider/core/Task.hpp"
-#include "spider/core/TaskGraph.hpp"
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/io/msgpack_message.hpp"
-#include "spider/scheduler/FifoPolicy.hpp"
-#include "spider/scheduler/SchedulerMessage.hpp"
-#include "spider/scheduler/SchedulerPolicy.hpp"
-#include "spider/scheduler/SchedulerServer.hpp"
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
-#include "spider/storage/StorageFactory.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/msgpack_message.hpp>
+#include <spider/scheduler/FifoPolicy.hpp>
+#include <spider/scheduler/SchedulerMessage.hpp>
+#include <spider/scheduler/SchedulerPolicy.hpp>
+#include <spider/scheduler/SchedulerServer.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+
 #include "tests/storage/StorageTestHelper.hpp"
 
 namespace {

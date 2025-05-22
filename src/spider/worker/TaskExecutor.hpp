@@ -21,11 +21,11 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/worker/FunctionManager.hpp"
-#include "spider/worker/message_pipe.hpp"
-#include "spider/worker/Process.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/message_pipe.hpp>
+#include <spider/worker/Process.hpp>
 
 namespace spider::worker {
 enum class TaskExecutorState : std::uint8_t {

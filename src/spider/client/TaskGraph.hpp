@@ -4,7 +4,7 @@
 #include <memory>
 #include <utility>
 
-#include "spider/client/task.hpp"
+#include <spider/client/task.hpp>
 
 namespace spider {
 namespace core {

@@ -12,10 +12,11 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
-#include "spider/client/Data.hpp"
-#include "spider/client/Driver.hpp"
-#include "spider/client/Job.hpp"
-#include "spider/client/TaskGraph.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/Driver.hpp>
+#include <spider/client/Job.hpp>
+#include <spider/client/TaskGraph.hpp>
+
 #include "tests/worker/worker-test.hpp"
 
 namespace {

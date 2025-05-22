@@ -1,8 +1,8 @@
 #ifndef SPIDER_STORAGE_JOBSUBMISSIONBATCH_HPP
 #define SPIDER_STORAGE_JOBSUBMISSIONBATCH_HPP
 
-#include "spider/core/Error.hpp"
-#include "spider/storage/StorageConnection.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 class JobSubmissionBatch {

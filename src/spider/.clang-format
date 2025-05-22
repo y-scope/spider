@@ -2,6 +2,12 @@ BasedOnStyle: "InheritParentConfig"
 
 IncludeCategories:
   # NOTE: A header is grouped by first matching regex
+  # Project relative headers
+  - Regex: "^\"spider"
+    Priority: 5
+  # Project library headers
+  - Regex: "^<spider"
+    Priority: 4
   # Library headers. Update when adding new libraries.
   # NOTE: clang-format retains leading white-space on a line in violation of the YAML spec.
   # Ex:
@@ -15,9 +21,3 @@ IncludeCategories:
   # C++ standard libraries
   - Regex: "^<.+>"
     Priority: 2
-  # Project library headers
-  - Regex: "^<spider"
-    Priority: 4
-  # Project relative headers
-  - Regex: "^\"spider"
-    Priority: 5

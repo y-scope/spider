@@ -7,8 +7,8 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/io/Serializer.hpp"  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/Serializer.hpp>  // IWYU pragma: keep
 
 namespace spider::scheduler {
 class ScheduleTaskRequest {

@@ -6,11 +6,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "spider/io/BoostAsio.hpp"
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/worker/FunctionManager.hpp"
-#include "spider/worker/message_pipe.hpp"
-#include "spider/worker/TaskExecutorMessage.hpp"
+#include <spider/io/BoostAsio.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/message_pipe.hpp>
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 namespace {

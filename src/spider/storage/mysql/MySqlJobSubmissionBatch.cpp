@@ -4,10 +4,10 @@
 #include <mariadb/conncpp/Exception.hpp>
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
-#include "spider/core/Error.hpp"
-#include "spider/storage/mysql/mysql_stmt.hpp"
-#include "spider/storage/mysql/MySqlConnection.hpp"
-#include "spider/storage/StorageConnection.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/storage/mysql/mysql_stmt.hpp>
+#include <spider/storage/mysql/MySqlConnection.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)

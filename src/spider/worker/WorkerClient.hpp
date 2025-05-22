@@ -8,10 +8,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageFactory.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::worker {
 class WorkerClient {

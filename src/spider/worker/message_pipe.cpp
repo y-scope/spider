@@ -11,8 +11,8 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 
 namespace spider::worker {
 constexpr size_t cHeaderSize = 16;

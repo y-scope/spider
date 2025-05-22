@@ -11,20 +11,21 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "spider/client/Data.hpp"
-#include "spider/client/TaskContext.hpp"
-#include "spider/core/Driver.hpp"
-#include "spider/core/Error.hpp"
-#include "spider/core/Task.hpp"
-#include "spider/core/TaskContextImpl.hpp"
-#include "spider/core/TaskGraph.hpp"
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
-#include "spider/storage/StorageFactory.hpp"
-#include "spider/worker/FunctionManager.hpp"
-#include "spider/worker/FunctionNameManager.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/TaskContext.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskContextImpl.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/FunctionNameManager.hpp>
+
 #include "tests/storage/StorageTestHelper.hpp"
 
 namespace {

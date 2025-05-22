@@ -12,8 +12,8 @@
 #include <mariadb/conncpp/Properties.hpp>
 #include <spdlog/spdlog.h>
 
-#include "spider/core/Error.hpp"
-#include "spider/storage/StorageConnection.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 auto MySqlConnection::create(std::string const& url)

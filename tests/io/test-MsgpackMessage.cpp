@@ -10,9 +10,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/io/msgpack_message.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/msgpack_message.hpp>
 
 namespace {
 using namespace boost::asio::ip;

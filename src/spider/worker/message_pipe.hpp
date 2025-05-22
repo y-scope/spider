@@ -4,8 +4,8 @@
 #include <functional>
 #include <optional>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 
 namespace spider::worker {
 auto send_message(boost::asio::writable_pipe& pipe, msgpack::sbuffer const& request) -> bool;

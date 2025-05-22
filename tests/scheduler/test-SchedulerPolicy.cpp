@@ -12,16 +12,17 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "spider/core/Data.hpp"
-#include "spider/core/Driver.hpp"
-#include "spider/core/Error.hpp"
-#include "spider/core/Task.hpp"
-#include "spider/core/TaskGraph.hpp"
-#include "spider/scheduler/FifoPolicy.hpp"
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
-#include "spider/storage/StorageFactory.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/scheduler/FifoPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+
 #include "tests/storage/StorageTestHelper.hpp"
 
 namespace {

@@ -10,10 +10,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "spider/core/Task.hpp"
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
+#include <spider/core/Task.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::scheduler {
 FifoPolicy::FifoPolicy(

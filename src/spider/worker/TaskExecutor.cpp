@@ -10,11 +10,11 @@
 
 #include <fmt/format.h>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/worker/FunctionManager.hpp"
-#include "spider/worker/message_pipe.hpp"
-#include "spider/worker/TaskExecutorMessage.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/message_pipe.hpp>
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::worker {
 auto TaskExecutor::get_pid() const -> pid_t {

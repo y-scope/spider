@@ -9,8 +9,8 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <spdlog/spdlog.h>
 
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/io/Serializer.hpp"  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/Serializer.hpp>  // IWYU pragma: keep
 
 namespace spider::core {
 auto Task::get_arg_buffers() const -> std::optional<std::vector<msgpack::sbuffer>> {

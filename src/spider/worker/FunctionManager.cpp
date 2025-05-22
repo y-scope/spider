@@ -11,8 +11,8 @@
 #include <boost/dll/alias.hpp>
 #include <spdlog/spdlog.h>
 
-#include "spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "spider/worker/TaskExecutorMessage.hpp"
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::core {
 auto response_get_error(msgpack::sbuffer const& buffer)

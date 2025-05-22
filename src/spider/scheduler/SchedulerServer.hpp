@@ -5,11 +5,11 @@
 #include <mutex>
 #include <thread>
 
-#include "spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "spider/scheduler/SchedulerPolicy.hpp"
-#include "spider/storage/DataStorage.hpp"
-#include "spider/storage/MetadataStorage.hpp"
-#include "spider/storage/StorageConnection.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/scheduler/SchedulerPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::scheduler {
 class SchedulerServer {
