@@ -2,7 +2,6 @@ BasedOnStyle: "InheritParentConfig"
 
 IncludeCategories:
   # NOTE: A header is grouped by first matching regex
-
   # Project library headers
   - Regex: "^<spider"
     Priority: 4
