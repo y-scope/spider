@@ -38,9 +38,9 @@ public:
     auto initialize(StorageConnection& conn) -> StorageErr override;
     auto add_driver(StorageConnection& conn, Driver const& driver) -> StorageErr override;
     auto add_scheduler(StorageConnection& conn, Scheduler const& scheduler) -> StorageErr override;
-    auto get_active_scheduler(StorageConnection& conn, std::vector<Scheduler>* schedulers)
-            -> StorageErr override;
     auto remove_driver(StorageConnection& conn, boost::uuids::uuid id) noexcept
+            -> StorageErr override;
+    auto get_active_scheduler(StorageConnection& conn, std::vector<Scheduler>* schedulers)
             -> StorageErr override;
     auto add_job(
             StorageConnection& conn,
