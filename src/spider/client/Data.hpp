@@ -215,7 +215,6 @@ private:
     [[nodiscard]] auto get_impl() const -> std::unique_ptr<core::Data> const& { return m_impl; }
 
     std::unique_ptr<core::DataCleaner> m_data_cleaner;
-
     std::unique_ptr<core::Data> m_impl;
     std::shared_ptr<core::DataStorage> m_data_store;
     std::shared_ptr<core::StorageFactory> m_storage_factory;
