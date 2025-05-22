@@ -13,12 +13,13 @@
 
 namespace spider::core {
 /*
- * Keep tracks of the number of exceptions and clean up the data if the `Data`
- * holding `unique_ptr` to this class is destructed.
+ * Tracks the number of exceptions and ensures proper cleanup when the `Data`
+ * object—holding a `unique_ptr` to this class—is destroyed.
  *
- * We cannot use custom destructor directly inside `Data` in case of moved
- * `Data` object being destructed, so we work around by using a `unique_ptr`
- * so the destructor is not called by moved object.
+ * We avoid placing a custom destructor directly inside `Data` because, when a
+ * `Data` object is moved, its destructor is still invoked. This can result in
+ * double deletion. By using a `unique_ptr`, we ensure that destruction only
+ * occurs for the final owner, preventing such issues.
  */
 class DataCleaner {
 public:
