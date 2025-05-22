@@ -2,9 +2,6 @@ BasedOnStyle: "InheritParentConfig"
 
 IncludeCategories:
   # NOTE: A header is grouped by first matching regex
-  # Project relative headers
-  - Regex: "^\"tests"
-    Priority: 5
   # Project library headers
   - Regex: "^<spider"
     Priority: 4
@@ -23,3 +20,6 @@ IncludeCategories:
   # C++ standard libraries
   - Regex: "^<.+>"
     Priority: 2
+  # Project relative headers
+  - Regex: "^\".+\""
+    Priority: 5
