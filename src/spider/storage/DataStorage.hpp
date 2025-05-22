@@ -5,10 +5,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Data.hpp"
-#include "../core/Error.hpp"
-#include "../core/KeyValueData.hpp"
-#include "StorageConnection.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 class DataStorage {

@@ -6,11 +6,11 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/client/Data.hpp"
-#include "../../src/spider/client/Driver.hpp"
-#include "../../src/spider/client/TaskContext.hpp"
-#include "../../src/spider/client/TaskGraph.hpp"
-#include "../storage/StorageTestHelper.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/Driver.hpp>
+#include <spider/client/TaskContext.hpp>
+#include <spider/client/TaskGraph.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(

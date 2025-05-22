@@ -5,10 +5,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../client/TaskContext.hpp"
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageFactory.hpp"
+#include <spider/client/TaskContext.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::core {
 class TaskContextImpl {

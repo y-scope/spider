@@ -15,17 +15,17 @@
 #include <boost/uuid/uuid.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../core/Driver.hpp"
-#include "../core/Error.hpp"
-#include "../core/Task.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/msgpack_message.hpp"
-#include "../scheduler/SchedulerMessage.hpp"
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/msgpack_message.hpp>
+#include <spider/scheduler/SchedulerMessage.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::worker {
 WorkerClient::WorkerClient(
