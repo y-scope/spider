@@ -1,15 +1,12 @@
 BasedOnStyle: "InheritParentConfig"
 
 IncludeCategories:
-  # NOTE: A header is grouped by first matching regex
+  # NOTE: A header is grouped by first matching regex library headers.
+  # NOTE: clang-format retains leading white-space on a line in violation of the YAML spec.
   # Project library headers
   - Regex: "^<(spider|tests)"
     Priority: 4
-  # Library headers. Update when adding new libraries.
-  # NOTE: clang-format retains leading white-space on a line in violation of the YAML spec.
-  # Ex:
-  # - Regex: "<(fmt|spdlog)"
-  #   Priority: 3
+  # External library headers. Update when adding new libraries.
   - Regex: "^<(absl|boost|catch2|fmt|mariadb|msgpack|spdlog|ystdlib)"
     Priority: 3
   # C system headers
