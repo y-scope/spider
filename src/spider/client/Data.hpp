@@ -8,15 +8,15 @@
 #include <variant>
 #include <vector>
 
-#include "../core/Context.hpp"
-#include "../core/DataCleaner.hpp"
-#include "../core/Error.hpp"
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/Serializer.hpp"
-#include "../storage/DataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "Exception.hpp"
+#include <spider/client/Exception.hpp>
+#include <spider/core/Context.hpp>
+#include <spider/core/DataCleaner.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/Serializer.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider {
 namespace core {

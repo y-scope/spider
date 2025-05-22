@@ -12,14 +12,14 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Driver.hpp"
-#include "../core/DriverCleaner.hpp"
-#include "../core/Error.hpp"
-#include "../core/KeyValueData.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../storage/mysql/MySqlStorageFactory.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "Exception.hpp"
+#include <spider/client/Exception.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/DriverCleaner.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/storage/mysql/MySqlStorageFactory.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider {
 Driver::Driver(std::string const& storage_url)

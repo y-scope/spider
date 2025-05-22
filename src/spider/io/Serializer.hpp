@@ -6,7 +6,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "MsgPack.hpp"  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 
 template <>
 struct msgpack::adaptor::convert<boost::uuids::uuid> {

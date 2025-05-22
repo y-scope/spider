@@ -14,8 +14,8 @@
 
 #include <spdlog/spdlog.h>
 
-#include "BoostAsio.hpp"  // IWYU pragma: keep
-#include "MsgPack.hpp"  // IWYU pragma: keep
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 
 namespace {
 /**

@@ -15,18 +15,17 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
-#include "../core/Context.hpp"
-#include "../core/Error.hpp"
-#include "../core/TaskGraph.hpp"
-#include "../core/TaskGraphImpl.hpp"
-#include "../io/Serializer.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "Data.hpp"
-#include "Exception.hpp"
-#include "Job.hpp"
-#include "task.hpp"
-#include "TaskGraph.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/Exception.hpp>
+#include <spider/client/Job.hpp>
+#include <spider/client/task.hpp>
+#include <spider/core/Context.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/core/TaskGraphImpl.hpp>
+#include <spider/io/Serializer.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider {
 namespace core {

@@ -12,17 +12,17 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/scheduler/FifoPolicy.hpp"
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../storage/StorageTestHelper.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/scheduler/FifoPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(

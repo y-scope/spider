@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 
 namespace spider::worker {
 enum class TaskExecutorResponseType : std::uint8_t {

@@ -20,18 +20,18 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
-#include "../core/Driver.hpp"
-#include "../core/Error.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlStorageFactory.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "../utils/StopFlag.hpp"
-#include "FifoPolicy.hpp"
-#include "SchedulerPolicy.hpp"
-#include "SchedulerServer.hpp"
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/scheduler/FifoPolicy.hpp>
+#include <spider/scheduler/SchedulerPolicy.hpp>
+#include <spider/scheduler/SchedulerServer.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/mysql/MySqlStorageFactory.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/StopFlag.hpp>
 
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;

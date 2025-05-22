@@ -11,17 +11,17 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../core/Error.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/msgpack_message.hpp"
-#include "../io/Serializer.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../utils/StopFlag.hpp"
-#include "SchedulerMessage.hpp"
-#include "SchedulerPolicy.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/msgpack_message.hpp>
+#include <spider/io/Serializer.hpp>  // IWYU pragma: keep
+#include <spider/scheduler/SchedulerMessage.hpp>
+#include <spider/scheduler/SchedulerPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/utils/StopFlag.hpp>
 
 namespace spider::scheduler {
 SchedulerServer::SchedulerServer(

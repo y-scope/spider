@@ -16,20 +16,20 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../../src/spider/worker/FunctionManager.hpp"
-#include "../../src/spider/worker/TaskExecutor.hpp"
-#include "../storage/StorageTestHelper.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/TaskExecutor.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-unix.BlockInCriticalSection)
 
