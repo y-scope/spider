@@ -3,9 +3,7 @@ BasedOnStyle: "InheritParentConfig"
 IncludeCategories:
   # NOTE: A header is grouped by first matching regex
   # Project library headers
-  - Regex: "^<spider"
-    Priority: 4
-  - Regex: "^<tests"
+  - Regex: "^<(spider|tests)"
     Priority: 4
   # Library headers. Update when adding new libraries.
   # NOTE: clang-format retains leading white-space on a line in violation of the YAML spec.
