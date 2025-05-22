@@ -19,7 +19,6 @@
 #include <spider/client/Exception.hpp>
 #include <spider/client/Job.hpp>
 #include <spider/client/task.hpp>
-#include <spider/client/TaskGraph.hpp>
 #include <spider/core/DriverCleaner.hpp>
 #include <spider/core/Error.hpp>
 #include <spider/core/TaskGraphImpl.hpp>
