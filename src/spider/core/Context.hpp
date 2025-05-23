@@ -7,8 +7,10 @@
 
 namespace spider::core {
 /**
- *  Context class wraps the information about the execution context.
- *  Context could be either a driver (i.e. client) or a task.
+ * Represents the execution context in which operations are performed.
+ *
+ * The Context class encapsulates information about whether the current
+ * execution is occurring in a client (e.g. driver) or within a task.
  */
 class Context {
 public:
