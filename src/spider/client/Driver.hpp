@@ -19,7 +19,7 @@
 #include <spider/client/Exception.hpp>
 #include <spider/client/Job.hpp>
 #include <spider/client/task.hpp>
-#include <spider/client/TaskGraph.hpp>
+#include <spider/core/DriverCleaner.hpp>
 #include <spider/core/Error.hpp>
 #include <spider/core/TaskGraphImpl.hpp>
 #include <spider/io/Serializer.hpp>
@@ -83,9 +83,8 @@ public:
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
         return DataBuilder{
+                core::Context{core::Context::Source::Driver, m_id},
                 m_data_storage,
-                m_id,
-                DataBuilder::DataSource::Driver,
                 m_storage_factory,
                 m_conn
         };
@@ -228,8 +227,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Driver,
-                m_id,
+                core::Context{core::Context::Source::Driver, m_id},
                 m_metadata_storage,
                 m_data_storage,
                 m_storage_factory,
@@ -293,8 +291,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Driver,
-                m_id,
+                core::Context{core::Context::Source::Driver, m_id},
                 m_metadata_storage,
                 m_data_storage,
                 m_storage_factory,
@@ -322,6 +319,7 @@ public:
 
 private:
     boost::uuids::uuid m_id;
+    std::unique_ptr<core::DriverCleaner> m_driver_cleaner;
     std::shared_ptr<core::MetadataStorage> m_metadata_storage;
     std::shared_ptr<core::DataStorage> m_data_storage;
     std::shared_ptr<core::StorageFactory> m_storage_factory;

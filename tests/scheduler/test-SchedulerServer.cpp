@@ -117,6 +117,9 @@ TEMPLATE_LIST_TEST_CASE(
     }
     socket.close();
     server.stop();
+
+    // Clean up
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
 }
 }  // namespace
 

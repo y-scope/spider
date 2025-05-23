@@ -19,7 +19,7 @@
 #include <spider/client/Exception.hpp>
 #include <spider/client/Job.hpp>
 #include <spider/client/task.hpp>
-#include <spider/client/TaskGraph.hpp>
+#include <spider/core/Context.hpp>
 #include <spider/core/Error.hpp>
 #include <spider/core/TaskGraph.hpp>
 #include <spider/core/TaskGraphImpl.hpp>
@@ -61,9 +61,8 @@ public:
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
         return DataBuilder{
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_data_store,
-                m_task_id,
-                DataBuilder::DataSource::TaskContext,
                 m_storage_factory
         };
     }
@@ -174,8 +173,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Task,
-                m_task_id,
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_metadata_store,
                 m_data_store,
                 m_storage_factory
@@ -233,8 +231,7 @@ public:
 
         return Job<ReturnType>{
                 job_id,
-                Job<ReturnType>::JobSource::Task,
-                m_task_id,
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_metadata_store,
                 m_data_store,
                 m_storage_factory
