@@ -5,9 +5,9 @@
 
 #include <mariadb/conncpp/PreparedStatement.hpp>
 
-#include "../../core/Error.hpp"
-#include "../JobSubmissionBatch.hpp"
-#include "../StorageConnection.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/storage/JobSubmissionBatch.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 // Forward declaration for friend class
