@@ -17,11 +17,13 @@
 #include <boost/program_options/variables_map.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Driver.hpp>
 #include <spider/core/Error.hpp>
+#include <spider/core/JobRecovery.hpp>
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/scheduler/FifoPolicy.hpp>
 #include <spider/scheduler/SchedulerPolicy.hpp>
@@ -33,6 +35,8 @@
 #include <spider/storage/StorageFactory.hpp>
 #include <spider/utils/StopFlag.hpp>
 
+#include "spider/core/JobRecovery.hpp"
+
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;
 constexpr int cStorageConnectionErr = 3;
@@ -41,6 +45,8 @@ constexpr int cStorageErr = 5;
 
 constexpr int cCleanupInterval = 1000;
 constexpr int cRetryCount = 5;
+
+constexpr int cRecoveryInterval = 1000;
 
 namespace {
 /*
@@ -142,6 +148,67 @@ auto cleanup_loop(
 
         data_store->remove_dangling_data(*conn);
         spdlog::debug("Finished cleanup");
+    }
+}
+
+auto recovery_loop(
+        std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
+        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
+        std::shared_ptr<spider::core::DataStorage> const& data_store
+) -> void {
+    while (!spider::core::StopFlag::is_stop_requested()) {
+        std::this_thread::sleep_for(std::chrono::seconds(cRecoveryInterval));
+        spdlog::debug("Starting recovery");
+        std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
+                conn_result = storage_factory->provide_storage_connection();
+        if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
+            spdlog::error(
+                    "Failed to connect to storage: {}",
+                    std::get<spider::core::StorageErr>(conn_result).description
+            );
+            continue;
+        }
+
+        std::shared_ptr conn = std::move(
+                std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
+        );
+
+        std::vector<boost::uuids::uuid> job_ids;
+        spider::core::StorageErr err = metadata_store->get_failed_jobs(*conn, &job_ids);
+        if (false == err.success()) {
+            spdlog::error("Failed to get failed jobs: {}", err.description);
+            continue;
+        }
+        if (job_ids.empty()) {
+            spdlog::debug("No failed jobs found");
+            continue;
+        }
+        for (boost::uuids::uuid const& job_id : job_ids) {
+            spdlog::debug("Recovering job: {}", to_string(job_id));
+            spider::core::JobRecovery recovery{job_id, conn, data_store, metadata_store};
+            err = recovery.compute_graph();
+            if (false == err.success()) {
+                spdlog::error(
+                        "Failed to compute graph for job {}: {}",
+                        to_string(job_id),
+                        err.description
+                );
+                continue;
+            }
+            err = metadata_store->reset_tasks(
+                    *conn,
+                    recovery.get_ready_tasks(),
+                    recovery.get_ready_tasks()
+            );
+            if (false == err.success()) {
+                spdlog::error(
+                        "Failed to reset tasks for job {}: {}",
+                        to_string(job_id),
+                        err.description
+                );
+                continue;
+            }
+        }
     }
 }
 
@@ -261,8 +328,16 @@ auto main(int argc, char** argv) -> int {
         // Start a thread that periodically starts cleanup
         std::thread cleanup_thread{cleanup_loop, std::cref(storage_factory), std::cref(data_store)};
 
+        std::thread recovery_thread{
+                recovery_loop,
+                std::cref(storage_factory),
+                std::cref(metadata_store),
+                std::cref(data_store)
+        };
+
         heartbeat_thread.join();
         cleanup_thread.join();
+        recovery_thread.join();
         server.stop();
     } catch (std::system_error& e) {
         spdlog::error("Failed to join thread: {}", e.what());
