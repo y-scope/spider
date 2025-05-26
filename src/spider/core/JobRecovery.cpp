@@ -119,7 +119,7 @@ auto JobRecovery::check_task_input(Task const& task, bool& not_persisted) -> Sto
         }
         boost::uuids::uuid const data_id = optional_date_id.value();
         Data data;
-        StorageErr const err = get_data(data_id, data);
+        StorageErr err = get_data(data_id, data);
         if (false == err.success()) {
             return err;
         }
