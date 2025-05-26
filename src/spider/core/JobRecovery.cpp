@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -10,6 +11,9 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 
+#include <spider/core/Data.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
 #include <spider/storage/DataStorage.hpp>
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/StorageConnection.hpp>
