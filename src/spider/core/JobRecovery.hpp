@@ -7,6 +7,9 @@
 #include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
 #include <spider/storage/DataStorage.hpp>
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/StorageConnection.hpp>
