@@ -8,6 +8,7 @@
 #include <thread>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
@@ -34,8 +35,6 @@
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
 #include <spider/utils/StopFlag.hpp>
-
-#include "spider/core/JobRecovery.hpp"
 
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;
@@ -169,7 +168,7 @@ auto recovery_loop(
             continue;
         }
 
-        std::shared_ptr conn = std::move(
+        std::shared_ptr const conn = std::move(
                 std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
         );
 
