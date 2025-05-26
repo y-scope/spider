@@ -16,17 +16,17 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
-#include "../core/DataImpl.hpp"
-#include "../core/Error.hpp"
-#include "../core/JobMetadata.hpp"
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "Data.hpp"
-#include "Exception.hpp"
-#include "task.hpp"
-#include "type_utils.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/Exception.hpp>
+#include <spider/client/task.hpp>
+#include <spider/client/type_utils.hpp>
+#include <spider/core/DataImpl.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/JobMetadata.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider {
 namespace core {
