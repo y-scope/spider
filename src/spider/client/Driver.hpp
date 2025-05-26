@@ -8,26 +8,26 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
-#include "../core/Error.hpp"
-#include "../core/TaskGraphImpl.hpp"
-#include "../io/Serializer.hpp"
-#include "../storage/JobSubmissionBatch.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "../worker/FunctionManager.hpp"
-#include "../worker/FunctionNameManager.hpp"
-#include "Data.hpp"
-#include "Exception.hpp"
-#include "Job.hpp"
-#include "task.hpp"
-#include "TaskGraph.hpp"
-#include "utility"
+#include <spider/client/Data.hpp>
+#include <spider/client/Exception.hpp>
+#include <spider/client/Job.hpp>
+#include <spider/client/task.hpp>
+#include <spider/client/TaskGraph.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/TaskGraphImpl.hpp>
+#include <spider/io/Serializer.hpp>
+#include <spider/storage/JobSubmissionBatch.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/FunctionNameManager.hpp>
 
 /**
  * Registers a Task function with Spider

@@ -8,18 +8,18 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/KeyValueData.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../utils/CoreDataUtils.hpp"
-#include "StorageTestHelper.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
+#include <tests/utils/CoreDataUtils.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(
@@ -57,7 +57,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(spider::test::data_equal(data, result));
 
     // Set data persisted should succeed
-    data.set_persisted(false);
+    data.set_persisted(true);
     REQUIRE(data_storage->set_data_persisted(*conn, data).success());
     // Get data should match
     REQUIRE(data_storage->get_data(*conn, data.get_id(), &result).success());

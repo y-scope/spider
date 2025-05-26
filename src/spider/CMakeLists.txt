@@ -45,7 +45,7 @@ set(SPIDER_CORE_HEADERS
 
 add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
+target_include_directories(spider_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_core
     PUBLIC
