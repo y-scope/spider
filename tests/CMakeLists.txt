@@ -10,6 +10,7 @@ set(SPIDER_TEST_SOURCES
     worker/test-TaskExecutor.cpp
     worker/test-Process.cpp
     io/test-MsgpackMessage.cpp
+    scheduler/test-JobRecovery.cpp
     scheduler/test-SchedulerPolicy.cpp
     scheduler/test-SchedulerServer.cpp
     client/test-Driver.cpp
