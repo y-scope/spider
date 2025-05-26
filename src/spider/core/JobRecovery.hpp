@@ -21,6 +21,15 @@ public:
             std::shared_ptr<MetadataStorage> metadata_store
     );
 
+    /**
+     * Recover the job by loading the task graph and data from the storage,
+     * compute the minimal subgraph that contains all the failed tasks and the
+     * data across edge are all persisted.
+     * The result is stored in m_ready_tasks and m_pending_tasks, where
+     * m_ready_tasks contains the tasks on the boundary of the subgraph, and
+     * m_pending_tasks contains the tasks that are not ready to run yet.
+     * @return StorageErr
+     */
     auto compute_graph() -> StorageErr;
 
     auto get_ready_tasks() -> std::vector<boost::uuids::uuid> const&;
@@ -28,6 +37,13 @@ public:
     auto get_pending_tasks() -> std::vector<boost::uuids::uuid> const&;
 
 private:
+    /**
+     * Check if any of the task input is not persisted.
+     * @param task
+     * @param not_persisted Returns true if any of the task input is not
+     * persisted, false otherwise.
+     * @return
+     */
     auto check_task_input(Task const& task, bool& not_persisted) -> StorageErr;
 
     /**
