@@ -23,9 +23,9 @@ public:
 
     auto compute_graph() -> StorageErr;
 
-    auto get_ready_tasks() -> std::vector<boost::uuids::uuid>;
+    auto get_ready_tasks() -> std::vector<boost::uuids::uuid> const&;
 
-    auto get_pending_tasks() -> std::vector<boost::uuids::uuid>;
+    auto get_pending_tasks() -> std::vector<boost::uuids::uuid> const&;
 
 private:
     auto check_task_input(Task const& task, bool& not_persisted) -> StorageErr;

@@ -129,11 +129,11 @@ auto JobRecovery::check_task_input(Task const& task, bool& not_persisted) -> Sto
     return StorageErr{};
 }
 
-auto JobRecovery::get_pending_tasks() -> std::vector<boost::uuids::uuid> {
-    return {};
+auto JobRecovery::get_pending_tasks() -> std::vector<boost::uuids::uuid> const& {
+    return m_pending_tasks;
 }
 
-auto JobRecovery::get_ready_tasks() -> std::vector<boost::uuids::uuid> {
-    return {};
+auto JobRecovery::get_ready_tasks() -> std::vector<boost::uuids::uuid> const& {
+    return m_ready_tasks;
 }
 }  // namespace spider::core
