@@ -9,10 +9,9 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "absl/container/flat_hash_set.h"
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 JobRecovery::JobRecovery(

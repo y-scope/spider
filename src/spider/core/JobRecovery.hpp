@@ -5,9 +5,9 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 class JobRecovery {
