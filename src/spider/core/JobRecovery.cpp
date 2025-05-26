@@ -47,8 +47,9 @@ auto JobRecovery::compute_graph() -> StorageErr {
     absl::flat_hash_set<boost::uuids::uuid> ready_task_set;
     absl::flat_hash_set<boost::uuids::uuid> pending_task_set;
     // For each task pop from the set, check if its inputs contains non-persisted Data.
-    // If so, add it to the pending task set and add parent in the task_set. Otherwise, add it to
-    // the ready task set.
+    // If the task has non-persisted Data input and has parents, add it to pending tasks and add
+    // its parents to the working queue. If the task has non-persisted Data input and has no
+    // parents, or the task has all its inputs persisted, add it to ready tasks.
     std::deque<boost::uuids::uuid> working_queue;
     for (auto const& task_id : task_set) {
         working_queue.push_back(task_id);
@@ -70,12 +71,16 @@ auto JobRecovery::compute_graph() -> StorageErr {
             return err;
         }
         if (not_persisted) {
-            pending_task_set.insert(task_id);
             std::vector<boost::uuids::uuid> const parents = m_task_graph.get_parent_tasks(task_id);
-            for (auto const& parent_id : parents) {
-                if (false == task_set.contains(parent_id)) {
-                    working_queue.push_back(parent_id);
-                    task_set.insert(parent_id);
+            if (parents.empty()) {
+                ready_task_set.insert(task_id);
+            } else {
+                pending_task_set.insert(task_id);
+                for (auto const& parent_id : parents) {
+                    if (false == task_set.contains(parent_id)) {
+                        working_queue.push_back(parent_id);
+                        task_set.insert(parent_id);
+                    }
                 }
             }
         } else {
