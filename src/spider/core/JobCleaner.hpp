@@ -19,6 +19,9 @@ namespace spider::core {
  * `Job` object is moved, its destructor is still invoked. This can result in
  * double deletion. By using a `unique_ptr`, we ensure that destruction only
  * occurs for the final owner, preventing such issues.
+ *
+ * We use std::uncaught_exceptions() to track the number of exceptions so that
+ * we don't clean up if the destructor is called during exception handling.
  */
 class JobCleaner {
 public:
