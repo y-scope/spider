@@ -7,11 +7,11 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Error.hpp"
-#include "../storage/DataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "Context.hpp"
+#include <spider/core/Context.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::core {
 DataCleaner::DataCleaner(

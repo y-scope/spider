@@ -6,9 +6,9 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::core {
 /*
