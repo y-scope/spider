@@ -1,9 +1,6 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-optin.core.EnumCastOutOfRange)
 
-#include <chrono>
 #include <memory>
-#include <optional>
-#include <thread>
 #include <utility>
 #include <variant>
 
@@ -94,7 +91,7 @@ TEMPLATE_LIST_TEST_CASE(
     boost::uuids::uuid const client_id = gen();
     // Submit task without data
     spider::core::Task task{"task"};
-    spider::core::Data data{"data"};
+    spider::core::Data const data{"data"};
     REQUIRE(metadata_store->add_driver(*conn, spider::core::Driver{client_id}).success());
     REQUIRE(data_store->add_driver_data(*conn, client_id, data).success());
     task.add_input(spider::core::TaskInput{data.get_id()});
