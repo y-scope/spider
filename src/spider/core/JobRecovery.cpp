@@ -36,7 +36,6 @@ auto JobRecovery::compute_graph() -> StorageErr {
         return err;
     }
 
-    // Get all the failed tasks
     absl::flat_hash_set<boost::uuids::uuid> task_set;
     for (auto const& [task_id, task] : m_task_graph.get_tasks()) {
         if (TaskState::Failed == task.get_state()) {
@@ -47,6 +46,7 @@ auto JobRecovery::compute_graph() -> StorageErr {
     absl::flat_hash_set<boost::uuids::uuid> ready_task_set;
     absl::flat_hash_set<boost::uuids::uuid> pending_task_set;
     // For each task pop from the set, check if its inputs contains non-persisted Data.
+    // Add the non-pending children of the task to the working queue.
     // If the task has non-persisted Data input and has parents, add it to pending tasks and add
     // its parents to the working queue. If the task has non-persisted Data input and has no
     // parents, or the task has all its inputs persisted, add it to ready tasks.
@@ -69,6 +69,23 @@ auto JobRecovery::compute_graph() -> StorageErr {
         err = check_task_input(task, not_persisted);
         if (false == err.success()) {
             return err;
+        }
+        for (boost::uuids::uuid const& child_id : m_task_graph.get_child_tasks(task_id)) {
+            if (task_set.contains(child_id)) {
+                continue;
+            }
+            std::optional<Task*> optional_child_task = m_task_graph.get_task(child_id);
+            if (false == optional_child_task.has_value()) {
+                return StorageErr{
+                        StorageErrType::KeyNotFoundErr,
+                        fmt::format("No task with id {}", to_string(child_id))
+                };
+            }
+            Task const& child_task = *optional_child_task.value();
+            if (TaskState::Pending != child_task.get_state()) {
+                working_queue.push_back(child_id);
+                task_set.insert(child_id);
+            }
         }
         if (not_persisted) {
             std::vector<boost::uuids::uuid> const parents = m_task_graph.get_parent_tasks(task_id);
