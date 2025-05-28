@@ -1,10 +1,12 @@
 #ifndef SPIDER_CORE_JOBRECOVERY_HPP
 #define SPIDER_CORE_JOBRECOVERY_HPP
 
+#include <deque>
 #include <memory>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <boost/uuid/uuid.hpp>
 
 #include <spider/core/Data.hpp>
@@ -36,9 +38,9 @@ public:
      */
     auto compute_graph() -> StorageErr;
 
-    auto get_ready_tasks() -> std::vector<boost::uuids::uuid> const&;
+    auto get_ready_tasks() -> std::vector<boost::uuids::uuid>;
 
-    auto get_pending_tasks() -> std::vector<boost::uuids::uuid> const&;
+    auto get_pending_tasks() -> std::vector<boost::uuids::uuid>;
 
 private:
     /**
@@ -60,6 +62,20 @@ private:
      */
     auto get_data(boost::uuids::uuid data_id, Data& data) -> StorageErr;
 
+    /*
+     * Process the task from the task queue with the given task_id.
+     * 1. Add the non-pending children of the task to the working queue.
+     * 2. Check if its inputs contains non-persisted Data.
+     * 3. If the task has non-persisted Data input and has parents, add it to pending tasks and add
+     * its parents to the working queue.
+     * 4. If the task has non-persisted Data input and has no parents, or the task has all its
+     * inputs persisted, add it to ready tasks.
+     *
+     * @param task_id
+     * @return StorageErr
+     */
+    auto process_task(boost::uuids::uuid task_id) -> StorageErr;
+
     boost::uuids::uuid m_job_id;
 
     std::shared_ptr<StorageConnection> m_conn;
@@ -70,8 +86,10 @@ private:
 
     TaskGraph m_task_graph;
 
-    std::vector<boost::uuids::uuid> m_ready_tasks;
-    std::vector<boost::uuids::uuid> m_pending_tasks;
+    absl::flat_hash_set<boost::uuids::uuid> m_task_set;
+    std::deque<boost::uuids::uuid> m_task_queue;
+    absl::flat_hash_set<boost::uuids::uuid> m_ready_tasks;
+    absl::flat_hash_set<boost::uuids::uuid> m_pending_tasks;
 };
 }  // namespace spider::core
 

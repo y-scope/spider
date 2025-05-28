@@ -112,8 +112,8 @@ TEMPLATE_LIST_TEST_CASE(
     // Recover the job
     spider::core::JobRecovery recovery{job_id, conn, data_store, metadata_store};
     REQUIRE(recovery.compute_graph().success());
-    auto const& ready_tasks = recovery.get_ready_tasks();
-    auto const& pending_tasks = recovery.get_pending_tasks();
+    auto ready_tasks = recovery.get_ready_tasks();
+    auto pending_tasks = recovery.get_pending_tasks();
     REQUIRE(ready_tasks.size() == 1);
     REQUIRE(pending_tasks.empty());
     REQUIRE(ready_tasks[0] == task.get_id());
@@ -165,8 +165,8 @@ TEMPLATE_LIST_TEST_CASE(
     // Recover the job
     spider::core::JobRecovery recovery{job_id, conn, data_store, metadata_store};
     REQUIRE(recovery.compute_graph().success());
-    auto const& ready_tasks = recovery.get_ready_tasks();
-    auto const& pending_tasks = recovery.get_pending_tasks();
+    auto ready_tasks = recovery.get_ready_tasks();
+    auto pending_tasks = recovery.get_pending_tasks();
     REQUIRE(ready_tasks.size() == 1);
     REQUIRE(pending_tasks.empty());
     REQUIRE(ready_tasks[0] == task.get_id());

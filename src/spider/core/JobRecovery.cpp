@@ -36,85 +36,20 @@ auto JobRecovery::compute_graph() -> StorageErr {
         return err;
     }
 
-    absl::flat_hash_set<boost::uuids::uuid> task_set;
     for (auto const& [task_id, task] : m_task_graph.get_tasks()) {
         if (TaskState::Failed == task.get_state()) {
-            task_set.insert(task_id);
+            m_task_set.insert(task_id);
+            m_task_queue.push_front(task_id);
         }
     }
 
-    absl::flat_hash_set<boost::uuids::uuid> ready_task_set;
-    absl::flat_hash_set<boost::uuids::uuid> pending_task_set;
-    // For each task pop from the set, check if its inputs contains non-persisted Data.
-    // Add the non-pending children of the task to the working queue.
-    // If the task has non-persisted Data input and has parents, add it to pending tasks and add
-    // its parents to the working queue. If the task has non-persisted Data input and has no
-    // parents, or the task has all its inputs persisted, add it to ready tasks.
-    std::deque<boost::uuids::uuid> working_queue;
-    for (auto const& task_id : task_set) {
-        working_queue.push_back(task_id);
-    }
-    while (!working_queue.empty()) {
-        auto const task_id = working_queue.front();
-        working_queue.pop_front();
-        std::optional<Task*> optional_task = m_task_graph.get_task(task_id);
-        if (false == optional_task.has_value()) {
-            return StorageErr{
-                    StorageErrType::KeyNotFoundErr,
-                    fmt::format("No task with id {}", to_string(task_id))
-            };
-        }
-        Task const& task = *optional_task.value();
-        bool not_persisted = false;
-        err = check_task_input(task, not_persisted);
+    while (!m_task_queue.empty()) {
+        auto const task_id = m_task_queue.front();
+        m_task_queue.pop_front();
+        err = process_task(task_id);
         if (false == err.success()) {
             return err;
         }
-        for (boost::uuids::uuid const& child_id : m_task_graph.get_child_tasks(task_id)) {
-            if (task_set.contains(child_id)) {
-                continue;
-            }
-            std::optional<Task*> optional_child_task = m_task_graph.get_task(child_id);
-            if (false == optional_child_task.has_value()) {
-                return StorageErr{
-                        StorageErrType::KeyNotFoundErr,
-                        fmt::format("No task with id {}", to_string(child_id))
-                };
-            }
-            Task const& child_task = *optional_child_task.value();
-            if (TaskState::Pending != child_task.get_state()) {
-                working_queue.push_back(child_id);
-                task_set.insert(child_id);
-            }
-        }
-        if (not_persisted) {
-            std::vector<boost::uuids::uuid> const parents = m_task_graph.get_parent_tasks(task_id);
-            if (parents.empty()) {
-                ready_task_set.insert(task_id);
-            } else {
-                pending_task_set.insert(task_id);
-                for (auto const& parent_id : parents) {
-                    if (false == task_set.contains(parent_id)) {
-                        working_queue.push_back(parent_id);
-                        task_set.insert(parent_id);
-                    }
-                }
-            }
-        } else {
-            ready_task_set.insert(task_id);
-        }
-    }
-
-    // Set the pending and ready tasks
-    m_pending_tasks.clear();
-    m_pending_tasks.reserve(pending_task_set.size());
-    for (auto const& task_id : pending_task_set) {
-        m_pending_tasks.push_back(task_id);
-    }
-    m_ready_tasks.clear();
-    m_ready_tasks.reserve(ready_task_set.size());
-    for (auto const& task_id : ready_task_set) {
-        m_ready_tasks.push_back(task_id);
     }
 
     return StorageErr{};
@@ -155,11 +90,75 @@ auto JobRecovery::check_task_input(Task const& task, bool& not_persisted) -> Sto
     return StorageErr{};
 }
 
-auto JobRecovery::get_pending_tasks() -> std::vector<boost::uuids::uuid> const& {
-    return m_pending_tasks;
+auto JobRecovery::process_task(boost::uuids::uuid task_id) -> StorageErr {
+    std::optional<Task*> const optional_task = m_task_graph.get_task(task_id);
+    if (false == optional_task.has_value()) {
+        return StorageErr{
+                StorageErrType::KeyNotFoundErr,
+                fmt::format("No task with id {}", to_string(task_id))
+        };
+    }
+
+    for (boost::uuids::uuid const& child_id : m_task_graph.get_child_tasks(task_id)) {
+        if (m_task_set.contains(child_id)) {
+            continue;
+        }
+        std::optional<Task*> optional_child_task = m_task_graph.get_task(child_id);
+        if (false == optional_child_task.has_value()) {
+            return StorageErr{
+                    StorageErrType::KeyNotFoundErr,
+                    fmt::format("No task with id {}", to_string(child_id))
+            };
+        }
+        Task const& child_task = *optional_child_task.value();
+        if (TaskState::Pending != child_task.get_state()) {
+            m_task_queue.push_back(child_id);
+            m_task_set.insert(child_id);
+        }
+    }
+
+    Task const& task = *optional_task.value();
+    bool not_persisted = false;
+    StorageErr err = check_task_input(task, not_persisted);
+    if (false == err.success()) {
+        return err;
+    }
+
+    if (not_persisted) {
+        std::vector<boost::uuids::uuid> const parents = m_task_graph.get_parent_tasks(task_id);
+        if (parents.empty()) {
+            m_ready_tasks.insert(task_id);
+        } else {
+            m_pending_tasks.insert(task_id);
+            for (auto const& parent_id : parents) {
+                if (false == m_task_set.contains(parent_id)) {
+                    m_task_queue.push_back(parent_id);
+                    m_task_set.insert(parent_id);
+                }
+            }
+        }
+    } else {
+        m_ready_tasks.insert(task_id);
+    }
+
+    return StorageErr{};
 }
 
-auto JobRecovery::get_ready_tasks() -> std::vector<boost::uuids::uuid> const& {
-    return m_ready_tasks;
+auto JobRecovery::get_pending_tasks() -> std::vector<boost::uuids::uuid> {
+    std::vector<boost::uuids::uuid> pending_tasks;
+    pending_tasks.reserve(m_pending_tasks.size());
+    for (auto const& task_id : m_pending_tasks) {
+        pending_tasks.push_back(task_id);
+    }
+    return pending_tasks;
+}
+
+auto JobRecovery::get_ready_tasks() -> std::vector<boost::uuids::uuid> {
+    std::vector<boost::uuids::uuid> ready_tasks;
+    ready_tasks.reserve(m_ready_tasks.size());
+    for (auto const& task_id : m_ready_tasks) {
+        ready_tasks.push_back(task_id);
+    }
+    return ready_tasks;
 }
 }  // namespace spider::core
