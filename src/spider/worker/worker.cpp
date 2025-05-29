@@ -444,10 +444,10 @@ auto task_loop(
         spider::core::ChildPid::set_pid(0);
 
         if (executor.cancelled()) {
-            // If task is cancelled by user or other tasks, the states have been updated in the
-            // storage, no need to do anything.
-            // If task is cancelled by calling `TaskContext::abort`, the storage has also been
-            // updated, so we also don't need to do anything.
+            // If the task is cancelled by the user or other tasks, the states have already been
+            // updated in the storage, so there's no need to do anything.
+            // If the task is cancelled by calling `TaskContext::abort`, the storage has also been
+            // updated, so again, no further action is needed.
             spdlog::debug("Task {} was cancelled", task.get_function_name());
             continue;
         }
