@@ -219,6 +219,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     REQUIRE(metadata_storage->remove_job(*conn, job_id).success());
     REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
 }
 }  // namespace
 
