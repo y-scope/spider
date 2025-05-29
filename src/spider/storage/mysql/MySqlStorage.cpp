@@ -1275,7 +1275,7 @@ auto MySqlMetadataStorage::reset_tasks(
             if (std::ranges::find(ready_tasks, task_id) == ready_tasks.end()
                 && std::ranges::find(pending_tasks, task_id) == pending_tasks.end())
             {
-                remove_data_ids.insert(task_id);
+                remove_data_ids.insert(data_id);
             }
         }
         for (boost::uuids::uuid const& id : remove_data_ids) {
