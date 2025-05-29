@@ -178,13 +178,30 @@ TEMPLATE_LIST_TEST_CASE(
 
 /**
  * Recovers a job with multiple tasks. The task graph is:
- *     T1   T2
- *    / \  / \
- *   /   \/   \
- *  T3   T4   T5
- *  .    .    .
- *  |    |    |
- *  T6  T7    T8
+ * \dot
+ * digraph task_graph {
+ *     node [shape="rect"];
+ *     1 [color="green"];
+ *     2 [color="green"];
+ *     3 [color="green"];
+ *     4 [color="green"];
+ *     6 [color="blue"];
+ *     7 [color="blue"];
+ *     1 -> 3;
+ *     1 -> 4;
+ *     2 -> 4;
+ *     2 -> 5;
+ *     3 -> 6 [style="dashed"];
+ *     4 -> 7 [style="dashed"];
+ *     subgraph cluster_recovery {
+ *         style=filled;
+ *         color=yellow;
+ *         5 [color="green"];
+ *         8 [color="red"];
+ *         5 -> 8 [style="dashed"];
+ *     }
+ * }
+ * \enddot
  */
 TEMPLATE_LIST_TEST_CASE(
         "Recovery multiple tasks",
@@ -333,13 +350,30 @@ TEMPLATE_LIST_TEST_CASE(
 
 /**
  * Recovers a job with multiple tasks. The task graph is:
- *     T1   T2
- *    / \  . .
- *   /   \/   \
- *  T3   T4   T5
- *  .    .    .
- *  |    |    |
- *  T6  T7    T8
+ * \dot
+ * digraph task_graph {
+ *     node [shape="rect"];
+ *     1 [color="green"];
+ *     3 [color="green"];
+ *     6 [color="blue"];
+ *     7 [color="blue"];
+ *     1 -> 3;
+ *     1 -> 4;
+ *     3 -> 6 [style="dashed"];
+ *     4 -> 7 [style="dashed"];
+ *     subgraph cluster_recovery {
+ *         style=filled;
+ *         color=yellow;
+ *         2 [color="green"];
+ *         4 [color="blue"]
+ *         5 [color="green"];
+ *         8 [color="red"];
+ *         2 -> 4 [style="dashed"];
+ *         2 -> 5 [style="dashed"];
+ *         5 -> 8 [style="dashed"];
+ *     }
+ * }
+ * \enddot
  */
 TEMPLATE_LIST_TEST_CASE(
         "Recovery multiple tasks with children",
