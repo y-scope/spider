@@ -4,8 +4,13 @@
 #include <thread>
 #include <utility>
 
-#include <boost/any.hpp>
-#include <boost/program_options.hpp>
+#include <boost/any/bad_any_cast.hpp>
+#include <boost/program_options/errors.hpp>
+#include <boost/program_options/options_description.hpp>
+#include <boost/program_options/parsers.hpp>
+#include <boost/program_options/value_semantic.hpp>
+#include <boost/program_options/variables_map.hpp>
+#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
 #include <spider/client/Driver.hpp>
