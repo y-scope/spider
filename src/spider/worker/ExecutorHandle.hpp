@@ -10,8 +10,9 @@
 
 namespace spider::worker {
 /**
- * Provides a thread-safe access to the task executor and other task related variables across
- * threads.
+ * This class acts as a handle for thread-safe access to the task executor and task id.
+ * It maintains a weak reference to the task executor to prevent multiple destructor calls and
+ * ensures that access remains valid only while the executor itself is valid.
  */
 class ExecutorHandle {
 public:
@@ -22,7 +23,7 @@ public:
     auto clear() -> void;
 
 private:
-    boost::uuids::uuid m_task_id;  // The task id is only valid if there is an executor.
+    boost::uuids::uuid m_task_id;
     TaskExecutor* m_executor
             = nullptr;  // Do not use std::shared_ptr to avoid calling destructor twice.
     std::mutex m_mutex;
