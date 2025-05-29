@@ -38,7 +38,6 @@ constexpr int cException = 4;
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
-    // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.client] %v");
 #ifndef NDEBUG
     spdlog::set_level(spdlog::level::trace);
