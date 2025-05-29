@@ -297,6 +297,7 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(data_store->remove_data(*conn, data3.get_id()).success());
     REQUIRE(data_store->remove_data(*conn, data4.get_id()).success());
     REQUIRE(data_store->remove_data(*conn, data5.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 }  // namespace
 
