@@ -4,13 +4,8 @@
 #include <thread>
 #include <utility>
 
-#include <boost/any/bad_any_cast.hpp>
-#include <boost/program_options/errors.hpp>
-#include <boost/program_options/options_description.hpp>
-#include <boost/program_options/parsers.hpp>
-#include <boost/program_options/value_semantic.hpp>
-#include <boost/program_options/variables_map.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <boost/any.hpp>
+#include <boost/program_options.hpp>
 #include <spdlog/spdlog.h>
 
 #include <spider/client/Driver.hpp>
@@ -29,7 +24,6 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
-            // NOLINTNEXTLINE(misc-include-cleaner)
             boost::program_options::parse_command_line(argc, argv, desc),
             variables
     );
