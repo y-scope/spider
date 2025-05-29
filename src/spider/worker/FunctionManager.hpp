@@ -314,6 +314,7 @@ public:
                     std::get<i.cValue + 1>(args_tuple)
                             = DataImpl::create_data<TemplateParameterT<T>>(
                                     std::move(data),
+                                    Context{Context::Source::Task, task_id},
                                     data_store,
                                     TaskContextImpl::get_storage_factory(context)
                             );

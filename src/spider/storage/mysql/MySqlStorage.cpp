@@ -218,6 +218,29 @@ auto MySqlMetadataStorage::get_active_scheduler(
     return StorageErr{};
 }
 
+auto
+MySqlMetadataStorage::remove_driver(StorageConnection& conn, boost::uuids::uuid const id) noexcept
+        -> StorageErr {
+    try {
+        std::unique_ptr<sql::PreparedStatement> statement(
+                static_cast<MySqlConnection&>(conn)->prepareStatement(
+                        "DELETE FROM `drivers` WHERE `id` = ?"
+                )
+        );
+        sql::bytes id_bytes = uuid_get_bytes(id);
+        statement->setBytes(1, &id_bytes);
+        statement->executeUpdate();
+    } catch (sql::SQLException& e) {
+        static_cast<MySqlConnection&>(conn)->rollback();
+        if (e.getErrorCode() == ErKeyNotFound) {
+            return StorageErr{StorageErrType::KeyNotFoundErr, e.what()};
+        }
+        return StorageErr{StorageErrType::OtherErr, e.what()};
+    }
+    static_cast<MySqlConnection&>(conn)->commit();
+    return StorageErr{};
+}
+
 void MySqlMetadataStorage::add_task(
         MySqlConnection& conn,
         sql::bytes job_id,
@@ -1171,7 +1194,7 @@ auto MySqlMetadataStorage::get_job_message(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::remove_job(StorageConnection& conn, boost::uuids::uuid id)
+auto MySqlMetadataStorage::remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept
         -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
@@ -2431,7 +2454,7 @@ auto MySqlDataStorage::remove_task_reference(
         StorageConnection& conn,
         boost::uuids::uuid id,
         boost::uuids::uuid task_id
-) -> StorageErr {
+) noexcept -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
@@ -2482,7 +2505,7 @@ auto MySqlDataStorage::remove_driver_reference(
         StorageConnection& conn,
         boost::uuids::uuid id,
         boost::uuids::uuid driver_id
-) -> StorageErr {
+) noexcept -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
