@@ -197,7 +197,7 @@ auto recovery_loop(
             err = metadata_store->reset_tasks(
                     *conn,
                     recovery.get_ready_tasks(),
-                    recovery.get_ready_tasks()
+                    recovery.get_pending_tasks()
             );
             if (false == err.success()) {
                 spdlog::error(
