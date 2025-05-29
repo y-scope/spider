@@ -587,7 +587,9 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     // Job error message should be set
     std::string error_task_res;
     std::string error_message_res;
-    REQUIRE(storage->get_job_message(*conn, job_id, &error_task_res, &error_message_res).success());
+    REQUIRE(
+            storage->get_error_message(*conn, job_id, &error_task_res, &error_message_res).success()
+    );
     REQUIRE("p2" == error_task_res);
     REQUIRE(error_message == error_message_res);
 

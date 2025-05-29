@@ -1164,7 +1164,7 @@ auto MySqlMetadataStorage::cancel_job_by_task(
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::get_job_message(
+auto MySqlMetadataStorage::get_error_message(
         StorageConnection& conn,
         boost::uuids::uuid const id,
         std::string* function_name,

@@ -77,7 +77,7 @@ public:
     auto
     cancel_job_by_task(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
             -> StorageErr override;
-    auto get_job_message(
+    auto get_error_message(
             StorageConnection& conn,
             boost::uuids::uuid id,
             std::string* function_name,

@@ -103,7 +103,7 @@ public:
      * @param message The error message of the cancellation.
      * @return The error code.
      */
-    virtual auto get_job_message(
+    virtual auto get_error_message(
             StorageConnection& conn,
             boost::uuids::uuid id,
             std::string* function_name,

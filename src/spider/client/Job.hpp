@@ -177,7 +177,7 @@ public:
 
             std::pair<std::string, std::string> res;
             core::StorageErr const err
-                    = m_metadata_storage->get_job_message(*conn, m_id, &res.first, &res.second);
+                    = m_metadata_storage->get_error_message(*conn, m_id, &res.first, &res.second);
             if (false == err.success()) {
                 throw ConnectionException{err.description};
             }
@@ -186,7 +186,7 @@ public:
 
         std::pair<std::string, std::string> res;
         core::StorageErr const err
-                = m_metadata_storage->get_job_message(*m_conn, m_id, &res.first, &res.second);
+                = m_metadata_storage->get_error_message(*m_conn, m_id, &res.first, &res.second);
         if (false == err.success()) {
             throw ConnectionException{err.description};
         }
