@@ -75,7 +75,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid task_id
-    ) -> StorageErr
+    ) noexcept -> StorageErr
             = 0;
     virtual auto add_driver_reference(
             StorageConnection& conn,
@@ -87,7 +87,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid driver_id
-    ) -> StorageErr
+    ) noexcept -> StorageErr
             = 0;
     virtual auto remove_dangling_data(StorageConnection& conn) -> StorageErr = 0;
 

@@ -69,6 +69,9 @@ TEMPLATE_LIST_TEST_CASE(
     // Get data should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == data_storage->get_data(*conn, data.get_id(), &result).type);
+
+    // Clean up
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -107,6 +110,10 @@ TEMPLATE_LIST_TEST_CASE(
     auto err = data_storage->get_client_kv_data(*conn, driver_id, "key", &value);
     REQUIRE(data_storage->get_client_kv_data(*conn, driver_id, "key", &value).success());
     REQUIRE(data.get_value() == value);
+
+    // Clean up
+    REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -252,6 +259,11 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Remove driver reference
     REQUIRE(data_storage->remove_driver_reference(*conn, data.get_id(), driver_id_2).success());
+
+    // Clean up
+    REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id_2).success());
 }
 }  // namespace
 
