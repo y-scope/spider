@@ -462,7 +462,6 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
 
-    // Create a complicated task graph
     spider::core::Task child_task{"child"};
     spider::core::Task parent_1{"p1"};
     spider::core::Task parent_2{"p2"};
@@ -479,7 +478,6 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
     parent_2.set_max_retries(1);
     child_task.set_max_retries(1);
     spider::core::TaskGraph graph;
-    // Add task and dependencies to task graph in wrong order
     graph.add_task(child_task);
     graph.add_task(parent_1);
     graph.add_task(parent_2);
@@ -488,10 +486,8 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
     graph.add_input_task(parent_1.get_id());
     graph.add_input_task(parent_2.get_id());
     graph.add_output_task(child_task.get_id());
-    // Submit job should success
     REQUIRE(storage->add_job(*conn, job_id, gen(), graph).success());
 
-    // Task finish for parent 1 should succeed
     spider::core::TaskInstance const parent_1_instance{gen(), parent_1.get_id()};
     REQUIRE(storage->set_task_state(*conn, parent_1.get_id(), spider::core::TaskState::Running)
                     .success());
@@ -502,24 +498,19 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
     )
                     .success());
 
-    // Cancel job should succeed
     REQUIRE(storage->cancel_job(*conn, job_id).success());
-    // Job status should be cancelled
     spider::core::JobStatus job_status = spider::core::JobStatus::Running;
     REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());
     REQUIRE(spider::core::JobStatus::Cancelled == job_status);
 
-    // Parent 1 state should be success
     spider::core::TaskState task_state = spider::core::TaskState::Running;
     REQUIRE(storage->get_task_state(*conn, parent_1.get_id(), &task_state).success());
     REQUIRE(spider::core::TaskState::Succeed == task_state);
-    // Parent 2 and child states should be cancelled
     REQUIRE(storage->get_task_state(*conn, parent_2.get_id(), &task_state).success());
     REQUIRE(spider::core::TaskState::Canceled == task_state);
     REQUIRE(storage->get_task_state(*conn, child_task.get_id(), &task_state).success());
     REQUIRE(spider::core::TaskState::Canceled == task_state);
 
-    // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
 }
 
@@ -537,7 +528,6 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     boost::uuids::random_generator gen;
     boost::uuids::uuid const job_id = gen();
 
-    // Create a complicated task graph
     spider::core::Task child_task{"child"};
     spider::core::Task parent_1{"p1"};
     spider::core::Task parent_2{"p2"};
@@ -554,7 +544,6 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     parent_2.set_max_retries(1);
     child_task.set_max_retries(1);
     spider::core::TaskGraph graph;
-    // Add task and dependencies to task graph in wrong order
     graph.add_task(child_task);
     graph.add_task(parent_1);
     graph.add_task(parent_2);
@@ -563,10 +552,8 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     graph.add_input_task(parent_1.get_id());
     graph.add_input_task(parent_2.get_id());
     graph.add_output_task(child_task.get_id());
-    // Submit job should success
     REQUIRE(storage->add_job(*conn, job_id, gen(), graph).success());
 
-    // Task finish for parent 1 should succeed
     spider::core::TaskInstance const parent_1_instance{gen(), parent_1.get_id()};
     REQUIRE(storage->set_task_state(*conn, parent_1.get_id(), spider::core::TaskState::Running)
                     .success());
@@ -577,14 +564,11 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     )
                     .success());
 
-    // Cancel job by task should succeed
     std::string const error_message = "test error message";
     REQUIRE(storage->cancel_job_by_task(*conn, parent_2.get_id(), error_message).success());
-    // Job status should be cancelled
     spider::core::JobStatus job_status = spider::core::JobStatus::Running;
     REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());
     REQUIRE(spider::core::JobStatus::Cancelled == job_status);
-    // Job error message should be set
     std::string error_task_res;
     std::string error_message_res;
     REQUIRE(
@@ -593,17 +577,14 @@ TEMPLATE_LIST_TEST_CASE("Job cancel by task", "[storage]", spider::test::Storage
     REQUIRE("p2" == error_task_res);
     REQUIRE(error_message == error_message_res);
 
-    // Parent 1 state should be success
     spider::core::TaskState task_state = spider::core::TaskState::Running;
     REQUIRE(storage->get_task_state(*conn, parent_1.get_id(), &task_state).success());
     REQUIRE(spider::core::TaskState::Succeed == task_state);
-    // Parent 2 and child states should be cancelled
     REQUIRE(storage->get_task_state(*conn, parent_2.get_id(), &task_state).success());
     REQUIRE(spider::core::TaskState::Canceled == task_state);
     REQUIRE(storage->get_task_state(*conn, child_task.get_id(), &task_state).success());
     REQUIRE(spider::core::TaskState::Canceled == task_state);
 
-    // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
 }
 
