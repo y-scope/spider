@@ -42,10 +42,10 @@ constexpr int cStorageConnectionErr = 3;
 constexpr int cSchedulerAddrErr = 4;
 constexpr int cStorageErr = 5;
 
-constexpr int cCleanupInterval = 1000;
+constexpr int cCleanupInterval = 10;
 constexpr int cRetryCount = 5;
 
-constexpr int cRecoveryInterval = 1000;
+constexpr int cRecoveryInterval = 1;
 
 namespace {
 /*
