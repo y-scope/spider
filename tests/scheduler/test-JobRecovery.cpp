@@ -220,26 +220,26 @@ TEMPLATE_LIST_TEST_CASE(
     data2.set_persisted(true);
     task2.add_output(spider::core::TaskOutput{data2.get_id()});
     spider::core::Task task3{"task3"};
-    task3.add_input(spider::core::TaskInput{data1.get_id()});
+    task3.add_input(spider::core::TaskInput{task1.get_id(), 0, ""});
     spider::core::Data const data3{"data3"};
     task3.add_output(spider::core::TaskOutput{data3.get_id()});
     spider::core::Task task4{"task4"};
-    task4.add_input(spider::core::TaskInput{data1.get_id()});
-    task4.add_input(spider::core::TaskInput{data2.get_id()});
+    task4.add_input(spider::core::TaskInput{task1.get_id(), 0, ""});
+    task4.add_input(spider::core::TaskInput{task2.get_id(), 0, ""});
     spider::core::Data const data4{"data4"};
     task4.add_output(spider::core::TaskOutput{data4.get_id()});
     spider::core::Task task5{"task5"};
-    task5.add_input(spider::core::TaskInput{data2.get_id()});
+    task5.add_input(spider::core::TaskInput{task2.get_id(), 0, ""});
     spider::core::Data const data5{"data5"};
     task5.add_output(spider::core::TaskOutput{data5.get_id()});
     spider::core::Task task6{"task6"};
-    task6.add_input(spider::core::TaskInput{data3.get_id()});
+    task6.add_input(spider::core::TaskInput{task3.get_id(), 0, ""});
     task6.add_output(spider::core::TaskOutput{"int"});
     spider::core::Task task7{"task7"};
-    task7.add_input(spider::core::TaskInput{data4.get_id()});
+    task7.add_input(spider::core::TaskInput{task4.get_id(), 0, ""});
     task7.add_output(spider::core::TaskOutput{"int"});
     spider::core::Task task8{"task8"};
-    task8.add_input(spider::core::TaskInput{data5.get_id()});
+    task8.add_input(spider::core::TaskInput{task5.get_id(), 0, ""});
     task8.add_output(spider::core::TaskOutput{"int"});
     spider::core::TaskGraph graph;
     graph.add_task(task1);
@@ -269,20 +269,47 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(data_store->add_driver_data(*conn, client_id, data4).success());
     REQUIRE(data_store->add_driver_data(*conn, client_id, data5).success());
     REQUIRE(metadata_store->add_job(*conn, job_id, client_id, graph).success());
-    REQUIRE(metadata_store->set_task_state(*conn, task1.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task1.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task1.get_id()},
+                            {spider::core::TaskOutput{data1.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task2.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task2.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task2.get_id()},
+                            {spider::core::TaskOutput{data2.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task3.get_id(), spider::core::TaskState::Ready)
+    REQUIRE(metadata_store->set_task_running(*conn, task3.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task3.get_id()},
+                            {spider::core::TaskOutput{data3.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task4.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task4.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task4.get_id()},
+                            {spider::core::TaskOutput{data4.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task5.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task5.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task5.get_id()},
+                            {spider::core::TaskOutput{data5.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task6.get_id(), spider::core::TaskState::Pending)
-                    .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task7.get_id(), spider::core::TaskState::Ready)
-                    .success());
+
     REQUIRE(metadata_store->set_task_state(*conn, task8.get_id(), spider::core::TaskState::Failed)
                     .success());
 
@@ -344,29 +371,29 @@ TEMPLATE_LIST_TEST_CASE(
     task1.add_output(spider::core::TaskOutput{data1.get_id()});
     spider::core::Task task2{"task2"};
     task2.add_input(spider::core::TaskInput{"10", "int"});
-    spider::core::Data data2{"data2"};
+    spider::core::Data const data2{"data2"};
     task2.add_output(spider::core::TaskOutput{data2.get_id()});
     spider::core::Task task3{"task3"};
-    task3.add_input(spider::core::TaskInput{data1.get_id()});
+    task3.add_input(spider::core::TaskInput{task1.get_id(), 0, ""});
     spider::core::Data const data3{"data3"};
     task3.add_output(spider::core::TaskOutput{data3.get_id()});
     spider::core::Task task4{"task4"};
-    task4.add_input(spider::core::TaskInput{data1.get_id()});
-    task4.add_input(spider::core::TaskInput{data2.get_id()});
+    task4.add_input(spider::core::TaskInput{task1.get_id(), 0, ""});
+    task4.add_input(spider::core::TaskInput{task2.get_id(), 0, ""});
     spider::core::Data const data4{"data4"};
     task4.add_output(spider::core::TaskOutput{data4.get_id()});
     spider::core::Task task5{"task5"};
-    task5.add_input(spider::core::TaskInput{data2.get_id()});
+    task5.add_input(spider::core::TaskInput{task2.get_id(), 0, ""});
     spider::core::Data const data5{"data5"};
     task5.add_output(spider::core::TaskOutput{data5.get_id()});
     spider::core::Task task6{"task6"};
-    task6.add_input(spider::core::TaskInput{data3.get_id()});
+    task6.add_input(spider::core::TaskInput{task3.get_id(), 0, ""});
     task6.add_output(spider::core::TaskOutput{"int"});
     spider::core::Task task7{"task7"};
-    task7.add_input(spider::core::TaskInput{data4.get_id()});
+    task7.add_input(spider::core::TaskInput{task4.get_id(), 0, ""});
     task7.add_output(spider::core::TaskOutput{"int"});
     spider::core::Task task8{"task8"};
-    task8.add_input(spider::core::TaskInput{data5.get_id()});
+    task8.add_input(spider::core::TaskInput{task5.get_id(), 0, ""});
     task8.add_output(spider::core::TaskOutput{"int"});
     spider::core::TaskGraph graph;
     graph.add_task(task1);
@@ -396,20 +423,39 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(data_store->add_driver_data(*conn, client_id, data4).success());
     REQUIRE(data_store->add_driver_data(*conn, client_id, data5).success());
     REQUIRE(metadata_store->add_job(*conn, job_id, client_id, graph).success());
-    REQUIRE(metadata_store->set_task_state(*conn, task1.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task1.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task1.get_id()},
+                            {spider::core::TaskOutput{data1.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task2.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task2.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task2.get_id()},
+                            {spider::core::TaskOutput{data2.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task3.get_id(), spider::core::TaskState::Ready)
+    REQUIRE(metadata_store->set_task_running(*conn, task3.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task3.get_id()},
+                            {spider::core::TaskOutput{data3.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task4.get_id(), spider::core::TaskState::Succeed)
+    REQUIRE(metadata_store->set_task_running(*conn, task5.get_id()).success());
+    REQUIRE(metadata_store
+                    ->task_finish(
+                            *conn,
+                            spider::core::TaskInstance{task5.get_id()},
+                            {spider::core::TaskOutput{data5.get_id()}}
+                    )
                     .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task5.get_id(), spider::core::TaskState::Succeed)
-                    .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task6.get_id(), spider::core::TaskState::Pending)
-                    .success());
-    REQUIRE(metadata_store->set_task_state(*conn, task7.get_id(), spider::core::TaskState::Ready)
-                    .success());
+
     REQUIRE(metadata_store->set_task_state(*conn, task8.get_id(), spider::core::TaskState::Failed)
                     .success());
 
@@ -419,10 +465,9 @@ TEMPLATE_LIST_TEST_CASE(
     auto pending_tasks = recovery.get_pending_tasks();
     REQUIRE(ready_tasks.size() == 1);
     REQUIRE(ready_tasks[0] == task2.get_id());
-    REQUIRE(pending_tasks.size() == 4);
+    REQUIRE(pending_tasks.size() == 3);
     REQUIRE(pending_tasks.end() != std::ranges::find(pending_tasks, task4.get_id()));
     REQUIRE(pending_tasks.end() != std::ranges::find(pending_tasks, task5.get_id()));
-    REQUIRE(pending_tasks.end() != std::ranges::find(pending_tasks, task7.get_id()));
     REQUIRE(pending_tasks.end() != std::ranges::find(pending_tasks, task8.get_id()));
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
