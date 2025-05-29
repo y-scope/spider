@@ -80,11 +80,11 @@ public:
     }
 
     /**
-     * Sets the data as checkpointed, indicating the data should not be cleaned up.
+     * Sets the data as persisted, indicating the data should not be cleaned up.
      *
      * @throw spider::ConnectionException
      */
-    void set_checkpointed() {
+    void set_persisted() {
         m_impl->set_persisted(true);
         if (nullptr != m_connection) {
             m_data_store->set_data_persisted(*m_connection, *m_impl);
@@ -128,11 +128,11 @@ public:
         }
 
         /**
-         * Sets the data as checkpointed, indicating the data should not be cleaned up.
+         * Sets the data as persisted, indicating the data should not be cleaned up.
          *
          * @return self
          */
-        auto set_checkpointed() -> Builder& {
+        auto set_persisted() -> Builder& {
             m_persisted = true;
             return *this;
         }
