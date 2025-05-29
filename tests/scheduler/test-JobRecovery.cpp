@@ -65,6 +65,7 @@ TEMPLATE_LIST_TEST_CASE("Recovery single task", "[storage]", spider::test::Stora
     REQUIRE(ready_tasks[0] == task.get_id());
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -117,6 +118,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
     REQUIRE(data_store->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -170,6 +172,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
     REQUIRE(data_store->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 
 /**
