@@ -64,12 +64,11 @@ auto main(int argc, char** argv) -> int {
         spider::Driver driver{storage_url};
         spdlog::debug("Driver created");
 
-        // Cancel task from user
         spider::Job<int> sleep_job = driver.start(&sleep_test, 3);
-        // Wait for the task to run
+
         std::this_thread::sleep_for(std::chrono::seconds(1));
         sleep_job.cancel();
-        // Check for job status
+
         sleep_job.wait_complete();
         if (spider::JobStatus::Cancelled != sleep_job.get_status()) {
             spdlog::error("Sleep job status is not cancelled");
