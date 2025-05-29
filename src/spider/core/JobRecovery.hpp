@@ -38,9 +38,9 @@ public:
      */
     auto compute_graph() -> StorageErr;
 
-    auto get_ready_tasks() -> std::vector<boost::uuids::uuid>;
+    [[nodiscard]] auto get_ready_tasks() const -> std::vector<boost::uuids::uuid>;
 
-    auto get_pending_tasks() -> std::vector<boost::uuids::uuid>;
+    [[nodiscard]] auto get_pending_tasks() const -> std::vector<boost::uuids::uuid>;
 
 private:
     /**

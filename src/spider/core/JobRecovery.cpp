@@ -147,7 +147,7 @@ auto JobRecovery::process_task(boost::uuids::uuid task_id) -> StorageErr {
     return StorageErr{};
 }
 
-auto JobRecovery::get_pending_tasks() -> std::vector<boost::uuids::uuid> {
+auto JobRecovery::get_pending_tasks() const -> std::vector<boost::uuids::uuid> {
     std::vector<boost::uuids::uuid> pending_tasks;
     pending_tasks.reserve(m_pending_tasks.size());
     for (auto const& task_id : m_pending_tasks) {
@@ -156,7 +156,7 @@ auto JobRecovery::get_pending_tasks() -> std::vector<boost::uuids::uuid> {
     return pending_tasks;
 }
 
-auto JobRecovery::get_ready_tasks() -> std::vector<boost::uuids::uuid> {
+auto JobRecovery::get_ready_tasks() const -> std::vector<boost::uuids::uuid> {
     std::vector<boost::uuids::uuid> ready_tasks;
     ready_tasks.reserve(m_ready_tasks.size());
     for (auto const& task_id : m_ready_tasks) {
