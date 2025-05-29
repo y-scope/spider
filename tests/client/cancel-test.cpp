@@ -13,9 +13,9 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
-#include "../../src/spider/client/Driver.hpp"
-#include "../../src/spider/client/Job.hpp"
-#include "../worker/worker-test.hpp"
+#include <spider/client/Driver.hpp>
+#include <spider/client/Job.hpp>
+#include <tests/worker/worker-test.hpp>
 
 namespace {
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
