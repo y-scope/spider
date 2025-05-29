@@ -141,7 +141,6 @@ auto check_task_cancel(
     }
     boost::uuids::uuid const task_id = optional_task_id.value();
 
-    // Check if the task is cancelled
     spider::core::TaskState task_state = spider::core::TaskState::Running;
     spider::core::StorageErr err = metadata_store->get_task_state(*conn, task_id, &task_state);
     if (false == err.success()) {
