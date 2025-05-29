@@ -21,28 +21,28 @@ auto TaskExecutor::get_pid() const -> pid_t {
     return m_process->get_pid();
 }
 
-auto TaskExecutor::is_completed() -> bool {
+auto TaskExecutor::completed() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Succeed == m_state || TaskExecutorState::Error == m_state
            || TaskExecutorState::Cancelled == m_state;
 }
 
-auto TaskExecutor::is_waiting() -> bool {
+auto TaskExecutor::waiting() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Waiting == m_state;
 }
 
-auto TaskExecutor::is_succeeded() -> bool {
+auto TaskExecutor::succeeded() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Succeed == m_state;
 }
 
-auto TaskExecutor::is_error() -> bool {
+auto TaskExecutor::errored() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Error == m_state;
 }
 
-auto TaskExecutor::is_cancelled() -> bool {
+auto TaskExecutor::cancelled() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Cancelled == m_state;
 }
