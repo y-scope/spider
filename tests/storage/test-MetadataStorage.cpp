@@ -4,6 +4,7 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
