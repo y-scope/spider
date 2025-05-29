@@ -71,7 +71,8 @@ def scheduler_worker(storage):
 class TestCancel:
 
     # Test that the task can be cancelled by user and from the task.
-    # Execute the cancel_test client.
+    # Execute the cancel_test client, which includes cancelling a running task
+    # and executing a task that cancels itself.
     def test_task_cancel(self, scheduler_worker):
         dir_path = Path(__file__).resolve().parent
         dir_path = dir_path / ".."
