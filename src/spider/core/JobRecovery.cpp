@@ -70,11 +70,11 @@ auto JobRecovery::get_data(boost::uuids::uuid data_id, Data& data) -> StorageErr
 
 auto JobRecovery::check_task_input(Task const& task, bool& not_persisted) -> StorageErr {
     for (auto const& task_input : task.get_inputs()) {
-        std::optional<boost::uuids::uuid> optional_date_id = task_input.get_data_id();
-        if (false == optional_date_id.has_value()) {
+        std::optional<boost::uuids::uuid> optional_data_id = task_input.get_data_id();
+        if (false == optional_data_id.has_value()) {
             continue;
         }
-        boost::uuids::uuid const data_id = optional_date_id.value();
+        boost::uuids::uuid const data_id = optional_data_id.value();
         Data data;
         StorageErr err = get_data(data_id, data);
         if (false == err.success()) {
