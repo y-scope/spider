@@ -1,8 +1,10 @@
 #include "JobRecovery.hpp"
 
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -68,7 +70,10 @@ auto JobRecovery::get_data(boost::uuids::uuid data_id, Data& data) -> StorageErr
     return err;
 }
 
-auto JobRecovery::check_task_input(Task const& task, bool& not_persisted) -> StorageErr {
+auto JobRecovery::check_task_input(
+        Task const& task,
+        absl::flat_hash_set<boost::uuids::uuid>& not_persisted
+) -> StorageErr {
     for (auto const& task_input : task.get_inputs()) {
         std::optional<boost::uuids::uuid> optional_data_id = task_input.get_data_id();
         if (false == optional_data_id.has_value()) {
@@ -80,13 +85,16 @@ auto JobRecovery::check_task_input(Task const& task, bool& not_persisted) -> Sto
         if (false == err.success()) {
             return err;
         }
-        if (data.is_persisted()) {
-            continue;
+        if (false == data.is_persisted()) {
+            std::optional<std::tuple<boost::uuids::uuid, uint8_t>> optional_parent
+                    = task_input.get_task_output();
+            if (false == optional_parent.has_value()) {
+                continue;
+            }
+            boost::uuids::uuid const parent_task_id = std::get<0>(optional_parent.value());
+            not_persisted.insert(parent_task_id);
         }
-        not_persisted = true;
-        return StorageErr{};
     }
-    not_persisted = false;
     return StorageErr{};
 }
 
@@ -118,27 +126,22 @@ auto JobRecovery::process_task(boost::uuids::uuid task_id) -> StorageErr {
     }
 
     Task const& task = *optional_task.value();
-    bool not_persisted = false;
+    absl::flat_hash_set<boost::uuids::uuid> not_persisted;
     StorageErr err = check_task_input(task, not_persisted);
     if (false == err.success()) {
         return err;
     }
 
-    if (not_persisted) {
-        std::vector<boost::uuids::uuid> const parents = m_task_graph.get_parent_tasks(task_id);
-        if (parents.empty()) {
-            m_ready_tasks.insert(task_id);
-        } else {
-            m_pending_tasks.insert(task_id);
-            for (auto const& parent_id : parents) {
-                if (false == m_task_set.contains(parent_id)) {
-                    m_task_queue.push_back(parent_id);
-                    m_task_set.insert(parent_id);
-                }
+    if (not_persisted.empty()) {
+        m_ready_tasks.insert(task_id);
+    } else {
+        m_pending_tasks.insert(task_id);
+        for (auto const& parent_id : not_persisted) {
+            if (false == m_task_set.contains(parent_id)) {
+                m_task_queue.push_back(parent_id);
+                m_task_set.insert(parent_id);
             }
         }
-    } else {
-        m_ready_tasks.insert(task_id);
     }
 
     return StorageErr{};

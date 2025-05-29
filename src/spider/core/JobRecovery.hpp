@@ -44,13 +44,13 @@ public:
 
 private:
     /**
-     * Check if any of the task input is not persisted.
+     * Check if task has any parents with non-persisted Data that feed into the task.
      * @param task
-     * @param not_persisted Returns true if any of the task input is not
-     * persisted, false otherwise.
+     * @param not_persisted Returns parents with non-persisted Data that feed into the task.
      * @return
      */
-    auto check_task_input(Task const& task, bool& not_persisted) -> StorageErr;
+    auto check_task_input(Task const& task, absl::flat_hash_set<boost::uuids::uuid>& not_persisted)
+            -> StorageErr;
 
     /**
      * Get the data associated with the given data_id. If the data is cached in
@@ -67,9 +67,8 @@ private:
      * 1. Add the non-pending children of the task to the working queue.
      * 2. Check if its inputs contains non-persisted Data.
      * 3. If the task has non-persisted Data input and has parents, add it to pending tasks and add
-     * its parents to the working queue.
-     * 4. If the task has non-persisted Data input and has no parents, or the task has all its
-     * inputs persisted, add it to ready tasks.
+     * its parents with non-persistent Data to the working queue.
+     * 4. Otherwise, add it to ready tasks.
      *
      * @param task_id
      * @return StorageErr
