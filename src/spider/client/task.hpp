@@ -3,9 +3,9 @@
 
 #include <type_traits>
 
-#include "../io/Serializer.hpp"
-#include "Data.hpp"
-#include "type_utils.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/type_utils.hpp>
+#include <spider/io/Serializer.hpp>
 
 namespace spider {
 /**

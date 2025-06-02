@@ -11,14 +11,14 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../client/Data.hpp"
-#include "../client/task.hpp"
-#include "../client/type_utils.hpp"
-#include "../core/Task.hpp"
-#include "../core/TaskGraph.hpp"
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/Serializer.hpp"  // IWYU pragma: keep
-#include "../worker/FunctionNameManager.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/task.hpp>
+#include <spider/client/type_utils.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/Serializer.hpp>  // IWYU pragma: keep
+#include <spider/worker/FunctionNameManager.hpp>
 
 namespace spider::core {
 class Data;
@@ -138,7 +138,7 @@ public:
         // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
         std::optional<std::string> const function_name
                 = FunctionNameManager::get_instance().get_function_name(
-                        reinterpret_cast<void const*>(task_function)
+                        reinterpret_cast<TaskFunctionPointer const>(task_function)
                 );
         // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
         if (!function_name.has_value()) {

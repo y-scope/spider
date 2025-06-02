@@ -13,17 +13,17 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/JobMetadata.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/storage/JobSubmissionBatch.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../utils/CoreTaskUtils.hpp"
-#include "StorageTestHelper.hpp"
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/JobMetadata.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/storage/JobSubmissionBatch.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
+#include <tests/utils/CoreTaskUtils.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFactoryTypeList) {
@@ -69,6 +69,9 @@ TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFa
     REQUIRE(std::ranges::none_of(ids, [&driver_id](boost::uuids::uuid id) {
         return id == driver_id;
     }));
+
+    // Clean up
+    REQUIRE(storage->remove_driver(*conn, driver_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE("Scheduler addr", "[storage]", spider::test::StorageFactoryTypeList) {
@@ -100,6 +103,9 @@ TEMPLATE_LIST_TEST_CASE("Scheduler addr", "[storage]", spider::test::StorageFact
     // Get non-exist scheduler should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == storage->get_scheduler_addr(*conn, gen(), &addr_res, &port_res).type);
+
+    // Clean up
+    REQUIRE(storage->remove_driver(*conn, scheduler_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -171,7 +177,8 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Submit job should success
     REQUIRE(storage->add_job_batch(*conn, *batch, job_id, client_id, graph).success());
-    REQUIRE(storage->add_job_batch(*conn, *batch, simple_job_id, client_id, simple_graph).success()
+    REQUIRE(
+            storage->add_job_batch(*conn, *batch, simple_job_id, client_id, simple_graph).success()
     );
     batch->submit_batch(*conn);
 
@@ -592,6 +599,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Clean up
     REQUIRE(storage->remove_job(*conn, job_id).success());
+    REQUIRE(storage->remove_driver(*conn, scheduler_id).success());
 }
 }  // namespace
 

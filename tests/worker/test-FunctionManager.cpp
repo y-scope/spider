@@ -11,19 +11,21 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/client/Data.hpp"
-#include "../../src/spider/client/TaskContext.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/TaskContextImpl.hpp"
-#include "../../src/spider/io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../../src/spider/worker/FunctionManager.hpp"
-#include "../../src/spider/worker/FunctionNameManager.hpp"
-#include "../storage/StorageTestHelper.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/TaskContext.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskContextImpl.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/FunctionNameManager.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
 
 namespace {
 auto int_test(spider::TaskContext& /*context*/, int const x, int const y) -> int {
@@ -56,11 +58,17 @@ TEST_CASE("Register and get function name", "[core]") {
 
     // Get the function name of non-registered function should return std::nullopt
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    REQUIRE(!manager.get_function_name(reinterpret_cast<void*>(not_registered)).has_value());
+    REQUIRE(!manager.get_function_name(
+                            reinterpret_cast<spider::core::TaskFunctionPointer>(not_registered)
+    )
+                     .has_value());
     // Get the function name of registered function should return the name
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    REQUIRE("int_test" == manager.get_function_name(reinterpret_cast<void*>(int_test)).value_or("")
-    );
+    REQUIRE("int_test"
+            == manager.get_function_name(
+                              reinterpret_cast<spider::core::TaskFunctionPointer>(int_test)
+            )
+                       .value_or(""));
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -76,8 +84,9 @@ TEMPLATE_LIST_TEST_CASE(
             = storage_factory->provide_data_storage();
 
     boost::uuids::random_generator gen;
+    boost::uuids::uuid const task_id = gen();
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
-            gen(),
+            task_id,
             std::move(data_storage),
             std::move(metadata_storage),
             std::move(storage_factory)
@@ -95,14 +104,14 @@ TEMPLATE_LIST_TEST_CASE(
     // Run function with two ints should succeed
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(2, 3);
     constexpr int cExpected = 2 + 3;
-    msgpack::sbuffer const result = (*function)(context, args_buffers);
+    msgpack::sbuffer const result = (*function)(context, task_id, args_buffers);
     msgpack::sbuffer buffer{};
     msgpack::pack(buffer, cExpected);
     REQUIRE(cExpected == spider::core::response_get_result<int>(result).value_or(0));
 
     // Run function with wrong number of inputs should fail
     spider::core::ArgsBuffer wrong_args_buffers = spider::core::create_args_buffers(1);
-    msgpack::sbuffer wrong_result = (*function)(context, wrong_args_buffers);
+    msgpack::sbuffer wrong_result = (*function)(context, task_id, wrong_args_buffers);
     std::optional<std::tuple<spider::core::FunctionInvokeError, std::string>> wrong_result_option
             = spider::core::response_get_error(wrong_result);
     REQUIRE(wrong_result_option.has_value());
@@ -113,7 +122,7 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Run function with wrong type of inputs should fail
     wrong_args_buffers = spider::core::create_args_buffers(0, "test");
-    wrong_result = (*function)(context, wrong_args_buffers);
+    wrong_result = (*function)(context, task_id, wrong_args_buffers);
     wrong_result_option = spider::core::response_get_error(wrong_result);
     REQUIRE(wrong_result_option.has_value());
     if (wrong_result_option.has_value()) {
@@ -135,8 +144,9 @@ TEMPLATE_LIST_TEST_CASE(
             = storage_factory->provide_data_storage();
 
     boost::uuids::random_generator gen;
+    boost::uuids::uuid const task_id = gen();
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
-            gen(),
+            task_id,
             std::move(data_storage),
             std::move(metadata_storage),
             std::move(storage_factory)
@@ -147,7 +157,7 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Function const* function = manager.get_function("tuple_ret_test");
 
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers("test", 3);
-    msgpack::sbuffer const result = (*function)(context, args_buffers);
+    msgpack::sbuffer const result = (*function)(context, task_id, args_buffers);
     REQUIRE(std::make_tuple("test", 3)
             == spider::core::response_get_result<std::string, int>(result).value_or(
                     std::make_tuple("", 0)
@@ -180,8 +190,20 @@ TEMPLATE_LIST_TEST_CASE(
     REQUIRE(metadata_storage->add_driver(*conn, driver).success());
     REQUIRE(data_storage->add_driver_data(*conn, driver_id, data).success());
 
+    boost::uuids::uuid const task_id = gen();
+    // Submit a job for valid task id
+    spider::core::Task task{"data_test"};
+    task.set_id(task_id);
+    task.add_input(spider::core::TaskInput{data.get_id()});
+    spider::core::TaskGraph graph;
+    graph.add_task(task);
+    graph.add_input_task(task_id);
+    graph.add_output_task(task_id);
+    boost::uuids::uuid const job_id = gen();
+    REQUIRE(metadata_storage->add_job(*conn, job_id, driver_id, graph).success());
+
     spider::TaskContext context = spider::core::TaskContextImpl::create_task_context(
-            gen(),
+            task_id,
             data_storage,
             metadata_storage,
             storage_factory
@@ -192,10 +214,12 @@ TEMPLATE_LIST_TEST_CASE(
     spider::core::Function const* function = manager.get_function("data_test");
 
     spider::core::ArgsBuffer const args_buffers = spider::core::create_args_buffers(data.get_id());
-    msgpack::sbuffer const result = (*function)(context, args_buffers);
+    msgpack::sbuffer const result = (*function)(context, task_id, args_buffers);
     REQUIRE(3 == spider::core::response_get_result<int>(result).value_or(0));
 
+    REQUIRE(metadata_storage->remove_job(*conn, job_id).success());
     REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
 }
 }  // namespace
 

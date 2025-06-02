@@ -8,18 +8,18 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/KeyValueData.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../utils/CoreDataUtils.hpp"
-#include "StorageTestHelper.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
+#include <tests/utils/CoreDataUtils.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(
@@ -62,6 +62,9 @@ TEMPLATE_LIST_TEST_CASE(
     // Get data should fail
     REQUIRE(spider::core::StorageErrType::KeyNotFoundErr
             == data_storage->get_data(*conn, data.get_id(), &result).type);
+
+    // Clean up
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -100,6 +103,10 @@ TEMPLATE_LIST_TEST_CASE(
     auto err = data_storage->get_client_kv_data(*conn, driver_id, "key", &value);
     REQUIRE(data_storage->get_client_kv_data(*conn, driver_id, "key", &value).success());
     REQUIRE(data.get_value() == value);
+
+    // Clean up
+    REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -245,6 +252,11 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Remove driver reference
     REQUIRE(data_storage->remove_driver_reference(*conn, data.get_id(), driver_id_2).success());
+
+    // Clean up
+    REQUIRE(data_storage->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id).success());
+    REQUIRE(metadata_storage->remove_driver(*conn, driver_id_2).success());
 }
 }  // namespace
 

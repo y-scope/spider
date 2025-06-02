@@ -6,13 +6,13 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Driver.hpp"
-#include "../core/Error.hpp"
-#include "../core/JobMetadata.hpp"
-#include "../core/Task.hpp"
-#include "../core/TaskGraph.hpp"
-#include "JobSubmissionBatch.hpp"
-#include "StorageConnection.hpp"
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/JobMetadata.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/storage/JobSubmissionBatch.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 class MetadataStorage {
@@ -28,6 +28,9 @@ public:
 
     virtual auto add_driver(StorageConnection& conn, Driver const& driver) -> StorageErr = 0;
     virtual auto add_scheduler(StorageConnection& conn, Scheduler const& scheduler) -> StorageErr
+            = 0;
+    virtual auto remove_driver(StorageConnection& conn, boost::uuids::uuid id) noexcept
+            -> StorageErr
             = 0;
     virtual auto get_active_scheduler(StorageConnection& conn, std::vector<Scheduler>* schedulers)
             -> StorageErr
@@ -72,7 +75,8 @@ public:
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr
             = 0;
-    virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
+    virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr
+            = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr

@@ -3,8 +3,8 @@
 
 #include <optional>
 #include <string>
-
-#include <absl/container/flat_hash_map.h>
+#include <utility>
+#include <vector>
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define NAME_CONCAT_DIRECT(s1, s2) s1##s2
@@ -17,7 +17,9 @@
             = spider::core::FunctionNameManager::get_instance().register_function(#func, func);
 
 namespace spider::core {
-using FunctionNameMap = absl::flat_hash_map<void*, std::string>;
+using TaskFunctionPointer = void (*)();
+
+using FunctionNameMap = std::vector<std::pair<TaskFunctionPointer, std::string>>;
 
 class FunctionNameManager {
 public:
@@ -34,16 +36,24 @@ public:
     template <typename F>
     auto register_function(std::string const& name, F function_pointer) -> bool {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        return m_name_map.emplace(reinterpret_cast<void*>(function_pointer), name).second;
+        if (m_name_map.cend() != get(reinterpret_cast<TaskFunctionPointer>(function_pointer))) {
+            return false;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        m_name_map.emplace_back(reinterpret_cast<TaskFunctionPointer>(function_pointer), name);
+        return true;
     }
 
-    [[nodiscard]] auto get_function_name(void const* ptr) const -> std::optional<std::string>;
+    [[nodiscard]] auto get_function_name(TaskFunctionPointer ptr) const
+            -> std::optional<std::string>;
 
     [[nodiscard]] auto get_function_name_map() const -> FunctionNameMap const& {
         return m_name_map;
     }
 
 private:
+    [[nodiscard]] auto get(TaskFunctionPointer) const -> FunctionNameMap::const_iterator;
+
     FunctionNameManager() = default;
 
     ~FunctionNameManager() = default;

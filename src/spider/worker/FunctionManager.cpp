@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -10,8 +11,8 @@
 #include <boost/dll/alias.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "TaskExecutorMessage.hpp"
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::core {
 auto response_get_error(msgpack::sbuffer const& buffer)
@@ -106,11 +107,21 @@ auto FunctionManager::get_instance() -> FunctionManager& {
     return instance;
 }
 
-auto FunctionManager::get_function(std::string const& name) const -> Function const* {
-    if (auto const func_iter = m_function_map.find(name); func_iter != m_function_map.end()) {
-        return &(func_iter->second);
+auto FunctionManager::get(std::string_view name) const -> FunctionMap::const_iterator {
+    for (auto it = m_function_map.cbegin(); it != m_function_map.cend(); ++it) {
+        if (it->first == name) {
+            return it;
+        }
     }
-    return nullptr;
+    return m_function_map.cend();
+}
+
+auto FunctionManager::get_function(std::string const& name) const -> Function const* {
+    auto const it = get(name);
+    if (it == m_function_map.cend()) {
+        return nullptr;
+    }
+    return &it->second;
 }
 }  // namespace spider::core
 

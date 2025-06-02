@@ -10,19 +10,19 @@
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
 
-#include "../../core/Data.hpp"
-#include "../../core/Driver.hpp"
-#include "../../core/Error.hpp"
-#include "../../core/JobMetadata.hpp"
-#include "../../core/KeyValueData.hpp"
-#include "../../core/Task.hpp"
-#include "../../core/TaskGraph.hpp"
-#include "../DataStorage.hpp"
-#include "../JobSubmissionBatch.hpp"
-#include "../MetadataStorage.hpp"
-#include "../StorageConnection.hpp"
-#include "MySqlConnection.hpp"
-#include "MySqlJobSubmissionBatch.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/JobMetadata.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/JobSubmissionBatch.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/mysql/MySqlConnection.hpp>
+#include <spider/storage/mysql/MySqlJobSubmissionBatch.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 // Forward declaration for friend class
@@ -38,6 +38,8 @@ public:
     auto initialize(StorageConnection& conn) -> StorageErr override;
     auto add_driver(StorageConnection& conn, Driver const& driver) -> StorageErr override;
     auto add_scheduler(StorageConnection& conn, Scheduler const& scheduler) -> StorageErr override;
+    auto remove_driver(StorageConnection& conn, boost::uuids::uuid id) noexcept
+            -> StorageErr override;
     auto get_active_scheduler(StorageConnection& conn, std::vector<Scheduler>* schedulers)
             -> StorageErr override;
     auto add_job(
@@ -71,7 +73,7 @@ public:
             boost::uuids::uuid client_id,
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr override;
-    auto remove_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
+    auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr override;
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr override;
@@ -148,6 +150,18 @@ public:
             -> StorageErr override;
     auto get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data)
             -> StorageErr override;
+    auto get_driver_data(
+            StorageConnection& conn,
+            boost::uuids::uuid driver_id,
+            boost::uuids::uuid data_id,
+            Data* data
+    ) -> StorageErr override;
+    auto get_task_data(
+            StorageConnection& conn,
+            boost::uuids::uuid task_id,
+            boost::uuids::uuid data_id,
+            Data* data
+    ) -> StorageErr override;
     auto set_data_locality(StorageConnection& conn, Data const& data) -> StorageErr override;
     auto remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto
@@ -157,7 +171,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid task_id
-    ) -> StorageErr override;
+    ) noexcept -> StorageErr override;
     auto add_driver_reference(
             StorageConnection& conn,
             boost::uuids::uuid id,
@@ -167,7 +181,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid driver_id
-    ) -> StorageErr override;
+    ) noexcept -> StorageErr override;
     auto remove_dangling_data(StorageConnection& conn) -> StorageErr override;
 
     auto add_client_kv_data(StorageConnection& conn, KeyValueData const& data)
@@ -187,6 +201,9 @@ public:
     ) -> StorageErr override;
 
 private:
+    static auto get_data_with_locality(StorageConnection& conn, boost::uuids::uuid id, Data* data)
+            -> StorageErr;
+
     MySqlDataStorage() = default;
 
     friend class MySqlStorageFactory;
