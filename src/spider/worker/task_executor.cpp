@@ -1,5 +1,7 @@
 #include <unistd.h>
 
+#include <cerrno>
+#include <csignal>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -18,18 +20,18 @@
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
-#include "../client/TaskContext.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/mysql/MySqlStorageFactory.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "../utils/ProgramOptions.hpp"
-#include "DllLoader.hpp"
-#include "FunctionManager.hpp"
-#include "message_pipe.hpp"
-#include "TaskExecutorMessage.hpp"
+#include <spider/client/TaskContext.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/mysql/MySqlStorageFactory.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/ProgramOptions.hpp>
+#include <spider/worker/DllLoader.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/message_pipe.hpp>
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace {
 auto parse_arg(int const argc, char** const& argv) -> boost::program_options::variables_map {
@@ -68,11 +70,12 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;
-constexpr int cStorageErr = 2;
-constexpr int cDllErr = 3;
-constexpr int cFuncArgParseErr = 4;
-constexpr int cResultSendErr = 5;
-constexpr int cOtherErr = 6;
+constexpr int cSignalHandleErr = 2;
+constexpr int cStorageErr = 3;
+constexpr int cDllErr = 4;
+constexpr int cFuncArgParseErr = 5;
+constexpr int cResultSendErr = 6;
+constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
     // Set up spdlog to write to stderr
@@ -175,7 +178,7 @@ auto main(int const argc, char** argv) -> int {
                 metadata_store,
                 storage_factory
         );
-        msgpack::sbuffer const result_buffer = (*function)(task_context, args_buffer);
+        msgpack::sbuffer const result_buffer = (*function)(task_context, task_id, args_buffer);
         spdlog::debug("Function executed");
 
         // Write result buffer to stdout

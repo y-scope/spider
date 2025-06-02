@@ -83,6 +83,11 @@ else()
 endif()
 message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 
+if(PROJECT_IS_TOP_LEVEL)
+    # Include dependency settings if the project isn't being included as a subproject.
+    include("build/deps/cmake-settings/all.cmake")
+endif()
+
 # Find and setup Boost Library
 if(SPIDER_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS ON)
@@ -127,7 +132,7 @@ if(spdlog_FOUND)
     message(STATUS "Found spdlog ${spdlog_VERSION}")
 else()
     if(SPIDER_USE_STATIC_LIBS)
-        message(FATAL_ERROR "Could not find static libraries for spdlog.`")
+        message(FATAL_ERROR "Could not find static libraries for spdlog.")
     else()
         message(FATAL_ERROR "Could not find libraries for spdlog.")
     endif()
@@ -156,12 +161,35 @@ else()
     message(FATAL_ERROR "Could not find msgpack-cxx")
 endif()
 
-# Add abseil-cpp
-set(ABSL_PROPAGATE_CXX_STD ON)
-add_subdirectory(submodules/abseil-cpp)
+find_package(outcome REQUIRED)
+if(outcome_FOUND)
+    message(STATUS "Found outcome.")
+else()
+    message(FATAL_ERROR "Could not find libraries for outcome.")
+endif()
 
-# Add catch2
-add_subdirectory(submodules/Catch2)
+find_package(Catch2 3.8.0 REQUIRED)
+if(Catch2_FOUND)
+    message(STATUS "Found Catch2 ${Catch2_VERSION}.")
+else()
+    message(FATAL_ERROR "Could not find libraries for Catch2.")
+endif()
+
+# Add abseil
+set(ABSL_PROPAGATE_CXX_STD ON)
+find_package(absl REQUIRED)
+if(absl_FOUND)
+    message(STATUS "Found abseil ${absl_VERSION}.")
+else()
+    message(FATAL_ERROR "Could not find libraries for abseil.")
+endif()
+
+# Add ystdlib-cpp
+add_subdirectory(
+    "${SPIDER_YSTDLIB_SOURCE_DIRECTORY}"
+    "${CMAKE_BINARY_DIR}/ystdlib"
+    EXCLUDE_FROM_ALL
+)
 
 find_package(Threads REQUIRED)
 

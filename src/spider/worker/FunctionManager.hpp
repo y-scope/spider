@@ -7,27 +7,27 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
-#include <absl/container/flat_hash_map.h>
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
-#include "../client/Data.hpp"
-#include "../client/task.hpp"
-#include "../client/TaskContext.hpp"
-#include "../core/DataImpl.hpp"
-#include "../core/Error.hpp"
-#include "../core/TaskContextImpl.hpp"
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/Serializer.hpp"
-#include "../storage/DataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "TaskExecutorMessage.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/task.hpp>
+#include <spider/client/TaskContext.hpp>
+#include <spider/core/DataImpl.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/TaskContextImpl.hpp>
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/Serializer.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define CONCAT_DIRECT(s1, s2) s1##s2
@@ -44,9 +44,10 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<ResultBuffer(TaskContext& context, ArgsBuffer const&)>;
+using Function = std::function<
+        ResultBuffer(TaskContext& context, boost::uuids::uuid task_id, ArgsBuffer const&)>;
 
-using FunctionMap = absl::flat_hash_map<std::string, Function>;
+using FunctionMap = std::vector<std::pair<std::string, Function>>;
 
 template <class T>
 struct TemplateParameter;
@@ -235,8 +236,12 @@ inline auto create_args_request(std::vector<msgpack::sbuffer> const& args_buffer
 template <class F>
 class FunctionInvoker {
 public:
-    static auto apply(F const& function, TaskContext& context, ArgsBuffer const& args_buffer)
-            -> ResultBuffer {
+    static auto apply(
+            F const& function,
+            TaskContext& context,
+            boost::uuids::uuid const task_id,
+            ArgsBuffer const& args_buffer
+    ) -> ResultBuffer {
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-bounds-pointer-arithmetic)
         using ArgsTuple = signature<F>::args_t;
         using ReturnType = signature<F>::ret_t;
@@ -261,7 +266,7 @@ public:
                     = msgpack::unpack(args_buffer.data(), args_buffer.size());
             msgpack::object const object = handle.get();
 
-            if (msgpack::type::ARRAY != object.type && object.via.array.size < 1) {
+            if (msgpack::type::ARRAY != object.type || object.via.array.size < 1) {
                 return create_error_response(
                         FunctionInvokeError::ArgumentParsingError,
                         fmt::format("Cannot parse arguments.")
@@ -301,7 +306,7 @@ public:
                 if constexpr (cIsSpecializationV<T, spider::Data>) {
                     boost::uuids::uuid const data_id = arg.as<boost::uuids::uuid>();
                     std::unique_ptr<Data> data = std::make_unique<Data>();
-                    err = data_store->get_data(*conn, data_id, data.get());
+                    err = data_store->get_task_data(*conn, task_id, data_id, data.get());
                     if (!err.success()) {
                         return;
                     }
@@ -309,6 +314,7 @@ public:
                     std::get<i.cValue + 1>(args_tuple)
                             = DataImpl::create_data<TemplateParameterT<T>>(
                                     std::move(data),
+                                    Context{Context::Source::Task, task_id},
                                     data_store,
                                     TaskContextImpl::get_storage_factory(context)
                             );
@@ -362,24 +368,29 @@ public:
 
     template <class F>
     auto register_function(std::string const& name, F f) -> bool {
-        if (m_function_map.contains(name)) {
+        if (m_function_map.cend() != get(name)) {
             return false;
         }
-        return m_function_map
-                .emplace(
-                        name,
-                        std::bind(
-                                &FunctionInvoker<F>::apply,
-                                std::move(f),
-                                std::placeholders::_1,
-                                std::placeholders::_2
-                        )
+
+        m_function_map.emplace_back(
+                name,
+                std::bind(
+                        &FunctionInvoker<F>::apply,
+                        std::move(f),
+                        std::placeholders::_1,
+                        std::placeholders::_2,
+                        std::placeholders::_3
                 )
-                .second;
+        );
+        return true;
     }
 
     auto register_function_invoker(std::string const& name, Function f) -> bool {
-        return m_function_map.emplace(name, f).second;
+        if (m_function_map.cend() != get(name)) {
+            return false;
+        }
+        m_function_map.emplace_back(name, std::move(f));
+        return true;
     }
 
     [[nodiscard]] auto get_function(std::string const& name) const -> Function const*;
@@ -387,6 +398,8 @@ public:
     [[nodiscard]] auto get_function_map() const -> FunctionMap const& { return m_function_map; }
 
 private:
+    [[nodiscard]] auto get(std::string_view name) const -> FunctionMap::const_iterator;
+
     FunctionManager() = default;
 
     ~FunctionManager() = default;

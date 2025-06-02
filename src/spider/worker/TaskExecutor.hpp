@@ -22,12 +22,12 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../utils/ProgramOptions.hpp"
-#include "FunctionManager.hpp"
-#include "message_pipe.hpp"
-#include "Process.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/utils/ProgramOptions.hpp>
+#include <spider/worker/FunctionManager.hpp>
+#include <spider/worker/message_pipe.hpp>
+#include <spider/worker/Process.hpp>
 
 namespace spider::worker {
 enum class TaskExecutorState : std::uint8_t {
@@ -151,6 +151,11 @@ public:
     TaskExecutor(TaskExecutor&&) = delete;
     auto operator=(TaskExecutor&&) -> TaskExecutor& = delete;
     ~TaskExecutor() = default;
+
+    /*
+     * @return The process ID of the task executor.
+     */
+    [[nodiscard]] auto get_pid() const -> pid_t;
 
     auto completed() -> bool;
     auto waiting() -> bool;

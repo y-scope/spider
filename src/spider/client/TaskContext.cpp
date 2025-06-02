@@ -9,10 +9,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Error.hpp"
-#include "../core/KeyValueData.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "Exception.hpp"
+#include <spider/client/Exception.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider {
 auto TaskContext::get_id() const -> boost::uuids::uuid {

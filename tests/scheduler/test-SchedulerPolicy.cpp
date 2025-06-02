@@ -12,17 +12,17 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/spider/core/Data.hpp"
-#include "../../src/spider/core/Driver.hpp"
-#include "../../src/spider/core/Error.hpp"
-#include "../../src/spider/core/Task.hpp"
-#include "../../src/spider/core/TaskGraph.hpp"
-#include "../../src/spider/scheduler/FifoPolicy.hpp"
-#include "../../src/spider/storage/DataStorage.hpp"
-#include "../../src/spider/storage/MetadataStorage.hpp"
-#include "../../src/spider/storage/StorageConnection.hpp"
-#include "../../src/spider/storage/StorageFactory.hpp"
-#include "../storage/StorageTestHelper.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Driver.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/Task.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/scheduler/FifoPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
+#include <tests/storage/StorageTestHelper.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(
@@ -93,6 +93,9 @@ TEMPLATE_LIST_TEST_CASE(
     // Schedule when no task available
     optional_task_id = policy.schedule_next(gen(), "");
     REQUIRE(!optional_task_id.has_value());
+
+    // Clean up
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -150,6 +153,9 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
+    REQUIRE(data_store->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 
 TEMPLATE_LIST_TEST_CASE(
@@ -205,6 +211,9 @@ TEMPLATE_LIST_TEST_CASE(
     }
 
     REQUIRE(metadata_store->remove_job(*conn, job_id).success());
+    REQUIRE(data_store->remove_data(*conn, data.get_id()).success());
+    REQUIRE(metadata_store->remove_driver(*conn, scheduler_id).success());
+    REQUIRE(metadata_store->remove_driver(*conn, client_id).success());
 }
 }  // namespace
 

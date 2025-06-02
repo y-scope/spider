@@ -5,12 +5,11 @@
 #include <mutex>
 #include <thread>
 
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../utils/StopToken.hpp"
-#include "SchedulerPolicy.hpp"
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/scheduler/SchedulerPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::scheduler {
 class SchedulerServer {
@@ -27,8 +26,7 @@ public:
             std::shared_ptr<SchedulerPolicy> policy,
             std::shared_ptr<core::MetadataStorage> metadata_store,
             std::shared_ptr<core::DataStorage> data_store,
-            std::shared_ptr<core::StorageConnection> conn,
-            core::StopToken& stop_token
+            std::shared_ptr<core::StorageConnection> conn
     );
 
     auto pause() -> void;
@@ -51,8 +49,6 @@ private:
 
     std::mutex m_mutex;
     std::unique_ptr<std::thread> m_thread;
-
-    core::StopToken& m_stop_token;
 };
 }  // namespace spider::scheduler
 

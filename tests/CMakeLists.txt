@@ -19,6 +19,7 @@ set(SPIDER_TEST_SOURCES
 
 add_executable(unitTest)
 target_sources(unitTest PRIVATE ${SPIDER_TEST_SOURCES})
+target_include_directories(unitTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 set(SPIDER_TEST_WORKER_SOURCES)
 foreach(worker_source ${SPIDER_WORKER_SOURCES})
@@ -54,6 +55,7 @@ add_dependencies(unitTest worker_test)
 add_library(worker_test SHARED)
 target_sources(worker_test PUBLIC worker/worker-test.hpp)
 target_sources(worker_test PRIVATE worker/worker-test.cpp)
+target_include_directories(worker_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     worker_test
     PRIVATE
@@ -73,6 +75,17 @@ target_link_libraries(
         spdlog::spdlog
 )
 
+add_library(signal_test SHARED)
+target_sources(signal_test PUBLIC worker/signal-test.hpp)
+target_sources(signal_test PRIVATE worker/signal-test.cpp)
+target_include_directories(signal_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(
+    signal_test
+    PRIVATE
+        spider_core
+        spider_client
+)
+
 add_custom_target(integrationTest ALL)
 add_custom_command(
     TARGET integrationTest
@@ -85,4 +98,5 @@ add_dependencies(
     integrationTest
     worker_test
     client_test
+    signal_test
 )

@@ -10,9 +10,9 @@ Follow the steps below to develop and contribute to the project.
 * [Task] 3.40.0 or higher
 
 ## Set up
-Initialize and update submodules:
+Run dependency installation task:
 ```shell
-git submodule update --init --recursive
+task deps:lib_install
 ```
 
 Set up the config files for our C++ linting tools:

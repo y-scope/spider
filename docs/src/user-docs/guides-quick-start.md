@@ -4,6 +4,7 @@ The guide below briefly describes how to get started with running a task on Spid
 you'll need to:
 
 * Write a task
+* Install Spider's dependencies
 * Build the task into a shared library
 * Write a client to manage the task
 * Build the client
@@ -28,6 +29,7 @@ In the guide below, you'll need:
 * [Docker] 20.10+
   * If you're not running as root, ensure `docker` can be run
     [without superuser privileges][docker-non-root].
+* [Task] v3.30.0+ if you want to install Spider's dependencies within its build directory.
 
 # Writing a task
 
@@ -64,6 +66,19 @@ The integer parameters and return value are `Serializable` values.
 The `SPIDER_REGISTER_TASK` macro at the bottom of `src/tasks.cpp` is how we inform Spider that a
 function should be treated as a task.
 
+# Installing dependencies
+
+You can install `Spider` dependencies within its build directory by running:
+
+```shell
+task deps:lib_install
+```
+
+This will install all dependencies in the `build/deps` directory.
+
+Alternatively, you can install the dependencies to the system. See the `install-all-run` task in
+[deps-task.yaml] for the list of dependencies to install.
+
 # Building the task into a shared library
 
 In order for Spider to run a task, the task needs to be compiled into a shared library that Spider
@@ -72,8 +87,8 @@ can load. The example's `CMakeLists.txt` demonstrates how to do this.
 To build the shared library, run:
 
 ```shell
-cmake -S . -B build
-cmake --build build --parallel $(nproc) --target tasks
+cmake -S . -B build/spider
+cmake --build build/spider --parallel $(nproc) --target tasks
 ```
 
 # Writing a client to manage the task
@@ -112,7 +127,7 @@ this.
 To build the client executable, run:
 
 ```shell
-cmake --build build --parallel $(nproc) --target client
+cmake --build build/spider --parallel $(nproc) --target client
 ```
 
 # Setting up a Spider cluster
@@ -158,13 +173,13 @@ create a database and authorize a user to access it.
 To build the scheduler, run:
 
 ```shell
-cmake --build build --parallel $(nproc) --target spider_scheduler
+cmake --build build/spider --parallel $(nproc) --target spider_scheduler
 ```
 
 To start the scheduler, run:
 
 ```shell
-build/spider/src/spider/spider_scheduler \
+build/spider/spider/src/spider/spider_scheduler \
         --storage-url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --host "127.0.0.1" \
@@ -183,17 +198,17 @@ NOTE:
 To build the worker, run:
 
 ```shell
-cmake --build build --parallel $(nproc) --target spider_worker
+cmake --build build/spider --parallel $(nproc) --target spider_worker
 ```
 
 To start a worker, run:
 
 ```shell
-build/spider/src/spider/spider_worker \
+build/spider/spider/src/spider/spider_worker \
         --storage-url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --host "127.0.0.1" \
-        --libs "build/libtasks.so"
+        --libs "build/spider/libtasks.so"
 ```
 
 NOTE:
@@ -214,7 +229,7 @@ cluster.
 To run the client:
 
 ```shell
-build/client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
+build/spider/client "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
 ```
 
 NOTE:
@@ -222,11 +237,28 @@ NOTE:
 If you used a different set of arguments to set up the storage backend, ensure you update the
 storage backend URL in the command.
 
+# Exiting the cluster
+
+To stop the cluster, send `SIGTERM` to the scheduler and all workers.
+
+The scheduler finishes the current tasks (e.g., scheduling tasks to workers, garbage collection,
+failure recovery, etc.), then exits with `SIGTERM`.
+
+When a worker receives `SIGTERM`, if it has no task executor, it exits immediately with `SIGTERM`.
+
+If the worker has a task executor, it sends a `SIGTERM` to the task executor and waits for it to
+exit.  
+Normally, the task executor exits immediately, and the worker sets the task as failed. If the task
+executor has a signal handler installed and catches `SIGTERM`, it completes the execution of the
+task, and the worker handles the task output as usual. Then the worker exits with `SIGTERM`.
+
 # Next steps
 
 In future guides, we'll explain how to write more complex tasks, as well as how to leverage Spider's
 support for fault tolerance.
 
+[deps-task.yaml]: https://github.com/y-scope/spider/blob/main/dep-tasks.yaml
 [Docker]: https://docs.docker.com/engine/install/
 [docker-non-root]: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
 [examples/quick-start]: https://github.com/y-scope/spider/tree/main/examples/quick-start
+[Task]: https://taskfile.dev/

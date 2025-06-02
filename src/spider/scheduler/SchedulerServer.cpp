@@ -11,17 +11,17 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../core/Error.hpp"
-#include "../io/BoostAsio.hpp"  // IWYU pragma: keep
-#include "../io/MsgPack.hpp"  // IWYU pragma: keep
-#include "../io/msgpack_message.hpp"
-#include "../io/Serializer.hpp"  // IWYU pragma: keep
-#include "../storage/DataStorage.hpp"
-#include "../storage/MetadataStorage.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../utils/StopToken.hpp"
-#include "SchedulerMessage.hpp"
-#include "SchedulerPolicy.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
+#include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/io/msgpack_message.hpp>
+#include <spider/io/Serializer.hpp>  // IWYU pragma: keep
+#include <spider/scheduler/SchedulerMessage.hpp>
+#include <spider/scheduler/SchedulerPolicy.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/utils/StopFlag.hpp>
 
 namespace spider::scheduler {
 SchedulerServer::SchedulerServer(
@@ -29,15 +29,13 @@ SchedulerServer::SchedulerServer(
         std::shared_ptr<SchedulerPolicy> policy,
         std::shared_ptr<core::MetadataStorage> metadata_store,
         std::shared_ptr<core::DataStorage> data_store,
-        std::shared_ptr<core::StorageConnection> conn,
-        core::StopToken& stop_token
+        std::shared_ptr<core::StorageConnection> conn
 )
         : m_port{port},
           m_policy{std::move(policy)},
           m_metadata_store{std::move(metadata_store)},
           m_data_store{std::move(data_store)},
-          m_conn{std::move(conn)},
-          m_stop_token{stop_token} {
+          m_conn{std::move(conn)} {
     boost::asio::co_spawn(m_context, receive_message(), boost::asio::detached);
     std::lock_guard const lock{m_mutex};
     m_thread = std::make_unique<std::thread>([&] { m_context.run(); });
@@ -96,7 +94,7 @@ auto SchedulerServer::receive_message() -> boost::asio::awaitable<void> {
         co_return;
     } catch (boost::system::system_error& e) {
         spdlog::error("Fail to accept connection: {}", e.what());
-        m_stop_token.request_stop();
+        spider::core::StopFlag::request_stop();
         co_return;
     }
 }

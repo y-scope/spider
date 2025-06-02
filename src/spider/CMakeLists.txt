@@ -1,5 +1,8 @@
 # set variable as CACHE INTERNAL to access it from other scope
 set(SPIDER_CORE_SOURCES
+    core/DataCleaner.cpp
+    core/DriverCleaner.cpp
+    core/JobCleaner.cpp
     core/Task.cpp
     storage/mysql/MySqlConnection.cpp
     storage/mysql/MySqlStorageFactory.cpp
@@ -13,9 +16,13 @@ set(SPIDER_CORE_SOURCES
 )
 
 set(SPIDER_CORE_HEADERS
+    core/Context.hpp
     core/Error.hpp
     core/Data.hpp
+    core/DataCleaner.hpp
     core/Driver.hpp
+    core/DriverCleaner.hpp
+    core/JobCleaner.hpp
     core/KeyValueData.hpp
     core/Task.hpp
     core/TaskGraph.hpp
@@ -43,7 +50,7 @@ set(SPIDER_CORE_HEADERS
 
 add_library(spider_core)
 target_sources(spider_core PRIVATE ${SPIDER_CORE_SOURCES})
-target_sources(spider_core PUBLIC ${SPIDER_CORE_HEADERS})
+target_include_directories(spider_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_core
     PUBLIC
@@ -52,10 +59,13 @@ target_link_libraries(
         MariaDBClientCpp::MariaDBClientCpp
         msgpack-cxx
         spdlog::spdlog
+        ystdlib::error_handling
 )
 target_link_libraries(spider_core PRIVATE fmt::fmt)
 
 set(SPIDER_WORKER_SOURCES
+    worker/ChildPid.hpp
+    worker/ChildPid.cpp
     worker/DllLoader.hpp
     worker/DllLoader.cpp
     worker/Process.hpp
@@ -68,7 +78,8 @@ set(SPIDER_WORKER_SOURCES
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
     utils/ProgramOptions.hpp
-    utils/StopToken.hpp
+    utils/StopFlag.cpp
+    utils/StopFlag.hpp
     CACHE INTERNAL
     "spider worker source files"
 )
@@ -129,7 +140,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
     utils/ProgramOptions.hpp
-    utils/StopToken.hpp
+    utils/StopFlag.cpp
+    utils/StopFlag.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )
@@ -181,6 +193,7 @@ target_link_libraries(
         spider_core
         Boost::boost
         absl::flat_hash_map
+        fmt::fmt
 )
 
 add_library(spider::spider ALIAS spider_client)
