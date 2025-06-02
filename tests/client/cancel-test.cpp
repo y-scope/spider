@@ -29,6 +29,7 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 
     boost::program_options::variables_map variables;
     boost::program_options::store(
+            // NOLINTNEXTLINE(misc-include-cleaner)
             boost::program_options::parse_command_line(argc, argv, desc),
             variables
     );
