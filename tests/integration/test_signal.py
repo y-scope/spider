@@ -33,7 +33,7 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
         "127.0.0.1",
         "--port",
         str(scheduler_port),
-        "--storage_url",
+        "--storage-url",
         storage_url,
     ]
     scheduler_process = subprocess.Popen(scheduler_cmds, **popen_opts)
@@ -41,7 +41,7 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
         str(bin_dir / "spider_worker"),
         "--host",
         "127.0.0.1",
-        "--storage_url",
+        "--storage-url",
         storage_url,
         "--libs",
         lib,
