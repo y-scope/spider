@@ -197,10 +197,7 @@ else()
 endif()
 
 # Add ystdlib-cpp
-if(NOT SPIDER_ENABLE_TESTS)
-    # Turn off testing for ystdlib-cpp if we are not building tests for Spider.
-    set(YSTDLIB_CPP_BUILD_TESTING OFF)
-endif()
+set(YSTDLIB_CPP_BUILD_TESTING OFF)
 add_subdirectory(
     "${SPIDER_YSTDLIB_SOURCE_DIRECTORY}"
     "${CMAKE_BINARY_DIR}/ystdlib"
