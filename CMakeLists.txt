@@ -161,13 +161,6 @@ else()
     message(FATAL_ERROR "Could not find msgpack-cxx")
 endif()
 
-find_package(outcome REQUIRED)
-if(outcome_FOUND)
-    message(STATUS "Found outcome.")
-else()
-    message(FATAL_ERROR "Could not find libraries for outcome.")
-endif()
-
 find_package(Catch2 3.8.0 REQUIRED)
 if(Catch2_FOUND)
     message(STATUS "Found Catch2 ${Catch2_VERSION}.")
