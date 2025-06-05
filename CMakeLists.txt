@@ -180,7 +180,7 @@ endif()
 message(STATUS "Building tests: ${SPIDER_ENABLE_TESTS}")
 if(SPIDER_ENABLE_TESTS)
     find_package(Catch2 3.8.0 REQUIRED)
-message(STATUS "Found Catch2 ${Catch2_VERSION}.")
+    message(STATUS "Found Catch2 ${Catch2_VERSION}.")
 endif()
 
 # Add abseil
