@@ -5,10 +5,10 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include "../core/Data.hpp"
-#include "../core/Error.hpp"
-#include "../core/KeyValueData.hpp"
-#include "StorageConnection.hpp"
+#include <spider/core/Data.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/KeyValueData.hpp>
+#include <spider/storage/StorageConnection.hpp>
 
 namespace spider::core {
 class DataStorage {
@@ -32,6 +32,38 @@ public:
             = 0;
     virtual auto get_data(StorageConnection& conn, boost::uuids::uuid id, Data* data) -> StorageErr
             = 0;
+    /**
+     * Get a data object and register a reference for it from the given driver in a single
+     * transaction.
+     * @param conn
+     * @param driver_id
+     * @param data_id
+     * @param data output data
+     * @return StorageErr::Success if the transaction succeed. Error types otherwise.
+     */
+    virtual auto get_driver_data(
+            StorageConnection& conn,
+            boost::uuids::uuid driver_id,
+            boost::uuids::uuid data_id,
+            Data* data
+    ) -> StorageErr
+            = 0;
+    /**
+     * Get a data object and register a reference for it from the given task in a single
+     * transaction.
+     * @param conn
+     * @param task_id
+     * @param data_id
+     * @param data output data
+     * @return StorageErr::Success if the transaction succeed. Error types otherwise.
+     */
+    virtual auto get_task_data(
+            StorageConnection& conn,
+            boost::uuids::uuid task_id,
+            boost::uuids::uuid data_id,
+            Data* data
+    ) -> StorageErr
+            = 0;
     virtual auto set_data_locality(StorageConnection& conn, Data const& data) -> StorageErr = 0;
     virtual auto remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
     virtual auto
@@ -42,7 +74,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid task_id
-    ) -> StorageErr
+    ) noexcept -> StorageErr
             = 0;
     virtual auto add_driver_reference(
             StorageConnection& conn,
@@ -54,7 +86,7 @@ public:
             StorageConnection& conn,
             boost::uuids::uuid id,
             boost::uuids::uuid driver_id
-    ) -> StorageErr
+    ) noexcept -> StorageErr
             = 0;
     virtual auto remove_dangling_data(StorageConnection& conn) -> StorageErr = 0;
 

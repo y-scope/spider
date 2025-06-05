@@ -15,17 +15,17 @@
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
-#include "../core/Error.hpp"
-#include "../core/TaskGraph.hpp"
-#include "../core/TaskGraphImpl.hpp"
-#include "../io/Serializer.hpp"
-#include "../storage/StorageConnection.hpp"
-#include "../storage/StorageFactory.hpp"
-#include "Data.hpp"
-#include "Exception.hpp"
-#include "Job.hpp"
-#include "task.hpp"
-#include "TaskGraph.hpp"
+#include <spider/client/Data.hpp>
+#include <spider/client/Exception.hpp>
+#include <spider/client/Job.hpp>
+#include <spider/client/task.hpp>
+#include <spider/core/Context.hpp>
+#include <spider/core/Error.hpp>
+#include <spider/core/TaskGraph.hpp>
+#include <spider/core/TaskGraphImpl.hpp>
+#include <spider/io/Serializer.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider {
 namespace core {
@@ -61,9 +61,8 @@ public:
     auto get_data_builder() -> Data<T>::Builder {
         using DataBuilder = typename Data<T>::Builder;
         return DataBuilder{
+                core::Context{core::Context::Source::Task, m_task_id},
                 m_data_store,
-                m_task_id,
-                DataBuilder::DataSource::TaskContext,
                 m_storage_factory
         };
     }
@@ -172,7 +171,13 @@ public:
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_store, m_data_store, m_storage_factory};
+        return Job<ReturnType>{
+                job_id,
+                core::Context{core::Context::Source::Task, m_task_id},
+                m_metadata_store,
+                m_data_store,
+                m_storage_factory
+        };
     }
 
     /**
@@ -224,7 +229,13 @@ public:
             throw ConnectionException(fmt::format("Failed to start job: {}", err.description));
         }
 
-        return Job<ReturnType>{job_id, m_metadata_store, m_data_store, m_storage_factory};
+        return Job<ReturnType>{
+                job_id,
+                core::Context{core::Context::Source::Task, m_task_id},
+                m_metadata_store,
+                m_data_store,
+                m_storage_factory
+        };
     }
 
     /**

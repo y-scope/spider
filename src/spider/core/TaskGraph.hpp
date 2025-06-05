@@ -12,7 +12,7 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
-#include "Task.hpp"
+#include <spider/core/Task.hpp>
 
 namespace spider::core {
 class TaskGraph {

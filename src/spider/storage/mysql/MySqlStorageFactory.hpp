@@ -5,12 +5,12 @@
 #include <string>
 #include <variant>
 
-#include "../../core/Error.hpp"
-#include "../DataStorage.hpp"
-#include "../JobSubmissionBatch.hpp"
-#include "../MetadataStorage.hpp"
-#include "../StorageConnection.hpp"
-#include "../StorageFactory.hpp"
+#include <spider/core/Error.hpp>
+#include <spider/storage/DataStorage.hpp>
+#include <spider/storage/JobSubmissionBatch.hpp>
+#include <spider/storage/MetadataStorage.hpp>
+#include <spider/storage/StorageConnection.hpp>
+#include <spider/storage/StorageFactory.hpp>
 
 namespace spider::core {
 class MySqlStorageFactory : public StorageFactory {
