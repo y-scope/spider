@@ -180,7 +180,7 @@ To start the scheduler, run:
 
 ```shell
 build/spider/spider/src/spider/spider_scheduler \
-        --storage_url \
+        --storage-url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --host "127.0.0.1" \
         --port 6000
@@ -189,7 +189,7 @@ build/spider/spider/src/spider/spider_scheduler \
 NOTE:
 
 * If you used a different set of arguments to set up the storage backend, ensure you update the
-  `storage_url` argument in the command.
+  `storage-url` argument in the command.
 * In production, change the host to the real IP address of the machine running the scheduler.
 * If the scheduler fails to bind to port `6000`, change the port in the command and try again.
 
@@ -205,7 +205,7 @@ To start a worker, run:
 
 ```shell
 build/spider/spider/src/spider/spider_worker \
-        --storage_url \
+        --storage-url \
         "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password" \
         --host "127.0.0.1" \
         --libs "build/spider/libtasks.so"
@@ -214,7 +214,7 @@ build/spider/spider/src/spider/spider_worker \
 NOTE:
 
 * If you used a different set of arguments to set up the storage backend, ensure you update the
-  `storage_url` argument in the command.
+  `storage-url` argument in the command.
 * In production, change the host to the real IP address of the machine running the worker.
 * You can specify multiple task libraries to load. The task libraries must be built with linkage
   to the Spider client library. 
