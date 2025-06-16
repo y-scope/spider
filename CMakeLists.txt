@@ -40,11 +40,6 @@ set(CMAKE_MODULE_PATH
     "${PROJECT_SOURCE_DIR}/cmake/Modules/"
 )
 
-# Macro providing the length of the absolute source directory path so we can
-# create a relative (rather than absolute) __FILE__ macro
-string(LENGTH "${PROJECT_SOURCE_DIR}/" SOURCE_PATH_SIZE)
-add_definitions("-DSOURCE_PATH_SIZE=${SOURCE_PATH_SIZE}")
-
 # Profiling options
 add_definitions(-DPROF_ENABLED=0)
 
