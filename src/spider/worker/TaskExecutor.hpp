@@ -157,8 +157,9 @@ public:
 
     auto completed() -> bool;
     auto waiting() -> bool;
-    auto succeed() -> bool;
-    auto error() -> bool;
+    auto succeeded() -> bool;
+    auto errored() -> bool;
+    auto cancelled() -> bool;
 
     void wait();
 

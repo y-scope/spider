@@ -73,6 +73,16 @@ public:
             boost::uuids::uuid client_id,
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr override;
+    auto cancel_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
+    auto
+    cancel_job_by_task(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
+            -> StorageErr override;
+    auto get_error_message(
+            StorageConnection& conn,
+            boost::uuids::uuid id,
+            std::string* function_name,
+            std::string* message
+    ) -> StorageErr override;
     auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr override;
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
@@ -87,6 +97,8 @@ public:
             std::vector<ScheduleTaskMetadata>* tasks
     ) -> StorageErr override;
     auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
+            -> StorageErr override;
+    auto get_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState* state)
             -> StorageErr override;
     auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto add_task_instance(StorageConnection& conn, TaskInstance const& instance)

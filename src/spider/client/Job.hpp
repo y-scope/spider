@@ -84,7 +84,19 @@ public:
      *
      * @throw spider::ConnectionException
      */
-    auto cancel();
+    auto cancel() -> void {
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+        core::StorageErr const err = m_metadata_storage->cancel_job(*conn, m_id);
+        if (!err.success()) {
+            throw ConnectionException(err.description);
+        }
+    }
 
     /**
      * @return Status of the job.
@@ -155,7 +167,30 @@ public:
      * @throw spider::ConnectionException
      */
     auto get_error() -> std::pair<std::string, std::string> {
-        throw ConnectionException{"Not implemented"};
+        if (nullptr == m_conn) {
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+            std::pair<std::string, std::string> res;
+            core::StorageErr const err
+                    = m_metadata_storage->get_error_message(*conn, m_id, &res.first, &res.second);
+            if (false == err.success()) {
+                throw ConnectionException{err.description};
+            }
+            return res;
+        }
+
+        std::pair<std::string, std::string> res;
+        core::StorageErr const err
+                = m_metadata_storage->get_error_message(*m_conn, m_id, &res.first, &res.second);
+        if (false == err.success()) {
+            throw ConnectionException{err.description};
+        }
+        return res;
     }
 
 private:
