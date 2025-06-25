@@ -41,6 +41,51 @@ constexpr int cCmdArgParseErr = 1;
 constexpr int cJobNotCancelled = 2;
 constexpr int cWrongErrorMessage = 3;
 constexpr int cException = 4;
+
+auto test_user_cancel(spider::Driver& driver) -> int {
+    spider::Job<int> sleep_job = driver.start(&sleep_test, 3);
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    sleep_job.cancel();
+
+    sleep_job.wait_complete();
+    if (spider::JobStatus::Cancelled != sleep_job.get_status()) {
+        spdlog::error("Sleep job status is not cancelled");
+        return cJobNotCancelled;
+    }
+
+    std::pair<std::string, std::string> const job_errors = sleep_job.get_error();
+    if ("user" != job_errors.first) {
+        spdlog::error("User job cancel wrong name");
+        return cWrongErrorMessage;
+    }
+    if ("Job cancelled by user." != job_errors.second) {
+        spdlog::error("User job cancel wrong error message");
+        return cWrongErrorMessage;
+    }
+
+    return 0;
+}
+
+auto test_task_cancel(spider::Driver& driver) -> int {
+    spider::Job<int> abort_job = driver.start(&abort_test, 0);
+    abort_job.wait_complete();
+    if (spider::JobStatus::Cancelled != abort_job.get_status()) {
+        spdlog::error("Abort job status is not cancelled");
+        return cJobNotCancelled;
+    }
+    std::pair<std::string, std::string> const job_errors = abort_job.get_error();
+    if ("abort_test" != job_errors.first) {
+        spdlog::error("Cancelled task wrong function name");
+        return cWrongErrorMessage;
+    }
+    if ("Abort test" != job_errors.second) {
+        spdlog::error("Cancelled task wrong error message");
+        return cWrongErrorMessage;
+    }
+
+    return 0;
+}
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
@@ -65,41 +110,21 @@ auto main(int argc, char** argv) -> int {
     }
 
     try {
-        // Create driver
         spider::Driver driver{storage_url};
         spdlog::debug("Driver created");
 
-        spider::Job<int> sleep_job = driver.start(&sleep_test, 3);
-
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        sleep_job.cancel();
-
-        sleep_job.wait_complete();
-        if (spider::JobStatus::Cancelled != sleep_job.get_status()) {
-            spdlog::error("Sleep job status is not cancelled");
-            return cJobNotCancelled;
+        int result = test_user_cancel(driver);
+        if (0 != result) {
+            return result;
         }
 
-        // Cancel task from task
-        spider::Job<int> abort_job = driver.start(&abort_test, 0);
-        abort_job.wait_complete();
-        if (spider::JobStatus::Cancelled != abort_job.get_status()) {
-            spdlog::error("Abort job status is not cancelled");
-            return cJobNotCancelled;
-        }
-        std::pair<std::string, std::string> const job_errors = abort_job.get_error();
-        if ("abort_test" != job_errors.first) {
-            spdlog::error("Cancelled task wrong function name");
-            return cWrongErrorMessage;
-        }
-        if ("Abort test" != job_errors.second) {
-            spdlog::error("Cancelled task wrong error message");
-            return cWrongErrorMessage;
+        result = test_task_cancel(driver);
+        if (0 != result) {
+            return result;
         }
     } catch (std::exception& e) {
         spdlog::error("Exception: {}", e.what());
         return cException;
     }
-
     return 0;
 }
