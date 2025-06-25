@@ -24,8 +24,10 @@ public:
 
 private:
     boost::uuids::uuid m_task_id;
-    TaskExecutor* m_executor
-            = nullptr;  // Do not use std::shared_ptr to avoid calling destructor twice.
+
+    // Do not use std::shared_ptr to avoid calling destructor twice.
+    TaskExecutor* m_executor = nullptr;
+
     std::mutex m_mutex;
 };
 }  // namespace spider::worker

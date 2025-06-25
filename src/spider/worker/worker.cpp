@@ -184,7 +184,6 @@ auto heartbeat_loop(
         check_task_cancel(conn, metadata_store, executor_handle);
 
         spdlog::debug("Updating heartbeat");
-
         spider::core::StorageErr const err
                 = metadata_store->update_heartbeat(*conn, driver.get_id());
         if (!err.success()) {
