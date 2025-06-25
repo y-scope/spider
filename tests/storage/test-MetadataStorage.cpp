@@ -502,7 +502,7 @@ auto job_cancel_setup(
     return std::make_tuple(job_id, parent_1.get_id(), parent_2.get_id(), child_task.get_id());
 }
 
-TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryTypeList) {
+TEMPLATE_LIST_TEST_CASE("Job cancel by user", "[storage]", spider::test::StorageFactoryTypeList) {
     std::unique_ptr<spider::core::StorageFactory> storage_factory
             = spider::test::create_storage_factory<TestType>();
     std::unique_ptr<spider::core::MetadataStorage> storage
@@ -515,10 +515,18 @@ TEMPLATE_LIST_TEST_CASE("Job cancel", "[storage]", spider::test::StorageFactoryT
 
     auto [job_id, parent_1_id, parent_2_id, child_id] = job_cancel_setup(storage, conn);
 
-    REQUIRE(storage->cancel_job(*conn, job_id).success());
+    std::string const error_message = "Job cancelled by user.";
+    REQUIRE(storage->cancel_job_by_user(*conn, job_id, error_message).success());
     spider::core::JobStatus job_status = spider::core::JobStatus::Running;
     REQUIRE(storage->get_job_status(*conn, job_id, &job_status).success());
     REQUIRE(spider::core::JobStatus::Cancelled == job_status);
+    std::string error_task_res;
+    std::string error_message_res;
+    REQUIRE(
+            storage->get_error_message(*conn, job_id, &error_task_res, &error_message_res).success()
+    );
+    REQUIRE("user" == error_task_res);
+    REQUIRE(error_message == error_message_res);
 
     spider::core::TaskState task_state = spider::core::TaskState::Running;
     REQUIRE(storage->get_task_state(*conn, parent_1_id, &task_state).success());
