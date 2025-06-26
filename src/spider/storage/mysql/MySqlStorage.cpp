@@ -1198,7 +1198,7 @@ auto MySqlMetadataStorage::get_error_message(
             return StorageErr{StorageErrType::KeyNotFoundErr, "No messages found"};
         }
         res->next();
-        *offender = get_sql_string(res->getString("func_name"));
+        *offender = get_sql_string(res->getString("offender"));
         *message = get_sql_string(res->getString("message"));
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
