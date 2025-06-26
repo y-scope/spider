@@ -10,22 +10,33 @@
 
 namespace spider::worker {
 /**
- * This class acts as a handle for thread-safe access to the task executor and task id.
+ * This singleton class acts as a handle for thread-safe access to the task executor and task id.
  * It maintains a weak reference to the task executor to prevent multiple destructor calls and
  * ensures that access remains valid only while the executor itself is valid.
  */
 class ExecutorHandle {
 public:
-    [[nodiscard]] auto get_task_id() -> std::optional<boost::uuids::uuid>;
-    auto cancel_executor() -> void;
-    auto set(TaskExecutor* executor) -> void;
-    auto clear() -> void;
+    [[nodiscard]] static auto get_task_id() -> std::optional<boost::uuids::uuid>;
+    static auto cancel_executor() -> void;
+    static auto set(TaskExecutor* executor) -> void;
+    static auto clear() -> void;
+
+    // Delete default constructor
+    ExecutorHandle() = delete;
+    // Delete copy constructor and assignment operator
+    ExecutorHandle(ExecutorHandle const&) = delete;
+    auto operator=(ExecutorHandle const&) -> ExecutorHandle& = delete;
+    // Delete move constructor and assignment operator
+    ExecutorHandle(ExecutorHandle&&) = delete;
+    auto operator=(ExecutorHandle&&) -> ExecutorHandle& = delete;
+    // Default destructor
+    ~ExecutorHandle() = default;
 
 private:
     // Do not use std::shared_ptr to avoid calling destructor twice.
-    TaskExecutor* m_executor = nullptr;
+    static TaskExecutor* m_executor;
 
-    std::mutex m_mutex;
+    static std::mutex m_mutex;
 };
 }  // namespace spider::worker
 

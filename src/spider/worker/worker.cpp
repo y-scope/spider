@@ -128,14 +128,13 @@ auto get_environment_variable() -> absl::flat_hash_map<
  * Checks if the task is cancelled. If the task state is set to cancelled, cancels the running task.
  * @param conn The storage connection to use.
  * @param metadata_store
- * @param executor_handle Handle to the task id and executor.
  */
 auto check_task_cancel(
         std::shared_ptr<spider::core::StorageConnection> const& conn,
-        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::worker::ExecutorHandle& executor_handle
+        std::shared_ptr<spider::core::MetadataStorage> const& metadata_store
 ) -> void {
-    std::optional<boost::uuids::uuid> const optional_task_id = executor_handle.get_task_id();
+    std::optional<boost::uuids::uuid> const optional_task_id
+            = spider::worker::ExecutorHandle::get_task_id();
     if (!optional_task_id.has_value()) {
         return;
     }
@@ -152,14 +151,13 @@ auto check_task_cancel(
         return;
     }
 
-    executor_handle.cancel_executor();
+    spider::worker::ExecutorHandle::cancel_executor();
 }
 
 auto heartbeat_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::core::Driver const& driver,
-        spider::worker::ExecutorHandle& executor_handle
+        spider::core::Driver const& driver
 ) -> void {
     int fail_count = 0;
     while (!spider::core::StopFlag::is_stop_requested()) {
@@ -180,7 +178,7 @@ auto heartbeat_loop(
                 std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
         );
 
-        check_task_cancel(conn, metadata_store, executor_handle);
+        check_task_cancel(conn, metadata_store);
 
         spdlog::debug("Updating heartbeat");
         spider::core::StorageErr const err
@@ -382,7 +380,6 @@ auto handle_executor_result(
 auto task_loop(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
-        spider::worker::ExecutorHandle& executor_handle,
         spider::worker::WorkerClient& client,
         std::string const& storage_url,
         std::vector<std::string> const& libs,
@@ -424,7 +421,7 @@ auto task_loop(
                 arg_buffers
         };
 
-        executor_handle.set(&executor);
+        spider::worker::ExecutorHandle::set(&executor);
 
         pid_t const pid = executor.get_pid();
         spider::core::ChildPid::set_pid(pid);
@@ -437,7 +434,7 @@ auto task_loop(
         context.run();
         executor.wait();
 
-        executor_handle.clear();
+        spider::worker::ExecutorHandle::clear();
         spider::core::ChildPid::set_pid(0);
 
         if (executor.cancelled()) {
@@ -552,15 +549,12 @@ auto main(int argc, char** argv) -> int {
             boost::process::v2::environment::value> const environment_variables
             = get_environment_variable();
 
-    spider::worker::ExecutorHandle executor_handle;
-
     // Start a thread that periodically updates the scheduler's heartbeat
     std::thread heartbeat_thread{
             heartbeat_loop,
             std::cref(storage_factory),
             std::cref(metadata_store),
             std::ref(driver),
-            std::ref(executor_handle),
     };
 
     // Start a thread that processes tasks
@@ -568,7 +562,6 @@ auto main(int argc, char** argv) -> int {
             task_loop,
             std::cref(storage_factory),
             std::cref(metadata_store),
-            std::ref(executor_handle),
             std::ref(client),
             std::cref(storage_url),
             std::cref(libs),

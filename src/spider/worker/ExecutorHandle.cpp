@@ -32,4 +32,7 @@ auto ExecutorHandle::clear() -> void {
     std::lock_guard const lock_guard{m_mutex};
     m_executor = nullptr;
 }
+
+TaskExecutor* ExecutorHandle::m_executor = nullptr;
+std::mutex ExecutorHandle::m_mutex;
 }  // namespace spider::worker
