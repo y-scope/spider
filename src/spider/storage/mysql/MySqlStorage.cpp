@@ -1103,7 +1103,7 @@ auto MySqlMetadataStorage::cancel_job_by_user(
         // Set the cancel message
         std::unique_ptr<sql::PreparedStatement> message_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `job_errors` (`job_id`, `func_name`, `message`) VALUES (?, ?, "
+                        "INSERT INTO `job_errors` (`job_id`, `offender`, `message`) VALUES (?, ?, "
                         "?) "
                 )
         );
@@ -1162,7 +1162,7 @@ auto MySqlMetadataStorage::cancel_job_by_task(
         // Set the cancel message
         std::unique_ptr<sql::PreparedStatement> message_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `job_errors` (`job_id`, `func_name`, `message`) VALUES (?, ?, "
+                        "INSERT INTO `job_errors` (`job_id`, `offender`, `message`) VALUES (?, ?, "
                         "?) "
                 )
         );
@@ -1181,13 +1181,13 @@ auto MySqlMetadataStorage::cancel_job_by_task(
 auto MySqlMetadataStorage::get_error_message(
         StorageConnection& conn,
         boost::uuids::uuid const id,
-        std::string* function_name,
+        std::string* offender,
         std::string* message
 ) -> StorageErr {
     try {
         std::unique_ptr<sql::PreparedStatement> statement{
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `func_name`, `message` FROM `job_errors` WHERE `job_id` = ?"
+                        "SELECT `offender`, `message` FROM `job_errors` WHERE `job_id` = ?"
                 )
         };
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -1198,7 +1198,7 @@ auto MySqlMetadataStorage::get_error_message(
             return StorageErr{StorageErrType::KeyNotFoundErr, "No messages found"};
         }
         res->next();
-        *function_name = get_sql_string(res->getString("func_name"));
+        *offender = get_sql_string(res->getString("func_name"));
         *message = get_sql_string(res->getString("message"));
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();

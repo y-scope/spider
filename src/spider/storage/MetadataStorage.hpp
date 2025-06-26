@@ -77,7 +77,7 @@ public:
             = 0;
     /**
      * Cancel a job by user. Set the job state to CANCEL and set all tasks that have not finished
-     * or started to CANCEL.
+     * or started to CANCEL. Set the error message of the job and offender to "user".
      * @param conn
      * @param id The job id.
      * @param message The error message of the cancellation.
@@ -88,8 +88,9 @@ public:
             -> StorageErr
             = 0;
     /**
-     * Cancel a job that owns the task. Set the job state to CANCEL and set all tasks that have not
-     * finished or started to CANCEL.
+     * Cancel the job from the task. Set the job state to CANCEL and set all tasks that have not
+     * finished or started to CANCEL. Se the error message of the job and offender to the function
+     * name of the task.
      * @param conn
      * @param id The task id.
      * @param message The error message of the cancellation.
@@ -103,14 +104,15 @@ public:
      * Get the error message of a cancelled job.
      * @param conn
      * @param id The job id.
-     * @param function_name The function name of the cancelled task.
+     * @param offender The function name of the cancelling task if job cancelled by task, "user" if
+     *                 the job is cancelled by user.
      * @param message The error message of the cancellation.
      * @return The error code.
      */
     virtual auto get_error_message(
             StorageConnection& conn,
             boost::uuids::uuid id,
-            std::string* function_name,
+            std::string* offender,
             std::string* message
     ) -> StorageErr
             = 0;

@@ -82,7 +82,7 @@ public:
     auto get_error_message(
             StorageConnection& conn,
             boost::uuids::uuid id,
-            std::string* function_name,
+            std::string* offender,
             std::string* message
     ) -> StorageErr override;
     auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr override;
