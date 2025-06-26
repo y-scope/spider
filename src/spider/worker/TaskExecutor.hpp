@@ -167,7 +167,7 @@ public:
 
     void cancel();
 
-    auto get_task_id() const -> boost::uuids::uuid;
+    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid;
 
     template <class T>
     auto get_result() const -> std::optional<T> {
