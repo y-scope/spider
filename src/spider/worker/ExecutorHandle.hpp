@@ -17,7 +17,7 @@ namespace spider::worker {
 class ExecutorHandle {
 public:
     [[nodiscard]] auto get_task_id() -> std::optional<boost::uuids::uuid>;
-    auto executor_cancel() -> void;
+    auto cancel_executor() -> void;
     auto set(boost::uuids::uuid task_id, TaskExecutor* executor) -> void;
     auto clear() -> void;
 

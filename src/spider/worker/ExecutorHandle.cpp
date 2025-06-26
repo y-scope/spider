@@ -16,7 +16,7 @@ auto ExecutorHandle::get_task_id() -> std::optional<boost::uuids::uuid> {
     return std::nullopt;
 }
 
-auto ExecutorHandle::executor_cancel() -> void {
+auto ExecutorHandle::cancel_executor() -> void {
     std::lock_guard const lock_guard{m_mutex};
     if (nullptr != m_executor) {
         m_executor->cancel();

@@ -152,8 +152,7 @@ auto check_task_cancel(
         return;
     }
 
-    // Cancel the task.
-    executor_handle.executor_cancel();
+    executor_handle.cancel_executor();
 }
 
 auto heartbeat_loop(
