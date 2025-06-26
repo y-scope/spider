@@ -72,12 +72,12 @@ auto join_string_test(
     return input_1 + input_2;
 }
 
-auto sleep_test(spider::TaskContext& /*context*/, int milliseconds) -> int {
+auto sleep_test([[maybe_unused]] spider::TaskContext& context, int milliseconds) -> int {
     std::this_thread::sleep_for(std::chrono::milliseconds{milliseconds});
     return milliseconds;
 }
 
-auto abort_test(spider::TaskContext& context, int /*x*/) -> int {
+auto abort_test(spider::TaskContext& context, [[maybe_unused]] int x) -> int {
     context.abort("Abort test");
     return 0;
 }
