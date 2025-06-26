@@ -450,8 +450,9 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::StorageFactory
 }
 
 /**
- * Create a common job cancel test setup. Create a job with a task graph and set parent_1 to
- * succeed.
+ * Create a common job cancel test setup. Create a job with a task graph that consists of two
+ * parent tasks and one child task. Set the state of parent 1 to succeed. Parent 2 state remains
+ * ready and child state remains pending.
  * @param storage
  * @param conn
  * @return A tuple containing the job_id, parent_1_id, parent_2_id, and child_task_id.
