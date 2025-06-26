@@ -8,6 +8,7 @@
 #include <tuple>
 #include <vector>
 
+#include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
@@ -17,6 +18,10 @@
 #include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::worker {
+auto TaskExecutor::get_task_id() const -> boost::uuids::uuid {
+    return m_task_id;
+}
+
 auto TaskExecutor::get_pid() const -> pid_t {
     return m_process->get_pid();
 }

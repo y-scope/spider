@@ -18,12 +18,10 @@ class ExecutorHandle {
 public:
     [[nodiscard]] auto get_task_id() -> std::optional<boost::uuids::uuid>;
     auto cancel_executor() -> void;
-    auto set(boost::uuids::uuid task_id, TaskExecutor* executor) -> void;
+    auto set(TaskExecutor* executor) -> void;
     auto clear() -> void;
 
 private:
-    boost::uuids::uuid m_task_id;
-
     // Do not use std::shared_ptr to avoid calling destructor twice.
     TaskExecutor* m_executor = nullptr;
 

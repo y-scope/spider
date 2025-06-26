@@ -424,7 +424,7 @@ auto task_loop(
                 arg_buffers
         };
 
-        executor_handle.set(task_id, &executor);
+        executor_handle.set(&executor);
 
         pid_t const pid = executor.get_pid();
         spider::core::ChildPid::set_pid(pid);
