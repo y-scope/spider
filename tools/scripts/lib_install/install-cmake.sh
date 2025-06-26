@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # Exit on error
-set -e
+set -euo pipefail
 
 cUsage="Usage: ${BASH_SOURCE[0]} <version>"
 if [ "$#" -lt 1 ] ; then
     echo $cUsage
-    exit
+    exit 1
 fi
 version=$1
 
@@ -16,13 +16,16 @@ if [ ${EUID:-$(id -u)} -ne 0 ] ; then
 fi
 
 # Get number of cpu cores
-num_cpus=$(grep -c ^processor /proc/cpuinfo)
+num_cpus=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
 
 package_name=cmake
 
 # Create temp dir for installation
 temp_dir=/tmp/${package_name}-installation
 mkdir -p $temp_dir
+
+# Clean up
+trap 'rm -rf "$temp_dir"' EXIT
 
 cd $temp_dir
 
@@ -42,6 +45,3 @@ if [ ${EUID:-$(id -u)} -ne 0 ] ; then
 else
   make install
 fi
-
-# Clean up
-rm -rf $temp_dir
