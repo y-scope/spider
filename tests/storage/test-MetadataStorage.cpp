@@ -450,12 +450,21 @@ TEMPLATE_LIST_TEST_CASE("Task finish", "[storage]", spider::test::StorageFactory
 }
 
 /**
- * Create a common job cancel test setup. Create a job with a task graph that consists of two
- * parent tasks and one child task. Set the state of parent 1 to succeed. Parent 2 state remains
- * ready and child state remains pending.
+ * Creates a test job with a task dependency graph for cancellation tests.
+ *
+ * Task graph structure:
+ *   parent_1 (p1) ──┐
+ *                   ├──> child_task
+ *   parent_2 (p2) ──┘
+ *
+ * Task states after setup:
+ *   - parent_1: Succeeded (with output "1.1")
+ *   - parent_2: Ready
+ *   - child_task: Pending (waiting for parent_2 to complete)
+ *
  * @param storage
  * @param conn
- * @return A tuple containing the job_id, parent_1_id, parent_2_id, and child_task_id.
+ * @return A tuple containing (job_id, parent_1_id, parent_2_id, and child_task_id).
  */
 auto job_cancel_setup(
         std::unique_ptr<spider::core::MetadataStorage>& storage,
