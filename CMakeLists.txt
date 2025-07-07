@@ -12,6 +12,8 @@ project(
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(SPIDER_BUILD_TESTING "Build Spider tests" ON)
+
 # Enable exporting compile commands
 set(CMAKE_EXPORT_COMPILE_COMMANDS
     ON
@@ -37,11 +39,6 @@ set(CMAKE_MODULE_PATH
     ${CMAKE_MODULE_PATH}
     "${PROJECT_SOURCE_DIR}/cmake/Modules/"
 )
-
-# Macro providing the length of the absolute source directory path so we can
-# create a relative (rather than absolute) __FILE__ macro
-string(LENGTH "${PROJECT_SOURCE_DIR}/" SOURCE_PATH_SIZE)
-add_definitions("-DSOURCE_PATH_SIZE=${SOURCE_PATH_SIZE}")
 
 # Profiling options
 add_definitions(-DPROF_ENABLED=0)
@@ -86,6 +83,13 @@ message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 if(PROJECT_IS_TOP_LEVEL)
     # Include dependency settings if the project isn't being included as a subproject.
     include("build/deps/cmake-settings/all.cmake")
+
+    # If previously undefined, `BUILD_TESTING` will be set to ON.
+    include(CTest)
+endif()
+
+if(BUILD_TESTING AND SPIDER_BUILD_TESTING)
+    set(SPIDER_ENABLE_TESTS ON)
 endif()
 
 # Find and setup Boost Library
@@ -161,18 +165,9 @@ else()
     message(FATAL_ERROR "Could not find msgpack-cxx")
 endif()
 
-find_package(outcome REQUIRED)
-if(outcome_FOUND)
-    message(STATUS "Found outcome.")
-else()
-    message(FATAL_ERROR "Could not find libraries for outcome.")
-endif()
-
-find_package(Catch2 3.8.0 REQUIRED)
-if(Catch2_FOUND)
+if(SPIDER_ENABLE_TESTS)
+    find_package(Catch2 3.8.0 REQUIRED)
     message(STATUS "Found Catch2 ${Catch2_VERSION}.")
-else()
-    message(FATAL_ERROR "Could not find libraries for Catch2.")
 endif()
 
 # Add abseil
@@ -185,6 +180,7 @@ else()
 endif()
 
 # Add ystdlib-cpp
+set(YSTDLIB_CPP_BUILD_TESTING OFF)
 add_subdirectory(
     "${SPIDER_YSTDLIB_SOURCE_DIRECTORY}"
     "${CMAKE_BINARY_DIR}/ystdlib"
@@ -195,4 +191,6 @@ find_package(Threads REQUIRED)
 
 add_subdirectory(src/spider)
 
-add_subdirectory(tests)
+if(SPIDER_ENABLE_TESTS)
+    add_subdirectory(tests)
+endif()
