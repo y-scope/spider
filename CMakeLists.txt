@@ -180,9 +180,7 @@ endif()
 
 # Add ystdlib-cpp
 find_package(ystdlib REQUIRED)
-if(ystdlib_FOUND)
-    message(STATUS "Found ystdlib ${ystdlib_VERSION}.")
-endif()
+message(STATUS "Found ystdlib ${ystdlib_VERSION}.")
 
 find_package(Threads REQUIRED)
 
