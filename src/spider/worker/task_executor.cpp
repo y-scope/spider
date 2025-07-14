@@ -1,5 +1,3 @@
-#include <unistd.h>
-
 #include <cerrno>
 #include <csignal>
 #include <exception>
@@ -95,7 +93,8 @@ auto main(int const argc, char** argv) -> int {
     std::string func_name;
     std::string storage_url;
     std::string task_id_string;
-    int input_pipe_fd, output_pipe_fd = -1;
+    int input_pipe_fd = -1;
+    int output_pipe_fd = -1;
     try {
         if (!args.contains("func")) {
             return cCmdArgParseErr;
