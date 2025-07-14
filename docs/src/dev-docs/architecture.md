@@ -11,7 +11,7 @@ fault-tolerant distributed task execution system.
 ```
 
 ### Storage
-`Spdier` relies on a fault-tolerant and ACID storage, e.g. MariaDB, to store all the states of the
+`Spdier` relies on a fault-tolerant and ACID storage, e.g. MariaDB, to persist all the states of the
 system.
 The storage stores the following information:
 - Tasks metadata, including:
@@ -72,7 +72,7 @@ If a scheduler fails, the host can restart a new scheduler instance and fetch th
 the storage.
 If a worker fails while executing a task, the scheduler will detect the failure and perform
 recovery of the job.
-- Identify all the failed tasks inside a job
+- Identify all the failed tasks within the job
 - Compute the minimum subgraph that contains the fail tasks where all inputs to the subgraph are
   available
 - Invalidate all the tasks in the subgraph, set the tasks on the input boundary as ready and the

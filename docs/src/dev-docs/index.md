@@ -10,7 +10,7 @@ sidebar (if it's hidden, click the <i class="fa fa-bars"></i> icon) to navigate 
 :link: architecture
 Architecture
 ^^^
-Architecture overview of Spider.
+Overview of Spider's architecture.
 :::
 
 :::{grid-item-card}
