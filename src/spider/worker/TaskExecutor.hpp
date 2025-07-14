@@ -82,8 +82,8 @@ public:
         m_process = std::make_unique<Process>(Process::spawn(
                 exe.string(),
                 process_args,
-                write_pipe_fd[0],
-                read_pipe_fd[1],
+                std::nullopt,
+                std::nullopt,
                 std::nullopt,
                 {write_pipe_fd[0], read_pipe_fd[1]}
         ));
