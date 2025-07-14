@@ -52,11 +52,21 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
+        std::array<int, 2> write_pipe_fd{};
+        std::array<int, 2> read_pipe_fd{};
+        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
+            throw std::runtime_error("Failed to create pipe");
+        }
+
         std::vector<std::string> process_args{
                 "--func",
                 func_name,
                 "--task_id",
                 to_string(task_id),
+                "--input-pipe",
+                std::to_string(write_pipe_fd[0]),
+                "--output-pipe",
+                std::to_string(read_pipe_fd[1]),
                 "--storage_url",
                 storage_url,
                 "--libs"
@@ -66,11 +76,7 @@ public:
                 "spider_task_executor",
                 environment
         );
-        std::array<int, 2> write_pipe_fd{};
-        std::array<int, 2> read_pipe_fd{};
-        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
-            throw std::runtime_error("Failed to create pipe");
-        }
+
         m_write_pipe.assign(write_pipe_fd[1]);
         m_read_pipe.assign(read_pipe_fd[0]);
         m_process = std::make_unique<Process>(Process::spawn(
@@ -78,7 +84,8 @@ public:
                 process_args,
                 write_pipe_fd[0],
                 read_pipe_fd[1],
-                std::nullopt
+                std::nullopt,
+                {write_pipe_fd[0], read_pipe_fd[1]}
         ));
         close(write_pipe_fd[0]);
         close(read_pipe_fd[1]);
@@ -105,11 +112,21 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
+        std::array<int, 2> write_pipe_fd{};
+        std::array<int, 2> read_pipe_fd{};
+        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
+            throw std::runtime_error("Failed to create pipe");
+        }
+
         std::vector<std::string> process_args{
                 "--func",
                 func_name,
                 "--task_id",
                 to_string(task_id),
+                "--input-pipe",
+                std::to_string(write_pipe_fd[0]),
+                "--output-pipe",
+                std::to_string(read_pipe_fd[1]),
                 "--storage_url",
                 storage_url,
                 "--libs"
@@ -119,19 +136,16 @@ public:
                 "spider_task_executor",
                 environment
         );
-        std::array<int, 2> write_pipe_fd{};
-        std::array<int, 2> read_pipe_fd{};
-        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
-            throw std::runtime_error("Failed to create pipe");
-        }
+
         m_write_pipe.assign(write_pipe_fd[1]);
         m_read_pipe.assign(read_pipe_fd[0]);
         m_process = std::make_unique<Process>(Process::spawn(
                 exe.string(),
                 process_args,
-                write_pipe_fd[0],
-                read_pipe_fd[1],
-                std::nullopt
+                std::nullopt,
+                std::nullopt,
+                std::nullopt,
+                {write_pipe_fd[0], read_pipe_fd[1]}
         ));
         close(write_pipe_fd[0]);
         close(read_pipe_fd[1]);
