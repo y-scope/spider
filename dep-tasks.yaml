@@ -105,6 +105,7 @@ tasks:
             - "-DSPDLOG_BUILD_TESTS=OFF"
             - "-DUSE_EXTERNAL_FMT=ON"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
+            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
 
   install-mariadb-connector-cpp:
@@ -142,6 +143,7 @@ tasks:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DMSGPACK_BUILD_TESTS=OFF"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
+            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
 
   install-boost:
     internal: true
