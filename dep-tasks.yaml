@@ -30,12 +30,12 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "absl"
+          CMAKE_PACKAGE_NAME: "absl"
           WORK_DIR: "{{.G_DEPS_DIR}}/absl"
-          FILE_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
-          URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
+          TAR_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
+          TAR_URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DABSL_BUILD_TESTING=OFF"
 
@@ -45,12 +45,12 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "Catch2"
+          CMAKE_PACKAGE_NAME: "Catch2"
           WORK_DIR: "{{.G_DEPS_DIR}}/Catch2"
-          FILE_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
-          URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
+          TAR_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
+          TAR_URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DCATCH_BUILD_TESTING=OFF"
 
@@ -76,12 +76,12 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "fmt"
+          CMAKE_PACKAGE_NAME: "fmt"
           WORK_DIR: "{{.G_DEPS_DIR}}/fmtlib"
-          FILE_SHA256: "6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f"
-          URL: "https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz"
+          TAR_SHA256: "6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f"
+          TAR_URL: "https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DFMT_TEST=OFF"
             - "-DFMT_DOC=OFF"
@@ -95,16 +95,16 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "spdlog"
+          CMAKE_PACKAGE_NAME: "spdlog"
           WORK_DIR: "{{.G_DEPS_DIR}}/spdlog"
-          FILE_SHA256: "9962648c9b4f1a7bbc76fd8d9172555bad1871fdb14ff4f842ef87949682caa5"
-          URL: "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz"
+          TAR_SHA256: "9962648c9b4f1a7bbc76fd8d9172555bad1871fdb14ff4f842ef87949682caa5"
+          TAR_URL: "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DSPDLOG_BUILD_TESTS=OFF"
             - "-DUSE_EXTERNAL_FMT=ON"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
 
   install-mariadb-connector-cpp:
@@ -113,13 +113,13 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "mariadb-connector-cpp"
+          CMAKE_PACKAGE_NAME: "mariadb-connector-cpp"
           WORK_DIR: "{{.G_DEPS_DIR}}/mariadb-connector-cpp"
-          FILE_SHA256: "0e3dfe9f2bc3f7bb6f7c159009556290064a7c23402ea08019fa8aebfc3ff2c9"
-          URL: "https://github.com/mariadb-corporation/mariadb-connector-cpp/archive/refs/tags/\
+          TAR_SHA256: "0e3dfe9f2bc3f7bb6f7c159009556290064a7c23402ea08019fa8aebfc3ff2c9"
+          TAR_URL: "https://github.com/mariadb-corporation/mariadb-connector-cpp/archive/refs/tags/\
             1.1.5.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DUSE_SYSTEM_INSTALLED_LIB=ON"
             - "-DINSTALL_LAYOUT=RPM"
@@ -132,16 +132,16 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "msgpack-cxx"
+          CMAKE_PACKAGE_NAME: "msgpack-cxx"
           WORK_DIR: "{{.G_DEPS_DIR}}/msgpack"
-          FILE_SHA256: "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f"
-          URL: "https://github.com/msgpack/msgpack-c/releases/download/\
+          TAR_SHA256: "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f"
+          TAR_URL: "https://github.com/msgpack/msgpack-c/releases/download/\
             cpp-7.0.0/msgpack-cxx-7.0.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DMSGPACK_BUILD_TESTS=OFF"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
 
   install-boost:
     internal: true
