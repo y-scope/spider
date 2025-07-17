@@ -6,7 +6,7 @@ tasks:
     vars:
       TARGETS:
         ref: "default (list \"all\") .TARGETS"
-    deps: [":config-cmake-project", "dsl-generate-parser"]
+    deps: [":config-cmake-project", "stdl-generate-parser"]
     cmds:
       - >-
         cmake
@@ -20,7 +20,7 @@ tasks:
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
 
-  dsl-generate-parser:
+  stdl-generate-parser:
     vars:
       CHECKSUM_FILE: "{{.G_BUILD_SPIDER_DIR}}/{{.TASK}}.md5"
       OUTPUT_DIR: "{{.G_SRC_DSL_DIR}}/generated"
