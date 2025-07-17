@@ -1,5 +1,5 @@
 
-// Generated from /data/sitao/code/spider/src/stdl/parser/Stdl.g4 by ANTLR 4.13.2
+// Generated from src/stdl/parser/Stdl.g4 by ANTLR 4.13.2
 
 
 #include "StdlLexer.h"

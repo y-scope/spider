@@ -45,7 +45,7 @@ tasks:
           -package spider::dsl::parser \
           -o "{{.OUTPUT_DIR}}" \
           -Xexact-output-dir \
-          "{{.G_SRC_DSL_DIR}}/parser/Stdl.g4" \
+          "src/stdl/parser/Stdl.g4" \
         && find "{{.OUTPUT_DIR}}" -type f -and -not \( -name "*.cpp" -o -name "*.h" \) \
           -exec rm {} \;
       - task: ":utils:checksum:compute"
