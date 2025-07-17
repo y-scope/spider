@@ -1,4 +1,4 @@
-grammar dsl;
+grammar Stdl;
 
 start: (service | struct)* EOF ;
 

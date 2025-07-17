@@ -6,7 +6,7 @@ tasks:
     vars:
       TARGETS:
         ref: "default (list \"all\") .TARGETS"
-    deps: [":config-cmake-project"]
+    deps: [":config-cmake-project", "dsl-generate-parser"]
     cmds:
       - >-
         cmake
@@ -19,3 +19,37 @@ tasks:
     deps: [":config-cmake-project"]
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
+
+  dsl-generate-parser:
+    vars:
+      CHECKSUM_FILE: "{{.G_BUILD_SPIDER_DIR}}/{{.TASK}}.md5"
+      OUTPUT_DIR: "{{.G_SRC_DSL_DIR}}/generated"
+    deps:
+      - task: ":utils:checksum:validate"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS:
+            - "{{.OUTPUT_DIR}}"
+    generates:
+      - "{{.CHECKSUM_FILE}}"
+    sources:
+      - "{{.G_SRC_DSL_DIR}}/parser/Stdl.g4"
+    cmds:
+      - |-
+        rm -rf "{{.OUTPUT_DIR}}/*"
+      - |-
+        java -jar "{{.G_ANTLR_JAR_FILE}}" \
+          -Dlanguage=Cpp \
+          -no-listener \
+          -visitor \
+          -package spider::dsl::parser \
+          -o "{{.OUTPUT_DIR}}" \
+          -Xexact-output-dir \
+          "{{.G_SRC_DSL_DIR}}/parser/Stdl.g4" \
+        && find "{{.OUTPUT_DIR}}" -type f -and -not \( -name "*.cpp" -o -name "*.h" \) \
+          -exec rm {} \;
+      - task: ":utils:checksum:compute"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS:
+            - "{{.OUTPUT_DIR}}"
