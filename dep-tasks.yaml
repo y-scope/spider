@@ -115,6 +115,7 @@ tasks:
       - task: ":utils:cmake:build"
         vars:
           BUILD_DIR: "{{.BUILD_DIR}}"
+          JOBS: 1
       - task: ":utils:cmake:install"
         vars:
           BUILD_DIR: "{{.BUILD_DIR}}"
