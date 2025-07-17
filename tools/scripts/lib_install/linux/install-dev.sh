@@ -27,6 +27,7 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no
     libmariadb-dev \
     libssl-dev \
     make \
+    openjdk-11-jdk \
     pkg-config \
     python3 \
     python3-pip \
