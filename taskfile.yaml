@@ -20,6 +20,8 @@ vars:
   G_TEST_DIR: "{{.ROOT_DIR}}/tests"
   G_EXAMPLES_DIR: "{{.ROOT_DIR}}/examples"
 
+  G_DEP_BUILD_PARALLELISM: >-
+    {{default "" (env SPIDER_DEP_BUILD_PARALLELISM)}}
   G_DEPS_DIR: "{{.G_BUILD_DIR}}/deps"
   # These should be kept in-sync with its usage in CMakeLists.txt
   G_DEPS_CMAKE_SETTINGS_DIR: "{{.G_DEPS_DIR}}/cmake-settings"
