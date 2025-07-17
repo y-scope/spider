@@ -104,6 +104,7 @@ tasks:
           BUILD_DIR: "{{.BUILD_DIR}}"
           EXTRA_ARGS:
             - "-DANTLR4_INSTALL=ON"
+            - "-DANTLR_BUILD_CPP_TESTS=OFF"
             - "-DCMAKE_BUILD_TYPE=Release"
             - "-DCMAKE_INSTALL_MESSAGE=LAZY"
 
