@@ -45,7 +45,7 @@ tasks:
       - task: "cpp-static-fix"
 
   cpp-format-check:
-    sources: &cpp_source_files
+    sources: &cpp_lint_source_files
       - "{{.ROOT_DIR}}/.clang-format"
       - "{{.ROOT_DIR}}/.clang-tidy"
       - "{{.TASKFILE}}"
@@ -59,11 +59,14 @@ tasks:
         vars:
           FLAGS: ["--dry-run"]
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
-          ROOT_PATHS: *cpp_source_files
+          ROOT_PATHS: &cpp_source_files
+            - "{{.G_SRC_SPIDER_DIR}}"
+            - "{{.G_EXAMPLES_DIR}}"
+            - "{{.G_TEST_DIR}}"
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   cpp-format-fix:
-    sources: *cpp_source_files
+    sources: *cpp_lint_source_files
     deps: ["cpp-configs", "venv"]
     cmds:
       - task: ":utils:cpp-lint:clang-format"
@@ -79,7 +82,7 @@ tasks:
     # When we eventually determine which errors can be safely fixed, we'll allow clang-tidy to
     # fix them.
     aliases: ["cpp-static-fix"]
-    sources: *cpp_source_files
+    sources: *cpp_lint_source_files
     deps: [":config-cmake-project", "cpp-configs", "venv"]
     cmds:
       - task: ":utils:cpp-lint:clang-tidy-find"
@@ -87,21 +90,21 @@ tasks:
           FLAGS:
             - "--config-file '{{.ROOT_DIR}}/.clang-tidy'"
             - "-p '{{.G_SPIDER_COMPILE_COMMANDS_DB}}'"
-          INCLUDE_PATTERNS:
-            - "{{.G_SRC_SPIDER_DIR}}/**"
-            - "{{.G_TEST_DIR}}/**"
+          INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
           OUTPUT_DIR: "{{.G_LINT_CLANG_TIDY_DIR}}"
-          ROOT_PATHS: *cpp_source_files
+          ROOT_PATHS:
+            - "{{.G_SRC_SPIDER_DIR}}"
+            - "{{.G_TEST_DIR}}"
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
       - task: ":utils:cpp-lint:clang-tidy-find"
         vars:
           FLAGS:
             - "--config-file '{{.ROOT_DIR}}/.clang-tidy'"
             - "-p '{{.G_EXAMPLES_COMPILE_COMMANDS_DB}}'"
-          INCLUDE_PATTERNS:
-            - "{{.G_EXAMPLES_DIR}}/**"
+          INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp", "*.inc"]
           OUTPUT_DIR: "{{.G_LINT_CLANG_TIDY_DIR}}"
-          ROOT_PATHS: *cpp_source_files
+          ROOT_PATHS:
+            - "{{.G_EXAMPLES_DIR}}"
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   py-check:
@@ -151,18 +154,6 @@ tasks:
           lint-tasks.yaml \
           taskfile.yaml \
           test-tasks.yaml
-
-  clang-tidy:
-    internal: true
-    requires:
-      vars: ["FLAGS", "SRC_DIR"]
-    cmd: |-
-      . "{{.G_LINT_VENV_DIR}}/bin/activate"
-      find "{{.SRC_DIR}}" \
-        -type f \
-        \( -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" \) \
-        -print0 | \
-          xargs -0 --no-run-if-empty clang-tidy {{.FLAGS}}
 
   cmake:
     internal: true
