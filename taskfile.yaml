@@ -25,6 +25,9 @@ vars:
   G_DEPS_CMAKE_SETTINGS_DIR: "{{.G_DEPS_DIR}}/cmake-settings"
   G_DEPS_CMAKE_SETTINGS_FILE: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/settings.cmake"
 
+  G_SRC_PYTHON_DIR: "{{.ROOT_DIR}}/python"
+  G_PYTHON_BUILD_DIR: "{{.G_BUILD_DIR}}/spider-py"
+
 tasks:
   clean:
     cmds:

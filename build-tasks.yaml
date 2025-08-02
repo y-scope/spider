@@ -1,8 +1,7 @@
 version: "3"
 
 tasks:
-  target:
-    internal: true
+  cpp-target:
     vars:
       TARGETS:
         ref: "default (list \"all\") .TARGETS"
@@ -14,8 +13,37 @@ tasks:
         --parallel {{numCPU}}
         --target {{range .TARGETS}}{{.}} {{end}}
 
-  clean:
-    internal: true
+  clean-cpp:
     deps: [":config-cmake-project"]
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
+
+  python:
+    vars:
+      OUTPUT_DIR: "{{.G_PYTHON_BUILD_DIR}}"
+      CHECKSUM_FILE: "{{.G_BUILD_DIR}}/python-checksum.md5"
+    sources:
+      - "{{.G_SRC_PYTHON_DIR}}/**/*"
+      - "{{.ROOT_DIR}}/pyproject.toml"
+      - "{{.ROOT_DIR}}/uv.lock"
+    generates:
+      - "{{.CHECKSUM_FILE}}"
+    deps:
+      - task: ":utils:checksum:validate"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS:
+            - "{{.OUTPUT_DIR}}"
+    cmds:
+      - >-
+        uv build -o "{{.OUTPUT_DIR}}"
+      - task: ":utils:checksum:compute"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS:
+            - "{{.OUTPUT_DIR}}"
+
+  clean-python:
+    cmds:
+      - >-
+        rm -rf "{{.G_PYTHON_BUILD_DIR}}"

@@ -27,7 +27,7 @@ tasks:
   build-unit-test:
     internal: true
     deps:
-      - task: ":build:target"
+      - task: ":build:cpp-target"
         vars:
           TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
 
@@ -35,7 +35,7 @@ tasks:
     dir: "{{.G_BUILD_SPIDER_DIR}}"
     deps:
       - "venv"
-      - task: ":build:target"
+      - task: ":build:cpp-target"
         vars:
           TARGETS: [
             "spider_task_executor",
