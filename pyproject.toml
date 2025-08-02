@@ -10,7 +10,7 @@ spider-core = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "python/spider/core",
-    "python/spider/client",
-    "python/spider/task_executor",
+  "python/spider/core",
+  "python/spider/client",
+  "python/spider/task_executor",
 ]

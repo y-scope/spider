@@ -3,11 +3,11 @@ name = "spider-core"
 version = "0.1.0"
 description = "Spider core library for database operations"
 requires-python = ">=3.10"
-dependencies = [
-    "mariadb>=1.1.13",
-]
 classifiers = [
-    "Private :: Do Not Upload",
+  "Private :: Do Not Upload",
+]
+dependencies = [
+  "mariadb>=1.1.13",
 ]
 
 [build-system]
