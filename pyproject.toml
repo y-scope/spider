@@ -14,21 +14,3 @@ members = [
     "python/spider/client",
     "python/spider/task_executor",
 ]
-
-[tool.black]
-line-length = 100
-target-version = ["py311"]
-color = true
-preview = true
-
-[tool.ruff]
-line-length = 100
-src = [
-    "python/spider/core",
-    "python/spider/client",
-    "python/spider/task_executor",
-]
-
-[tool.ruff.lint]
-select = ["E", "I", "F"]
-isort.order-by-type = false

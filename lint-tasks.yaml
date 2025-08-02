@@ -126,6 +126,9 @@ tasks:
     cmds:
       - for:
           - "tests/integration"
+          - "python/spider/client"
+          - "python/spider/core"
+          - "python/spider/task_executor"
         cmd: |-
           . "{{.G_LINT_VENV_DIR}}/bin/activate"
           cd "{{.ITEM}}"
