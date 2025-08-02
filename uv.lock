@@ -1,0 +1,65 @@
+version = 1
+revision = 2
+requires-python = ">=3.10"
+
+[manifest]
+members = [
+    "spider",
+    "spider-client",
+    "spider-core",
+    "spider-task-executor",
+]
+
+[[package]]
+name = "mariadb"
+version = "1.1.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/a0/0498c90f46940b6fd7f5c76d22df9f011849964e94e0b22fde26c42191c7/mariadb-1.1.13.tar.gz", hash = "sha256:3a0fd24fae2b9990dc13a0a427a43d4a5434cc2a8c3b260a27f40b7824719037", size = 111126, upload-time = "2025-07-11T09:55:11.147Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/e2/5e4068b225ccbd6fb7ea2b8f5ba52060e48bf2e63448206670cdfe73a1c5/mariadb-1.1.13-cp310-cp310-win32.whl", hash = "sha256:f49467e7076819ccf21a7e5ef030761af2160b23ce4484d88d260459809d90ff", size = 185138, upload-time = "2025-07-11T09:54:53.334Z" },
+    { url = "https://files.pythonhosted.org/packages/33/8d/65b28ce61c422aba68c052a3cdb23772003267f47438a27a6e2cbf58c1c9/mariadb-1.1.13-cp310-cp310-win_amd64.whl", hash = "sha256:1c9aa9a31f943737c3a58bb4dc9deb9cf2b50b3ec807f90c5c99c7b35f8442bd", size = 202048, upload-time = "2025-07-11T09:54:54.978Z" },
+    { url = "https://files.pythonhosted.org/packages/09/71/c23f6ffb06ba2c0ad2e90f4236b1541f9005e24eaeb166800b19c4f584f6/mariadb-1.1.13-cp311-cp311-win32.whl", hash = "sha256:c15ab872f1e951dd1bd4006d2ee2b942156f66c1cd724a1b2992dc02c47dff6a", size = 185136, upload-time = "2025-07-11T09:54:56.791Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/08/10308cb9bbccf83ff72caa1146014445a79dfeffb4eba9a85f73575c5959/mariadb-1.1.13-cp311-cp311-win_amd64.whl", hash = "sha256:d6fa7f2cdfae762d2d69b71e51f61415d0251118a622a6d06c7f05261579100a", size = 202046, upload-time = "2025-07-11T09:54:58.365Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/b4/d961a5dfa8a7a04ede70f76f85b951b8d0ec28d79b86ced829a67af78bdd/mariadb-1.1.13-cp312-cp312-win32.whl", hash = "sha256:358ecdc8775f4a97357fc233bb84a1c8d8d52866ee5fe98f2d13e9e58a04b6fb", size = 185334, upload-time = "2025-07-11T09:54:59.901Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/3b/16cc69a9c90f91b74c096c0cb9634e14692486beb28b82ec5efd97866de7/mariadb-1.1.13-cp312-cp312-win_amd64.whl", hash = "sha256:0604c57e6f90ff7ef190a56894d2b32ca5f0182924b5159be9319ba243ffbf98", size = 202109, upload-time = "2025-07-11T09:55:01.846Z" },
+    { url = "https://files.pythonhosted.org/packages/02/16/583719e127774294d4af085a063b38f20407801cd9194a676334fb121edd/mariadb-1.1.13-cp313-cp313-win32.whl", hash = "sha256:36c644c13ecf3e38cb89f37f9bd054703760b94c881476492fe789801a063ce3", size = 185301, upload-time = "2025-07-11T09:55:03.486Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/da/4170f5532813ffba2641f821ed23ed1f22fa3ff8d603e47c91b0776ff9b7/mariadb-1.1.13-cp313-cp313-win_amd64.whl", hash = "sha256:6ec51ad2e33312c397cfcc5e2bca59861f572d5e8880e025d43db9a5d472a3a9", size = 202105, upload-time = "2025-07-11T09:55:05.681Z" },
+]
+
+[[package]]
+name = "packaging"
+version = "25.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/d4/1fc4078c65507b51b96ca8f8c3ba19e6a61c8253c72794544580a7b6c24d/packaging-25.0.tar.gz", hash = "sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f", size = 165727, upload-time = "2025-04-19T11:48:59.673Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484", size = 66469, upload-time = "2025-04-19T11:48:57.875Z" },
+]
+
+[[package]]
+name = "spider"
+version = "0.1.0"
+source = { virtual = "." }
+
+[[package]]
+name = "spider-client"
+version = "0.1.0"
+source = { editable = "python/spider/client" }
+
+[[package]]
+name = "spider-core"
+version = "0.1.0"
+source = { editable = "python/spider/core" }
+dependencies = [
+    { name = "mariadb" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mariadb", specifier = ">=1.1.13" }]
+
+[[package]]
+name = "spider-task-executor"
+version = "0.1.0"
+source = { editable = "python/spider/task_executor" }

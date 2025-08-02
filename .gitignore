@@ -1,6 +1,7 @@
 # Build-related directories and files
 .task
 build
+src/spider.egg-info
 
 # Generated lint configs
 .clang-format

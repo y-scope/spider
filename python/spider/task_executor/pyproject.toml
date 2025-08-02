@@ -1,0 +1,10 @@
+[project]
+name = "spider-task-executor"
+version = "0.1.0"
+description = "Spider task executor for running python tasks"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,34 @@
+[project]
+name = "spider"
+version = "0.1.0"
+description = "Spider is a distributed task execution framework."
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.uv.sources]
+spider-core = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "python/spider/core",
+    "python/spider/client",
+    "python/spider/task_executor",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+color = true
+preview = true
+
+[tool.ruff]
+line-length = 100
+src = [
+    "python/spider/core",
+    "python/spider/client",
+    "python/spider/task_executor",
+]
+
+[tool.ruff.lint]
+select = ["E", "I", "F"]
+isort.order-by-type = false
