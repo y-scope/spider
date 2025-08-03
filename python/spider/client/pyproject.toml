@@ -3,6 +3,7 @@ name = "spider-client"
 version = "0.1.0"
 description = "Spider client library"
 requires-python = ">=3.10"
+license = "Apache-2.0"
 dependencies = ["spider-core"]
 
 [build-system]

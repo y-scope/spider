@@ -3,6 +3,7 @@ name = "spider-core"
 version = "0.1.0"
 description = "Spider core library for database operations"
 requires-python = ">=3.10"
+license = "Apache-2.0"
 classifiers = [
   "Private :: Do Not Upload",
 ]
