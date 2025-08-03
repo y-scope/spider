@@ -11,12 +11,14 @@ tasks:
       - task: "cpp-check"
       - task: "py-check"
       - task: "yml-check"
+      - task: "toml-check"
 
   fix:
     cmds:
       - task: "cmake-fix"
       - task: "cpp-fix"
       - task: "yml-fix"
+      - task: "toml-fix"
 
   cmake-check:
     deps: ["venv"]
@@ -154,6 +156,28 @@ tasks:
           lint-tasks.yaml \
           taskfile.yaml \
           test-tasks.yaml
+
+  toml:
+    aliases:
+      - "toml-check"
+      - "toml-fix"
+    cmds:
+      - task: "toml-lint"
+      - task: "toml-format"
+
+  toml-lint:
+    deps: ["venv"]
+    cmds:
+      - |-
+        . "{{.G_LINT_VENV_DIR}}/bin/activate"
+        tombi lint "{{.ROOT_DIR}}"
+
+  toml-format:
+    deps: ["venv"]
+    cmds:
+      - |-
+        . "{{.G_LINT_VENV_DIR}}/bin/activate"
+        tombi format "{{.ROOT_DIR}}"
 
   clang-tidy:
     internal: true
