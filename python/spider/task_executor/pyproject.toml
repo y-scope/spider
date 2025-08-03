@@ -3,7 +3,7 @@ name = "spider-task-executor"
 version = "0.1.0"
 description = "Spider task executor for running python tasks"
 requires-python = ">=3.10"
-dependencies = ["core"]
+dependencies = ["spider-core"]
 
 [project.scripts]
 spider-task-executor = "task_executor.task_executor:main"
