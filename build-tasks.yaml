@@ -36,7 +36,7 @@ tasks:
             - "{{.OUTPUT_DIR}}"
     cmds:
       - >-
-        uv build -o "{{.OUTPUT_DIR}}"
+        uv build --all-packages -o "{{.OUTPUT_DIR}}"
       - task: ":utils:checksum:compute"
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"

@@ -47,6 +47,12 @@ source = { virtual = "." }
 name = "spider-client"
 version = "0.1.0"
 source = { editable = "python/spider/client" }
+dependencies = [
+    { name = "spider-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "spider-core", editable = "python/spider/core" }]
 
 [[package]]
 name = "spider-core"
@@ -63,3 +69,9 @@ requires-dist = [{ name = "mariadb", specifier = ">=1.1.13" }]
 name = "spider-task-executor"
 version = "0.1.0"
 source = { editable = "python/spider/task_executor" }
+dependencies = [
+    { name = "spider-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "spider-core", editable = "python/spider/core" }]
