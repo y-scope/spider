@@ -26,8 +26,9 @@ from .client import (
 from .utils import g_scheduler_port
 
 
-def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str)\
-        -> tuple[subprocess.Popen, subprocess.Popen]:
+def start_scheduler_worker(
+    storage_url: str, scheduler_port: int, lib: str
+) -> tuple[subprocess.Popen, subprocess.Popen]:
     """
     Create a scheduler and a worker process.
     :param storage_url: JDB storage URL.
@@ -63,8 +64,9 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str)\
 
 
 @pytest.fixture
-def scheduler_worker_signal(storage: Generator[mysql.connector.MySQLConnection, None, None])\
-        -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
+def scheduler_worker_signal(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
     """
     Fixture to start a scheduler and a worker process for testing signal handling.
     :return:
@@ -84,10 +86,9 @@ class TestWorkerSignal:
     """Test cases for worker signal handling."""
 
     def test_task_signal(
-            self,
-            storage: Generator[mysql.connector.MySQLConnection, None, None],
-            scheduler_worker_signal: Generator[
-                tuple[subprocess.Popen, subprocess.Popen], None, None]
+        self,
+        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
@@ -163,10 +164,9 @@ class TestWorkerSignal:
         remove_job(storage, graph.id)
 
     def test_task_exit(
-            self,
-            storage: Generator[mysql.connector.MySQLConnection, None, None],
-            scheduler_worker_signal: Generator[
-                tuple[subprocess.Popen, subprocess.Popen], None, None]
+        self,
+        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.

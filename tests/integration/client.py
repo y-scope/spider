@@ -120,9 +120,7 @@ def storage() -> Generator[mysql.connector.MySQLConnection, None, None]:
 
 
 def submit_job(
-        conn: mysql.connector.MySQLConnection,
-        client_id: uuid.UUID,
-        graph: TaskGraph
+    conn: mysql.connector.MySQLConnection, client_id: uuid.UUID, graph: TaskGraph
 ) -> None:
     """
     Submit a job to the database.

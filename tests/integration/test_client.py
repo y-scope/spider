@@ -52,7 +52,7 @@ def start_scheduler_workers(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-        storage: Generator[mysql.connector.MySQLConnection, None, None]
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
 ) -> Generator[None, None, None]:
     """
     Fixture to start the scheduler and two worker processes. Yields control to the test class,
