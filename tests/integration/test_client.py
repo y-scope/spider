@@ -1,3 +1,5 @@
+"""Integration test for the client_test C++ program."""
+
 import subprocess
 import time
 from collections.abc import Generator
@@ -68,6 +70,8 @@ def scheduler_worker() -> Generator[None, None, None]:
 
 
 class TestClient:
+    """Test class for the client_test C++ program."""
+
     @pytest.mark.usefixtures("scheduler_worker")
     def test_client(self) -> None:
         """

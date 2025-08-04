@@ -1,3 +1,5 @@
+"""Simple Spider client for testing purposes."""
+
 import re
 import uuid
 from collections.abc import Generator
@@ -34,9 +36,7 @@ class TaskOutput:
 
 @dataclass
 class Task:
-    """
-    Task represents a unit of work in the task graph.
-    """
+    """Task represents a unit of work in the task graph."""
 
     id: uuid.UUID
     function_name: str
@@ -48,9 +48,7 @@ class Task:
 
 @dataclass
 class TaskGraph:
-    """
-    TaskGraph represents a directed acyclic graph of tasks.
-    """
+    """TaskGraph represents a directed acyclic graph of tasks."""
 
     id: uuid.UUID
     tasks: dict[uuid.UUID, Task]
@@ -59,18 +57,14 @@ class TaskGraph:
 
 @dataclass
 class Driver:
-    """
-    Driver represents a client that can submit jobs to the task graph.
-    """
+    """Driver represents a client that can submit jobs to the task graph."""
 
     id: uuid.UUID
 
 
 @dataclass
 class Data:
-    """
-    Data represents a Spider Data object.
-    """
+    """Data represents a Spider Data object."""
 
     id: uuid.UUID
     value: str
@@ -87,7 +81,7 @@ def create_connection(storage_url: str) -> mysql.connector.MySQLConnection:
     )
     match = pattern.match(storage_url)
     if not match:
-        raise ValueError("Invalid JDBC URL format")
+        raise ValueError(storage_url)
 
     connection_params = match.groupdict()
     return mysql.connector.connect(
@@ -103,7 +97,8 @@ def is_head_task(task_id: uuid.UUID, dependencies: list[tuple[uuid.UUID, uuid.UU
     """
     Check if the task is a head task, meaning it has no parent.
     :param task_id: the ID of the task to check.
-    :param dependencies: list of dependencies where each dependency is a tuple (parent_id, child_id).
+    :param dependencies: list of dependencies where each dependency is a tuple
+           (parent_id, child_id).
     :return: True if the task has no parent, False otherwise.
     """
     return not any(dependency[1] == task_id for dependency in dependencies)
@@ -124,7 +119,8 @@ def storage() -> Generator[mysql.connector.MySQLConnection, None, None]:
     conn.close()
 
 
-def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph) -> None:
+def submit_job(conn: mysql.connector.MySQLConnection, client_id: uuid.UUID, graph: TaskGraph)\
+        -> None:
     """
     Submit a job to the database.
     :param conn: database connection object.
@@ -139,10 +135,7 @@ def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph) -> None:
     )
 
     for task_id, task in graph.tasks.items():
-        if is_head_task(task_id, graph.dependencies):
-            state = "ready"
-        else:
-            state = "pending"
+        state = "ready" if is_head_task(task_id, graph.dependencies) else "pending"
         cursor.execute(
             "INSERT INTO tasks (id, job_id, func_name, state, timeout, max_retry) VALUES (%s, %s, %s, %s, %s, %s)",
             (
@@ -185,7 +178,7 @@ def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph) -> None:
     cursor.close()
 
 
-def get_task_outputs(conn, task_id: uuid.UUID) -> list[TaskOutput]:
+def get_task_outputs(conn: mysql.connector.MySQLConnection, task_id: uuid.UUID) -> list[TaskOutput]:
     """
     Get the outputs of a task by its ID.
     :param conn: database connection object.
@@ -212,7 +205,7 @@ def get_task_outputs(conn, task_id: uuid.UUID) -> list[TaskOutput]:
     return outputs
 
 
-def get_task_state(conn, task_id: uuid.UUID) -> str:
+def get_task_state(conn: mysql.connector.MySQLConnection, task_id: uuid.UUID) -> str:
     """
     Get the state of a task by its ID.
     :param conn: database connection object.
@@ -229,7 +222,7 @@ def get_task_state(conn, task_id: uuid.UUID) -> str:
     return state
 
 
-def remove_job(conn, job_id: uuid.UUID) -> None:
+def remove_job(conn: mysql.connector.MySQLConnection, job_id: uuid.UUID) -> None:
     """
     Remove a job from the database by its ID.
     :param conn: database connection object.
@@ -243,7 +236,7 @@ def remove_job(conn, job_id: uuid.UUID) -> None:
     cursor.close()
 
 
-def add_driver(conn, driver: Driver) -> None:
+def add_driver(conn: mysql.connector.MySQLConnection, driver: Driver) -> None:
     """
     Register a new driver in the database.
     :param conn: database connection object.
@@ -258,7 +251,7 @@ def add_driver(conn, driver: Driver) -> None:
     cursor.close()
 
 
-def add_driver_data(conn, driver: Driver, data: Data) -> None:
+def add_driver_data(conn: mysql.connector.MySQLConnection, driver: Driver, data: Data) -> None:
     """
     Add a new data associated with a driver in the database.
     :param conn: database connection object.
@@ -278,7 +271,7 @@ def add_driver_data(conn, driver: Driver, data: Data) -> None:
     cursor.close()
 
 
-def remove_data(conn, data: Data) -> None:
+def remove_data(conn: mysql.connector.MySQLConnection, data: Data) -> None:
     """
     Remove data from the database by its ID.
     :param conn: database connection object.

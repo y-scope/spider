@@ -1,3 +1,5 @@
+"""Integration tests for the scheduler and worker processes."""
+
 import subprocess
 import time
 import uuid
@@ -248,6 +250,7 @@ def random_fail_job(storage):
 
 
 class TestSchedulerWorker:
+    """Test class for the scheduler and worker integration tests."""
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(self, storage, success_job):
         """
