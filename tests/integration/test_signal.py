@@ -9,7 +9,6 @@ from collections.abc import Generator
 from pathlib import Path
 
 import msgpack
-import mysql.connector
 import pytest
 
 from .client import (
@@ -17,6 +16,7 @@ from .client import (
     get_task_outputs,
     get_task_state,
     remove_job,
+    SQLConnection,
     submit_job,
     Task,
     TaskGraph,
@@ -65,7 +65,7 @@ def start_scheduler_worker(
 
 @pytest.fixture
 def scheduler_worker_signal(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: Generator[SQLConnection, None, None],
 ) -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
     """
     Fixture to start a scheduler and a worker process for testing signal handling.
@@ -87,7 +87,7 @@ class TestWorkerSignal:
 
     def test_task_signal(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        storage: Generator[SQLConnection, None, None],
         scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """
@@ -165,7 +165,7 @@ class TestWorkerSignal:
 
     def test_task_exit(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        storage: Generator[SQLConnection, None, None],
         scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """

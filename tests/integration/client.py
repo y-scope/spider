@@ -69,8 +69,9 @@ class Data:
     id: uuid.UUID
     value: str
 
+SQLConnection = mysql.connector.abstracts.MySQLConnectionAbstract | mysql.connector.pooling.PooledMySQLConnection
 
-def create_connection(storage_url: str) -> mysql.connector.MySQLConnection:
+def create_connection(storage_url: str) -> SQLConnection :
     """
     Creation a MariaDB connection from a JDBC URL.
     :param storage_url: JDBC URL for the MariaDB database.
@@ -108,7 +109,7 @@ g_storage_url = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=pa
 
 
 @pytest.fixture(scope="session")
-def storage() -> Generator[mysql.connector.MySQLConnection, None, None]:
+def storage() -> Generator[SQLConnection, None, None]:
     """
     Fixture to create a database connection for the test session. Yields a connection object
     and ensures it is closed after the tests are done.
@@ -120,7 +121,7 @@ def storage() -> Generator[mysql.connector.MySQLConnection, None, None]:
 
 
 def submit_job(
-    conn: mysql.connector.MySQLConnection, client_id: uuid.UUID, graph: TaskGraph
+    conn: SQLConnection, client_id: uuid.UUID, graph: TaskGraph
 ) -> None:
     """
     Submit a job to the database.
@@ -181,7 +182,7 @@ def submit_job(
     cursor.close()
 
 
-def get_task_outputs(conn: mysql.connector.MySQLConnection, task_id: uuid.UUID) -> list[TaskOutput]:
+def get_task_outputs(conn: SQLConnection, task_id: uuid.UUID) -> list[TaskOutput]:
     """
     Get the outputs of a task by its ID.
     :param conn: database connection object.
@@ -208,7 +209,7 @@ def get_task_outputs(conn: mysql.connector.MySQLConnection, task_id: uuid.UUID) 
     return outputs
 
 
-def get_task_state(conn: mysql.connector.MySQLConnection, task_id: uuid.UUID) -> str:
+def get_task_state(conn: SQLConnection, task_id: uuid.UUID) -> str:
     """
     Get the state of a task by its ID.
     :param conn: database connection object.
@@ -225,7 +226,7 @@ def get_task_state(conn: mysql.connector.MySQLConnection, task_id: uuid.UUID) ->
     return state
 
 
-def remove_job(conn: mysql.connector.MySQLConnection, job_id: uuid.UUID) -> None:
+def remove_job(conn: SQLConnection, job_id: uuid.UUID) -> None:
     """
     Remove a job from the database by its ID.
     :param conn: database connection object.
@@ -239,7 +240,7 @@ def remove_job(conn: mysql.connector.MySQLConnection, job_id: uuid.UUID) -> None
     cursor.close()
 
 
-def add_driver(conn: mysql.connector.MySQLConnection, driver: Driver) -> None:
+def add_driver(conn: SQLConnection, driver: Driver) -> None:
     """
     Register a new driver in the database.
     :param conn: database connection object.
@@ -254,7 +255,7 @@ def add_driver(conn: mysql.connector.MySQLConnection, driver: Driver) -> None:
     cursor.close()
 
 
-def add_driver_data(conn: mysql.connector.MySQLConnection, driver: Driver, data: Data) -> None:
+def add_driver_data(conn: SQLConnection, driver: Driver, data: Data) -> None:
     """
     Add a new data associated with a driver in the database.
     :param conn: database connection object.
@@ -274,7 +275,7 @@ def add_driver_data(conn: mysql.connector.MySQLConnection, driver: Driver, data:
     cursor.close()
 
 
-def remove_data(conn: mysql.connector.MySQLConnection, data: Data) -> None:
+def remove_data(conn: SQLConnection, data: Data) -> None:
     """
     Remove data from the database by its ID.
     :param conn: database connection object.
