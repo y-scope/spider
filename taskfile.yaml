@@ -20,6 +20,8 @@ vars:
   G_TEST_DIR: "{{.ROOT_DIR}}/tests"
   G_EXAMPLES_DIR: "{{.ROOT_DIR}}/examples"
 
+  # Build parameters
+  # NOTE: Defaulting to an empty string is safe since CMake ignores an empty string.
   G_DEPS_MAX_PARALLELISM_PER_TASK: >-
     {{default "" (env "SPIDER_DEPS_MAX_PARALLELISM_PER_TASK")}}
   G_DEPS_DIR: "{{.G_BUILD_DIR}}/deps"
