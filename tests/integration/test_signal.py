@@ -4,6 +4,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from collections.abc import Generator
 
 import msgpack
 import pytest
@@ -23,7 +24,14 @@ from .client import (
 from .utils import g_scheduler_port
 
 
-def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
+def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str) -> tuple[subprocess.Popen, subprocess.Popen]:
+    """
+    Create a scheduler and a worker process.
+    :param storage_url: JDB storage URL.
+    :param scheduler_port: the port for the scheduler to listen on.
+    :param lib: Library to load in the worker.
+    :return: scheduler and worker processes.
+    """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
     popen_opts = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -52,7 +60,12 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str):
 
 
 @pytest.fixture(scope="function")
-def scheduler_worker_signal(storage):
+@pytest.mark.usefixtures("storage")
+def scheduler_worker_signal() -> Generator[tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen], None, None]:
+    """
+    Fixture to start a scheduler and a worker process for testing signal handling.
+    :return:
+    """
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port, lib="tests/libsignal_test.so"
     )
@@ -65,12 +78,19 @@ def scheduler_worker_signal(storage):
 
 class TestWorkerSignal:
 
-    # Test that worker propagates the SIGTERM signal to the task executor.
-    # Submit a task that checks whether the task executor receives the SIGTERM signal.
-    # The task should return the SIGTERM signal number as the output.
-    # Later task should not be executed.
-    # Worker should exit with SIGTERM.
-    def test_task_signal(self, storage, scheduler_worker_signal):
+
+    def test_task_signal(self, storage, scheduler_worker_signal) -> None:
+        """
+        Test that worker propagates the SIGTERM signal to the task executor.
+        Submit a task that checks whether the task executor receives the SIGTERM signal.
+        The task should return the SIGTERM signal number as the output.
+        Later task should not be executed.
+        Worker should exit with SIGTERM.
+
+        :param storage:
+        :param scheduler_worker_signal:
+        :return: None
+        """
         _, worker_process = scheduler_worker_signal
 
         # Submit signal handler task to check for SIGTERM signal in task executor
@@ -133,11 +153,17 @@ class TestWorkerSignal:
         remove_job(storage, new_graph.id)
         remove_job(storage, graph.id)
 
-    # Test that worker propagates the SIGTERM signal to the task executor.
-    # Task executor exits immediately after receiving the signal.
-    # The running task should be marked as failed.
-    # The worker should exit with SIGTERM.
-    def test_task_exit(self, storage, scheduler_worker_signal):
+    def test_task_exit(self, storage, scheduler_worker_signal) -> None:
+        """
+        Test that worker propagates the SIGTERM signal to the task executor.
+        Task executor exits immediately after receiving the signal.
+        The running task should be marked as failed.
+        The worker should exit with SIGTERM.
+
+        :param storage:
+        :param scheduler_worker_signal:
+        :return: None
+        """
         _, worker_process = scheduler_worker_signal
 
         # Submit a task to sleep for 10 seconds

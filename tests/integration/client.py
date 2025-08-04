@@ -1,7 +1,7 @@
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from collections.abc import Generator
 
 import mysql.connector
 import pytest
@@ -9,48 +9,73 @@ import pytest
 
 @dataclass
 class TaskInput:
+    """
+    TaskInput represents an input to a task.
+    It can either be a direct value, a reference to another task's output, or a reference to data.
+    """
     type: str
-    task_output: Optional[Tuple[uuid.UUID, int]] = None
-    value: Optional[str] = None
-    data_id: Optional[uuid.UUID] = None
+    task_output: tuple[uuid.UUID, int] | None = None
+    value: str | None = None
+    data_id: uuid.UUID | None = None
 
 
 @dataclass
 class TaskOutput:
+    """
+    TaskOutput represents an output of a task.
+    It can either be a direct value or a reference to data.
+    """
     type: str
-    value: Optional[str] = None
-    data_id: Optional[uuid.UUID] = None
+    value: str | None = None
+    data_id: uuid.UUID | None = None
 
 
 @dataclass
 class Task:
+    """
+    Task represents a unit of work in the task graph.
+    """
     id: uuid.UUID
     function_name: str
-    inputs: List[TaskInput]
-    outputs: List[TaskOutput]
+    inputs: list[TaskInput]
+    outputs: list[TaskOutput]
     timeout: float = 0.0
     max_retries: int = 0
 
 
 @dataclass
 class TaskGraph:
+    """
+    TaskGraph represents a directed acyclic graph of tasks.
+    """
     id: uuid.UUID
-    tasks: Dict[uuid.UUID, Task]
-    dependencies: List[Tuple[uuid.UUID, uuid.UUID]]
+    tasks: dict[uuid.UUID, Task]
+    dependencies: list[tuple[uuid.UUID, uuid.UUID]]
 
 
 @dataclass
 class Driver:
+    """
+    Driver represents a client that can submit jobs to the task graph.
+    """
     id: uuid.UUID
 
 
 @dataclass
 class Data:
+    """
+    Data represents a Spider Data object.
+    """
     id: uuid.UUID
     value: str
 
 
-def create_connection(storage_url: str):
+def create_connection(storage_url: str) -> mysql.connector.MySQLConnection:
+    """
+    Creation a MariaDB connection from a JDBC URL.
+    :param storage_url: JDBC URL for the MariaDB database.
+    :return: The created MySQL connection.
+    """
     pattern = re.compile(
         r"jdbc:mariadb://(?P<host>[^:/]+):(?P<port>\d+)/(?P<database>[^?]+)\?user=(?P<user>[^&]+)&password=(?P<password>[^&]+)"
     )
@@ -68,7 +93,13 @@ def create_connection(storage_url: str):
     )
 
 
-def is_head_task(task_id: uuid.UUID, dependencies: List[Tuple[uuid.UUID, uuid.UUID]]):
+def is_head_task(task_id: uuid.UUID, dependencies: list[tuple[uuid.UUID, uuid.UUID]]) -> bool:
+    """
+    Check if the task is a head task, meaning it has no parent.
+    :param task_id: the ID of the task to check.
+    :param dependencies: list of dependencies where each dependency is a tuple (parent_id, child_id).
+    :return: True if the task has no parent, False otherwise.
+    """
     return not any(dependency[1] == task_id for dependency in dependencies)
 
 
@@ -76,13 +107,25 @@ g_storage_url = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=pa
 
 
 @pytest.fixture(scope="session")
-def storage():
+def storage() -> Generator[mysql.connector.MySQLConnection, None, None]:
+    """
+    Fixture to create a database connection for the test session. Yields a connection object
+    and ensures it is closed after the tests are done.
+    :return:
+    """
     conn = create_connection(g_storage_url)
     yield conn
     conn.close()
 
 
-def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph):
+def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph) -> None:
+    """
+    Submit a job to the database.
+    :param conn: database connection object.
+    :param client_id: client ID of the driver submitting the job.
+    :param graph: task graph to be submitted.
+    :return: None
+    """
     cursor = conn.cursor()
 
     cursor.execute(
@@ -136,7 +179,13 @@ def submit_job(conn, client_id: uuid.UUID, graph: TaskGraph):
     cursor.close()
 
 
-def get_task_outputs(conn, task_id: uuid.UUID) -> List[TaskOutput]:
+def get_task_outputs(conn, task_id: uuid.UUID) -> list[TaskOutput]:
+    """
+    Get the outputs of a task by its ID.
+    :param conn: database connection object.
+    :param task_id: the ID of the task whose outputs are to be retrieved.
+    :return: list of TaskOutput objects representing the outputs of the task.
+    """
     cursor = conn.cursor()
 
     cursor.execute(
@@ -158,6 +207,12 @@ def get_task_outputs(conn, task_id: uuid.UUID) -> List[TaskOutput]:
 
 
 def get_task_state(conn, task_id: uuid.UUID) -> str:
+    """
+    Get the state of a task by its ID.
+    :param conn: database connection object.
+    :param task_id: the ID of the task whose state is to be retrieved.
+    :return: the state of the task as a string.
+    """
     cursor = conn.cursor()
 
     cursor.execute("SELECT state FROM tasks WHERE id = %s", (task_id.bytes,))
@@ -168,7 +223,13 @@ def get_task_state(conn, task_id: uuid.UUID) -> str:
     return state
 
 
-def remove_job(conn, job_id: uuid.UUID):
+def remove_job(conn, job_id: uuid.UUID) -> None:
+    """
+    Remove a job from the database by its ID.
+    :param conn: database connection object.
+    :param job_id: the ID of the job to be removed.
+    :return: None
+    """
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM jobs WHERE id = %s", (job_id.bytes,))
@@ -176,7 +237,13 @@ def remove_job(conn, job_id: uuid.UUID):
     cursor.close()
 
 
-def add_driver(conn, driver: Driver):
+def add_driver(conn, driver: Driver) -> None:
+    """
+    Register a new driver in the database.
+    :param conn: database connection object.
+    :param driver: driver object to be registered.
+    :return: None
+    """
     cursor = conn.cursor()
 
     cursor.execute("INSERT INTO drivers (id) VALUES (%s)", (driver.id.bytes,))
@@ -185,7 +252,14 @@ def add_driver(conn, driver: Driver):
     cursor.close()
 
 
-def add_driver_data(conn, driver: Driver, data: Data):
+def add_driver_data(conn, driver: Driver, data: Data) -> None:
+    """
+    Add a new data associated with a driver in the database.
+    :param conn: database connection object.
+    :param driver: driver object to which the data is associated.
+    :param data: data object to be added.
+    :return: None
+    """
     cursor = conn.cursor()
 
     cursor.execute("INSERT INTO data (id, value) VALUES (%s, %s)", (data.id.bytes, data.value))
@@ -198,7 +272,13 @@ def add_driver_data(conn, driver: Driver, data: Data):
     cursor.close()
 
 
-def remove_data(conn, data: Data):
+def remove_data(conn, data: Data) -> None:
+    """
+    Remove data from the database by its ID.
+    :param conn: database connection object.
+    :param data: data object to be removed.
+    :return: None
+    """
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM data WHERE id = %s", (data.id.bytes,))

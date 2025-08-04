@@ -2,11 +2,12 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Tuple
+from collections.abc import Generator
 
 import msgpack
 import pytest
 
+from tests.integration.client import TaskGraph, Task
 from .client import (
     add_driver,
     add_driver_data,
@@ -29,7 +30,13 @@ from .utils import g_scheduler_port
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int
-) -> Tuple[subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen, subprocess.Popen]:
+    """
+    Start a scheduler and a worker process.
+    :param storage_url: JDBC storage URL
+    :param scheduler_port: the port for the scheduler to listen on
+    :return: scheduler_process, worker_process
+    """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
     dir_path = dir_path / ".." / ".." / "src" / "spider"
@@ -57,7 +64,13 @@ def start_scheduler_worker(
 
 
 @pytest.fixture(scope="class")
-def scheduler_worker(storage):
+@pytest.mark.usefixtures("storage")
+def scheduler_worker() -> Generator[None, None, None]:
+    """
+    Fixture to start a scheduler and a worker process. Yields control to the test function.
+    After the test function completes, it kills the scheduler and the worker process.
+    :return:
+    """
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port
     )
@@ -69,7 +82,13 @@ def scheduler_worker(storage):
 
 
 @pytest.fixture(scope="function")
-def success_job(storage):
+def success_job(storage) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
+    """
+    Fixture to create a job with two parent tasks and one child task. Yields the task graph and tasks.
+    Cleans up the job after the test function completes.
+    :param storage:
+    :return:
+    """
     parent_1 = Task(
         id=uuid.uuid4(),
         function_name="sum_test",
@@ -127,7 +146,13 @@ def success_job(storage):
 
 
 @pytest.fixture(scope="function")
-def fail_job(storage):
+def fail_job(storage) -> Generator[Task, None, None]:
+    """
+    Fixture to create a job that will fail. The task will raise an error when executed.
+    Yield the task. Cleanup the job after the test function completes.
+    :param storage:
+    :return:
+    """
     task = Task(
         id=uuid.uuid4(),
         function_name="error_test",
@@ -149,7 +174,13 @@ def fail_job(storage):
 
 
 @pytest.fixture(scope="function")
-def data_job(storage):
+def data_job(storage) -> Generator[Task, None, None]:
+    """
+    Fixture to create a job that uses data. Yields the task that uses data.
+    Cleans up the job and data after the test function completes.
+    :param storage:
+    :return:
+    """
     data = Data(
         id=uuid.uuid4(),
         value=msgpack.packb(2),
@@ -181,6 +212,12 @@ def data_job(storage):
 
 @pytest.fixture(scope="function")
 def random_fail_job(storage):
+    """
+    Fixture to create a job that randomly fails. The task will succeed after a few retries.
+    Yields the task. Cleans up the job after the test function completes.
+    :param storage:
+    :return:
+    """
     data = Data(
         id=uuid.uuid4(),
         value=msgpack.packb(2),
@@ -212,7 +249,14 @@ def random_fail_job(storage):
 
 
 class TestSchedulerWorker:
-    def test_job_success(self, scheduler_worker, storage, success_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_job_success(self, storage, success_job):
+        """
+        Test the successful execution of a job with two parent tasks and one child task.
+        :param storage:
+        :param success_job:
+        :return: None
+        """
         graph, parent_1, parent_2, child = success_job
         # Wait for 2 seconds and check task state and output
         time.sleep(2)
@@ -232,14 +276,28 @@ class TestSchedulerWorker:
         assert len(outputs) == 1
         assert outputs[0].value == msgpack.packb(10)
 
-    def test_job_failure(self, scheduler_worker, storage, fail_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_job_failure(self, storage, fail_job):
+        """
+        Test the failure of a job that raise an error.
+        :param storage:
+        :param fail_job:
+        :return: None
+        """
         task = fail_job
         # Wait for 2 seconds and check task output
         time.sleep(2)
         state = get_task_state(storage, task.id)
         assert state == "fail"
 
-    def test_data_job(self, scheduler_worker, storage, data_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_data_job(self, storage, data_job):
+        """
+        Test the successful execution of a job that uses data.
+        :param storage:
+        :param data_job:
+        :return: None
+        """
         task = data_job
         # Wait for 2 seconds and check task output
         time.sleep(2)
@@ -249,7 +307,14 @@ class TestSchedulerWorker:
         assert len(outputs) == 1
         assert outputs[0].value == msgpack.packb(2)
 
-    def test_random_fail_job(self, scheduler_worker, storage, random_fail_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_random_fail_job(self, storage, random_fail_job):
+        """
+        Test the successful recovery and execution of a job that randomly fails.
+        :param storage:
+        :param random_fail_job:
+        :return: None
+        """
         task = random_fail_job
         # Wait for 2 seconds and check task output
         time.sleep(2)

@@ -1,7 +1,7 @@
 import subprocess
 import time
 from pathlib import Path
-from typing import Tuple
+from collections.abc import Generator
 
 import pytest
 
@@ -14,7 +14,13 @@ from .utils import g_scheduler_port
 
 def start_scheduler_workers(
     storage_url: str, scheduler_port: int
-) -> Tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+    """
+    Start the scheduler and two worker processes.
+    :param storage_url:
+    :param scheduler_port: The port for the scheduler to listen on.
+    :return: scheduler_process, worker_process_0, worker_process_1
+    """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
     dir_path = dir_path / ".." / ".." / "src" / "spider"
@@ -43,7 +49,13 @@ def start_scheduler_workers(
 
 
 @pytest.fixture(scope="class")
-def scheduler_worker(storage):
+@pytest.mark.usefixtures("storage")
+def scheduler_worker() -> Generator[None, None, None]:
+    """
+    Fixture to start the scheduler and two worker processes. Yields control to the test class,
+    and then kills the processes after the test class is done.
+    :return:
+    """
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port
     )
@@ -56,7 +68,12 @@ def scheduler_worker(storage):
 
 
 class TestClient:
-    def test_client(self, scheduler_worker):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_client(self) -> None:
+        """
+        Test the client_test C++ program and check for successful execution.
+        :return: None
+        """
         dir_path = Path(__file__).resolve().parent
         dir_path = dir_path / ".."
         client_cmds = [
@@ -64,5 +81,5 @@ class TestClient:
             "--storage_url",
             g_storage_url,
         ]
-        p = subprocess.run(client_cmds, timeout=20)
+        p = subprocess.run(client_cmds, check=False, timeout=20)
         assert p.returncode == 0

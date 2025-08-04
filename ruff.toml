@@ -2,6 +2,7 @@ line-length = 100
 
 [lint]
 select = ["ALL"]
+extend-select = ["PT"]
 ignore = [
     "COM812",  # Redundant and conflicts with ruff format
     "D203",  # No blank line before docstrings (D211)
@@ -21,6 +22,13 @@ ignore = [
     "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
+
+[lint.per-file-ignores]
+"tests/integration/test_*.py" = [
+    "S101",    # Allow use of `assert` (security warning)
+    "ANN001",  # Ignore missing type annotations for arguments
+    "ANN201",  # Ignore missing type annotations for parameters
+]
 
 [format]
 docstring-code-format = true
