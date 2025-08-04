@@ -38,7 +38,7 @@ tasks:
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DABSL_BUILD_TESTING=OFF"
-          JOBS: "{{.G_DEP_MAX_PARALLELISM_PER_TASK}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-Catch2:
     internal: true
@@ -54,7 +54,7 @@ tasks:
           GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DCATCH_BUILD_TESTING=OFF"
-          JOBS: "{{.G_DEP_MAX_PARALLELISM_PER_TASK}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   download-ystdlib:
     internal: true
@@ -87,7 +87,7 @@ tasks:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DFMT_TEST=OFF"
             - "-DFMT_DOC=OFF"
-          JOBS: "{{.G_DEP_MAX_PARALLELISM_PER_TASK}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-spdlog:
     internal: true
@@ -109,7 +109,7 @@ tasks:
             - "-DUSE_EXTERNAL_FMT=ON"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
-          JOBS: "{{.G_DEP_MAX_PARALLELISM_PER_TASK}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-mariadb-connector-cpp:
     internal: true
@@ -127,7 +127,7 @@ tasks:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DUSE_SYSTEM_INSTALLED_LIB=ON"
             - "-DINSTALL_LAYOUT=RPM"
-          JOBS: "{{.G_DEP_MAX_PARALLELISM_PER_TASK}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-msgpack:
     internal: true
@@ -147,7 +147,7 @@ tasks:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DMSGPACK_BUILD_TESTS=OFF"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
-          JOBS: "{{.G_DEP_MAX_PARALLELISM_PER_TASK}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-boost:
     internal: true
