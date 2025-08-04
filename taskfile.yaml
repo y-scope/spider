@@ -22,9 +22,8 @@ vars:
 
   # Build parameters
   # NOTE: Defaulting to an empty string is safe since CMake ignores an empty string.
-  G_DEP_BUILD_PARALLELISM: >-
-    {{default "" (env "SPIDER_DEP_BUILD_PARALLELISM")}}
-
+  G_DEPS_MAX_PARALLELISM_PER_TASK: >-
+    {{default "" (env "SPIDER_DEPS_MAX_PARALLELISM_PER_TASK")}}
   G_DEPS_DIR: "{{.G_BUILD_DIR}}/deps"
   # These should be kept in-sync with its usage in CMakeLists.txt
   G_DEPS_CMAKE_SETTINGS_DIR: "{{.G_DEPS_DIR}}/cmake-settings"
