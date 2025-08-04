@@ -137,7 +137,8 @@ def submit_job(conn: mysql.connector.MySQLConnection, client_id: uuid.UUID, grap
     for task_id, task in graph.tasks.items():
         state = "ready" if is_head_task(task_id, graph.dependencies) else "pending"
         cursor.execute(
-            "INSERT INTO tasks (id, job_id, func_name, state, timeout, max_retry) VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO tasks (id, job_id, func_name, state, timeout, max_retry)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
             (
                 task.id.bytes,
                 graph.id.bytes,
@@ -150,7 +151,8 @@ def submit_job(conn: mysql.connector.MySQLConnection, client_id: uuid.UUID, grap
 
         for i, task_input in enumerate(task.inputs):
             cursor.execute(
-                "INSERT INTO task_inputs (type, task_id, position, output_task_id, output_task_position, value, data_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO task_inputs (type, task_id, position, output_task_id,"
+                " output_task_position, value, data_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (
                     task_input.type,
                     task.id.bytes,

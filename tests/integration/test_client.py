@@ -51,8 +51,7 @@ def start_scheduler_workers(
 
 
 @pytest.fixture(scope="class")
-@pytest.mark.usefixtures("storage")
-def scheduler_worker() -> Generator[None, None, None]:
+def scheduler_worker(storage) -> Generator[None, None, None]:
     """
     Fixture to start the scheduler and two worker processes. Yields control to the test class,
     and then kills the processes after the test class is done.
@@ -85,5 +84,5 @@ class TestClient:
             "--storage_url",
             g_storage_url,
         ]
-        p = subprocess.run(client_cmds, check=False, timeout=20)
+        p = subprocess.run(client_cmds, check=True, timeout=20)
         assert p.returncode == 0

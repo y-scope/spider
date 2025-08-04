@@ -65,8 +65,7 @@ def start_scheduler_worker(
 
 
 @pytest.fixture(scope="class")
-@pytest.mark.usefixtures("storage")
-def scheduler_worker() -> Generator[None, None, None]:
+def scheduler_worker(storage) -> Generator[None, None, None]:
     """
     Fixture to start a scheduler and a worker process. Yields control to the test function.
     After the test function completes, it kills the scheduler and the worker process.
@@ -82,11 +81,11 @@ def scheduler_worker() -> Generator[None, None, None]:
     worker_process.kill()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def success_job(storage) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
     """
-    Fixture to create a job with two parent tasks and one child task. Yields the task graph and tasks.
-    Cleans up the job after the test function completes.
+    Fixture to create a job with two parent tasks and one child task. Yields the task graph and
+    tasks. Cleans up the job after the test function completes.
     :param storage:
     :return:
     """
@@ -146,7 +145,7 @@ def success_job(storage) -> Generator[tuple[TaskGraph, Task, Task, Task], None, 
     remove_job(storage, graph.id)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def fail_job(storage) -> Generator[Task, None, None]:
     """
     Fixture to create a job that will fail. The task will raise an error when executed.
@@ -174,7 +173,7 @@ def fail_job(storage) -> Generator[Task, None, None]:
     remove_job(storage, graph.id)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def data_job(storage) -> Generator[Task, None, None]:
     """
     Fixture to create a job that uses data. Yields the task that uses data.
@@ -211,7 +210,7 @@ def data_job(storage) -> Generator[Task, None, None]:
     remove_data(storage, data)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def random_fail_job(storage):
     """
     Fixture to create a job that randomly fails. The task will succeed after a few retries.
@@ -251,6 +250,7 @@ def random_fail_job(storage):
 
 class TestSchedulerWorker:
     """Test class for the scheduler and worker integration tests."""
+
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(self, storage, success_job):
         """
