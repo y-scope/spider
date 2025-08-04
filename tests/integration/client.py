@@ -196,7 +196,8 @@ def get_task_outputs(conn: SQLConnection, task_id: uuid.UUID) -> list[TaskOutput
         (task_id.bytes,),
     )
     outputs = []
-    for output_type, value, data_id in cursor.fetchall():
+    rows: list[tuple[str, str | None, bytes | None]] = cursor.fetchall()
+    for output_type, value, data_id in rows:
         if value is not None:
             outputs.append(TaskOutput(type=output_type, value=value))
         elif data_id is not None:
@@ -219,7 +220,7 @@ def get_task_state(conn: SQLConnection, task_id: uuid.UUID) -> str:
     cursor = conn.cursor()
 
     cursor.execute("SELECT state FROM tasks WHERE id = %s", (task_id.bytes,))
-    state = cursor.fetchone()[0]
+    state: str = cursor.fetchone()[0]
 
     conn.commit()
     cursor.close()
