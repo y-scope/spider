@@ -26,8 +26,6 @@ isort.order-by-type = false
 
 [lint.per-file-ignores]
 "tests/integration/test_*.py" = [
-    "ANN001",  # Ignore missing type annotations for arguments
-    "ANN201",  # Ignore missing type annotations for parameters
     "S101",    # Allow use of `assert` (security warning)
     "S603",    # Allow user of subprocess.Popen (security warning)
     "T201",    # Allow use of `print` (testing)

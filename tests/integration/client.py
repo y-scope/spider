@@ -119,8 +119,11 @@ def storage() -> Generator[mysql.connector.MySQLConnection, None, None]:
     conn.close()
 
 
-def submit_job(conn: mysql.connector.MySQLConnection, client_id: uuid.UUID, graph: TaskGraph)\
-        -> None:
+def submit_job(
+        conn: mysql.connector.MySQLConnection,
+        client_id: uuid.UUID,
+        graph: TaskGraph
+) -> None:
     """
     Submit a job to the database.
     :param conn: database connection object.

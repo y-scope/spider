@@ -9,6 +9,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import msgpack
+import mysql.connector
 import pytest
 
 from .client import (
@@ -16,7 +17,6 @@ from .client import (
     get_task_outputs,
     get_task_state,
     remove_job,
-    storage,
     submit_job,
     Task,
     TaskGraph,
@@ -37,7 +37,7 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str)\
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
-    popen_opts = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    popen_opts = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
     scheduler_cmds = [
         str(bin_dir / "spider_scheduler"),
         "--host",
@@ -63,11 +63,13 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str)\
 
 
 @pytest.fixture
-def scheduler_worker_signal(storage) -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
+def scheduler_worker_signal(storage: Generator[mysql.connector.MySQLConnection, None, None])\
+        -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
     """
     Fixture to start a scheduler and a worker process for testing signal handling.
     :return:
     """
+    _ = storage  # Avoid ARG001
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port, lib="tests/libsignal_test.so"
     )
@@ -81,7 +83,12 @@ def scheduler_worker_signal(storage) -> Generator[tuple[subprocess.Popen, subpro
 class TestWorkerSignal:
     """Test cases for worker signal handling."""
 
-    def test_task_signal(self, storage, scheduler_worker_signal) -> None:
+    def test_task_signal(
+            self,
+            storage: Generator[mysql.connector.MySQLConnection, None, None],
+            scheduler_worker_signal: Generator[
+                tuple[subprocess.Popen, subprocess.Popen], None, None]
+    ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
         Submit a task that checks whether the task executor receives the SIGTERM signal.
@@ -155,7 +162,12 @@ class TestWorkerSignal:
         remove_job(storage, new_graph.id)
         remove_job(storage, graph.id)
 
-    def test_task_exit(self, storage, scheduler_worker_signal) -> None:
+    def test_task_exit(
+            self,
+            storage: Generator[mysql.connector.MySQLConnection, None, None],
+            scheduler_worker_signal: Generator[
+                tuple[subprocess.Popen, subprocess.Popen], None, None]
+    ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
         Task executor exits immediately after receiving the signal.

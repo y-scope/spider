@@ -5,11 +5,11 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
+import mysql.connector
 import pytest
 
 from .client import (
     g_storage_url,
-    storage,
 )
 from .utils import g_scheduler_port
 
@@ -51,12 +51,15 @@ def start_scheduler_workers(
 
 
 @pytest.fixture(scope="class")
-def scheduler_worker(storage) -> Generator[None, None, None]:
+def scheduler_worker(
+        storage: Generator[mysql.connector.MySQLConnection, None, None]
+) -> Generator[None, None, None]:
     """
     Fixture to start the scheduler and two worker processes. Yields control to the test class,
     and then kills the processes after the test class is done.
     :return:
     """
+    _ = storage  # Avoid ARG001
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port
     )
