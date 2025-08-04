@@ -1,13 +1,12 @@
 import subprocess
 import time
 import uuid
-from pathlib import Path
 from collections.abc import Generator
+from pathlib import Path
 
 import msgpack
 import pytest
 
-from tests.integration.client import TaskGraph, Task
 from .client import (
     add_driver,
     add_driver_data,

@@ -1,7 +1,7 @@
 import re
 import uuid
-from dataclasses import dataclass
 from collections.abc import Generator
+from dataclasses import dataclass
 
 import mysql.connector
 import pytest
@@ -13,6 +13,7 @@ class TaskInput:
     TaskInput represents an input to a task.
     It can either be a direct value, a reference to another task's output, or a reference to data.
     """
+
     type: str
     task_output: tuple[uuid.UUID, int] | None = None
     value: str | None = None
@@ -25,6 +26,7 @@ class TaskOutput:
     TaskOutput represents an output of a task.
     It can either be a direct value or a reference to data.
     """
+
     type: str
     value: str | None = None
     data_id: uuid.UUID | None = None
@@ -35,6 +37,7 @@ class Task:
     """
     Task represents a unit of work in the task graph.
     """
+
     id: uuid.UUID
     function_name: str
     inputs: list[TaskInput]
@@ -48,6 +51,7 @@ class TaskGraph:
     """
     TaskGraph represents a directed acyclic graph of tasks.
     """
+
     id: uuid.UUID
     tasks: dict[uuid.UUID, Task]
     dependencies: list[tuple[uuid.UUID, uuid.UUID]]
@@ -58,6 +62,7 @@ class Driver:
     """
     Driver represents a client that can submit jobs to the task graph.
     """
+
     id: uuid.UUID
 
 
@@ -66,6 +71,7 @@ class Data:
     """
     Data represents a Spider Data object.
     """
+
     id: uuid.UUID
     value: str
 

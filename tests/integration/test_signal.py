@@ -3,8 +3,8 @@ import signal
 import subprocess
 import time
 import uuid
-from pathlib import Path
 from collections.abc import Generator
+from pathlib import Path
 
 import msgpack
 import pytest
@@ -32,6 +32,7 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str) -> t
     :param lib: Library to load in the worker.
     :return: scheduler and worker processes.
     """
+
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
     popen_opts = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -61,11 +62,12 @@ def start_scheduler_worker(storage_url: str, scheduler_port: int, lib: str) -> t
 
 @pytest.fixture(scope="function")
 @pytest.mark.usefixtures("storage")
-def scheduler_worker_signal() -> Generator[tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen], None, None]:
+def scheduler_worker_signal() -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
     """
     Fixture to start a scheduler and a worker process for testing signal handling.
     :return:
     """
+
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port, lib="tests/libsignal_test.so"
     )

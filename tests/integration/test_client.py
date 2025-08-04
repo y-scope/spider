@@ -1,7 +1,7 @@
 import subprocess
 import time
-from pathlib import Path
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 
