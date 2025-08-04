@@ -4,6 +4,7 @@ import re
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
+from typing import cast
 
 import mysql.connector
 import pytest
@@ -196,7 +197,7 @@ def get_task_outputs(conn: SQLConnection, task_id: uuid.UUID) -> list[TaskOutput
         (task_id.bytes,),
     )
     outputs = []
-    rows: list[tuple[str, str | None, bytes | None]] = cursor.fetchall()
+    rows = cast(list[tuple[str, str | None, bytes | None]], cursor.fetchall())
     for output_type, value, data_id in rows:
         if value is not None:
             outputs.append(TaskOutput(type=output_type, value=value))
@@ -220,7 +221,7 @@ def get_task_state(conn: SQLConnection, task_id: uuid.UUID) -> str:
     cursor = conn.cursor()
 
     cursor.execute("SELECT state FROM tasks WHERE id = %s", (task_id.bytes,))
-    state: str = cursor.fetchone()[0]
+    state = cast(tuple[str], cursor.fetchone())[0]
 
     conn.commit()
     cursor.close()
