@@ -196,13 +196,13 @@ target_link_libraries(
 add_library(spider::spider ALIAS spider_client)
 
 set(SPIDER_TDL_SHARED_SOURCES
-    tdl/ast/Node.cpp
+    tdl/parser/ast/Node.cpp
     CACHE INTERNAL
     "spider task definition language shared source files"
 )
 
 set(SPIDER_TDL_SHARED_HEADERS
-    tdl/ast/Node.hpp
+    tdl/parser/ast/Node.hpp
     CACHE INTERNAL
     "spider task definition language shared header files"
 )

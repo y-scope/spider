@@ -4,7 +4,7 @@
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
 
-using spider::tdl::ast::Node;
+using spider::tdl::parser::ast::Node;
 using NodeErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Node::ErrorCodeEnum>;
 
 template <>
