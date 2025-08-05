@@ -1,0 +1,34 @@
+toml-version = "v1.0.0"
+
+[files]
+include = ["**/*.toml"]
+exclude = ["tools/yscope-dev-utils/**", "build/**"]
+
+[format]
+
+[lint]
+[lint.rules]
+dotted-keys-out-of-order = "warn"
+key-empty = "warn"
+tables-out-of-order = "warn"
+
+[schema]
+enabled = true
+catalog = {
+  paths = [
+    "tombi://json.schemastore.org/api/json/catalog.json",
+    "https://json.schemastore.org/api/json/catalog.json",
+  ],
+}
+
+[[schemas]]
+path = "tombi://json.schemastore.org/tombi.json"
+include = ["tombi.toml"]
+
+[[schemas]]
+path = "https://json.schemastore.org/pyproject.json"
+include = ["pyproject.toml"]
+
+[[schemas]]
+path = "https://json.schemastore.org/ruff.json"
+include = ["ruff.toml"]
