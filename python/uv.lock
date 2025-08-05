@@ -169,7 +169,7 @@ wheels = [
 [[package]]
 name = "spider"
 version = "0.0.1"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "mariadb" },
     { name = "msgpack" },
