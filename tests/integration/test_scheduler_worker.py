@@ -33,10 +33,12 @@ def start_scheduler_worker(
     storage_url: str, scheduler_port: int
 ) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
-    Start a scheduler and a worker process.
-    :param storage_url: JDBC storage URL
-    :param scheduler_port: the port for the scheduler to listen on
-    :return: scheduler_process, worker_process
+    Starts a scheduler and a worker process.
+    :param storage_url: The JDBC URL of the storage
+    :param scheduler_port: The port for the scheduler to listen on.
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The worker process.
     """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
@@ -69,9 +71,11 @@ def scheduler_worker(
     storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
-    Fixture to start a scheduler and a worker process. Yields control to the test function.
-    After the test function completes, it kills the scheduler and the worker process.
-    :return:
+    Fixture to start qa scheduler process and a worker processes.
+    Yields control to the test class after the scheduler and workers spawned and ensures the
+    processes are killed after the tests session is complete.
+    :param storage: The storage connection.
+    :return: A generator that yields control to the test class.
     """
     _ = storage  # Avoid ARG001
     scheduler_process, worker_process = start_scheduler_worker(
@@ -89,10 +93,11 @@ def success_job(
     storage: SQLConnection,
 ) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
     """
-    Fixture to create a job with two parent tasks and one child task. Yields the task graph and
-    tasks. Cleans up the job after the test function completes.
-    :param storage:
-    :return:
+    Fixture to create a job with two parent tasks and one child task.
+    Yields a tuple of task graph and three tasks.
+    Ensures that the job is cleaned up the job after the test session completes.
+    :param storage: The storage connection.
+    :return: A tuple of the task graph and the three tasks.
     """
     parent_1 = Task(
         id=uuid.uuid4(),
@@ -156,9 +161,10 @@ def fail_job(
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that will fail. The task will raise an error when executed.
-    Yield the task. Cleanup the job after the test function completes.
-    :param storage:
-    :return:
+    Yields the task.
+    Ensures that the job is cleaned up after the test session completes.
+    :param storage: The storage connection.
+    :return: A generator that yields the task that will fail.
     """
     task = Task(
         id=uuid.uuid4(),
@@ -185,10 +191,11 @@ def data_job(
     storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
-    Fixture to create a job that uses data. Yields the task that uses data.
-    Cleans up the job and data after the test function completes.
-    :param storage:
-    :return:
+    Fixture to create a data and a task that uses the data.
+    Yields the task.
+    Ensures that the job and data are cleaned up after the test completes.
+    :param storage: The storage connection.
+    :return: A generator that yields the task that uses data.
     """
     data = Data(
         id=uuid.uuid4(),
@@ -225,9 +232,10 @@ def random_fail_job(
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that randomly fails. The task will succeed after a few retries.
-    Yields the task. Cleans up the job after the test function completes.
-    :param storage:
-    :return:
+    Yields the task.
+    Ensures that the job is cleaned up after the test completes.
+    :param storage: The storage connection.
+    :return: A generator that yields the task that randomly fails.
     """
     data = Data(
         id=uuid.uuid4(),
@@ -260,7 +268,7 @@ def random_fail_job(
 
 
 class TestSchedulerWorker:
-    """Test class for the scheduler and worker integration tests."""
+    """Wrapper class for the scheduler and worker integration tests."""
 
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(
@@ -269,10 +277,9 @@ class TestSchedulerWorker:
         success_job: tuple[TaskGraph, Task, Task, Task],
     ) -> None:
         """
-        Test the successful execution of a job with two parent tasks and one child task.
+        Tests the successful execution of a job with two parent tasks and one child task.
         :param storage:
         :param success_job:
-        :return: None
         """
         graph, parent_1, parent_2, child = success_job
         # Wait for 2 seconds and check task state and output
@@ -300,10 +307,9 @@ class TestSchedulerWorker:
         fail_job: Task,
     ) -> None:
         """
-        Test the failure of a job that raise an error.
+        Tests the failure of a job that raise an error.
         :param storage:
         :param fail_job:
-        :return: None
         """
         task = fail_job
         # Wait for 2 seconds and check task output
@@ -318,10 +324,9 @@ class TestSchedulerWorker:
         data_job: Task,
     ) -> None:
         """
-        Test the successful execution of a job that uses data.
+        Tests the successful execution of a job that uses data.
         :param storage:
         :param data_job:
-        :return: None
         """
         task = data_job
         # Wait for 2 seconds and check task output
@@ -339,10 +344,9 @@ class TestSchedulerWorker:
         random_fail_job: Task,
     ) -> None:
         """
-        Test the successful recovery and execution of a job that randomly fails.
+        Tests the successful recovery and execution of a job that randomly fails.
         :param storage:
         :param random_fail_job:
-        :return: None
         """
         task = random_fail_job
         # Wait for 2 seconds and check task output
