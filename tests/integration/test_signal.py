@@ -7,6 +7,7 @@ import time
 import uuid
 from collections.abc import Generator
 from pathlib import Path
+from typing import TypedDict
 
 import msgpack
 import pytest
@@ -25,10 +26,16 @@ from .client import (
 )
 from .utils import g_scheduler_port
 
+class PopenOpts(TypedDict, total=False):
+    stdin: int
+    stdout: int
+    stderr: int
+    text: bool
+
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int, lib: str
-) -> tuple[subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
     Create a scheduler and a worker process.
     :param storage_url: JDB storage URL.
@@ -38,7 +45,11 @@ def start_scheduler_worker(
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
-    popen_opts = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
+    popen_opts: PopenOpts = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+    }
     scheduler_cmds = [
         str(bin_dir / "spider_scheduler"),
         "--host",
@@ -66,7 +77,7 @@ def start_scheduler_worker(
 @pytest.fixture
 def scheduler_worker_signal(
     storage: Generator[SQLConnection, None, None],
-) -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
+) -> Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None]:
     """
     Fixture to start a scheduler and a worker process for testing signal handling.
     :return:
@@ -88,7 +99,7 @@ class TestWorkerSignal:
     def test_task_signal(
         self,
         storage: Generator[SQLConnection, None, None],
-        scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
+        scheduler_worker_signal: Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None],
     ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
