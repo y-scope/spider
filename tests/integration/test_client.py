@@ -21,7 +21,10 @@ def start_scheduler_workers(
     Starts the scheduler and two worker processes.
     :param storage_url: The JDBC URL of the storage.
     :param scheduler_port: The port for the scheduler to listen on.
-    :return: A tuple of the scheduler process and two worker processes.
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The first worker process.
+      - The second worker process.
     """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent

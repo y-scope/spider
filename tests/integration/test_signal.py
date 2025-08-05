@@ -34,7 +34,9 @@ def start_scheduler_worker(
     :param storage_url: The JDBC URL of the storage.
     :param scheduler_port: The port for the scheduler to listen on.
     :param lib: The library to load in the worker.
-    :return: A tuple of the scheduler process and the worker process.
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The worker process.
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
@@ -93,14 +95,14 @@ class TestWorkerSignal:
         scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """
-        Tests that worker propagates the SIGTERM signal to the task executor.
-        Submits a task that checks whether the task executor receives the SIGTERM signal.
-        The task should return the SIGTERM signal number as the output.
+        Tests that worker propagates the `SIGTERM` signal to the task executor.
+        Submits a task which checks whether the task executor receives the `SIGTERM` signal.
+        The task should return the `SIGTERM` signal number as the output.
         Later task should not be executed.
-        Worker should exit with SIGTERM.
+        Worker should exit with `SIGTERM`.
 
-        :param storage: The storage connection.
-        :param scheduler_worker_signal: A tuple containing the scheduler and worker processes.
+        :param storage:
+        :param scheduler_worker_signal:
         """
         _, worker_process = scheduler_worker_signal
 
@@ -175,8 +177,8 @@ class TestWorkerSignal:
         The running task should be marked as failed.
         The worker should exit with SIGTERM.
 
-        :param storage: The storage connection.
-        :param scheduler_worker_signal: A tuple containing the scheduler and worker processes.
+        :param storage:
+        :param scheduler_worker_signal:
         """
         _, worker_process = scheduler_worker_signal
 

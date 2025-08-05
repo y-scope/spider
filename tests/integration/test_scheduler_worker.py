@@ -36,7 +36,9 @@ def start_scheduler_worker(
     Starts a scheduler and a worker process.
     :param storage_url: The JDBC URL of the storage
     :param scheduler_port: The port for the scheduler to listen on.
-    :return: A tuple of the scheduler process and the worker process.
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The worker process.
     """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
@@ -275,8 +277,8 @@ class TestSchedulerWorker:
     ) -> None:
         """
         Tests the successful execution of a job with two parent tasks and one child task.
-        :param storage: The storage connection.
-        :param success_job: A tuple of task graph and three tasks.
+        :param storage:
+        :param success_job:
         """
         graph, parent_1, parent_2, child = success_job
         # Wait for 2 seconds and check task state and output
@@ -305,8 +307,8 @@ class TestSchedulerWorker:
     ) -> None:
         """
         Tests the failure of a job that raise an error.
-        :param storage: The storage connection.
-        :param fail_job: The task that will fail.
+        :param storage:
+        :param fail_job:
         """
         task = fail_job
         # Wait for 2 seconds and check task output
@@ -322,8 +324,8 @@ class TestSchedulerWorker:
     ) -> None:
         """
         Tests the successful execution of a job that uses data.
-        :param storage: The storage connection.
-        :param data_job: The task that uses data.
+        :param storage:
+        :param data_job:
         """
         task = data_job
         # Wait for 2 seconds and check task output
@@ -342,8 +344,8 @@ class TestSchedulerWorker:
     ) -> None:
         """
         Tests the successful recovery and execution of a job that randomly fails.
-        :param storage: The storage connection.
-        :param random_fail_job: The task that randomly fails.
+        :param storage:
+        :param random_fail_job:
         """
         task = random_fail_job
         # Wait for 2 seconds and check task output
