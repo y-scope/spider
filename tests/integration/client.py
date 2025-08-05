@@ -97,7 +97,8 @@ def is_head_task(task_id: uuid.UUID, dependencies: list[tuple[uuid.UUID, uuid.UU
     """
     Checks whether the task is a head task. A head task has no parent.
     :param task_id: The ID of the task to check.
-    :param dependencies: Dependencies of the given task.
+    :param dependencies: A list of dependencies of the given task, where each dependency is a pair
+        of (parent ID, child ID).
     :return: Whether the task has no parent.
     """
     return not any(dependency[1] == task_id for dependency in dependencies)
