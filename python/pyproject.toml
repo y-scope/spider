@@ -16,16 +16,16 @@ spider_task_executor = "src.task_executor.task_executor:main"
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
 
-[tool.hatch]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/client", "src/task_executor"]
-
 [dependency-groups]
 dev = [
     "mypy>=1.12.0",
     "ruff>=0.4.4",
 ]
+
+[tool.hatch]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/client", "src/task_executor"]
 
 [tool.mypy]
 strict = true
@@ -42,6 +42,10 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 100
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -66,7 +70,3 @@ ignore = [
     "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
-
-[tool.ruff.format]
-docstring-code-format = true
-docstring-code-line-length = 100
