@@ -9,7 +9,7 @@ using NodeErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Node::Error
 
 template <>
 auto NodeErrorCodeCategory::name() const noexcept -> char const* {
-    return "spider::ast::tdl::Node";
+    return "spider::tdl::parser::ast::Node";
 }
 
 template <>
