@@ -194,3 +194,24 @@ target_link_libraries(
 )
 
 add_library(spider::spider ALIAS spider_client)
+
+set(SPIDER_TDL_SHARED_SOURCES
+    tdl/parser/ast/Node.cpp
+    CACHE INTERNAL
+    "spider task definition language shared source files"
+)
+
+set(SPIDER_TDL_SHARED_HEADERS
+    tdl/parser/ast/Node.hpp
+    CACHE INTERNAL
+    "spider task definition language shared header files"
+)
+
+add_library(spider_tdl)
+target_sources(spider_tdl PRIVATE ${SPIDER_TDL_SHARED_SOURCES})
+target_sources(spider_tdl PUBLIC ${SPIDER_TDL_SHARED_HEADERS})
+target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+target_link_libraries(spider_tdl PUBLIC ystdlib::error_handling)
+
+add_library(spider::tdl ALIAS spider_tdl)
