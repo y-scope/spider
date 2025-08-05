@@ -64,16 +64,16 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "ystdlib"
+          CMAKE_PACKAGE_NAME: "ystdlib"
           WORK_DIR: "{{.G_DEPS_DIR}}/ystdlib"
-          FILE_SHA256: "4c027c884506e1775070192f9d1d58238a6d5b078608211fa442477393676738"
-          OUTPUT_DIR: "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
-          URL: "https://github.com/y-scope/ystdlib-cpp/archive/0ae886c.tar.gz"
+          TAR_SHA256: "4c027c884506e1775070192f9d1d58238a6d5b078608211fa442477393676738"
+          TAR_URL: "https://github.com/y-scope/ystdlib-cpp/archive/0ae886c.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-Dystdlib_BUILD_TESTING=OFF"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-fmtlib:
     internal: true
