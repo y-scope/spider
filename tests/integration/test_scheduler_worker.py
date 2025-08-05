@@ -66,7 +66,7 @@ def start_scheduler_worker(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: Generator[SQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
     Fixture to start a scheduler and a worker process. Yields control to the test function.
@@ -86,7 +86,7 @@ def scheduler_worker(
 
 @pytest.fixture
 def success_job(
-    storage: Generator[SQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
     """
     Fixture to create a job with two parent tasks and one child task. Yields the task graph and
@@ -152,7 +152,7 @@ def success_job(
 
 @pytest.fixture
 def fail_job(
-    storage: Generator[SQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that will fail. The task will raise an error when executed.
@@ -182,7 +182,7 @@ def fail_job(
 
 @pytest.fixture
 def data_job(
-    storage: Generator[SQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that uses data. Yields the task that uses data.
@@ -221,7 +221,7 @@ def data_job(
 
 @pytest.fixture
 def random_fail_job(
-    storage: Generator[SQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that randomly fails. The task will succeed after a few retries.
@@ -265,8 +265,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(
         self,
-        storage: Generator[SQLConnection, None, None],
-        success_job: Generator[tuple[TaskGraph, Task, Task, Task], None, None],
+        storage: SQLConnection,
+        success_job: tuple[TaskGraph, Task, Task, Task],
     ) -> None:
         """
         Test the successful execution of a job with two parent tasks and one child task.
@@ -296,8 +296,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_failure(
         self,
-        storage: Generator[SQLConnection, None, None],
-        fail_job: Generator[Task, None, None],
+        storage: SQLConnection,
+        fail_job: Task,
     ) -> None:
         """
         Test the failure of a job that raise an error.
@@ -314,8 +314,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_data_job(
         self,
-        storage: Generator[SQLConnection, None, None],
-        data_job: Generator[Task, None, None],
+        storage: SQLConnection,
+        data_job: Task,
     ) -> None:
         """
         Test the successful execution of a job that uses data.
@@ -335,8 +335,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_random_fail_job(
         self,
-        storage: Generator[SQLConnection, None, None],
-        random_fail_job: Generator[Task, None, None],
+        storage: SQLConnection,
+        random_fail_job: Task,
     ) -> None:
         """
         Test the successful recovery and execution of a job that randomly fails.

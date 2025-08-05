@@ -76,7 +76,7 @@ def start_scheduler_worker(
 
 @pytest.fixture
 def scheduler_worker_signal(
-    storage: Generator[SQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None]:
     """
     Fixture to start a scheduler and a worker process for testing signal handling.
@@ -98,8 +98,8 @@ class TestWorkerSignal:
 
     def test_task_signal(
         self,
-        storage: Generator[SQLConnection, None, None],
-        scheduler_worker_signal: Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None],
+        storage: SQLConnection,
+        scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
@@ -176,8 +176,8 @@ class TestWorkerSignal:
 
     def test_task_exit(
         self,
-        storage: Generator[SQLConnection, None, None],
-        scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
+        storage: SQLConnection,
+        scheduler_worker_signal: tuple[subprocess.Popen, subprocess.Popen],
     ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
