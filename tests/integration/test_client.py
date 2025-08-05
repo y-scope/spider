@@ -1,20 +1,31 @@
+"""Integration test for the client_test C++ program."""
+
 import subprocess
 import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Tuple
 
+import mysql.connector
 import pytest
 
 from .client import (
     g_storage_url,
-    storage,
 )
 from .utils import g_scheduler_port
 
 
 def start_scheduler_workers(
     storage_url: str, scheduler_port: int
-) -> Tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+    """
+    Starts the scheduler and two worker processes.
+    :param storage_url: The JDBC URL of the storage.
+    :param scheduler_port: The port for the scheduler to listen on.
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The first worker process.
+      - The second worker process.
+    """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
     dir_path = dir_path / ".." / ".." / "src" / "spider"
@@ -43,7 +54,16 @@ def start_scheduler_workers(
 
 
 @pytest.fixture(scope="class")
-def scheduler_worker(storage):
+def scheduler_worker(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[None, None, None]:
+    """
+    Fixture to start a scheduler process and two worker processes.
+    Yields control to the test class after the scheduler and workers spawned and ensures the
+    processes are killed after the tests session is complete.
+    :return: A generator that yields control to the test class.
+    """
+    _ = storage  # Avoid ARG001
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port
     )
@@ -56,7 +76,11 @@ def scheduler_worker(storage):
 
 
 class TestClient:
-    def test_client(self, scheduler_worker):
+    """Wrapper class for running `client_test`."""
+
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_client(self) -> None:
+        """Executes the `client_test` program and checks for successful execution."""
         dir_path = Path(__file__).resolve().parent
         dir_path = dir_path / ".."
         client_cmds = [
@@ -64,5 +88,5 @@ class TestClient:
             "--storage_url",
             g_storage_url,
         ]
-        p = subprocess.run(client_cmds, timeout=20)
+        p = subprocess.run(client_cmds, check=True, timeout=20)
         assert p.returncode == 0

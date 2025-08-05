@@ -111,29 +111,27 @@ tasks:
     cmds:
       - task: "py"
         vars:
-          BLACK_FLAGS: "--check"
-          RUFF_FLAGS: ""
+          RUFF_FORMAT_FLAGS: "--diff"
 
   py-fix:
     cmds:
       - task: "py"
         vars:
-          BLACK_FLAGS: ""
-          RUFF_FLAGS: "--fix"
+          RUFF_CHECK_FLAGS: "--fix"
 
   py:
     internal: true
-    requires:
-      vars: ["BLACK_FLAGS", "RUFF_FLAGS"]
+    vars:
+      RUFF_CHECK_FLAGS: "{{.RUFF_CHECK_FLAGS | default \"\"}}"
+      RUFF_FORMAT_FLAGS: "{{.RUFF_FORMAT_FLAGS | default \"\"}}"
     deps: ["venv"]
     cmds:
       - for:
           - "tests/integration"
         cmd: |-
           . "{{.G_LINT_VENV_DIR}}/bin/activate"
-          cd "{{.ITEM}}"
-          black --color --line-length 100 {{.BLACK_FLAGS}} .
-          ruff check {{.RUFF_FLAGS}} .
+          ruff check {{.RUFF_CHECK_FLAGS}} "{{.ITEM}}"
+          ruff format {{.RUFF_FORMAT_FLAGS}} "{{.ITEM}}"
 
   yml:
     aliases:

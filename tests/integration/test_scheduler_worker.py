@@ -1,10 +1,13 @@
+"""Integration tests for the scheduler and worker processes."""
+
 import subprocess
 import time
 import uuid
+from collections.abc import Generator
 from pathlib import Path
-from typing import Tuple
 
 import msgpack
+import mysql.connector
 import pytest
 
 from .client import (
@@ -17,7 +20,6 @@ from .client import (
     get_task_state,
     remove_data,
     remove_job,
-    storage,
     submit_job,
     Task,
     TaskGraph,
@@ -29,7 +31,15 @@ from .utils import g_scheduler_port
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int
-) -> Tuple[subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen, subprocess.Popen]:
+    """
+    Starts a scheduler and a worker process.
+    :param storage_url: The JDBC URL of the storage
+    :param scheduler_port: The port for the scheduler to listen on.
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The worker process.
+    """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
     dir_path = dir_path / ".." / ".." / "src" / "spider"
@@ -57,7 +67,16 @@ def start_scheduler_worker(
 
 
 @pytest.fixture(scope="class")
-def scheduler_worker(storage):
+def scheduler_worker(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[None, None, None]:
+    """
+    Fixture to start qa scheduler process and a worker processes.
+    Yields control to the test class after the scheduler and workers spawned and ensures the
+    processes are killed after the tests session is complete.
+    :return: A generator that yields control to the test class.
+    """
+    _ = storage  # Avoid ARG001
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=g_storage_url, scheduler_port=g_scheduler_port
     )
@@ -68,8 +87,17 @@ def scheduler_worker(storage):
     worker_process.kill()
 
 
-@pytest.fixture(scope="function")
-def success_job(storage):
+@pytest.fixture
+def success_job(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
+    """
+    Fixture to create a job with two parent tasks and one child task.
+    Yields a tuple of task graph and three tasks.
+    Ensures that the job is cleaned up the job after the test session completes.
+    :param storage: The storage connection.
+    :return: A tuple of the task graph and the three tasks.
+    """
     parent_1 = Task(
         id=uuid.uuid4(),
         function_name="sum_test",
@@ -126,8 +154,17 @@ def success_job(storage):
     remove_job(storage, graph.id)
 
 
-@pytest.fixture(scope="function")
-def fail_job(storage):
+@pytest.fixture
+def fail_job(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[Task, None, None]:
+    """
+    Fixture to create a job that will fail. The task will raise an error when executed.
+    Yields the task.
+    Ensures that the job is cleaned up after the test session completes.
+    :param storage: The storage connection.
+    :return: A generator that yields the task that will fail.
+    """
     task = Task(
         id=uuid.uuid4(),
         function_name="error_test",
@@ -148,8 +185,17 @@ def fail_job(storage):
     remove_job(storage, graph.id)
 
 
-@pytest.fixture(scope="function")
-def data_job(storage):
+@pytest.fixture
+def data_job(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[Task, None, None]:
+    """
+    Fixture to create a data and a task that uses the data.
+    Yields the task.
+    Ensures that the job and data are cleaned up after the test completes.
+    :param storage: The storage connection.
+    :return: A generator that yields the task that uses data.
+    """
     data = Data(
         id=uuid.uuid4(),
         value=msgpack.packb(2),
@@ -179,8 +225,17 @@ def data_job(storage):
     remove_data(storage, data)
 
 
-@pytest.fixture(scope="function")
-def random_fail_job(storage):
+@pytest.fixture
+def random_fail_job(
+    storage: Generator[mysql.connector.MySQLConnection, None, None],
+) -> Generator[Task, None, None]:
+    """
+    Fixture to create a job that randomly fails. The task will succeed after a few retries.
+    Yields the task.
+    Ensures that the job is cleaned up after the test completes.
+    :param storage: The storage connection.
+    :return: A generator that yields the task that randomly fails.
+    """
     data = Data(
         id=uuid.uuid4(),
         value=msgpack.packb(2),
@@ -212,7 +267,19 @@ def random_fail_job(storage):
 
 
 class TestSchedulerWorker:
-    def test_job_success(self, scheduler_worker, storage, success_job):
+    """Wrapper class for the scheduler and worker integration tests."""
+
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_job_success(
+        self,
+        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        success_job: Generator[tuple[TaskGraph, Task, Task, Task], None, None],
+    ) -> None:
+        """
+        Tests the successful execution of a job with two parent tasks and one child task.
+        :param storage:
+        :param success_job:
+        """
         graph, parent_1, parent_2, child = success_job
         # Wait for 2 seconds and check task state and output
         time.sleep(2)
@@ -232,14 +299,34 @@ class TestSchedulerWorker:
         assert len(outputs) == 1
         assert outputs[0].value == msgpack.packb(10)
 
-    def test_job_failure(self, scheduler_worker, storage, fail_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_job_failure(
+        self,
+        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        fail_job: Generator[Task, None, None],
+    ) -> None:
+        """
+        Tests the failure of a job that raise an error.
+        :param storage:
+        :param fail_job:
+        """
         task = fail_job
         # Wait for 2 seconds and check task output
         time.sleep(2)
         state = get_task_state(storage, task.id)
         assert state == "fail"
 
-    def test_data_job(self, scheduler_worker, storage, data_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_data_job(
+        self,
+        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        data_job: Generator[Task, None, None],
+    ) -> None:
+        """
+        Tests the successful execution of a job that uses data.
+        :param storage:
+        :param data_job:
+        """
         task = data_job
         # Wait for 2 seconds and check task output
         time.sleep(2)
@@ -249,7 +336,17 @@ class TestSchedulerWorker:
         assert len(outputs) == 1
         assert outputs[0].value == msgpack.packb(2)
 
-    def test_random_fail_job(self, scheduler_worker, storage, random_fail_job):
+    @pytest.mark.usefixtures("scheduler_worker")
+    def test_random_fail_job(
+        self,
+        storage: Generator[mysql.connector.MySQLConnection, None, None],
+        random_fail_job: Generator[Task, None, None],
+    ) -> None:
+        """
+        Tests the successful recovery and execution of a job that randomly fails.
+        :param storage:
+        :param random_fail_job:
+        """
         task = random_fail_job
         # Wait for 2 seconds and check task output
         time.sleep(2)
