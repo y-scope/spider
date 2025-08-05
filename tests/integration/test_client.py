@@ -77,9 +77,7 @@ class TestClient:
 
     @pytest.mark.usefixtures("scheduler_worker")
     def test_client(self) -> None:
-        """
-        Executes the `client_test` program and checks for successful execution.
-        """
+        """Executes the `client_test` program and checks for successful execution."""
         dir_path = Path(__file__).resolve().parent
         dir_path = dir_path / ".."
         client_cmds = [
