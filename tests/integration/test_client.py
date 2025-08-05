@@ -15,10 +15,13 @@ def start_scheduler_workers(
     storage_url: str, scheduler_port: int
 ) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
-    Start the scheduler and two worker processes.
-    :param storage_url:
+    Starts the scheduler and two worker processes.
+    :param storage_url: The JDBC URL of the storage.
     :param scheduler_port: The port for the scheduler to listen on.
-    :return: scheduler_process, worker_process_0, worker_process_1
+    :return: A tuple of the started processes:
+      - The scheduler process.
+      - The first worker process.
+      - The second worker process.
     """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
@@ -52,9 +55,11 @@ def scheduler_worker(
     storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
-    Fixture to start the scheduler and two worker processes. Yields control to the test class,
-    and then kills the processes after the test class is done.
-    :return:
+    Fixture to start a scheduler process and two worker processes.
+    Yields control to the test class after the scheduler and workers spawned and ensures the
+    processes are killed after the tests session is complete.
+    :param storage: The storage connection.
+    :return: A generator that yields control to the test class.
     """
     _ = storage  # Avoid ARG001
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
@@ -69,14 +74,11 @@ def scheduler_worker(
 
 
 class TestClient:
-    """Test class for the client_test C++ program."""
+    """Wrapper class for running `client_test`."""
 
     @pytest.mark.usefixtures("scheduler_worker")
     def test_client(self) -> None:
-        """
-        Test the client_test C++ program and check for successful execution.
-        :return: None
-        """
+        """Executes the `client_test` program and checks for successful execution."""
         dir_path = Path(__file__).resolve().parent
         dir_path = dir_path / ".."
         client_cmds = [

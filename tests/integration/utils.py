@@ -6,7 +6,7 @@ AddrType = tuple[str, int]
 
 
 def _get_free_tcp_port() -> int:
-    """Returns a free TCP port."""
+    """:return: A free TCP port number."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         addr: AddrType = s.getsockname()
