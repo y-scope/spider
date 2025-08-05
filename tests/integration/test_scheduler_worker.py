@@ -31,7 +31,7 @@ from .utils import g_scheduler_port
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int
-) -> tuple[subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
     Start a scheduler and a worker process.
     :param storage_url: JDBC storage URL

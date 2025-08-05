@@ -16,7 +16,7 @@ from .utils import g_scheduler_port
 
 def start_scheduler_workers(
     storage_url: str, scheduler_port: int
-) -> tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
     Start the scheduler and two worker processes.
     :param storage_url:

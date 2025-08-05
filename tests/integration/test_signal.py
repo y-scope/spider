@@ -177,7 +177,7 @@ class TestWorkerSignal:
     def test_task_exit(
         self,
         storage: SQLConnection,
-        scheduler_worker_signal: tuple[subprocess.Popen, subprocess.Popen],
+        scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
         Test that worker propagates the SIGTERM signal to the task executor.
