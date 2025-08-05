@@ -22,4 +22,4 @@ tasks:
 
   py-build:
     cmds:
-      - uv build --directory "{{.G_SRC_PYTHON_DIR}}" -o "{{.G_BUILD_PYTHON_DIR}}"
+      - "uv build --directory {{.G_SRC_PYTHON_DIR}} -o {{.G_BUILD_PYTHON_DIR}}"
