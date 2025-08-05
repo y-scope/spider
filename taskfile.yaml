@@ -20,6 +20,8 @@ vars:
   G_TEST_DIR: "{{.ROOT_DIR}}/tests"
   G_EXAMPLES_DIR: "{{.ROOT_DIR}}/examples"
 
+  G_SRC_PYTHON_DIR: "{{.ROOT_DIR}}/python"
+
   # Build parameters
   # NOTE: Defaulting to an empty string is safe since CMake ignores an empty string.
   G_DEPS_MAX_PARALLELISM_PER_TASK: >-
