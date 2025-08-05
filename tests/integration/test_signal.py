@@ -26,7 +26,10 @@ from .client import (
 )
 from .utils import g_scheduler_port
 
+
 class PopenOpts(TypedDict, total=False):
+    """Options for subprocess.Popen."""
+
     stdin: int
     stdout: int
     stderr: int

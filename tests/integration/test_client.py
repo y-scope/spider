@@ -7,10 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from .client import (
-    g_storage_url,
-    SQLConnection
-)
+from .client import g_storage_url, SQLConnection
 from .utils import g_scheduler_port
 
 

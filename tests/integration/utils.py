@@ -6,6 +6,7 @@ IPv4Addr = tuple[str, int]
 IPv6Addr = tuple[str, int, int, int]
 AddrType = IPv4Addr | IPv6Addr
 
+
 def _get_free_tcp_port() -> int:
     """Returns a free TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

@@ -70,9 +70,14 @@ class Data:
     id: uuid.UUID
     value: str
 
-SQLConnection = mysql.connector.abstracts.MySQLConnectionAbstract | mysql.connector.pooling.PooledMySQLConnection
 
-def create_connection(storage_url: str) -> SQLConnection :
+SQLConnection = (
+    mysql.connector.abstracts.MySQLConnectionAbstract
+    | mysql.connector.pooling.PooledMySQLConnection
+)
+
+
+def create_connection(storage_url: str) -> SQLConnection:
     """
     Creation a MariaDB connection from a JDBC URL.
     :param storage_url: JDBC URL for the MariaDB database.
@@ -121,9 +126,7 @@ def storage() -> Generator[SQLConnection, None, None]:
     conn.close()
 
 
-def submit_job(
-    conn: SQLConnection, client_id: uuid.UUID, graph: TaskGraph
-) -> None:
+def submit_job(conn: SQLConnection, client_id: uuid.UUID, graph: TaskGraph) -> None:
     """
     Submit a job to the database.
     :param conn: database connection object.
@@ -197,7 +200,7 @@ def get_task_outputs(conn: SQLConnection, task_id: uuid.UUID) -> list[TaskOutput
         (task_id.bytes,),
     )
     outputs = []
-    rows = cast(list[tuple[str, str | None, bytes | None]], cursor.fetchall())
+    rows = cast("list[tuple[str, str | None, bytes | None]]", cursor.fetchall())
     for output_type, value, data_id in rows:
         if value is not None:
             outputs.append(TaskOutput(type=output_type, value=value))
@@ -221,7 +224,7 @@ def get_task_state(conn: SQLConnection, task_id: uuid.UUID) -> str:
     cursor = conn.cursor()
 
     cursor.execute("SELECT state FROM tasks WHERE id = %s", (task_id.bytes,))
-    state = cast(tuple[str], cursor.fetchone())[0]
+    state = cast("tuple[str]", cursor.fetchone())[0]
 
     conn.commit()
     cursor.close()
