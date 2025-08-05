@@ -30,11 +30,11 @@ def start_scheduler_worker(
     storage_url: str, scheduler_port: int, lib: str
 ) -> tuple[subprocess.Popen, subprocess.Popen]:
     """
-    Create a scheduler and a worker process.
-    :param storage_url: JDB storage URL.
-    :param scheduler_port: the port for the scheduler to listen on.
-    :param lib: Library to load in the worker.
-    :return: scheduler and worker processes.
+    Creates a scheduler and a worker process.
+    :param storage_url: The JDBC URL of the storage.
+    :param scheduler_port: The port for the scheduler to listen on.
+    :param lib: The library to load in the worker.
+    :return: A tuple of the scheduler process and the worker process.
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
@@ -68,8 +68,10 @@ def scheduler_worker_signal(
     storage: Generator[mysql.connector.MySQLConnection, None, None],
 ) -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
     """
-    Fixture to start a scheduler and a worker process for testing signal handling.
-    :return:
+    Fixture to start a scheduler and a worker process.
+    Yields the scheduler and worker processes.
+    Ensures that the processes are cleaned up after the test.
+    :return: A generator yielding the scheduler and worker processes.
     """
     _ = storage  # Avoid ARG001
     scheduler_process, worker_process = start_scheduler_worker(
@@ -83,7 +85,7 @@ def scheduler_worker_signal(
 
 
 class TestWorkerSignal:
-    """Test cases for worker signal handling."""
+    """Wrapper class for worker signal handling tests."""
 
     def test_task_signal(
         self,
@@ -91,15 +93,14 @@ class TestWorkerSignal:
         scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """
-        Test that worker propagates the SIGTERM signal to the task executor.
-        Submit a task that checks whether the task executor receives the SIGTERM signal.
+        Tests that worker propagates the SIGTERM signal to the task executor.
+        Submits a task that checks whether the task executor receives the SIGTERM signal.
         The task should return the SIGTERM signal number as the output.
         Later task should not be executed.
         Worker should exit with SIGTERM.
 
-        :param storage:
-        :param scheduler_worker_signal:
-        :return: None
+        :param storage: The storage connection.
+        :param scheduler_worker_signal: A tuple containing the scheduler and worker processes.
         """
         _, worker_process = scheduler_worker_signal
 
@@ -169,14 +170,13 @@ class TestWorkerSignal:
         scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
     ) -> None:
         """
-        Test that worker propagates the SIGTERM signal to the task executor.
+        Tests that worker propagates the SIGTERM signal to the task executor.
         Task executor exits immediately after receiving the signal.
         The running task should be marked as failed.
         The worker should exit with SIGTERM.
 
-        :param storage:
-        :param scheduler_worker_signal:
-        :return: None
+        :param storage: The storage connection.
+        :param scheduler_worker_signal: A tuple containing the scheduler and worker processes.
         """
         _, worker_process = scheduler_worker_signal
 
