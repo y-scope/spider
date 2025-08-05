@@ -30,12 +30,12 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "absl"
+          CMAKE_PACKAGE_NAME: "absl"
           WORK_DIR: "{{.G_DEPS_DIR}}/absl"
-          FILE_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
-          URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
+          TAR_SHA256: "b396401fd29e2e679cace77867481d388c807671dc2acc602a0259eeb79b7811"
+          TAR_URL: "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250127.1.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DABSL_BUILD_TESTING=OFF"
           JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
@@ -46,12 +46,12 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "Catch2"
+          CMAKE_PACKAGE_NAME: "Catch2"
           WORK_DIR: "{{.G_DEPS_DIR}}/Catch2"
-          FILE_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
-          URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
+          TAR_SHA256: "1ab2de20460d4641553addfdfe6acd4109d871d5531f8f519a52ea4926303087"
+          TAR_URL: "https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DCATCH_BUILD_TESTING=OFF"
           JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
@@ -78,12 +78,12 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "fmt"
+          CMAKE_PACKAGE_NAME: "fmt"
           WORK_DIR: "{{.G_DEPS_DIR}}/fmtlib"
-          FILE_SHA256: "6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f"
-          URL: "https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz"
+          TAR_SHA256: "6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f"
+          TAR_URL: "https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DFMT_TEST=OFF"
             - "-DFMT_DOC=OFF"
@@ -98,16 +98,17 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "spdlog"
+          CMAKE_PACKAGE_NAME: "spdlog"
           WORK_DIR: "{{.G_DEPS_DIR}}/spdlog"
-          FILE_SHA256: "9962648c9b4f1a7bbc76fd8d9172555bad1871fdb14ff4f842ef87949682caa5"
-          URL: "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz"
+          TAR_SHA256: "9962648c9b4f1a7bbc76fd8d9172555bad1871fdb14ff4f842ef87949682caa5"
+          TAR_URL: "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DSPDLOG_BUILD_TESTS=OFF"
             - "-DUSE_EXTERNAL_FMT=ON"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
+            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
           JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
@@ -117,13 +118,13 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "mariadb-connector-cpp"
+          CMAKE_PACKAGE_NAME: "mariadb-connector-cpp"
           WORK_DIR: "{{.G_DEPS_DIR}}/mariadb-connector-cpp"
-          FILE_SHA256: "0e3dfe9f2bc3f7bb6f7c159009556290064a7c23402ea08019fa8aebfc3ff2c9"
-          URL: "https://github.com/mariadb-corporation/mariadb-connector-cpp/archive/refs/tags/\
+          TAR_SHA256: "0e3dfe9f2bc3f7bb6f7c159009556290064a7c23402ea08019fa8aebfc3ff2c9"
+          TAR_URL: "https://github.com/mariadb-corporation/mariadb-connector-cpp/archive/refs/tags/\
             1.1.5.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DUSE_SYSTEM_INSTALLED_LIB=ON"
             - "-DINSTALL_LAYOUT=RPM"
@@ -137,23 +138,24 @@ tasks:
     cmds:
       - task: ":utils:cmake:install-remote-tar"
         vars:
-          NAME: "msgpack-cxx"
+          CMAKE_PACKAGE_NAME: "msgpack-cxx"
           WORK_DIR: "{{.G_DEPS_DIR}}/msgpack"
-          FILE_SHA256: "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f"
-          URL: "https://github.com/msgpack/msgpack-c/releases/download/\
+          TAR_SHA256: "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f"
+          TAR_URL: "https://github.com/msgpack/msgpack-c/releases/download/\
             cpp-7.0.0/msgpack-cxx-7.0.0.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          GEN_ARGS:
+          CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DMSGPACK_BUILD_TESTS=OFF"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/boost.cmake"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
+            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
           JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-boost:
     internal: true
     run: "once"
     cmds:
-      - task: "boost-download-and-install"
+      - task: ":utils:boost:download-and-install"
         vars:
           WORK_DIR: "{{.G_DEPS_DIR}}/boost"
           FILE_SHA256: "2128a4c96862b5c0970c1e34d76b1d57e4a1016b80df85ad39667f30b1deba26"
@@ -167,161 +169,3 @@ tasks:
             - "program_options"
             - "regex"
             - "system"
-
-  # Runs the bootstrap.sh generate step in the given source directory. Boost only supports
-  # in-source generation and building.
-  #
-  # @param {string} SOURCE_DIR Project source directory.
-  # @param {string} INSTALL_PREFIX Path prefix of where the project should be installed.
-  # @param {string[]} TARGETS Target libraries to build.
-  # @param {string[]} [EXTRA_ARGS] Any additional arguments to pass to the generate command.
-  boost-generate:
-    internal: true
-    dir: "{{.SOURCE_DIR}}"
-    cmds:
-      - >-
-        ./bootstrap.sh
-        --prefix="{{.INSTALL_PREFIX}}"
-        --exec-prefix="{{.INSTALL_PREFIX}}"
-        --with-libraries={{(join "," .TARGETS)}}
-        {{- range .EXTRA_ARGS}}
-        "{{.}}"
-        {{- end}}
-
-  # Runs the b2 build step for boost. The caller must have previously called `generate` on
-  # `SOURCE_DIR` for this task to succeed.
-  #
-  # @param {string} SOURCE_DIR Directory containing the boost source.
-  # @param {string[]} [EXTRA_ARGS] Any additional arguments to pass to the build command.
-  # @param {int} [JOBS] The maximum number of concurrent processes to use when building. If
-  # omitted, the b2 default number is used. Before 1.76.0, the number was 1. Since 1.76.0, the
-  # default is the number of cores.
-  boost-build:
-    internal: true
-    dir: "{{.SOURCE_DIR}}"
-    cmds:
-      - >-
-        ./b2
-        {{- range .EXTRA_ARGS}}
-        "{{.}}"
-        {{- end}}
-        {{- if .JOBS}}
-        "-j{{.JOBS}}"
-        {{- end}}
-
-  # Runs the b2 install step for boost. The caller must have previously called `build` on
-  # `SOURCE_DIR` for this task to succeed. If `CMAKE_SETTINGS_DIR` is set, a settings file will be
-  # created in that directory, containing a `boost_ROOT` CMake variable that points to
-  # `INSTALL_PREFIX`.
-  #
-  # @param {string} SOURCE_DIR Directory containing the boost source.
-  # @param {string} INSTALL_PREFIX Path prefix of where the project should be installed.
-  # @param {string} [CMAKE_SETTINGS_DIR] If set, the directory where the project's CMake settings
-  # file should be stored.
-  # @param {string[]} [EXTRA_ARGS] Any additional arguments to pass to the install command.
-  boost-install:
-    internal: true
-    dir: "{{.SOURCE_DIR}}"
-    cmds:
-      - >-
-        ./b2
-        install
-        {{- range .EXTRA_ARGS}}
-        "{{.}}"
-        {{- end}}
-      - >-
-        {{- if .CMAKE_SETTINGS_DIR}}
-          echo "set(BOOST_ROOT
-            \"{{.INSTALL_PREFIX}}\"
-            CACHE PATH
-            \"Package root for boost.\"
-          )" >> "{{.CMAKE_SETTINGS_DIR}}/boost.cmake"
-        {{- end}}
-
-  # Downloads boost from `URL` and installs boost.
-  #
-  # General parameters
-  # @param {string} [WORK_DIR={{.TASK_DIR}}] Base directory to store the install and src
-  # directories inside.
-  # @param {string} [SOURCE_DIR={{.WORK_DIR}}/boost-src] Directory in which to extract the tar
-  # file.
-  #
-  # Download parameters
-  # @param {string} FILE_SHA256 Content hash to verify the downloaded tar file against.
-  # @param {string} URL
-  #
-  # Boost generate parameters
-  # @param {string} [INSTALL_PREFIX={{.WORK_DIR}}/boost-install] Path prefix of where the project
-  # should be installed.
-  # @param {string[]} TARGETS Target libraries to build.
-  # @param {string[]} [GEN_ARGS] Any additional arguments to pass to the generate command.
-  #
-  # Boost build parameters
-  # @param {int} [JOBS] The maximum number of concurrent processes to use when building. If
-  # omitted, the b2 default number is used. Before 1.76.0, the number was 1. Since 1.76.0, the
-  # default is the number of cores.
-  # @param {string[]} [BUILD_ARGS] Any additional arguments to pass to the build command.
-  #
-  # Boost install parameters
-  # @param {string[]} [INSTALL_ARGS] Any additional arguments to pass to the install command.
-  # @param {string} [CMAKE_SETTINGS_DIR] If set, the directory where the project's CMake settings
-  # file should be stored.
-  boost-download-and-install:
-    internal: true
-    label: "{{.TASK}}:{{.URL}}-{{.INSTALL_PREFIX}}"
-    vars:
-      # General parameters
-      WORK_DIR: >-
-        {{default .ROOT_DIR .WORK_DIR}}
-      SOURCE_DIR: >-
-        {{default (printf "%s/boost-src" .WORK_DIR) .SOURCE_DIR}}
-
-      # Boost generate parameters
-      INSTALL_PREFIX: >-
-        {{default (printf "%s/boost-install" .WORK_DIR) .INSTALL_PREFIX}}
-      TARGETS:
-        ref: "default (list) .TARGETS"
-      GEN_ARGS:
-        ref: "default (list) .GEN_ARGS"
-
-      # Boost build parameters
-      BUILD_ARGS:
-        ref: "default (list) .BUILD_ARGS"
-      JOBS: >-
-        {{default "" .JOBS}}
-
-      # Boost install parameters
-      INSTALL_ARGS:
-        ref: "default (list) .INSTALL_ARGS"
-      CMAKE_SETTINGS_DIR: >-
-          {{default "" .CMAKE_SETTINGS_DIR}}
-    requires:
-      vars: ["FILE_SHA256", "URL"]
-    deps:
-      - task: ":utils:remote:download-and-extract-tar"
-        vars:
-          FILE_SHA256: "{{.FILE_SHA256}}"
-          OUTPUT_DIR: "{{.SOURCE_DIR}}"
-          URL: "{{.URL}}"
-    cmds:
-      - task: "boost-generate"
-        vars:
-          SOURCE_DIR: "{{.SOURCE_DIR}}"
-          INSTALL_PREFIX: "{{.INSTALL_PREFIX}}"
-          TARGETS:
-            ref: ".TARGETS"
-          EXTRA_ARGS:
-            ref: ".GEN_ARGS"
-      - task: "boost-build"
-        vars:
-          SOURCE_DIR: "{{.SOURCE_DIR}}"
-          JOBS: "{{.JOBS}}"
-          EXTRA_ARGS:
-            ref: ".BUILD_ARGS"
-      - task: "boost-install"
-        vars:
-          SOURCE_DIR: "{{.SOURCE_DIR}}"
-          INSTALL_PREFIX: "{{.INSTALL_PREFIX}}"
-          CMAKE_SETTINGS_DIR: "{{.CMAKE_SETTINGS_DIR}}"
-          EXTRA_ARGS:
-            ref: ".INSTALL_ARGS"
