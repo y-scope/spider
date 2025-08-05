@@ -36,3 +36,6 @@ lib_install_scripts_dir="$script_dir/.."
 ${privileged_command_prefix} "$lib_install_scripts_dir"/install-cmake.sh 3.23.5
 # TODO https://github.com/y-scope/spider/issues/86
 "$lib_install_scripts_dir"/check-cmake-version.sh
+
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
