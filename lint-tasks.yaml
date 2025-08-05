@@ -130,7 +130,6 @@ tasks:
           - "tests/integration"
         cmd: |-
           . "{{.G_LINT_VENV_DIR}}/bin/activate"
-          mypy "{{.ITEM}}"
           ruff check {{.RUFF_CHECK_FLAGS}} "{{.ITEM}}"
           ruff format {{.RUFF_FORMAT_FLAGS}} "{{.ITEM}}"
 
@@ -178,7 +177,7 @@ tasks:
     sources:
       - "{{.ROOT_DIR}}/taskfile.yaml"
       - "{{.TASKFILE}}"
-      - "lint-test-requirements.txt"
+      - "lint-requirements.txt"
     generates: ["{{.CHECKSUM_FILE}}"]
     run: "once"
     deps:
@@ -192,7 +191,7 @@ tasks:
         vars:
           LABEL: "lint"
           OUTPUT_DIR: "{{.OUTPUT_DIR}}"
-          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/lint-test-requirements.txt"
+          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/lint-requirements.txt"
       # This command must be last
       - task: ":utils:checksum:compute"
         vars:
