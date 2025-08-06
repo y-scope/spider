@@ -50,7 +50,7 @@ def start_scheduler_worker(
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
-    popen_opts: PopenOpts = {
+    popen_opts: dict[str, Any] = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "text": True,
