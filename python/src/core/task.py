@@ -8,6 +8,7 @@ from core.data import DataId
 
 TaskId = UUID
 
+
 @dataclass
 class TaskInputOutput:
     """Represents a task input that points to output of another task"""
