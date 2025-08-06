@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "mariadb>=1.1.13",
-  "msgpack>=1.1.1",
+  "msgpack-types>=0.5.0",
 ]
 
 [project.scripts]
@@ -32,10 +32,6 @@ strict = true
 pretty = true
 show_error_code_links = true
 show_error_context = true
-
-[[tool.mypy.overrides]]
-module = "msgpack.*"
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
