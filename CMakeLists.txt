@@ -1,5 +1,4 @@
-# CMake 3.22.1 is the default on Ubuntu 22.04
-cmake_minimum_required(VERSION 3.22.1)
+cmake_minimum_required(VERSION 3.23)
 
 project(
     spider
@@ -180,12 +179,8 @@ else()
 endif()
 
 # Add ystdlib-cpp
-set(YSTDLIB_CPP_BUILD_TESTING OFF)
-add_subdirectory(
-    "${SPIDER_YSTDLIB_SOURCE_DIRECTORY}"
-    "${CMAKE_BINARY_DIR}/ystdlib"
-    EXCLUDE_FROM_ALL
-)
+find_package(ystdlib REQUIRED)
+message(STATUS "Found ystdlib ${ystdlib_VERSION}.")
 
 find_package(Threads REQUIRED)
 
