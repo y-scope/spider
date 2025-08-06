@@ -5,18 +5,15 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-import mysql.connector
 import pytest
 
-from .client import (
-    g_storage_url,
-)
+from .client import g_storage_url, SQLConnection
 from .utils import g_scheduler_port
 
 
 def start_scheduler_workers(
     storage_url: str, scheduler_port: int
-) -> tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
     Starts the scheduler and two worker processes.
     :param storage_url: The JDBC URL of the storage.
@@ -55,12 +52,13 @@ def start_scheduler_workers(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
     Fixture to start a scheduler process and two worker processes.
     Yields control to the test class after the scheduler and workers spawned and ensures the
     processes are killed after the tests session is complete.
+    :param storage: The storage connection.
     :return: A generator that yields control to the test class.
     """
     _ = storage  # Avoid ARG001

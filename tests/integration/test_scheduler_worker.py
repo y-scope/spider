@@ -7,7 +7,6 @@ from collections.abc import Generator
 from pathlib import Path
 
 import msgpack
-import mysql.connector
 import pytest
 
 from .client import (
@@ -20,6 +19,7 @@ from .client import (
     get_task_state,
     remove_data,
     remove_job,
+    SQLConnection,
     submit_job,
     Task,
     TaskGraph,
@@ -31,7 +31,7 @@ from .utils import g_scheduler_port
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int
-) -> tuple[subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
     Starts a scheduler and a worker process.
     :param storage_url: The JDBC URL of the storage
@@ -68,12 +68,13 @@ def start_scheduler_worker(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
     Fixture to start qa scheduler process and a worker processes.
     Yields control to the test class after the scheduler and workers spawned and ensures the
     processes are killed after the tests session is complete.
+    :param storage: The storage connection.
     :return: A generator that yields control to the test class.
     """
     _ = storage  # Avoid ARG001
@@ -89,7 +90,7 @@ def scheduler_worker(
 
 @pytest.fixture
 def success_job(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
     """
     Fixture to create a job with two parent tasks and one child task.
@@ -156,7 +157,7 @@ def success_job(
 
 @pytest.fixture
 def fail_job(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that will fail. The task will raise an error when executed.
@@ -187,7 +188,7 @@ def fail_job(
 
 @pytest.fixture
 def data_job(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a data and a task that uses the data.
@@ -227,7 +228,7 @@ def data_job(
 
 @pytest.fixture
 def random_fail_job(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that randomly fails. The task will succeed after a few retries.
@@ -272,8 +273,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
-        success_job: Generator[tuple[TaskGraph, Task, Task, Task], None, None],
+        storage: SQLConnection,
+        success_job: tuple[TaskGraph, Task, Task, Task],
     ) -> None:
         """
         Tests the successful execution of a job with two parent tasks and one child task.
@@ -302,8 +303,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_failure(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
-        fail_job: Generator[Task, None, None],
+        storage: SQLConnection,
+        fail_job: Task,
     ) -> None:
         """
         Tests the failure of a job that raise an error.
@@ -319,8 +320,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_data_job(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
-        data_job: Generator[Task, None, None],
+        storage: SQLConnection,
+        data_job: Task,
     ) -> None:
         """
         Tests the successful execution of a job that uses data.
@@ -339,8 +340,8 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_random_fail_job(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
-        random_fail_job: Generator[Task, None, None],
+        storage: SQLConnection,
+        random_fail_job: Task,
     ) -> None:
         """
         Tests the successful recovery and execution of a job that randomly fails.

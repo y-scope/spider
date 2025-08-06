@@ -7,9 +7,9 @@ import time
 import uuid
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import msgpack
-import mysql.connector
 import pytest
 
 from .client import (
@@ -17,6 +17,7 @@ from .client import (
     get_task_outputs,
     get_task_state,
     remove_job,
+    SQLConnection,
     submit_job,
     Task,
     TaskGraph,
@@ -28,7 +29,7 @@ from .utils import g_scheduler_port
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int, lib: str
-) -> tuple[subprocess.Popen, subprocess.Popen]:
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """
     Creates a scheduler and a worker process.
     :param storage_url: The JDBC URL of the storage.
@@ -40,7 +41,11 @@ def start_scheduler_worker(
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
-    popen_opts = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
+    popen_opts: dict[str, Any] = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+    }
     scheduler_cmds = [
         str(bin_dir / "spider_scheduler"),
         "--host",
@@ -67,12 +72,13 @@ def start_scheduler_worker(
 
 @pytest.fixture
 def scheduler_worker_signal(
-    storage: Generator[mysql.connector.MySQLConnection, None, None],
-) -> Generator[tuple[subprocess.Popen, subprocess.Popen], None, None]:
+    storage: SQLConnection,
+) -> Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None]:
     """
     Fixture to start a scheduler and a worker process.
     Yields the scheduler and worker processes.
     Ensures that the processes are cleaned up after the test.
+    :param storage: The storage connection.
     :return: A generator yielding the scheduler and worker processes.
     """
     _ = storage  # Avoid ARG001
@@ -91,8 +97,8 @@ class TestWorkerSignal:
 
     def test_task_signal(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
-        scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
+        storage: SQLConnection,
+        scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
         Tests that worker propagates the `SIGTERM` signal to the task executor.
@@ -168,8 +174,8 @@ class TestWorkerSignal:
 
     def test_task_exit(
         self,
-        storage: Generator[mysql.connector.MySQLConnection, None, None],
-        scheduler_worker_signal: Generator[tuple[subprocess.Popen, subprocess.Popen], None, None],
+        storage: SQLConnection,
+        scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
         Tests that worker propagates the SIGTERM signal to the task executor.
