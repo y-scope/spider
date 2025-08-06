@@ -45,6 +45,6 @@ class Task:
     function_name: str
     state: TaskState
     timeout: float
-    max_retires: int
+    max_retries: int
     task_input: list[TaskInputData] = field(default_factory=list)
     task_output: list[TaskOutputData] = field(default_factory=list)
