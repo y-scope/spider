@@ -8,6 +8,7 @@ Follow the steps below to develop and contribute to the project.
 ## Requirements
 * Python 3.10 or higher
 * [Task] 3.40.0 or higher
+* [uv] 0.7.0 or higher
 
 ## Set up
 Run dependency installation task:
