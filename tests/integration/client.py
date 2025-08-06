@@ -19,7 +19,7 @@ class TaskInput:
 
     type: str
     task_output: tuple[uuid.UUID, int] | None = None
-    value: str | None = None
+    value: bytes | None = None
     data_id: uuid.UUID | None = None
 
 
@@ -31,7 +31,7 @@ class TaskOutput:
     """
 
     type: str
-    value: str | None = None
+    value: bytes | None = None
     data_id: uuid.UUID | None = None
 
 
@@ -68,7 +68,7 @@ class Data:
     """Represents a Spider Data object."""
 
     id: uuid.UUID
-    value: str
+    value: bytes
 
 
 SQLConnection = (
@@ -200,7 +200,7 @@ def get_task_outputs(conn: SQLConnection, task_id: uuid.UUID) -> list[TaskOutput
         (task_id.bytes,),
     )
     outputs = []
-    rows = cast("list[tuple[str, str | None, bytes | None]]", cursor.fetchall())
+    rows = cast("list[tuple[str, bytes | None, bytes | None]]", cursor.fetchall())
     for output_type, value, data_id in rows:
         if value is not None:
             outputs.append(TaskOutput(type=output_type, value=value))
