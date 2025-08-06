@@ -161,7 +161,7 @@ tasks:
       - task: "toml-lint"
       - task: "toml-format"
         vars:
-          TOMBI_FORMAT_FLAGS: "--check"
+          FLAGS: "--check"
 
   toml-fix:
     cmds:
@@ -180,11 +180,11 @@ tasks:
     internal: true
     deps: ["venv"]
     vars:
-      TOMBI_FORMAT_FLAGS: "{{.TOMBI_FORMAT_FLAGS | default \"\"}}"
+      FLAGS: "{{.FLAGS | default \"\"}}"
     cmds:
       - |-
         . "{{.G_LINT_VENV_DIR}}/bin/activate"
-        tombi format {{.TOMBI_FORMAT_FLAGS}} "{{.ROOT_DIR}}"
+        tombi format {{.FLAGS}} "{{.ROOT_DIR}}"
 
   cmake:
     internal: true
