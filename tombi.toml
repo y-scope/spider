@@ -14,6 +14,7 @@ tables-out-of-order = "warn"
 
 [schema]
 enabled = true
+strict = true
 catalog = {
   paths = [
     "tombi://json.schemastore.org/api/json/catalog.json",

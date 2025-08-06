@@ -2,9 +2,10 @@
 clang-format>=20.1.0
 # Lock to v19.x until we can upgrade our code to fix new v20 issues.
 clang-tidy~=19.1
-ruff>=0.4.4
-mypy>=1.12.0
 gersemi>=0.16.2
+mypy>=1.12.0
+ruff>=0.4.4
+tombi>=0.4.35
 yamllint>=1.35.1
 tombi>=0.4.35
 
