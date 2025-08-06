@@ -12,7 +12,6 @@ tasks:
       - task: "py-check"
       - task: "toml-check"
       - task: "yml-check"
-      - task: "toml-check"
 
   fix:
     cmds:
@@ -20,7 +19,6 @@ tasks:
       - task: "cpp-fix"
       - task: "toml-fix"
       - task: "yml-fix"
-      - task: "toml-fix"
 
   cmake-check:
     deps: ["venv"]
