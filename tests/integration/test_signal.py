@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Generator
 from pathlib import Path
-from typing import TypedDict
+from typing import Any
 
 import msgpack
 import pytest
@@ -27,15 +27,6 @@ from .client import (
 from .utils import g_scheduler_port
 
 
-class PopenOpts(TypedDict, total=False):
-    """Options for subprocess.Popen."""
-
-    stdin: int
-    stdout: int
-    stderr: int
-    text: bool
-
-
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int, lib: str
 ) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
@@ -50,7 +41,7 @@ def start_scheduler_worker(
     """
     root_dir = Path(__file__).resolve().parents[2]
     bin_dir = root_dir / "src" / "spider"
-    popen_opts: PopenOpts = {
+    popen_opts: dict[str, Any] = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "text": True,
