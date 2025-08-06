@@ -2,8 +2,6 @@
 
 import socket
 
-AddrType = tuple[str, int]
-
 
 def _get_free_tcp_port() -> int:
     """:return: A free TCP port number."""
