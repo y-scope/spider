@@ -4,21 +4,24 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from uuid import UUID
 
+from core.data import DataId
+
+TaskId = UUID
 
 @dataclass
 class TaskInputOutput:
     """Represents a task input that points to output of another task"""
 
-    task_id: UUID
+    task_id: TaskId
     position: int
 
 
 TaskInputValue = bytes
-TaskInputData = UUID
+TaskInputData = DataId
 TaskInput = TaskInputOutput | TaskInputValue | TaskInputData
 
 TaskOutputValue = bytes
-TaskOutputData = UUID
+TaskOutputData = DataId
 TaskOutput = TaskOutputValue | TaskOutputData
 
 
@@ -37,7 +40,7 @@ class TaskState(IntEnum):
 class Task:
     """Represents a task in Spider."""
 
-    task_id: UUID
+    task_id: TaskId
     function_name: str
     state: TaskState
     timeout: float
