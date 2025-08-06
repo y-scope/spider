@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Generator
 from pathlib import Path
-from typing import TypedDict
+from typing import Any
 
 import msgpack
 import pytest
@@ -25,15 +25,6 @@ from .client import (
     TaskOutput,
 )
 from .utils import g_scheduler_port
-
-
-class PopenOpts(TypedDict, total=False):
-    """Options for subprocess.Popen."""
-
-    stdin: int
-    stdout: int
-    stderr: int
-    text: bool
 
 
 def start_scheduler_worker(
