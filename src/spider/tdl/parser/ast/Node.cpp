@@ -1,8 +1,12 @@
 #include "Node.hpp"
 
+#include <cstddef>
+#include <memory>
 #include <string>
+#include <utility>
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
+#include <ystdlib/error_handling/Result.hpp>
 
 using spider::tdl::parser::ast::Node;
 using NodeErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Node::ErrorCodeEnum>;
@@ -15,9 +19,33 @@ auto NodeErrorCodeCategory::name() const noexcept -> char const* {
 template <>
 auto NodeErrorCodeCategory ::message(Node::ErrorCodeEnum error_enum) const -> std::string {
     switch (error_enum) {
-        case Node::ErrorCodeEnum::PlaceholderError:
-            return "This is a placeholder error code enum";
+        case Node::ErrorCodeEnum::ChildIdOutOfBounds:
+            return "The child ID is out of bounds.";
+        case Node::ErrorCodeEnum::ParentAlreadySet:
+            return "The AST node's parent has already been set.";
         default:
             return "Unknown error code enum";
     }
 }
+
+namespace spider::tdl::parser::ast {
+namespace {
+using ystdlib::error_handling::Result;
+}  // namespace
+
+auto Node::get_child(size_t child_id) const -> Result<Node const*> {
+    if (m_children.size() <= child_id) {
+        return Node::ErrorCode{Node::ErrorCodeEnum::ChildIdOutOfBounds};
+    }
+    return get_child_unsafe(child_id);
+}
+
+auto Node::add_child(std::unique_ptr<Node> child) -> Result<void> {
+    if (nullptr != child->get_parent()) {
+        return Node::ErrorCode{Node::ErrorCodeEnum::ParentAlreadySet};
+    }
+    child->m_parent = this;
+    m_children.emplace_back(std::move(child));
+    return ystdlib::error_handling::success();
+}
+}  // namespace spider::tdl::parser::ast
