@@ -79,8 +79,6 @@ protected:
     // Constructors
     Node() = default;
 
-    explicit Node(std::vector<std::unique_ptr<Node>> children) : m_children(std::move(children)) {}
-
     /**
      * Adds a child node to this AST node.
      * @param child
