@@ -84,7 +84,7 @@ auto Map::create(std::unique_ptr<Node> key_type, std::unique_ptr<Node> value_typ
 auto Map::serialize_to_str(size_t indentation_level) const
         -> ystdlib::error_handling::Result<std::string> {
     return fmt::format(
-            "{}[Type[Container[Map]]]:\n{}KeyTpe:\n{}\n{}ValueType:\n{}",
+            "{}[Type[Container[Map]]]:\n{}KeyType:\n{}\n{}ValueType:\n{}",
             create_indentation(indentation_level),
             create_indentation(indentation_level + 1),
             YSTDLIB_ERROR_HANDLING_TRYX(get_key_type()->serialize_to_str(indentation_level + 2)),
