@@ -10,7 +10,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::Node;
     using ystdlib::error_handling::Result;
 
-    Result<void> const result{Node::ErrorCode{Node::ErrorCodeEnum::PlaceholderError}};
+    Result<void> const result{Node::ErrorCode{Node::ErrorCodeEnum::ChildIndexOutOfBounds}};
     REQUIRE(result.has_error());
 }
 }  // namespace
