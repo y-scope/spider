@@ -19,7 +19,7 @@ public:
      * @param name
      * @return A unique pointer to a new `Identifier` instance with the given name.
      */
-    static auto create(std::string name) -> std::unique_ptr<Identifier> {
+    static auto create(std::string name) -> std::unique_ptr<Node> {
         return std::make_unique<Identifier>(Identifier{std::move(name)});
     }
 
