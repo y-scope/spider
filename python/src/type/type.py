@@ -39,4 +39,12 @@ class Int32(BoundedInt):
 
     def __new__(cls, value: int) -> "Int32":
         """Creates an int32 integer."""
-        return cast("Int32", super().__new__(cls, value, bits=8))
+        return cast("Int32", super().__new__(cls, value, bits=32))
+
+
+class Int64(BoundedInt):
+    """64 bits integer type."""
+
+    def __new__(cls, value: int) -> "Int64":
+        """Creates an int64 integer."""
+        return cast("Int64", super().__new__(cls, value, bits=64))
