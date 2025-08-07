@@ -57,13 +57,13 @@ in the table below.
 | `lint:cpp-format-check` | Runs the C++ formatters.                                         |
 | `lint:cpp-format-fix`   | Runs the C++ formatters and fixes some violations.               |
 | `lint:cpp-static-check` | Runs the C++ static analyzers.                                   |
-| `lint:cpp-static-fix`   | Runs the C++ static analyzers and fixes some violations.         |
+| `lint:cpp-static-fix`   | Runs the C++ static analyzers.                                   |
 | `lint:py-check`         | Runs the Python linters and formatter.                           |
 | `lint:py-fix`           | Runs the Python linters and formatter and fixes some violations. |
 | `lint:toml-check`       | Runs the TOML linters and formatter.                             |
 | `lint:toml-fix`         | Runs the TOML linters and formatter and fixes some violations.   |
 | `lint:yml-check`        | Runs the YAML linters.                                           |
-| `lint:yml-fix`          | Runs the YAML linters and fixes some violations.                 |
+| `lint:yml-fix`          | Runs the YAML linters.                                           |
 
 [spider-docs]: https://docs.yscope.com/spider/main/
 [Task]: https://taskfile.dev
