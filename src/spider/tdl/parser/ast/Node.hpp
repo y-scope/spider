@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
@@ -75,8 +76,10 @@ public:
     }
 
 protected:
-    // Default constructor
+    // Constructors
     Node() = default;
+
+    explicit Node(std::vector<std::unique_ptr<Node>> children) : m_children(std::move(children)) {}
 
     /**
      * Adds a child node to this AST node.
