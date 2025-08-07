@@ -219,8 +219,8 @@ target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_tdl
     PUBLIC
-        ystdlib::error_handling
         fmt::fmt
+        ystdlib::error_handling
 )
 
 add_library(spider::tdl ALIAS spider_tdl)
