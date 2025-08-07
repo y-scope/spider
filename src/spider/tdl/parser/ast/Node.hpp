@@ -54,7 +54,7 @@ public:
      * @param child_idx
      * @return A result containing a pointer to the child on success, or an error code indicating
      * the failure:
-     * - ErrorCodeEnum::ChildIdOutOfBounds if the child ID is out of bounds.
+     * - ErrorCodeEnum::ChildIndexOutOfBounds if `child_idx` is out of bounds.
      */
     [[nodiscard]] auto get_child(size_t child_idx) const
             -> ystdlib::error_handling::Result<Node const*>;

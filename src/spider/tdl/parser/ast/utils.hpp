@@ -1,5 +1,5 @@
-#ifndef SPIDER_TDL_PARSER_UTILS_HPP
-#define SPIDER_TDL_PARSER_UTILS_HPP
+#ifndef SPIDER_TDL_PARSER_AST_UTILS_HPP
+#define SPIDER_TDL_PARSER_AST_UTILS_HPP
 
 #include <cstddef>
 #include <string>
@@ -62,4 +62,4 @@ auto validate_child_node_type(Node const* node) -> ystdlib::error_handling::Resu
 }
 }  // namespace spider::tdl::parser::ast
 
-#endif  // SPIDER_TDL_PARSER_UTILS_HPP
+#endif  // SPIDER_TDL_PARSER_AST_UTILS_HPP
