@@ -1,7 +1,7 @@
 version: "3"
 
 tasks:
-  target:
+  cpp-target:
     internal: true
     vars:
       TARGETS:
@@ -14,7 +14,7 @@ tasks:
         --parallel {{numCPU}}
         --target {{range .TARGETS}}{{.}} {{end}}
 
-  clean:
+  cpp-clean:
     internal: true
     deps: [":config-cmake-project"]
     cmds:
