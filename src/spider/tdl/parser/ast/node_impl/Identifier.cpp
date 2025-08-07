@@ -11,6 +11,6 @@
 namespace spider::tdl::parser::ast::node_impl {
 auto Identifier::serialize_to_str(size_t indentation_level) const
         -> ystdlib::error_handling::Result<std::string> {
-    return fmt::format("{}{}: {}", create_indentation(indentation_level), "Identifier", m_name);
+    return fmt::format("{}[Identifier]: {}", create_indentation(indentation_level), m_name);
 }
 }  // namespace spider::tdl::parser::ast::node_impl
