@@ -27,8 +27,8 @@ public:
     /**
      * @param key_type
      * @param value_type
-     * @return A result containing a unique pointer to a new `Map` instance with the given name on
-     * success, or an error code indicating the failure:
+     * @return A result containing a unique pointer to a new `Map` instance with the given key and
+     * value types on success, or an error code indicating the failure:
      * - Map::ErrorCodeEnum::UnsupportedKeyType if the `key_type` is not supported.
      * - Forwards `validate_child_node_type`'s return values.
      */

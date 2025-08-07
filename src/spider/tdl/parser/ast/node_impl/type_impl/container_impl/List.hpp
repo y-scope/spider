@@ -17,8 +17,8 @@ public:
     // Factory function
     /**
      * @param element_type The type of elements in the list.
-     * @return A result containing a unique pointer to a new `List` instance with the given name on
-     * success, or an error code indicating the failure:
+     * @return A result containing a unique pointer to a new `List` instance with the given element
+     * type on success, or an error code indicating the failure:
      * - Forwards `validate_child_node_type`'s return values.
      */
     [[nodiscard]] static auto create(std::unique_ptr<Node> element_type)
