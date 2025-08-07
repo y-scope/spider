@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
@@ -74,6 +75,17 @@ public:
         }
         return ystdlib::error_handling::success();
     }
+
+    /**
+     * Serializes this AST node and its children to a string representation.
+     * @param indentation_level The indentation level for pretty-printing. Each level of indentation
+     * is represented by 2 spaces.
+     * @return A result containing the string representation of this AST node, or an error code
+     * indicating the failure (implementation-defined).
+     */
+    [[nodiscard]] virtual auto serialize_to_str(size_t indentation_level) const
+            -> ystdlib::error_handling::Result<std::string>
+            = 0;
 
 protected:
     // Constructors
