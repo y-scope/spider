@@ -19,8 +19,8 @@ auto NodeErrorCodeCategory::name() const noexcept -> char const* {
 template <>
 auto NodeErrorCodeCategory ::message(Node::ErrorCodeEnum error_enum) const -> std::string {
     switch (error_enum) {
-        case Node::ErrorCodeEnum::ChildIdOutOfBounds:
-            return "The child ID is out of bounds.";
+        case Node::ErrorCodeEnum::ChildIndexOutOfBounds:
+            return "The child index is out of bounds.";
         case Node::ErrorCodeEnum::ChildIsNull:
             return "The child node is NULL.";
         case Node::ErrorCodeEnum::ParentAlreadySet:
@@ -35,11 +35,11 @@ namespace {
 using ystdlib::error_handling::Result;
 }  // namespace
 
-auto Node::get_child(size_t child_id) const -> Result<Node const*> {
-    if (m_children.size() <= child_id) {
-        return Node::ErrorCode{Node::ErrorCodeEnum::ChildIdOutOfBounds};
+auto Node::get_child(size_t child_idx) const -> Result<Node const*> {
+    if (m_children.size() <= child_idx) {
+        return Node::ErrorCode{Node::ErrorCodeEnum::ChildIndexOutOfBounds};
     }
-    return get_child_unsafe(child_id);
+    return get_child_unsafe(child_idx);
 }
 
 auto Node::add_child(std::unique_ptr<Node> child) -> Result<void> {

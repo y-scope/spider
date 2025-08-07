@@ -18,7 +18,7 @@ class Node {
 public:
     // Types
     enum class ErrorCodeEnum : uint8_t {
-        ChildIdOutOfBounds = 1,
+        ChildIndexOutOfBounds = 1,
         ChildIsNull,
         ParentAlreadySet,
     };
@@ -49,12 +49,12 @@ public:
 
     /**
      * Gets a child node by its index.
-     * @param child_id
+     * @param child_idx
      * @return A result containing a pointer to the child on success, or an error code indicating
      * the failure:
      * - ErrorCodeEnum::ChildIdOutOfBounds if the child ID is out of bounds.
      */
-    [[nodiscard]] auto get_child(size_t child_id) const
+    [[nodiscard]] auto get_child(size_t child_idx) const
             -> ystdlib::error_handling::Result<Node const*>;
 
     /**
@@ -100,12 +100,12 @@ protected:
 
     /**
      * Gets a child node by its index.
-     * NOTE: This method is unsafe. The caller must ensure the given ID is valid.
-     * @param child_id
+     * NOTE: This method is unsafe. The caller must ensure the given index is valid.
+     * @param child_idx
      * @return The child node at the specified index.
      */
-    [[nodiscard]] auto get_child_unsafe(size_t child_id) const -> Node const* {
-        return m_children[child_id].get();
+    [[nodiscard]] auto get_child_unsafe(size_t child_idx) const -> Node const* {
+        return m_children[child_idx].get();
     }
 
 private:
