@@ -1,0 +1,1 @@
+"""Spider type module."""
