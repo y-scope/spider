@@ -17,6 +17,7 @@ tasks:
     cmds:
       - task: "cmake-fix"
       - task: "cpp-fix"
+      - task: "py-fix"
       - task: "toml-fix"
       - task: "yml-fix"
 
