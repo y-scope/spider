@@ -55,7 +55,7 @@ in the table below.
 | `lint:cpp-check`        | Runs the C++ linters (formatters and static analyzers).          |
 | `lint:cpp-fix`          | Runs the C++ linters and fixes some violations.                  |
 | `lint:cpp-format-check` | Runs the C++ formatters.                                         |
-| `lint:cpp-format-fix`   | Runs the C++ formatters and fixes some violations.               |
+| `lint:cpp-format-fix`   | Runs the C++ formatters and fixes any violations.                |
 | `lint:cpp-static-check` | Runs the C++ static analyzers.                                   |
 | `lint:cpp-static-fix`   | Runs the C++ static analyzers.                                   |
 | `lint:py-check`         | Runs the Python linters and formatter.                           |
