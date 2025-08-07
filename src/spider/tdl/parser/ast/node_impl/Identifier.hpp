@@ -1,5 +1,5 @@
-#ifndef SPIDER_TDL_PARSER_AST_IDENTIFIER_HPP
-#define SPIDER_TDL_PARSER_AST_IDENTIFIER_HPP
+#ifndef SPIDER_TDL_PARSER_AST_NODE_IMPL_IDENTIFIER_HPP
+#define SPIDER_TDL_PARSER_AST_NODE_IMPL_IDENTIFIER_HPP
 
 #include <cstddef>
 #include <memory>
@@ -39,4 +39,4 @@ private:
 };
 }  // namespace spider::tdl::parser::ast::node_impl
 
-#endif  // SPIDER_TDL_PARSER_AST_IDENTIFIER_HPP
+#endif  // SPIDER_TDL_PARSER_AST_NODE_IMPL_IDENTIFIER_HPP
