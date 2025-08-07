@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <utility>
 #include <vector>
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
@@ -19,6 +18,7 @@ public:
     // Types
     enum class ErrorCodeEnum : uint8_t {
         ChildIdOutOfBounds = 1,
+        ChildIsNull,
         ParentAlreadySet,
     };
 
@@ -83,6 +83,7 @@ protected:
      * Adds a child node to this AST node.
      * @param child
      * @return A void result on success, or an error code indicating the failure:
+     * - ErrorCodeEnum::ChildIsNull if `child` is NULL.
      * - ErrorCodeEnum::ParentAlreadySet if the child node already has a parent set.
      */
     [[nodiscard]] auto add_child(std::unique_ptr<Node> child)
@@ -94,7 +95,7 @@ protected:
      * @param child_id
      * @return The child node at the specified index.
      */
-    [[nodiscard]] auto get_child_unsafe(size_t child_id) const -> Node* {
+    [[nodiscard]] auto get_child_unsafe(size_t child_id) const -> Node const* {
         return m_children[child_id].get();
     }
 

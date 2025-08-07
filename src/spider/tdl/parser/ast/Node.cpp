@@ -21,6 +21,8 @@ auto NodeErrorCodeCategory ::message(Node::ErrorCodeEnum error_enum) const -> st
     switch (error_enum) {
         case Node::ErrorCodeEnum::ChildIdOutOfBounds:
             return "The child ID is out of bounds.";
+        case Node::ErrorCodeEnum::ChildIsNull:
+            return "The child node is NULL.";
         case Node::ErrorCodeEnum::ParentAlreadySet:
             return "The AST node's parent has already been set.";
         default:
@@ -41,9 +43,14 @@ auto Node::get_child(size_t child_id) const -> Result<Node const*> {
 }
 
 auto Node::add_child(std::unique_ptr<Node> child) -> Result<void> {
+    if (nullptr == child) {
+        return Node::ErrorCode{Node::ErrorCodeEnum::ChildIsNull};
+    }
+
     if (nullptr != child->get_parent()) {
         return Node::ErrorCode{Node::ErrorCodeEnum::ParentAlreadySet};
     }
+
     child->m_parent = this;
     m_children.emplace_back(std::move(child));
     return ystdlib::error_handling::success();
