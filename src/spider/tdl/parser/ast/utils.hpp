@@ -1,5 +1,5 @@
-#ifndef SPIDER_TDL_PARSER_UTILS_HPP
-#define SPIDER_TDL_PARSER_UTILS_HPP
+#ifndef SPIDER_TDL_PARSER_AST_UTILS_HPP
+#define SPIDER_TDL_PARSER_AST_UTILS_HPP
 
 #include <cstddef>
 #include <string>
@@ -14,4 +14,4 @@ namespace spider::tdl::parser::ast {
 [[nodiscard]] auto create_indentation(size_t indentation_level) -> std::string;
 }  // namespace spider::tdl::parser::ast
 
-#endif  // SPIDER_TDL_PARSER_UTILS_HPP
+#endif  // SPIDER_TDL_PARSER_AST_UTILS_HPP
