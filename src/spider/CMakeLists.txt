@@ -216,6 +216,11 @@ target_sources(spider_tdl PRIVATE ${SPIDER_TDL_SHARED_SOURCES})
 target_sources(spider_tdl PUBLIC ${SPIDER_TDL_SHARED_HEADERS})
 target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-target_link_libraries(spider_tdl PUBLIC ystdlib::error_handling fmt::fmt)
+target_link_libraries(
+    spider_tdl
+    PUBLIC
+        ystdlib::error_handling
+        fmt::fmt
+)
 
 add_library(spider::tdl ALIAS spider_tdl)
