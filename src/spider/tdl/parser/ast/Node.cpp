@@ -25,6 +25,10 @@ auto NodeErrorCodeCategory ::message(Node::ErrorCodeEnum error_enum) const -> st
             return "The child node is NULL.";
         case Node::ErrorCodeEnum::ParentAlreadySet:
             return "The AST node's parent has already been set.";
+        case Node::ErrorCodeEnum::UnexpectedChildNodeType:
+            return "The child node type is unexpected.";
+        case Node::ErrorCodeEnum::UnknownTypeSpec:
+            return "The type spec is unknown.";
         default:
             return "Unknown error code enum";
     }
