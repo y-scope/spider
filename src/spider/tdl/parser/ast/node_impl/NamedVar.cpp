@@ -8,10 +8,10 @@
 #include <fmt/format.h>
 #include <ystdlib/error_handling/Result.hpp>
 
+#include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
-#include <spider/tdl/parser/ast/Node.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 auto NamedVar::create(std::unique_ptr<Node> id, std::unique_ptr<Node> type)
@@ -28,10 +28,12 @@ auto NamedVar::create(std::unique_ptr<Node> id, std::unique_ptr<Node> type)
 auto NamedVar::serialize_to_str(size_t indentation_level) const
         -> ystdlib::error_handling::Result<std::string> {
     return fmt::format(
-            "{}[NamedVar]:\n{}\n{}",
+            "{}[NamedVar]:\n{}Id:\n{}\n{}Type:\n{}",
             create_indentation(indentation_level),
-            YSTDLIB_ERROR_HANDLING_TRYX(get_id()->serialize_to_str(indentation_level + 1)),
-            YSTDLIB_ERROR_HANDLING_TRYX(get_type()->serialize_to_str(indentation_level + 1))
+            create_indentation(indentation_level + 1),
+            YSTDLIB_ERROR_HANDLING_TRYX(get_id()->serialize_to_str(indentation_level + 2)),
+            create_indentation(indentation_level + 1),
+            YSTDLIB_ERROR_HANDLING_TRYX(get_type()->serialize_to_str(indentation_level + 2))
     );
 }
 }  // namespace spider::tdl::parser::ast::node_impl

@@ -12,6 +12,7 @@
 #include <spider/tdl/parser/ast/IntSpec.hpp>
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
+#include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
@@ -24,6 +25,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::IntSpec;
     using spider::tdl::parser::ast::Node;
     using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::NamedVar;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
@@ -33,7 +35,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
     SECTION("Identifier") {
         constexpr std::string_view cTestName{"test_name"};
-        constexpr std::string_view cSerializedIdentifier{"[Identifier]: test_name"};
+        constexpr std::string_view cSerializedIdentifier{"[Identifier]:test_name"};
 
         auto const node{Identifier::create(std::string{cTestName})};
         auto const* identifier{dynamic_cast<Identifier const*>(node.get())};
@@ -199,6 +201,35 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         REQUIRE(unsupported_list_key_type_map_result.has_error());
         REQUIRE(unsupported_list_key_type_map_result.error()
                 == Map::ErrorCode{Map::ErrorCodeEnum::UnsupportedKeyType});
+    }
+
+    SECTION("NamedVar") {
+        auto id_result{Identifier::create("TestId")};
+        auto map_result{Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))};
+        REQUIRE_FALSE(map_result.has_error());
+        auto named_var_result{
+                NamedVar::create(std::move(id_result), std::move(map_result.value()))
+        };
+        REQUIRE_FALSE(named_var_result.has_error());
+        auto const* named_var_node{dynamic_cast<NamedVar const*>(named_var_result.value().get())};
+        REQUIRE(nullptr != named_var_node);
+
+        REQUIRE(named_var_node->get_num_children() == 2);
+
+        constexpr std::string_view cExpectedSerializedResult{
+                "[NamedVar]:\n"
+                "  Id:\n"
+                "    [Identifier]:TestId\n"
+                "  Type:\n"
+                "    [Type[Container[Map]]]:\n"
+                "      KeyType:\n"
+                "        [Type[Primitive[Int]]]:int64\n"
+                "      ValueType:\n"
+                "        [Type[Primitive[Float]]]:double"
+        };
+        auto const serialized_result{named_var_node->serialize_to_str(0)};
+        REQUIRE_FALSE(serialized_result.has_error());
+        REQUIRE(serialized_result.value() == cExpectedSerializedResult);
     }
 }
 }  // namespace
