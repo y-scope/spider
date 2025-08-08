@@ -59,3 +59,6 @@ ignore = [
   "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
+
+[tool.ruff.lint.pydocstyle]
+ignore-decorators = ["typing.override"]
