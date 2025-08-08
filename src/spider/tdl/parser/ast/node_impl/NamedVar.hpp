@@ -40,7 +40,7 @@ public:
     }
 
     [[nodiscard]] auto get_type() const noexcept -> Type const* {
-        // The factory function ensures that the first child is of type `Type`.
+        // The factory function ensures that the second child is of type `Type`.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         return static_cast<Type const*>(get_child_unsafe(1));
     }
