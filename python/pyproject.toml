@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-spider_task_executor = "src.task_executor.task_executor:main"
+spider_task_executor = "src.spider.task_executor.task_executor:main"
 
 [dependency-groups]
 dev = [
@@ -21,10 +21,6 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
-
-[tool.hatch]
-[tool.hatch.build.targets.wheel]
-packages = ["src/client", "src/task_executor"]
 
 [tool.mypy]
 strict = true
