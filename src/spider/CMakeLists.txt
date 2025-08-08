@@ -77,8 +77,9 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
-    utils/StopFlag.hpp
+    utils/ProgramOptions.hpp
     utils/StopFlag.cpp
+    utils/StopFlag.hpp
     CACHE INTERNAL
     "spider worker source files"
 )
@@ -89,6 +90,7 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/message_pipe.cpp
     worker/message_pipe.hpp
     worker/task_executor.cpp
+    utils/ProgramOptions.hpp
     CACHE INTERNAL
     "spider task executor source files"
 )
@@ -137,8 +139,9 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
-    utils/StopFlag.hpp
+    utils/ProgramOptions.hpp
     utils/StopFlag.cpp
+    utils/StopFlag.hpp
     CACHE INTERNAL
     "spider scheduler source files"
 )

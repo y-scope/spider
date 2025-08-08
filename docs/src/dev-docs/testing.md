@@ -23,7 +23,7 @@ require this storage backend.
 4. Set the `cStorageUrl` in `tests/storage/StorageTestHelper.hpp` to
    `jdbc:mariadb://localhost:3306/<db_name>?user=<usr>&password=<pwd>`.
 
-5. Set the `storage_url` in `tests/integration/client.py` to
+5. Set the `storage-url` in `tests/integration/client.py` to
    `jdbc:mariadb://localhost:3306/<db_name>?user=<usr>&password=<pwd>`.
 
 ## Running unit tests
