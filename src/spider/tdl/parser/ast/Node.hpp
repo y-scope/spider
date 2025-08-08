@@ -88,6 +88,9 @@ public:
             = 0;
 
 protected:
+    // Constructor
+    Node() = default;
+
     /**
      * Adds a child node to this AST node.
      * @param child
