@@ -71,13 +71,15 @@ auto Map::create(std::unique_ptr<Node> key_type, std::unique_ptr<Node> value_typ
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(key_type.get()));
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(value_type.get()));
 
+    // `key_type` has already been validated to be `Type` object.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+    if (false == is_supported_key_type(static_cast<Type const*>(key_type.get()))) {
+        return ErrorCode{ErrorCodeEnum::UnsupportedKeyType};
+    }
+
     auto map{std::make_unique<Map>(Map{})};
     YSTDLIB_ERROR_HANDLING_TRYV(map->add_child(std::move(key_type)));
     YSTDLIB_ERROR_HANDLING_TRYV(map->add_child(std::move(value_type)));
-
-    if (false == is_supported_key_type(map->get_key_type())) {
-        return Map::ErrorCode{Map::ErrorCodeEnum::UnsupportedKeyType};
-    }
     return map;
 }
 
