@@ -1,9 +1,10 @@
 #ifndef SPIDER_TDL_PARSER_AST_NODE_IMPL_NAMEDVAR_HPP
 #define SPIDER_TDL_PARSER_AST_NODE_IMPL_NAMEDVAR_HPP
 
+#include <cstddef>
 #include <memory>
+#include <string>
 
-#include <ystdlib/error_handling/ErrorCode.hpp>
 #include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/tdl/parser/ast/Node.hpp>
@@ -22,11 +23,27 @@ public:
      * @param type
      * @return A result containing a unique pointer to a new `NamedVar` instance with the given name
      * on success, or an error code indicating the failure:
-     * - Map::ErrorCodeEnum::UnsupportedKeyType if the `key_type` is not supported.
      * - Forwards `validate_child_node_type`'s return values.
      */
     [[nodiscard]] static auto create(std::unique_ptr<Node> id, std::unique_ptr<Node> type)
             -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
+
+    // Methods implementing `Node`
+    [[nodiscard]] auto serialize_to_str(size_t indentation_level) const
+            -> ystdlib::error_handling::Result<std::string> override;
+
+    // Methods
+    [[nodiscard]] auto get_id() const noexcept -> Identifier const* {
+        // The factory function ensures that the first child is of type `Identifier`.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        return static_cast<Identifier const*>(get_child_unsafe(0));
+    }
+
+    [[nodiscard]] auto get_type() const noexcept -> Type const* {
+        // The factory function ensures that the first child is of type `Type`.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        return static_cast<Type const*>(get_child_unsafe(1));
+    }
 
 private:
     // Constructor
