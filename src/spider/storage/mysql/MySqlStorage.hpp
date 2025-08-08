@@ -75,6 +75,13 @@ public:
     ) -> StorageErr override;
     auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr override;
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
+    auto get_failed_jobs(StorageConnection& conn, std::vector<boost::uuids::uuid>* job_ids)
+            -> StorageErr override;
+    auto reset_tasks(
+            StorageConnection& conn,
+            std::vector<boost::uuids::uuid> const& ready_tasks,
+            std::vector<boost::uuids::uuid> const& pending_tasks
+    ) -> StorageErr override;
     auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr override;
     auto get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task)
@@ -163,6 +170,7 @@ public:
             Data* data
     ) -> StorageErr override;
     auto set_data_locality(StorageConnection& conn, Data const& data) -> StorageErr override;
+    auto set_data_persisted(StorageConnection& conn, Data const& data) -> StorageErr override;
     auto remove_data(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
     auto
     add_task_reference(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid task_id)
