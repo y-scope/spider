@@ -75,6 +75,47 @@ public:
             std::vector<boost::uuids::uuid>* job_ids
     ) -> StorageErr
             = 0;
+    /**
+     * Cancel a job by user. Set the job state to CANCEL and set all tasks that have not finished
+     * or started to CANCEL. Set the error message of the job and offender to "user".
+     * @param conn
+     * @param id The job id.
+     * @param message The error message of the cancellation.
+     * @return The error code.
+     */
+    virtual auto
+    cancel_job_by_user(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
+            -> StorageErr
+            = 0;
+    /**
+     * Cancel the job from the task. Set the job state to CANCEL and set all tasks that have not
+     * finished or started to CANCEL. Se the error message of the job and offender to the function
+     * name of the task.
+     * @param conn
+     * @param id The task id.
+     * @param message The error message of the cancellation.
+     * @return The error code.
+     */
+    virtual auto
+    cancel_job_by_task(StorageConnection& conn, boost::uuids::uuid id, std::string const& message)
+            -> StorageErr
+            = 0;
+    /**
+     * Get the error message of a cancelled job.
+     * @param conn
+     * @param id The job id.
+     * @param offender The function name of the cancelling task if job cancelled by task, "user" if
+     *                 the job is cancelled by user.
+     * @param message The error message of the cancellation.
+     * @return The error code.
+     */
+    virtual auto get_error_message(
+            StorageConnection& conn,
+            boost::uuids::uuid id,
+            std::string* offender,
+            std::string* message
+    ) -> StorageErr
+            = 0;
     virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr
             = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
@@ -94,6 +135,9 @@ public:
     ) -> StorageErr
             = 0;
     virtual auto set_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState state)
+            -> StorageErr
+            = 0;
+    virtual auto get_task_state(StorageConnection& conn, boost::uuids::uuid id, TaskState* state)
             -> StorageErr
             = 0;
     virtual auto set_task_running(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;

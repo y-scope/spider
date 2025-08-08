@@ -88,7 +88,7 @@ TEMPLATE_LIST_TEST_CASE(
     };
     context.run();
     executor.wait();
-    REQUIRE(executor.succeed());
+    REQUIRE(executor.succeeded());
     std::optional<int> const result_option = executor.get_result<int>();
     REQUIRE(result_option.has_value());
     REQUIRE(5 == result_option.value_or(0));
@@ -119,7 +119,7 @@ TEMPLATE_LIST_TEST_CASE(
     };
     context.run();
     executor.wait();
-    REQUIRE(executor.error());
+    REQUIRE(executor.errored());
     std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
     REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments == std::get<0>(error));
 }
@@ -149,7 +149,7 @@ TEMPLATE_LIST_TEST_CASE(
     };
     context.run();
     executor.wait();
-    REQUIRE(executor.error());
+    REQUIRE(executor.errored());
     std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
     REQUIRE(spider::core::FunctionInvokeError::FunctionExecutionError == std::get<0>(error));
 }
@@ -211,7 +211,7 @@ TEMPLATE_LIST_TEST_CASE(
     };
     context.run();
     executor.wait();
-    REQUIRE(executor.succeed());
+    REQUIRE(executor.succeeded());
     std::optional<int> const optional_result = executor.get_result<int>();
     REQUIRE(optional_result.has_value());
     if (optional_result.has_value()) {
@@ -255,7 +255,7 @@ TEMPLATE_LIST_TEST_CASE(
     };
     context.run();
     executor.wait();
-    REQUIRE(executor.succeed());
+    REQUIRE(executor.succeeded());
     std::optional<std::string> const result_option = executor.get_result<std::string>();
     REQUIRE(result_option.has_value());
     REQUIRE(input_1 + input_2 == result_option.value_or(""));

@@ -84,7 +84,20 @@ public:
      *
      * @throw spider::ConnectionException
      */
-    auto cancel();
+    auto cancel() -> void {
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+        core::StorageErr const err
+                = m_metadata_storage->cancel_job_by_user(*conn, m_id, "Job cancelled by user.");
+        if (!err.success()) {
+            throw ConnectionException(err.description);
+        }
+    }
 
     /**
      * @return Status of the job.
@@ -146,16 +159,41 @@ public:
     }
 
     /**
-     * NOTE: It is undefined behavior to call this method for a job that is not in the `Failed`
+     * NOTE: It is undefined behavior to call this method for a job that is not in the `Cancelled`
      * state.
      *
      * @return A pair:
-     * - the name of the task function that failed.
-     * - the error message sent from the task through `TaskContext::abort` or from Spider.
+     * - the name of the task function that called `TaskContext::abort`, or "user" if job is
+     *   cancelled by calling `Job::cancel`.
+     * - the error message sent from the task through `TaskContext::abort` or "Job cancelled by
+     *   user." if job is cancelled through `Job::cancel`.
      * @throw spider::ConnectionException
      */
     auto get_error() -> std::pair<std::string, std::string> {
-        throw ConnectionException{"Not implemented"};
+        if (nullptr == m_conn) {
+            std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                    = m_storage_factory->provide_storage_connection();
+            if (std::holds_alternative<core::StorageErr>(conn_result)) {
+                throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+            }
+            auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+
+            std::pair<std::string, std::string> res;
+            core::StorageErr const err
+                    = m_metadata_storage->get_error_message(*conn, m_id, &res.first, &res.second);
+            if (false == err.success()) {
+                throw ConnectionException{err.description};
+            }
+            return res;
+        }
+
+        std::pair<std::string, std::string> res;
+        core::StorageErr const err
+                = m_metadata_storage->get_error_message(*m_conn, m_id, &res.first, &res.second);
+        if (false == err.success()) {
+            throw ConnectionException{err.description};
+        }
+        return res;
     }
 
 private:
