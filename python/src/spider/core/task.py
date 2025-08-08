@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from uuid import UUID
 
-from core.data import DataId
+from spider.core.data import DataId
 
 TaskId = UUID
 
@@ -46,5 +46,5 @@ class Task:
     state: TaskState
     timeout: float
     max_retries: int
-    task_input: list[TaskInputData] = field(default_factory=list)
-    task_output: list[TaskOutputData] = field(default_factory=list)
+    task_input: list[TaskInput] = field(default_factory=list)
+    task_output: list[TaskOutput] = field(default_factory=list)

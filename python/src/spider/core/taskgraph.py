@@ -1,6 +1,6 @@
 """TaskGraph module for Spider."""
 
-from core.task import Task, TaskId
+from spider.core.task import Task, TaskId
 
 
 class TaskGraph:
