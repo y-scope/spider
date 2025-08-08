@@ -78,6 +78,26 @@ public:
         m_data_store->set_data_locality(*conn, *m_impl);
     }
 
+    /**
+     * Sets the data as persisted, indicating the data should not be cleaned up.
+     *
+     * @throw spider::ConnectionException
+     */
+    void set_persisted() {
+        m_impl->set_persisted(true);
+        if (nullptr != m_connection) {
+            m_data_store->set_data_persisted(*m_connection, *m_impl);
+            return;
+        }
+        std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
+                = m_storage_factory->provide_storage_connection();
+        if (std::holds_alternative<core::StorageErr>(conn_result)) {
+            throw ConnectionException(std::get<core::StorageErr>(conn_result).description);
+        }
+        auto conn = std::move(std::get<std::unique_ptr<core::StorageConnection>>(conn_result));
+        m_data_store->set_data_persisted(*conn, *m_impl);
+    }
+
     class Builder {
     public:
         /**
@@ -107,6 +127,16 @@ public:
         }
 
         /**
+         * Sets the data as persisted, indicating the data should not be cleaned up.
+         *
+         * @return self
+         */
+        auto set_persisted() -> Builder& {
+            m_persisted = true;
+            return *this;
+        }
+
+        /**
          * Builds the data object.
          *
          * @param t Value of the data
@@ -119,6 +149,7 @@ public:
             auto data = std::make_unique<core::Data>(std::string{buffer.data(), buffer.size()});
             data->set_locality(m_nodes);
             data->set_hard_locality(m_hard_locality);
+            data->set_persisted(m_persisted);
             std::shared_ptr<core::StorageConnection> conn = m_connection;
             if (nullptr == conn) {
                 std::variant<std::unique_ptr<core::StorageConnection>, core::StorageErr> conn_result
@@ -166,6 +197,7 @@ public:
         std::vector<std::string> m_nodes;
         bool m_hard_locality = false;
         std::function<void(T const&)> m_cleanup_func;
+        bool m_persisted = false;
 
         std::shared_ptr<core::DataStorage> m_data_store;
         std::shared_ptr<core::StorageFactory> m_storage_factory;
