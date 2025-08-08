@@ -35,7 +35,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
     SECTION("Identifier") {
         constexpr std::string_view cTestName{"test_name"};
-        constexpr std::string_view cSerializedIdentifier{"[Identifier]: test_name"};
+        constexpr std::string_view cSerializedIdentifier{"[Identifier]:test_name"};
 
         auto const node{Identifier::create(std::string{cTestName})};
         auto const* identifier{dynamic_cast<Identifier const*>(node.get())};
