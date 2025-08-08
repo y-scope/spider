@@ -15,6 +15,7 @@ spider_task_executor = "src.spider.task_executor.task_executor:main"
 [dependency-groups]
 dev = [
   "mypy>=1.12.0",
+  "pytest>=8.4.1",
   "ruff>=0.4.4",
 ]
 
@@ -28,6 +29,9 @@ strict = true
 pretty = true
 show_error_code_links = true
 show_error_context = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
@@ -59,3 +63,10 @@ ignore = [
   "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+  "S101",  # Allow use of `assert` (security warning)
+  "S603",  # Allow use of `subprocess.Popen` (security warning)
+  "T201",  # Allow use of `print` (testing)
+]
