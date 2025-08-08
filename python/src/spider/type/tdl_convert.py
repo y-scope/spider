@@ -82,3 +82,13 @@ def to_tdl_type(native_type: type) -> TdlType:
         raise TypeError(msg)
 
     return ClassType(native_type.__name__)
+
+
+def to_tdl_type_str(native_type: type) -> str:
+    """
+    Converts a Python type to TDL type string.
+    :param native_type:
+    :return:
+    :raise: TypeError if `native_type` is not a valid TDL type.
+    """
+    return to_tdl_type(native_type).type_str()
