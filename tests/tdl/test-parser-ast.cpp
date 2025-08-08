@@ -17,7 +17,6 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
-#include <spider/tdl/parser/ast/utils.hpp>
 
 namespace {
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
@@ -30,8 +29,6 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Float;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
-    using spider::tdl::parser::ast::serialize_float_spec;
-    using spider::tdl::parser::ast::serialize_int_spec;
     using ystdlib::error_handling::Result;
 
     SECTION("Identifier") {
@@ -51,45 +48,46 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     }
 
     SECTION("Type Int") {
-        auto const int_spec
-                = GENERATE(IntSpec::Int8, IntSpec::Int16, IntSpec::Int32, IntSpec::Int64);
-        auto const serialized_int_spec_result{serialize_int_spec(int_spec)};
-        REQUIRE_FALSE(serialized_int_spec_result.has_error());
+        auto const [int_spec, expected_serialized_result] = GENERATE(
+                std::make_pair(IntSpec::Int8, std::string_view{"[Type[Primitive[Int]]]:int8"}),
+                std::make_pair(IntSpec::Int16, std::string_view{"[Type[Primitive[Int]]]:int16"}),
+                std::make_pair(IntSpec::Int32, std::string_view{"[Type[Primitive[Int]]]:int32"}),
+                std::make_pair(IntSpec::Int64, std::string_view{"[Type[Primitive[Int]]]:int64"})
+        );
 
         auto const node{Int::create(int_spec)};
         auto const* int_node{dynamic_cast<Int const*>(node.get())};
         REQUIRE(nullptr != int_node);
 
         REQUIRE(int_node->get_spec() == int_spec);
+        REQUIRE(int_node->get_num_children() == 0);
 
-        constexpr std::string_view cExpectedSerializedResultPrefix{"[Type[Primitive[Int]]]:"};
         auto const serialized_result{int_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
-        auto const expected_serialized_result{
-                std::string{cExpectedSerializedResultPrefix}
-                + std::string{serialized_int_spec_result.value()}
-        };
         REQUIRE(serialized_result.value() == expected_serialized_result);
     }
 
     SECTION("Type Float") {
-        auto const float_spec = GENERATE(FloatSpec::Float, FloatSpec::Double);
-        auto const serialized_float_spec_result{serialize_float_spec(float_spec)};
-        REQUIRE_FALSE(serialized_float_spec_result.has_error());
+        auto const [float_spec, expected_serialized_result] = GENERATE(
+                std::make_pair(
+                        FloatSpec::Float,
+                        std::string_view{"[Type[Primitive[Float]]]:float"}
+                ),
+                std::make_pair(
+                        FloatSpec::Double,
+                        std::string_view{"[Type[Primitive[Float]]]:double"}
+                )
+        );
 
         auto const node{Float::create(float_spec)};
         auto const* float_node{dynamic_cast<Float const*>(node.get())};
         REQUIRE(nullptr != float_node);
 
         REQUIRE(float_node->get_spec() == float_spec);
+        REQUIRE(float_node->get_num_children() == 0);
 
-        constexpr std::string_view cExpectedSerializedResultPrefix{"[Type[Primitive[Float]]]:"};
         auto const serialized_result{float_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
-        auto const expected_serialized_result{
-                std::string{cExpectedSerializedResultPrefix}
-                + std::string{serialized_float_spec_result.value()}
-        };
         REQUIRE(serialized_result.value() == expected_serialized_result);
     }
 
@@ -97,6 +95,8 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         auto const node{Bool::create()};
         auto const* bool_node{dynamic_cast<Bool const*>(node.get())};
         REQUIRE(nullptr != bool_node);
+
+        REQUIRE(bool_node->get_num_children() == 0);
 
         constexpr std::string_view cExpectedSerializedResult{"[Type[Primitive[Bool]]]"};
         auto const serialized_result{bool_node->serialize_to_str(0)};
