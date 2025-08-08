@@ -1,1 +1,0 @@
-"""Spider core module."""
