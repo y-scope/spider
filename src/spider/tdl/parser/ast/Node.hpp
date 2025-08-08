@@ -21,6 +21,8 @@ public:
         ChildIndexOutOfBounds = 1,
         ChildIsNull,
         ParentAlreadySet,
+        UnexpectedChildNodeType,
+        UnknownTypeSpec,
     };
 
     using ErrorCode = ystdlib::error_handling::ErrorCode<ErrorCodeEnum>;
