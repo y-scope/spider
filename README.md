@@ -68,3 +68,4 @@ in the table below.
 
 [spider-docs]: https://docs.yscope.com/spider/main/
 [Task]: https://taskfile.dev
+[uv]: https://docs.astral.sh/uv/
