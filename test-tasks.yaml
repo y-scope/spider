@@ -76,3 +76,8 @@ tasks:
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
+
+  python-tests:
+    dir: "{{.G_SRC_PYTHON_DIR}}"
+    cmd: |-
+      uv run pytest
