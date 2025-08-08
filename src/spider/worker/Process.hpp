@@ -15,7 +15,8 @@ public:
             std::vector<std::string> const& args,
             std::optional<int> in,
             std::optional<int> out,
-            std::optional<int> err
+            std::optional<int> err,
+            std::vector<int> const& fd_whitelist
     ) -> Process;
 
     /* Waits for the process to finish.

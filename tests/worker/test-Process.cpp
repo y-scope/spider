@@ -12,11 +12,23 @@
 
 namespace {
 TEST_CASE("Process exit", "[worker]") {
-    spider::worker::Process const true_process
-            = spider::worker::Process::spawn("true", {}, std::nullopt, std::nullopt, std::nullopt);
+    spider::worker::Process const true_process = spider::worker::Process::spawn(
+            "true",
+            {},
+            std::nullopt,
+            std::nullopt,
+            std::nullopt,
+            {}
+    );
     REQUIRE(true_process.wait() == 0);
-    spider::worker::Process const false_process
-            = spider::worker::Process::spawn("false", {}, std::nullopt, std::nullopt, std::nullopt);
+    spider::worker::Process const false_process = spider::worker::Process::spawn(
+            "false",
+            {},
+            std::nullopt,
+            std::nullopt,
+            std::nullopt,
+            {}
+    );
     REQUIRE(false_process.wait() == 1);
 }
 
@@ -26,7 +38,8 @@ TEST_CASE("Process cancel", "[worker]") {
             {"10"},
             std::nullopt,
             std::nullopt,
-            std::nullopt
+            std::nullopt,
+            {}
     );
     std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
     sleep_process.terminate();
@@ -53,7 +66,8 @@ TEST_CASE("Process pipe", "[worker]") {
             {},
             write_pipe_fd[0],
             read_pipe_fd[1],
-            std::nullopt
+            std::nullopt,
+            {}
     );
     close(write_pipe_fd[0]);
     close(read_pipe_fd[1]);
