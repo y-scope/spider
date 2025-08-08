@@ -48,3 +48,7 @@ class Int64(BoundedInt):
     def __new__(cls, value: int) -> "Int64":
         """Creates an int64 integer."""
         return cast("Int64", super().__new__(cls, value, bits=64))
+
+
+Float = float
+Double = float
