@@ -1,7 +1,7 @@
 """Converts native types to TDL types."""
 
-import types
 from collections.abc import Collection
+from types import GenericAlias
 from typing import get_args, get_origin
 
 from spider.type.tdl_type import (
@@ -18,9 +18,10 @@ from spider.type.tdl_type import (
     TdlType,
 )
 from spider.type.type import Double, Float, Int8, Int16, Int32, Int64
+from spider.type.utils import get_class_name
 
 
-def to_primitive_tdl_type(native_type: type) -> TdlType | None:
+def to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
     """
     Converts a native type to primitive TDL type.
     :param native_type:
@@ -44,7 +45,7 @@ def to_primitive_tdl_type(native_type: type) -> TdlType | None:
     return tdl_type
 
 
-def to_tdl_type(native_type: type) -> TdlType:
+def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
     """
     Converts a Python type to TDL type.
     :param native_type:
@@ -59,7 +60,7 @@ def to_tdl_type(native_type: type) -> TdlType:
         msg = f"{native_type} is not a valid TDL type."
         raise TypeError(msg)
 
-    if isinstance(native_type, types.GenericAlias):
+    if isinstance(native_type, GenericAlias):
         origin = get_origin(native_type)
         if origin is list:
             arg = get_args(native_type)
@@ -87,10 +88,10 @@ def to_tdl_type(native_type: type) -> TdlType:
         msg = f"{native_type} is not a valid TDL type."
         raise TypeError(msg)
 
-    return ClassType(native_type.__name__)
+    return ClassType(get_class_name(native_type))
 
 
-def to_tdl_type_str(native_type: type) -> str:
+def to_tdl_type_str(native_type: type | GenericAlias) -> str:
     """
     Converts a Python type to TDL type string.
     :param native_type:

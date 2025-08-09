@@ -31,7 +31,7 @@ class TestToTDL:
 
     def test_to_tdl_class(self) -> None:
         """Test converting class to TDL Types."""
-        assert to_tdl_type_str(TestToTDL) == "TestToTDL"
+        assert to_tdl_type_str(TestToTDL) == "test_to_tdl.TestToTDL"
 
     def test_to_tdl_primitive_exception(self) -> None:
         """Test converting unsupported primitive types to TDL Types."""
