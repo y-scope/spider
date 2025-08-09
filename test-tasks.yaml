@@ -18,7 +18,7 @@ tasks:
     cmds:
       - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
 
-  all:
+  cpp-all:
     deps:
       - "build-unit-test"
     cmds:
@@ -31,7 +31,7 @@ tasks:
         vars:
           TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
 
-  integration:
+  cpp-integration:
     dir: "{{.G_BUILD_SPIDER_DIR}}"
     deps:
       - "venv"
@@ -76,3 +76,11 @@ tasks:
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
+
+  python-tests:
+    dir: "{{.G_SRC_PYTHON_DIR}}"
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    cmds:
+      # Don't create __pycache__ directories in source tree.
+      - "uv run env pytest"

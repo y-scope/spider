@@ -44,6 +44,7 @@ jobs:
           python --version
           tar --version
           task --version
+          uv --version
 
       - name: "Install project dependencies "
         timeout-minutes: 10
