@@ -6,7 +6,7 @@ import pytest
 
 import spider
 from spider.type.tdl_parse import parse_tdl_type
-from spider.type.tdl_type import get_class_name
+from spider.type.utils import get_class_name
 
 
 def string_to_native(s: str) -> type | GenericAlias:

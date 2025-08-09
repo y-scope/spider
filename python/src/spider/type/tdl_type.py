@@ -1,13 +1,12 @@
 """Spider TDL types."""
 
 from abc import ABC, abstractmethod
-from importlib import import_module
 from types import GenericAlias
-from typing import cast
 
 from typing_extensions import override
 
 from spider.type.type import Double, Float, Int8, Int16, Int32, Int64
+from spider.type.utils import get_class_by_name
 
 
 class TdlType(ABC):
@@ -104,33 +103,6 @@ class BoolType(TdlType):
     @override
     def native_type(self) -> type | GenericAlias:
         return bool
-
-
-def get_class_name(cls: type) -> str:
-    """
-    Gets Full class name.
-    :param cls:
-    :return:
-    """
-    return f"{cls.__module__}.{cls.__qualname__}"
-
-
-def get_class_by_name(name: str) -> type:
-    """
-    Gets class by name.
-    :param name:
-    :return:
-    :raise: TypeError if `class_name` is not a valid class.
-    """
-    parts = name.split(".")
-    module_name = ".".join(parts[:-1])
-    class_name = parts[-1]
-    try:
-        module = import_module(module_name)
-        return cast("type", getattr(module, class_name))
-    except (ValueError, ModuleNotFoundError, AttributeError) as exc:
-        msg = f"{name} is not a valid TDL type."
-        raise TypeError(msg) from exc
 
 
 class ClassType(TdlType):
