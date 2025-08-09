@@ -1,6 +1,5 @@
 """Parse TDL type string."""
 
-from copy import copy
 from typing import cast
 
 from lark import Lark, Token, Transformer, Tree, v_args
@@ -33,13 +32,13 @@ ID: /[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*/
 """
 
 primitive_type_map = {
-    "bool": BoolType(),
-    "double": DoubleType(),
-    "float": FloatType(),
-    "int8": Int8Type(),
-    "int16": Int16Type(),
-    "int32": Int32Type(),
-    "int64": Int64Type(),
+    "bool": BoolType,
+    "double": DoubleType,
+    "float": FloatType,
+    "int8": Int8Type,
+    "int16": Int16Type,
+    "int32": Int32Type,
+    "int64": Int64Type,
 }
 
 
@@ -53,14 +52,14 @@ class TypeTransformer(Transformer[Token, TdlType]):
 
     @v_args(inline=True)
     def list_type(self, key: Tree[str]) -> TdlType:
-        """Transforms list node into Map type."""
+        """Transforms list node into List type."""
         return ListType(cast("TdlType", key.children[0]))
 
     def base_type(self, children: list[Token]) -> TdlType:
         """Transforms primitive node into primitive type."""
         name = str(children[0])
         if name in primitive_type_map:
-            return copy(primitive_type_map[name])
+            return primitive_type_map[name]()  # type: ignore[abstract]
         return ClassType(name)
 
 

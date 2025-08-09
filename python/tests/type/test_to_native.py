@@ -24,12 +24,13 @@ class TestToNativeType:
 
     def test_to_primitive_native_type(self) -> None:
         """Test converting primitive TDL type to native type."""
-        assert string_to_native("double") == spider.Double
-        assert string_to_native("float") == spider.Float
-        assert string_to_native("int8") == spider.Int8
-        assert string_to_native("int16") == spider.Int16
-        assert string_to_native("int32") == spider.Int32
-        assert string_to_native("int64") == spider.Int64
+        assert string_to_native("bool") is bool
+        assert string_to_native("double") is spider.Double
+        assert string_to_native("float") is spider.Float
+        assert string_to_native("int8") is spider.Int8
+        assert string_to_native("int16") is spider.Int16
+        assert string_to_native("int32") is spider.Int32
+        assert string_to_native("int64") is spider.Int64
 
     def test_to_class_type(self) -> None:
         """Test converting class TDL type to native type."""
