@@ -50,5 +50,17 @@ class Int64(BoundedInt):
         return cast("Int64", super().__new__(cls, value, bits=64))
 
 
-Float = float
-Double = float
+class Float(float):
+    """Float type."""
+
+    def __new__(cls, value: float) -> "Float":
+        """Creates a float number."""
+        return super().__new__(cls, value)
+
+
+class Double(float):
+    """Double type."""
+
+    def __new__(cls, value: float) -> "Double":
+        """Creates a double number."""
+        return super().__new__(cls, value)

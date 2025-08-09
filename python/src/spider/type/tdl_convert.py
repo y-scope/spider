@@ -1,9 +1,9 @@
 """Converts native types to TDL types."""
 
+import types
 from collections.abc import Collection
-from typing import get_args
+from typing import get_args, get_origin
 
-from spider import Double, Float, Int8, Int16, Int32, Int64
 from spider.type.tdl_type import (
     BoolType,
     ClassType,
@@ -17,6 +17,7 @@ from spider.type.tdl_type import (
     MapType,
     TdlType,
 )
+from spider.type.type import Double, Float, Int8, Int16, Int32, Int64
 
 
 def to_primitive_tdl_type(native_type: type) -> TdlType | None:
@@ -54,26 +55,31 @@ def to_tdl_type(native_type: type) -> TdlType:
     if primitive_tdl_type is not None:
         return primitive_tdl_type
 
-    if native_type is list:
-        arg = get_args(native_type)
-        if arg is None:
-            msg = "List does not have a key type."
-            raise TypeError(msg)
-        arg = arg[0]
-        return ListType(to_tdl_type(arg))
-
-    if native_type is dict:
-        arg = get_args(native_type)
-        msg = "Dict does not have a key/value type."
-        if arg is None:
-            raise TypeError(msg)
-        if len(arg) != 2:  # noqa: PLR2004
-            raise TypeError(msg)
-        key = arg[0]
-        value = arg[1]
-        return MapType(to_tdl_type(key), to_tdl_type(value))
-
     if native_type in (int, float, str, complex, bytes):
+        msg = f"{native_type} is not a valid TDL type."
+        raise TypeError(msg)
+
+    if isinstance(native_type, types.GenericAlias):
+        origin = get_origin(native_type)
+        if origin is list:
+            arg = get_args(native_type)
+            if arg is None:
+                msg = "List does not have a key type."
+                raise TypeError(msg)
+            arg = arg[0]
+            return ListType(to_tdl_type(arg))
+
+        if origin is dict:
+            arg = get_args(native_type)
+            msg = "Dict does not have a key/value type."
+            if arg is None:
+                raise TypeError(msg)
+            if len(arg) != 2:  # noqa: PLR2004
+                raise TypeError(msg)
+            key = arg[0]
+            value = arg[1]
+            return MapType(to_tdl_type(key), to_tdl_type(value))
+
         msg = f"{native_type} is not a valid TDL type."
         raise TypeError(msg)
 
