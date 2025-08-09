@@ -1,4 +1,5 @@
 """Test converting TDL type to native type."""
+
 from types import GenericAlias
 
 import pytest
@@ -35,6 +36,8 @@ class TestToNativeType:
         assert string_to_native(get_class_name(TestToNativeType)) == TestToNativeType
         with pytest.raises(TypeError):
             string_to_native("NonExistType")
+        with pytest.raises(TypeError):
+            string_to_native("NonExistModule.NonExistType")
 
     def test_to_list_type(self) -> None:
         """Test converting list TDL type to native type."""
@@ -44,4 +47,7 @@ class TestToNativeType:
     def test_to_map_type(self) -> None:
         """Test converting map TDL type to native type."""
         assert string_to_native("Map<int8,int8>") == dict[spider.Int8, spider.Int8]
-        assert string_to_native("Map<List<int8>,Map<int8,double>>") == dict[list[spider.Int8], dict[spider.Int8, spider.Double]]
+        assert (
+            string_to_native("Map<List<int8>,Map<int8,double>>")
+            == dict[list[spider.Int8], dict[spider.Int8, spider.Double]]
+        )

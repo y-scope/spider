@@ -1,6 +1,7 @@
 """Spider TDL types."""
-import importlib
+
 from abc import ABC, abstractmethod
+from importlib import import_module
 from types import GenericAlias
 from typing import cast
 
@@ -32,6 +33,7 @@ class DoubleType(TdlType):
     def native_type(self) -> type | GenericAlias:
         return Double
 
+
 class FloatType(TdlType):
     """TDL float type."""
 
@@ -42,6 +44,7 @@ class FloatType(TdlType):
     @override
     def native_type(self) -> type | GenericAlias:
         return Float
+
 
 class Int8Type(TdlType):
     """TDL int8 type."""
@@ -66,6 +69,7 @@ class Int16Type(TdlType):
     def native_type(self) -> type | GenericAlias:
         return Int16
 
+
 class Int32Type(TdlType):
     """TDL int32 type."""
 
@@ -76,6 +80,7 @@ class Int32Type(TdlType):
     @override
     def native_type(self) -> type | GenericAlias:
         return Int32
+
 
 class Int64Type(TdlType):
     """TDL int64 type."""
@@ -88,6 +93,7 @@ class Int64Type(TdlType):
     def native_type(self) -> type | GenericAlias:
         return Int64
 
+
 class BoolType(TdlType):
     """TDL bool type."""
 
@@ -99,6 +105,7 @@ class BoolType(TdlType):
     def native_type(self) -> type | GenericAlias:
         return bool
 
+
 def get_class_name(cls: type) -> str:
     """
     Gets Full class name.
@@ -106,6 +113,7 @@ def get_class_name(cls: type) -> str:
     :return:
     """
     return f"{cls.__module__}.{cls.__qualname__}"
+
 
 def get_class_by_name(name: str) -> type:
     """
@@ -118,10 +126,12 @@ def get_class_by_name(name: str) -> type:
     module_name = ".".join(parts[:-1])
     class_name = parts[-1]
     try:
-        module = importlib.import_module(module_name)
+        module = import_module(module_name)
         return cast("type", getattr(module, class_name))
-    except Exception:
-        raise TypeError(f"'{name}' is not a valid class.")
+    except (ValueError, ModuleNotFoundError, AttributeError) as exc:
+        msg = f"{name} is not a valid TDL type."
+        raise TypeError(msg) from exc
+
 
 class ClassType(TdlType):
     """TDL Custom class type."""
@@ -145,6 +155,7 @@ class ClassType(TdlType):
         """
         return get_class_by_name(self.name)
 
+
 class ListType(TdlType):
     """TDL List type."""
 
@@ -158,7 +169,8 @@ class ListType(TdlType):
 
     @override
     def native_type(self) -> type | GenericAlias:
-        return list[self.key.native_type()]
+        return list[self.key.native_type()]  # type: ignore[misc]
+
 
 def is_integral(tdl_type: TdlType) -> bool:
     """:return: If TDL type is an integral type."""
@@ -195,4 +207,4 @@ class MapType(TdlType):
 
     @override
     def native_type(self) -> type | GenericAlias:
-        return dict[self.key.native_type(), self.value.native_type()]
+        return dict[self.key.native_type(), self.value.native_type()]  # type: ignore[misc]
