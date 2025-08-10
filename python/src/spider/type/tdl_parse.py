@@ -1,8 +1,7 @@
 """Parse TDL type string."""
 
-from typing import cast
 
-from lark import Lark, Token, Transformer, Tree, v_args
+from lark import Lark, Token, Transformer, v_args
 
 from spider.type.tdl_type import (
     BoolType,
@@ -46,14 +45,19 @@ class TypeTransformer(Transformer[Token, TdlType]):
     """Transform Lark parse tree into TDL type."""
 
     @v_args(inline=True)
-    def map_type(self, key: Tree[str], value: Tree[str]) -> TdlType:
-        """Transforms map node into Map type."""
-        return MapType(cast("TdlType", key.children[0]), cast("TdlType", value.children[0]))
+    def type(self, value: TdlType) -> TdlType:
+        """Unwraps the type node to return the TdlType."""
+        return value
 
     @v_args(inline=True)
-    def list_type(self, key: Tree[str]) -> TdlType:
+    def map_type(self, key: TdlType, value: TdlType) -> TdlType:
+        """Transforms map node into Map type."""
+        return MapType(key, value)
+
+    @v_args(inline=True)
+    def list_type(self, key: TdlType) -> TdlType:
         """Transforms list node into List type."""
-        return ListType(cast("TdlType", key.children[0]))
+        return ListType(key)
 
     def base_type(self, children: list[Token]) -> TdlType:
         """Transforms primitive node into primitive type."""
@@ -74,8 +78,4 @@ def parse_tdl_type(string: str) -> TdlType:
     :raise: TypeError if string is not a valid TDL type.
     """
     tree = parser.parse(string)
-    try:
-        return cast("TdlType", TypeTransformer(visit_tokens=False).transform(tree).children[0])  # type: ignore[attr-defined]
-    except IndexError as exc:
-        msg = f"{string} is not a valid TDL type."
-        raise TypeError(msg) from exc
+    return TypeTransformer(visit_tokens=False).transform(tree)
