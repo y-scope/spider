@@ -46,5 +46,5 @@ class Task:
     state: TaskState
     timeout: float
     max_retries: int
-    task_input: list[TaskInput] = field(default_factory=list)
-    task_output: list[TaskOutput] = field(default_factory=list)
+    task_inputs: list[TaskInput] = field(default_factory=list)
+    task_outputs: list[TaskOutput] = field(default_factory=list)

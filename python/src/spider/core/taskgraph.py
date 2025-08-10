@@ -1,6 +1,9 @@
 """TaskGraph module for Spider."""
 
-from spider.core.task import Task, TaskId
+from copy import deepcopy
+from uuid import uuid4
+
+from spider.core.task import Task, TaskId, TaskInputOutput
 
 
 class TaskGraph:
@@ -25,7 +28,7 @@ class TaskGraph:
         :param parents: The parent ids of the task. Must be already in the task graph.
         :param children: The children ids of the task. Must be already in the task graph.
         """
-        self.tasks[task.task_id] = task
+        self.tasks[task.task_id] = deepcopy(task)
         if parents:
             for parent in parents:
                 self.dependencies.append((parent, task.task_id))
@@ -54,3 +57,33 @@ class TaskGraph:
         :return: List of children tasks.
         """
         return [self.tasks[child] for (parent, child) in self.dependencies if parent == task_id]
+
+    def reset_ids(self) -> None:
+        """Resets task ids."""
+        id_map = {}
+        for task_id in self.tasks:
+            id_map[task_id] = uuid4()
+
+        new_tasks = {}
+        for task_id in self.tasks:
+            new_task_id = id_map[task_id]
+            new_tasks[new_task_id] = deepcopy(self.tasks[task_id])
+            for task_input in new_tasks[new_task_id].task_inputs:
+                if isinstance(task_input, TaskInputOutput):
+                    task_input.task_id = id_map[task_input.task_id]
+        self.tasks = new_tasks
+
+        new_dependencies = []
+        for parent, child in self.dependencies:
+            new_dependencies.append((id_map[parent], id_map[child]))
+        self.dependencies = new_dependencies
+
+        new_input_tasks = set()
+        for task_id in self.input_tasks:
+            new_input_tasks.add(id_map[task_id])
+        self.input_tasks = new_input_tasks
+
+        new_output_tasks = set()
+        for task_id in self.output_tasks:
+            new_output_tasks.add(id_map[task_id])
+        self.output_tasks = new_output_tasks
