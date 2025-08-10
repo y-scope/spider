@@ -87,3 +87,14 @@ class TaskGraph:
         for task_id in self.output_tasks:
             new_output_tasks.add(id_map[task_id])
         self.output_tasks = new_output_tasks
+
+    def merge_graph(self, graph: "TaskGraph") -> None:
+        """
+        Merges another task graph into this task graph.
+        :param graph: The task graph to merge.
+        :return:
+        """
+        self.tasks.update(graph.tasks)
+        self.dependencies.extend(graph.dependencies)
+        self.input_tasks.update(graph.input_tasks)
+        self.output_tasks.update(graph.output_tasks)

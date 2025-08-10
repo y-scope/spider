@@ -25,6 +25,8 @@ def group(tasks: list[TaskFunction | TaskGraph]) -> TaskGraph:
     for task in tasks:
         if isinstance(task, TaskFunction):
             graph._impl.add_task(create_task(task))
-        # TODO: Add task graph
+        else:
+            graph._impl.merge_graph(task._impl)
+            graph._impl.reset_ids()
 
     return graph
