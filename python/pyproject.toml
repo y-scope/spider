@@ -1,5 +1,5 @@
 [project]
-name = "spider"
+name = "spider-py"
 version = "0.0.1"
 description = "Spider is a distributed task execution framework"
 readme = "README.md"
