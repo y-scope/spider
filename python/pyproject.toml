@@ -72,5 +72,8 @@ isort.order-by-type = false
   "T201",  # Allow use of `print` (testing)
 ]
 
+[tool.ruff.lint.flake8-self]
+ignore-names = ["_impl"]
+
 [tool.ruff.lint.pydocstyle]
 ignore-decorators = ["typing.override"]
