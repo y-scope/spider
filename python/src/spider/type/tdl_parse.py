@@ -1,7 +1,6 @@
 """Parse TDL type string."""
 
-
-from lark import Lark, Token, Transformer, v_args
+from lark import Lark, LarkError, Token, Transformer, v_args
 
 from spider.type.tdl_type import (
     BoolType,
@@ -77,5 +76,9 @@ def parse_tdl_type(string: str) -> TdlType:
     :return: Parsed TDL type.
     :raise: TypeError if string is not a valid TDL type.
     """
-    tree = parser.parse(string)
-    return TypeTransformer(visit_tokens=False).transform(tree)
+    try:
+        tree = parser.parse(string)
+        return TypeTransformer(visit_tokens=False).transform(tree)
+    except LarkError as ecx:
+        msg = f"Cannot parse TDL type '{string}'"
+        raise TypeError(msg) from ecx
