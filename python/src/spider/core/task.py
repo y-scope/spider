@@ -19,11 +19,26 @@ class TaskInputOutput:
 
 TaskInputValue = bytes
 TaskInputData = DataId
-TaskInput = TaskInputOutput | TaskInputValue | TaskInputData
+
+
+@dataclass
+class TaskInput:
+    """Represents a task input"""
+
+    type: str
+    value: TaskInputData | TaskInputOutput | None
+
 
 TaskOutputValue = bytes
 TaskOutputData = DataId
-TaskOutput = TaskOutputValue | TaskOutputData
+
+
+@dataclass
+class TaskOutput:
+    """Represents a task output"""
+
+    type: str
+    value: TaskOutputData | TaskOutputValue
 
 
 class TaskState(IntEnum):
