@@ -69,8 +69,8 @@ class TaskGraph:
             new_task_id = id_map[task_id]
             new_tasks[new_task_id] = deepcopy(self.tasks[task_id])
             for task_input in new_tasks[new_task_id].task_inputs:
-                if isinstance(task_input, TaskInputOutput):
-                    task_input.task_id = id_map[task_input.task_id]
+                if isinstance(task_input.value, TaskInputOutput):
+                    task_input.value.task_id = id_map[task_input.value.task_id]
         self.tasks = new_tasks
 
         new_dependencies = []
