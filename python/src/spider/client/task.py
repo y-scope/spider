@@ -31,19 +31,13 @@ def is_tuple(t: type | GenericAlias) -> bool:
     return get_origin(t) is tuple
 
 
-def _create_task(func: TaskFunction) -> core.Task:
+def _process_parameters(task: core.Task, signature: inspect.Signature) -> None:
     """
-    Creates a core Task object from the task function.
-    :param func:
-    :return:
-    :raise TypeError: If the function signature contains unsupported types.
+    Checks the parameters validity and add them to the task.
+    :param task:
+    :param signature:
+    :raises TypeError: If the parameters are invalid.
     """
-    task = core.Task()
-    if not isinstance(func, FunctionType):
-        msg = "`func` is not a function."
-        raise TypeError(msg)
-    task.function_name = func.__qualname__
-    signature = inspect.signature(func)
     params = list(signature.parameters.values())
     if not params or params[0].annotation is not TaskContext:
         msg = "First argument is not a TaskContext."
@@ -57,6 +51,15 @@ def _create_task(func: TaskFunction) -> core.Task:
             raise TypeError(msg)
         tdl_type_str = to_tdl_type_str(param.annotation)
         task.task_inputs.append(TaskInput(tdl_type_str, None))
+
+
+def _process_return(task: core.Task, signature: inspect.Signature) -> None:
+    """
+    Checks the return type validity and add them to the task.
+    :param task:
+    :param signature:
+    :raises TypeError: If the return type is invalid.
+    """
     returns = signature.return_annotation
     if returns is inspect.Parameter.empty:
         msg = "Return type must have type annotation"
@@ -79,4 +82,20 @@ def _create_task(func: TaskFunction) -> core.Task:
         else:
             task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
 
+
+def _create_task(func: TaskFunction) -> core.Task:
+    """
+    Creates a core Task object from the task function.
+    :param func:
+    :return:
+    :raise TypeError: If the function signature contains unsupported types.
+    """
+    task = core.Task()
+    if not isinstance(func, FunctionType):
+        msg = "`func` is not a function."
+        raise TypeError(msg)
+    task.function_name = func.__qualname__
+    signature = inspect.signature(func)
+    _process_parameters(task, signature)
+    _process_return(task, signature)
     return task
