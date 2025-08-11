@@ -2,7 +2,7 @@
 
 import inspect
 from types import FunctionType, GenericAlias
-from typing import Protocol, runtime_checkable, get_origin, get_args
+from typing import get_args, get_origin, Protocol, runtime_checkable
 
 from spider import core
 from spider.client.data import Data

@@ -2,7 +2,7 @@
 
 import pytest
 
-from spider import TaskContext, Int8, group, chain
+from spider import chain, group, Int8, TaskContext
 
 
 def no_context(x: Int8, y: Int8) -> Int8:
@@ -11,6 +11,7 @@ def no_context(x: Int8, y: Int8) -> Int8:
 
 
 def invalid_type(_: TaskContext, x: int) -> int:
+    """Invalid task function with unsupported type."""
     return x + x
 
 
@@ -30,6 +31,8 @@ def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
 
 
 class TestTaskGraph:
+    """Test task graph composition."""
+
     def test_group(self) -> None:
         """Tests task grouping."""
         graph = group([add, add])
