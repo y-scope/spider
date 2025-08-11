@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -15,6 +16,7 @@
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
+#include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Tuple.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
@@ -28,6 +30,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::NamedVar;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
+    using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Float;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
@@ -230,6 +233,58 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         auto const serialized_result{named_var_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
         REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+    }
+
+    SECTION("Tuple") {
+        SECTION("Empty") {
+            auto empty_tuple_result{Tuple::create({})};
+            REQUIRE_FALSE(empty_tuple_result.has_error());
+            auto const* tuple_node{dynamic_cast<Tuple const*>(empty_tuple_result.value().get())};
+            REQUIRE(nullptr != tuple_node);
+
+            REQUIRE(tuple_node->get_num_children() == 0);
+
+            constexpr std::string_view cExpectedSerializedResult{"[Type[Container[Tuple]]]:Empty"};
+            auto const serialized_result{tuple_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Tuple with elements") {
+            auto int_node{Int::create(IntSpec::Int64)};
+            auto float_node{Float::create(FloatSpec::Double)};
+            auto map_result{
+                    Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))
+            };
+            REQUIRE_FALSE(map_result.has_error());
+            std::vector<std::unique_ptr<Node>> elements;
+            elements.emplace_back(std::move(int_node));
+            elements.emplace_back(std::move(float_node));
+            elements.emplace_back(std::move(map_result.value()));
+            auto tuple_result{Tuple::create(std::move(elements))};
+            REQUIRE_FALSE(tuple_result.has_error());
+            auto const* tuple_node{dynamic_cast<Tuple const*>(tuple_result.value().get())};
+            REQUIRE(nullptr != tuple_node);
+
+            REQUIRE(tuple_node->get_num_children() == 3);
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Type[Container[Tuple]]]:\n"
+                    "  ElementType:\n"
+                    "    [Type[Primitive[Int]]]:int64\n"
+                    "  ElementType:\n"
+                    "    [Type[Primitive[Float]]]:double\n"
+                    "  ElementType:\n"
+                    "    [Type[Container[Map]]]:\n"
+                    "      KeyType:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "      ValueType:\n"
+                    "        [Type[Primitive[Float]]]:double"
+            };
+            auto const serialized_result{tuple_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
     }
 }
 }  // namespace
