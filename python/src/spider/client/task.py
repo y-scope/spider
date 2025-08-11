@@ -50,7 +50,8 @@ def create_task(func: TaskFunction) -> core.Task:
         raise TypeError(msg)
     for param in params[1:]:
         if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
-            raise TypeError("Variadic parameters are not supported in task functions.")
+            msg = "Variadic parameters are not supported."
+            raise TypeError(msg)
         if param.annotation is inspect.Parameter.empty:
             msg = "Argument must have type annotation"
             raise TypeError(msg)
@@ -63,7 +64,8 @@ def create_task(func: TaskFunction) -> core.Task:
     if is_tuple(returns):
         args = get_args(returns)
         if Ellipsis in args:
-            raise TypeError("Variable-length tuple return types (tuple[T, ...]) are not supported.")
+            msg = "Variable-length tuple return types are not supported."
+            raise TypeError(msg)
         for r in args:
             tdl_type_str = to_tdl_type_str(r)
             if r is Data:
