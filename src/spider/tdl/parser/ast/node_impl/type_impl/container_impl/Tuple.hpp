@@ -9,7 +9,6 @@
 #include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/tdl/parser/ast/Node.hpp>
-#include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Container.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl {
