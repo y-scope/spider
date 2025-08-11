@@ -1,25 +1,30 @@
 """Unit tests for Spider client TaskGraph"""
+
 import pytest
 
 from spider import TaskContext, Int8, group, chain
+
 
 def no_context(x: Int8, y: Int8) -> Int8:
     """Invalid task function with no context."""
     return x + y
 
+
 def invalid_type(_: TaskContext, x: int) -> int:
     return x + x
+
 
 def add(_: TaskContext, x: Int8, y: Int8) -> Int8:
     """Adds two numbers."""
     return x + y
 
+
 def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
     """Swaps two numbers."""
     return y, x
 
-class TestTaskGraph:
 
+class TestTaskGraph:
     def test_group(self) -> None:
         """Tests task grouping."""
         graph = group([add, add])

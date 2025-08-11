@@ -1,8 +1,8 @@
 """Spider client task module."""
 
 import inspect
-from types import FunctionType
-from typing import Protocol, runtime_checkable
+from types import FunctionType, GenericAlias
+from typing import Protocol, runtime_checkable, get_origin, get_args
 
 from spider import core
 from spider.client.data import Data
@@ -23,6 +23,16 @@ class TaskFunction(Protocol):
     def __call__(self, context: TaskContext, *args: object) -> object:
         """Task function must accept TaskContext as its first argument."""
         ...
+
+
+def is_tuple(t: type | GenericAlias) -> bool:
+    """
+    :param t:
+    :return: Whether t is a tuple.
+    """
+    if not isinstance(t, GenericAlias):
+        return False
+    return get_origin(t) is tuple
 
 
 def create_task(func: TaskFunction) -> core.Task:
@@ -52,8 +62,8 @@ def create_task(func: TaskFunction) -> core.Task:
     if returns == inspect.Parameter.empty:
         msg = "Return type must has type annotation"
         raise TypeError(msg)
-    if type(returns) is tuple:
-        for r in returns:
+    if is_tuple(returns):
+        for r in get_args(returns):
             tdl_type_str = to_tdl_type_str(r)
             if r is Data:
                 task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
