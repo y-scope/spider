@@ -45,7 +45,7 @@ def create_task(func: TaskFunction) -> core.Task:
     task.function_name = func.__qualname__
     signature = inspect.signature(func)
     params = list(signature.parameters.values())
-    if params[0].annotation is not TaskContext:
+    if not params or params[0].annotation is not TaskContext:
         msg = "First argument is not a TaskContext."
         raise TypeError(msg)
     for param in params[1:]:
