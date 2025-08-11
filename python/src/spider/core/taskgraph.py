@@ -118,6 +118,8 @@ class TaskGraph:
         for task_id in child.input_tasks:
             input_task = graph.tasks[task_id]
             for i in range(len(input_task.task_inputs)):
+                if task_index >= len(parent_output_tasks):
+                    raise TypeError(size_mismatch_msg)
                 output_task_id = parent_output_tasks[task_index]
                 input_type = input_task.task_inputs[i].type
                 output_type = graph.tasks[output_task_id].task_outputs[output_position].type
@@ -126,11 +128,9 @@ class TaskGraph:
                     raise TypeError(msg)
                 input_task.task_inputs[i].value = TaskInputOutput(output_task_id, output_position)
                 output_position += 1
-                if len(graph.tasks[output_task_id].task_outputs) > output_position:
+                if output_position >= len(graph.tasks[output_task_id].task_outputs):
                     output_position = 0
                     task_index += 1
-                    if task_index >= len(graph.tasks[output_task_id].task_outputs):
-                        raise TypeError(size_mismatch_msg)
 
         if task_index != len(parent_output_tasks) or output_position != 0:
             raise TypeError(size_mismatch_msg)
