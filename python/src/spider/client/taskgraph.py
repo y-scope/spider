@@ -40,7 +40,6 @@ def group(tasks: Sequence[TaskFunction | TaskGraph]) -> TaskGraph:
             graph._impl.add_task(create_task(task))
         else:
             graph._impl.merge_graph(task._impl)
-            graph._impl.reset_ids()
 
     return graph
 
