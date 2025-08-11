@@ -271,11 +271,11 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
             constexpr std::string_view cExpectedSerializedResult{
                     "[Type[Container[Tuple]]]:\n"
-                    "  ElementType:\n"
+                    "  Element[0]:\n"
                     "    [Type[Primitive[Int]]]:int64\n"
-                    "  ElementType:\n"
+                    "  Element[1]:\n"
                     "    [Type[Primitive[Float]]]:double\n"
-                    "  ElementType:\n"
+                    "  Element[2]:\n"
                     "    [Type[Container[Map]]]:\n"
                     "      KeyType:\n"
                     "        [Type[Primitive[Int]]]:int64\n"

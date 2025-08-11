@@ -42,8 +42,9 @@ auto Tuple::serialize_to_str(size_t indentation_level) const
             visit_children([&](Node const& child) -> ystdlib::error_handling::Result<void> {
                 serialized_children.emplace_back(
                         fmt::format(
-                                "{}ElementType:\n{}",
+                                "{}Element[{}]:\n{}",
                                 create_indentation(indentation_level + 1),
+                                serialized_children.size(),
                                 YSTDLIB_ERROR_HANDLING_TRYX(
                                         child.serialize_to_str(indentation_level + 2)
                                 )
