@@ -9,7 +9,7 @@ from spider.client.task import create_task, TaskFunction
 class TaskGraph:
     """
     Spider client TaskGraph class.
-    Warps around the core TaskGraph class.
+    Wraps around the core TaskGraph class.
     """
 
     def __init__(self) -> None:

@@ -52,13 +52,13 @@ def create_task(func: TaskFunction) -> core.Task:
         raise TypeError(msg)
     for param in params[1:]:
         if param.annotation == inspect.Parameter.empty:
-            msg = "Argument must has type annotation"
+            msg = "Argument must have type annotation"
             raise TypeError(msg)
         tdl_type_str = to_tdl_type_str(param.annotation)
         task.task_inputs.append(TaskInput(tdl_type_str, None))
     returns = signature.return_annotation
     if returns == inspect.Parameter.empty:
-        msg = "Return type must has type annotation"
+        msg = "Return type must have type annotation"
         raise TypeError(msg)
     if is_tuple(returns):
         for r in get_args(returns):
