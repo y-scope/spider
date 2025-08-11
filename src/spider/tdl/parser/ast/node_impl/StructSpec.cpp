@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -42,12 +44,20 @@ namespace spider::tdl::parser::ast::node_impl {
 auto StructSpec::create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<Node>> fields)
         -> ystdlib::error_handling::Result<std::shared_ptr<StructSpec>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Identifier>(name.get()));
-    for (auto const& field : fields) {
-        YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<NamedVar>(field.get()));
-    }
 
     if (fields.empty()) {
         return ErrorCode{ErrorCodeEnum::EmptyStruct};
+    }
+
+    std::unordered_set<std::string_view> field_names;
+    for (auto const& field : fields) {
+        YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<NamedVar>(field.get()));
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        auto const field_name{static_cast<NamedVar const&>(*field).get_id()->get_name()};
+        if (field_names.contains(field_name)) {
+            return ErrorCode{ErrorCodeEnum::DuplicatedFieldName};
+        }
+        field_names.emplace(field_name);
     }
 
     auto struct_spec{std::make_shared<StructSpec>(StructSpec{})};
