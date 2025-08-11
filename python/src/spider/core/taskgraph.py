@@ -121,6 +121,10 @@ class TaskGraph:
                 if task_index >= len(parent_output_tasks):
                     raise TypeError(size_mismatch_msg)
                 output_task_id = parent_output_tasks[task_index]
+
+                if [output_task_id, task_id] not in graph.dependencies:
+                    graph.dependencies.append((output_task_id, task_id))
+
                 input_type = input_task.task_inputs[i].type
                 output_type = graph.tasks[output_task_id].task_outputs[output_position].type
                 if input_type != output_type:
