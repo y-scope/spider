@@ -28,8 +28,6 @@ def is_tuple(t: type | GenericAlias) -> bool:
     :param t:
     :return: Whether t is a tuple.
     """
-    if not isinstance(t, GenericAlias):
-        return False
     return get_origin(t) is tuple
 
 
