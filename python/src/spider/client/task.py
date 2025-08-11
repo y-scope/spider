@@ -7,7 +7,7 @@ from typing import get_args, get_origin
 
 from spider import core
 from spider.client.data import Data
-from spider.core import TaskInput, TaskOutput, TaskOutputValue, TaskOutputData
+from spider.core import TaskInput, TaskOutput, TaskOutputData, TaskOutputValue
 from spider.type import to_tdl_type_str
 
 
@@ -51,13 +51,13 @@ def create_task(func: TaskFunction) -> core.Task:
     for param in params[1:]:
         if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
             raise TypeError("Variadic parameters are not supported in task functions.")
-        if param.annotation == inspect.Parameter.empty:
+        if param.annotation is inspect.Parameter.empty:
             msg = "Argument must have type annotation"
             raise TypeError(msg)
         tdl_type_str = to_tdl_type_str(param.annotation)
         task.task_inputs.append(TaskInput(tdl_type_str, None))
     returns = signature.return_annotation
-    if returns == inspect.Parameter.empty:
+    if returns is inspect.Parameter.empty:
         msg = "Return type must have type annotation"
         raise TypeError(msg)
     if is_tuple(returns):
