@@ -96,10 +96,10 @@ class TaskGraph:
         """
         new_graph = deepcopy(graph)
         new_graph.reset_ids()
-        self.tasks.update(new_graph)
-        self.dependencies.extend(graph.dependencies)
-        self.input_tasks.extend(graph.input_tasks)
-        self.output_tasks.extend(graph.output_tasks)
+        self.tasks.update(new_graph.tasks)
+        self.dependencies.extend(new_graph.dependencies)
+        self.input_tasks.extend(new_graph.input_tasks)
+        self.output_tasks.extend(new_graph.output_tasks)
 
     def chain_graph(self, child: "TaskGraph") -> "TaskGraph":
         """
@@ -125,7 +125,7 @@ class TaskGraph:
                     raise TypeError(size_mismatch_msg)
                 output_task_id = parent_output_tasks[task_index]
 
-                if [output_task_id, task_id] not in graph.dependencies:
+                if (output_task_id, task_id) not in graph.dependencies:
                     graph.dependencies.append((output_task_id, task_id))
 
                 input_type = input_task.task_inputs[i].type

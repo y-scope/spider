@@ -19,6 +19,11 @@ def add(_: TaskContext, x: Int8, y: Int8) -> Int8:
     return x + y
 
 
+def double(_: TaskContext, x: Int8) -> Int8:
+    """Double a number."""
+    return x * 2
+
+
 def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
     """Swaps two numbers."""
     return y, x
@@ -49,6 +54,16 @@ class TestTaskGraph:
         assert len(graph._impl.dependencies) == 2
         assert len(graph._impl.input_tasks) == 2
         assert len(graph._impl.output_tasks) == 1
+        graph = chain(graph, add)
+        assert len(graph._impl.tasks) == 4
+        assert len(graph._impl.dependencies) == 3
+        assert len(graph._impl.input_tasks) == 2
+        assert len(graph._impl.output_tasks) == 1
+        graph = chain(swap, group([double, double]))
+        assert len(graph._impl.tasks) == 3
+        assert len(graph._impl.dependencies) == 2
+        assert len(graph._impl.input_tasks) == 1
+        assert len(graph._impl.output_tasks) == 2
 
     def test_chain_fail(self) -> None:
         """Tests task chaining failure."""
