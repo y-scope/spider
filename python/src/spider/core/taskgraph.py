@@ -94,7 +94,9 @@ class TaskGraph:
         :param graph: The task graph to merge.
         :return:
         """
-        self.tasks.update(graph.tasks)
+        new_graph = deepcopy(graph)
+        new_graph.reset_ids()
+        self.tasks.update(new_graph)
         self.dependencies.extend(graph.dependencies)
         self.input_tasks.extend(graph.input_tasks)
         self.output_tasks.extend(graph.output_tasks)
@@ -107,6 +109,7 @@ class TaskGraph:
         :raise TypeError: If the outputs and the inputs of `graph` do not match.
         """
         graph = deepcopy(self)
+        graph.reset_ids()
         parent_output_tasks = graph.output_tasks
         graph.tasks.update(child.tasks)
         graph.dependencies.extend(child.dependencies)
