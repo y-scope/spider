@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from spider import core
-from spider.client.task import create_task, TaskFunction
+from spider.client.task import _create_task, TaskFunction
 
 
 class TaskGraph:
@@ -37,7 +37,7 @@ def group(tasks: Sequence[TaskFunction | TaskGraph]) -> TaskGraph:
     graph = TaskGraph()
     for task in tasks:
         if callable(task):
-            graph._impl.add_task(create_task(task))
+            graph._impl.add_task(_create_task(task))
         else:
             graph._impl.merge_graph(task._impl)
 
@@ -53,11 +53,11 @@ def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> 
     :raises TypeError: If the parent outputs and child inputs do not match.
     """
     if callable(parent):
-        task = create_task(parent)
+        task = _create_task(parent)
         parent = TaskGraph()
         parent._impl.add_task(task)
     if callable(child):
-        task = create_task(child)
+        task = _create_task(child)
         child = TaskGraph()
         child._impl.add_task(task)
     return parent.chain_graph(child)

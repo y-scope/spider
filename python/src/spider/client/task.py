@@ -31,7 +31,7 @@ def is_tuple(t: type | GenericAlias) -> bool:
     return get_origin(t) is tuple
 
 
-def create_task(func: TaskFunction) -> core.Task:
+def _create_task(func: TaskFunction) -> core.Task:
     """
     Creates a core Task object from the task function.
     :param func:
