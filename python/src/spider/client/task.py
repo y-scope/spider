@@ -49,6 +49,8 @@ def create_task(func: TaskFunction) -> core.Task:
         msg = "First argument is not a TaskContext."
         raise TypeError(msg)
     for param in params[1:]:
+        if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
+            raise TypeError("Variadic parameters are not supported in task functions.")
         if param.annotation == inspect.Parameter.empty:
             msg = "Argument must have type annotation"
             raise TypeError(msg)
