@@ -1,5 +1,7 @@
 """Spider client TaskGraph module."""
 
+from collections.abc import Sequence
+
 from spider import core
 from spider.client.task import create_task, TaskFunction
 
@@ -26,7 +28,7 @@ class TaskGraph:
         return graph
 
 
-def group(tasks: list[TaskFunction | TaskGraph]) -> TaskGraph:
+def group(tasks: Sequence[TaskFunction | TaskGraph]) -> TaskGraph:
     """
     Groups task functions and task graph into a single task graph.
     :param tasks: List of task functions or task graphs.
@@ -34,7 +36,7 @@ def group(tasks: list[TaskFunction | TaskGraph]) -> TaskGraph:
     """
     graph = TaskGraph()
     for task in tasks:
-        if isinstance(task, TaskFunction):
+        if callable(task):
             graph._impl.add_task(create_task(task))
         else:
             graph._impl.merge_graph(task._impl)
@@ -51,11 +53,11 @@ def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> 
     :return:
     :raises TypeError: If the parent outputs and child inputs do not match.
     """
-    if isinstance(parent, TaskFunction):
+    if callable(parent):
         task = create_task(parent)
         parent = TaskGraph()
         parent._impl.add_task(task)
-    if isinstance(child, TaskFunction):
+    if callable(child):
         task = create_task(child)
         child = TaskGraph()
         child._impl.add_task(task)

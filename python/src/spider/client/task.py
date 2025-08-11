@@ -1,8 +1,9 @@
 """Spider client task module."""
 
 import inspect
+from collections.abc import Callable
 from types import FunctionType, GenericAlias
-from typing import get_args, get_origin, Protocol, runtime_checkable
+from typing import get_args, get_origin
 
 from spider import core
 from spider.client.data import Data
@@ -16,13 +17,10 @@ class TaskContext:
     # TODO: Implement task context for use in task executor
 
 
-@runtime_checkable
-class TaskFunction(Protocol):
-    """Task function must accept a TaskContext as its first argument."""
-
-    def __call__(self, context: TaskContext, *args: object) -> object:
-        """Task function must accept TaskContext as its first argument."""
-        ...
+# Check the TaskFunction signature at runtime.
+# Enforcing static check for first argument requires the use of Protocol. However, functions, which
+# are Callable, are not considered a Protocol without explicit cast.
+TaskFunction = Callable[..., object]
 
 
 def is_tuple(t: type | GenericAlias) -> bool:

@@ -7,22 +7,22 @@ from spider import chain, group, Int8, TaskContext
 
 def no_context(x: Int8, y: Int8) -> Int8:
     """Invalid task function with no context."""
-    return x + y
+    return Int8(x + y)
 
 
 def invalid_type(_: TaskContext, x: int) -> int:
     """Invalid task function with unsupported type."""
-    return x + x
+    return Int8(x + x)
 
 
 def add(_: TaskContext, x: Int8, y: Int8) -> Int8:
     """Adds two numbers."""
-    return x + y
+    return Int8(x + y)
 
 
 def double(_: TaskContext, x: Int8) -> Int8:
     """Double a number."""
-    return x * 2
+    return Int8(x * 2)
 
 
 def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
@@ -71,4 +71,4 @@ class TestTaskGraph:
     def test_chain_fail(self) -> None:
         """Tests task chaining failure."""
         with pytest.raises(TypeError):
-            chain([add, add])
+            chain(add, add)
