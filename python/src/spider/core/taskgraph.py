@@ -16,8 +16,8 @@ class TaskGraph:
         #   - parent task id
         #   - child task id
         self.dependencies: list[tuple[TaskId, TaskId]] = []
-        self.input_tasks: set[TaskId] = set()
-        self.output_tasks: set[TaskId] = set()
+        self.input_tasks: list[TaskId] = []
+        self.output_tasks: list[TaskId] = []
 
     def add_task(
         self, task: Task, parents: list[TaskId] | None = None, children: list[TaskId] | None = None
@@ -32,15 +32,15 @@ class TaskGraph:
         if parents:
             for parent in parents:
                 self.dependencies.append((parent, task.task_id))
-                self.output_tasks.discard(parent)
+                self.output_tasks.append(parent)
         else:
-            self.input_tasks.add(task.task_id)
+            self.input_tasks.append(task.task_id)
         if children:
             for child in children:
                 self.dependencies.append((task.task_id, child))
-                self.input_tasks.discard(child)
+                self.input_tasks.append(child)
         else:
-            self.output_tasks.add(task.task_id)
+            self.output_tasks.append(task.task_id)
 
     def get_parents(self, task_id: TaskId) -> list[Task]:
         """
@@ -78,14 +78,14 @@ class TaskGraph:
             new_dependencies.append((id_map[parent], id_map[child]))
         self.dependencies = new_dependencies
 
-        new_input_tasks = set()
+        new_input_tasks = []
         for task_id in self.input_tasks:
-            new_input_tasks.add(id_map[task_id])
+            new_input_tasks.append(id_map[task_id])
         self.input_tasks = new_input_tasks
 
-        new_output_tasks = set()
+        new_output_tasks = []
         for task_id in self.output_tasks:
-            new_output_tasks.add(id_map[task_id])
+            new_output_tasks.append(id_map[task_id])
         self.output_tasks = new_output_tasks
 
     def merge_graph(self, graph: "TaskGraph") -> None:
@@ -96,5 +96,43 @@ class TaskGraph:
         """
         self.tasks.update(graph.tasks)
         self.dependencies.extend(graph.dependencies)
-        self.input_tasks.update(graph.input_tasks)
-        self.output_tasks.update(graph.output_tasks)
+        self.input_tasks.extend(graph.input_tasks)
+        self.output_tasks.extend(graph.output_tasks)
+
+    def chain_graph(self, child: "TaskGraph") -> "TaskGraph":
+        """
+        Chains another task graph with this task graph.
+        :param child: The task graph to be chained as child.
+        :return: The chained task graph.
+        :raise TypeError: If the outputs and the inputs of `graph` do not match.
+        """
+        graph = deepcopy(self)
+        parent_output_tasks = graph.output_tasks
+        graph.tasks.update(child.tasks)
+        graph.dependencies.extend(child.dependencies)
+        graph.output_tasks = deepcopy(child.output_tasks)
+
+        size_mismatch_msg = "Parent outputs size and child inputs size do not match."
+
+        task_index, output_position = 0, 0
+        for task_id in child.input_tasks:
+            input_task = graph.tasks[task_id]
+            for i in range(len(input_task.task_inputs)):
+                output_task_id = parent_output_tasks[task_index]
+                input_type = input_task.task_inputs[i].type
+                output_type = graph.tasks[output_task_id].task_outputs[output_position].type
+                if input_type != output_type:
+                    msg = f"Output type {output_type} does not match input type {input_type}"
+                    raise TypeError(msg)
+                input_task.task_inputs[i].value = TaskInputOutput(output_task_id, output_position)
+                output_position += 1
+                if len(graph.tasks[output_task_id].task_outputs) > output_position:
+                    output_position = 0
+                    task_index += 1
+                    if task_index >= len(graph.tasks[output_task_id].task_outputs):
+                        raise TypeError(size_mismatch_msg)
+
+        if task_index != len(parent_output_tasks) or output_position != 0:
+            raise TypeError(size_mismatch_msg)
+
+        return graph

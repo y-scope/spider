@@ -14,6 +14,17 @@ class TaskGraph:
         """Initialize TaskGraph."""
         self._impl = core.TaskGraph()
 
+    def chain_graph(self, child: "TaskGraph") -> "TaskGraph":
+        """
+        Chains another task graph with this task graph.
+        :param child: The task graph to be chained as child.
+        :return: The chained task graph.
+        :raise TypeError: If the outputs and the inputs of `graph` do not match.
+        """
+        graph = TaskGraph()
+        graph._impl = self._impl.chain_graph(child._impl)
+        return graph
+
 
 def group(tasks: list[TaskFunction | TaskGraph]) -> TaskGraph:
     """
@@ -30,3 +41,22 @@ def group(tasks: list[TaskFunction | TaskGraph]) -> TaskGraph:
             graph._impl.reset_ids()
 
     return graph
+
+
+def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> TaskGraph:
+    """
+    Chains two task functions or task graphs into a single task graph.
+    :param parent:
+    :param child:
+    :return:
+    :raises TypeError: If the parent outputs and child inputs do not match.
+    """
+    if isinstance(parent, TaskFunction):
+        task = create_task(parent)
+        parent = TaskGraph()
+        parent._impl.add_task(task)
+    if isinstance(child, TaskFunction):
+        task = create_task(child)
+        child = TaskGraph()
+        child._impl.add_task(task)
+    return parent.chain_graph(child)
