@@ -61,7 +61,10 @@ def create_task(func: TaskFunction) -> core.Task:
         msg = "Return type must have type annotation"
         raise TypeError(msg)
     if is_tuple(returns):
-        for r in get_args(returns):
+        args = get_args(returns)
+        if Ellipsis in args:
+            raise TypeError("Variable-length tuple return types (tuple[T, ...]) are not supported.")
+        for r in args:
             tdl_type_str = to_tdl_type_str(r)
             if r is Data:
                 task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
