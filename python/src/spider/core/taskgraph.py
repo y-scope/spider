@@ -135,4 +135,5 @@ class TaskGraph:
         if task_index != len(parent_output_tasks) or output_position != 0:
             raise TypeError(size_mismatch_msg)
 
+        graph.reset_ids()
         return graph
