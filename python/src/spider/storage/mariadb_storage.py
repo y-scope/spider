@@ -9,6 +9,60 @@ from spider import core
 from spider.storage.jdbc_url import JdbcParameters
 from spider.storage.storage import Storage, StorageError
 
+InsertJob = """
+INSERT INTO
+  `jobs` (`id`, `client_id`)
+VALUES
+  (?, ?)"""
+
+InsertTask = """
+INSERT INTO
+  `tasks` (`id`, `job_id`, `func_name`, `state`, `timeout`, `max_retry`)
+VALUES
+  (?, ?, ?, ?, ?, ?)"""
+
+InsertTaskInputOutput = """
+INSERT INTO
+  `task_inputs` (`task_id`, `position`, `type`, `output_task_id`, `output_task_position`)
+VALUES
+  (?, ?, ?, ?, ?)"""
+
+InsertTaskInputData = """
+INSERT INTO
+  `task_inputs` (`task_id`, `position`, `type`, `data_id`)
+VALUES
+  (?, ?, ?, ?)"""
+
+InsertTaskInputValue = """
+INSERT INTO
+  `task_inputs` (`task_id`, `position`, `type`, `value`)
+VALUES
+  (?, ?, ?, ?)"""
+
+InsertTaskOutput = """
+INSERT INTO
+  `task_outputs` (`task_id`, `position`, `type`)
+VALUES
+  (?, ?, ?)"""
+
+InsertTaskDependency = """
+INSERT INTO
+  `task_dependencies` (parent, child)
+VALUES
+  (?, ?)"""
+
+InsertInputTask = """
+INSERT INTO
+  `input_tasks` (`job_id`, `task_id`, `position`)
+VALUES
+  (?, ?, ?)"""
+
+InsertOutputTask = """
+INSERT INTO
+  `output_tasks` (`job_id`, `task_id`, `position`)
+VALUES
+  (?, ?, ?)"""
+
 
 class MariaDBStorage(Storage):
     """MairaDB Storage class."""
