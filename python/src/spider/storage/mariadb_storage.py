@@ -90,7 +90,7 @@ class MariaDBStorage(Storage):
     def submit_jobs(
         self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
     ) -> Sequence[core.JobId]:
-        if len(task_graphs) == 0:
+        if not task_graphs:
             return []
         try:
             job_ids = [uuid4() for _ in task_graphs]
@@ -118,7 +118,7 @@ class MariaDBStorage(Storage):
                     for task_graph in task_graphs
                     for parent, child in task_graph.dependencies
                 ]
-                if len(dep_params) > 0:
+                if dep_params:
                     cursor.executemany(
                         InsertTaskDependency,
                         dep_params,
@@ -155,7 +155,7 @@ class MariaDBStorage(Storage):
                     for position, task_input in enumerate(task.task_inputs)
                     if isinstance(task_input.value, core.TaskInputData)
                 ]
-                if len(input_data_params) > 0:
+                if input_data_params:
                     cursor.executemany(
                         InsertTaskInputData,
                         input_data_params,
@@ -167,7 +167,7 @@ class MariaDBStorage(Storage):
                     for position, task_input in enumerate(task.task_inputs)
                     if isinstance(task_input.value, core.TaskInputValue)
                 ]
-                if len(input_value_params) > 0:
+                if input_value_params:
                     cursor.executemany(
                         InsertTaskInputValue,
                         input_value_params,
@@ -185,7 +185,7 @@ class MariaDBStorage(Storage):
                     for position, task_input in enumerate(task.task_inputs)
                     if isinstance(task_input.value, core.TaskInputOutput)
                 ]
-                if len(input_output_params) > 0:
+                if input_output_params:
                     cursor.executemany(
                         InsertTaskInputOutput,
                         input_output_params,
