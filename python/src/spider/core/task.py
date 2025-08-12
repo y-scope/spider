@@ -26,7 +26,7 @@ class TaskInput:
     """Represents a task input"""
 
     type: str
-    value: TaskInputData | TaskInputOutput | None
+    value: TaskInputData | TaskInputOutput | TaskInputValue | None
 
 
 TaskOutputValue = bytes

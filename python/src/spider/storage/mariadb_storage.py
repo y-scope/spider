@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from uuid import uuid4
 
 import mariadb
-import msgpack
 from typing_extensions import override
 
 from spider import core
@@ -81,7 +80,9 @@ class MariaDBStorage(Storage):
             raise StorageError(str(e)) from e
 
     @override
-    def submit_jobs(self, driver_id: core.DriverID, task_graphs: Sequence[core.TaskGraph]) -> None:
+    def submit_jobs(
+        self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
+    ) -> Sequence[core.JobId]:
         try:
             job_ids = [uuid4() for _ in task_graphs]
             with self._conn.cursor() as cursor:
@@ -137,7 +138,7 @@ class MariaDBStorage(Storage):
                 cursor.executemany(
                     InsertTaskInputData,
                     [
-                        (task.task_id, position, task_input.type, msgpack.packb(task_input.value))
+                        (task.task_id, position, task_input.type, task_input.value)
                         for task_graph in task_graphs
                         for task in task_graph.tasks.values()
                         for position, task_input in enumerate(task.task_inputs)
@@ -147,7 +148,7 @@ class MariaDBStorage(Storage):
                 cursor.executemany(
                     InsertTaskInputValue,
                     [
-                        (task.task_id, position, task_input.type, msgpack.packb(task_input.value))
+                        (task.task_id, position, task_input.type, task_input.value)
                         for task_graph in task_graphs
                         for task in task_graph.tasks.values()
                         for position, task_input in enumerate(task.task_inputs)
@@ -172,6 +173,7 @@ class MariaDBStorage(Storage):
                 )
                 cursor.executemany()
                 self._conn.commit()
+                return job_ids
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e

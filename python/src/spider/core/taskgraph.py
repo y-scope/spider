@@ -1,9 +1,11 @@
 """TaskGraph module for Spider."""
 
 from copy import deepcopy
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from spider.core.task import Task, TaskId, TaskInputOutput
+
+JobId = UUID
 
 
 class TaskGraph:

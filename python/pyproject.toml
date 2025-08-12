@@ -36,6 +36,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: mark test as an integration test",
+    "storage: mark unit tests needing storage",
+]
 
 [tool.ruff]
 line-length = 100

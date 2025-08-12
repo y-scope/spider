@@ -1,7 +1,7 @@
 """Spider core package."""
 
 from .data import Data, DataId
-from .driver import DriverID
+from .driver import DriverId
 from .task import (
     Task,
     TaskId,
@@ -14,12 +14,13 @@ from .task import (
     TaskOutputValue,
     TaskState,
 )
-from .taskgraph import TaskGraph
+from .taskgraph import JobId, TaskGraph
 
 __all__ = [
     "Data",
     "DataId",
-    "DriverID",
+    "DriverId",
+    "JobId",
     "Task",
     "TaskGraph",
     "TaskId",

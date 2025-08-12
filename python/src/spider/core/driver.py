@@ -2,4 +2,4 @@
 
 from uuid import UUID
 
-DriverID = UUID
+DriverId = UUID
