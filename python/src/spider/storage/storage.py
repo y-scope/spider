@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
-from spider.client.taskgraph import TaskGraph
+from spider import core
 
 
 class StorageError(Exception):
@@ -18,7 +18,7 @@ class Storage(ABC):
     """Storage backend interface."""
 
     @abstractmethod
-    def submit_job(self, task_graphs: TaskGraph | Sequence[TaskGraph]) -> None:
+    def submit_jobs(self, task_graphs: Sequence[core.TaskGraph]) -> None:
         """
         Submit jobs to the storage.
         :param task_graphs: Task graphs to submit.
