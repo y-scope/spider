@@ -80,7 +80,7 @@ def get_state_from_str(state_str: str) -> TaskState:
     :return: The task state from string representation.
     :raises ValueError: If the state string is not recognized.
     """
-    state = _StrStateMap.get(state_str, TaskState.Pending)
+    state = _StrStateMap.get(state_str)
     if state is not None:
         return state
     msg = f"Invalid task state string: {state_str}"
