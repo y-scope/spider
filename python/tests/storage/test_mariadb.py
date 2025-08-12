@@ -9,7 +9,7 @@ from spider import chain, group, Int8, TaskContext
 from spider.core import TaskInputValue
 from spider.storage import MariaDBStorage, parse_jdbc_url
 
-MariaDBTestUrl = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
+MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
 
 
 @pytest.fixture(scope="session")

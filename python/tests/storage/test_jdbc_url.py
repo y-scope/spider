@@ -10,9 +10,9 @@ class TestJdbcUrl:
 
     def test_full_jdbc_url(self) -> None:
         """Tests parsing a full JDBC URL with all fields."""
-        url = "jdbc::mariadb://localhost:3306/dbname?user=root&password=secret"
+        url = "jdbc:mariadb://localhost:3306/dbname?user=root&password=secret"
         params = parse_jdbc_url(url)
-        assert params.protocol == "jdbc::mariadb"
+        assert params.protocol == "jdbc:mariadb"
         assert params.host == "localhost"
         assert params.port == 3306
         assert params.database == "dbname"
@@ -21,10 +21,10 @@ class TestJdbcUrl:
 
     def test_jdbc_url_simple(self) -> None:
         """Tests parsing a simple JDBC URL without port, user and password."""
-        url = "jdbc::postgresql://localhost/dbname"
+        url = "jdbc:postgresql://127.0.0.1/dbname"
         params = parse_jdbc_url(url)
-        assert params.protocol == "jdbc::postgresql"
-        assert params.host == "localhost"
+        assert params.protocol == "jdbc:postgresql"
+        assert params.host == "127.0.0.1"
         assert params.port is None
         assert params.database == "dbname"
         assert params.user is None

@@ -17,11 +17,11 @@ class JdbcParameters:
 
 
 pattern = re.compile(
-    r"^(?P<protocol>[a-zA-Z][a-zA-Z0-9+.-]*(::[a-zA-Z0-9+.-]*)?)://"
-    r"(?P<host>[^:/?]+)"
+    r"^(?P<protocol>[a-zA-Z][a-zA-Z0-9+.-]*(:[a-zA-Z0-9+.-]*)?)://"
+    r"(?P<host>([a-zA-Z0-9.-]+|\d{1,3}(?:\.\d{1,3}){3}))"
     r"(?::(?P<port>\d+))?"
-    r"/(?P<database>[^?]+)"
-    r"(?:\?(?P<query>[^#]+))?"
+    r"/(?P<database>[a-zA-Z0-9_\-]+)"
+    r"(?:\?(?P<query>[a-zA-Z0-9_\-=&]+))?"
 )
 
 
