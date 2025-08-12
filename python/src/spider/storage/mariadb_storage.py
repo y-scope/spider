@@ -7,6 +7,7 @@ import mariadb
 from typing_extensions import override
 
 from spider import core
+from spider.core import get_state_str
 from spider.storage.jdbc_url import JdbcParameters
 from spider.storage.storage import Storage, StorageError
 
@@ -75,7 +76,13 @@ class MariaDBStorage(Storage):
         :raises StorageError: If the connection to the database fails.
         """
         try:
-            self._conn = mariadb.connect(**params.__dict__)
+            self._conn = mariadb.connect(
+                host=params.host,
+                port=params.port,
+                user=params.user,
+                password=params.password,
+                database=params.database,
+            )
         except mariadb.Error as e:
             raise StorageError(str(e)) from e
 
@@ -83,18 +90,22 @@ class MariaDBStorage(Storage):
     def submit_jobs(
         self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
     ) -> Sequence[core.JobId]:
+        if len(task_graphs) == 0:
+            return []
         try:
             job_ids = [uuid4() for _ in task_graphs]
             with self._conn.cursor() as cursor:
-                cursor.executemany(InsertJob, [(job_id, driver_id) for job_id in job_ids])
+                cursor.executemany(
+                    InsertJob, [(job_id.bytes, driver_id.bytes) for job_id in job_ids]
+                )
                 cursor.executemany(
                     InsertTask,
                     [
                         (
-                            task.task_id,
-                            job_id,
+                            task.task_id.bytes,
+                            job_id.bytes,
                             task.function_name,
-                            task.state.value,
+                            get_state_str(task.state),
                             task.timeout,
                             task.max_retries,
                         )
@@ -102,18 +113,20 @@ class MariaDBStorage(Storage):
                         for task in task_graph.tasks.values()
                     ],
                 )
-                cursor.executemany(
-                    InsertTaskDependency,
-                    [
-                        (parent, child)
-                        for task_graph in task_graphs
-                        for parent, child in task_graph.dependencies
-                    ],
-                )
+                dep_params = [
+                    (parent.bytes, child.bytes)
+                    for task_graph in task_graphs
+                    for parent, child in task_graph.dependencies
+                ]
+                if len(dep_params) > 0:
+                    cursor.executemany(
+                        InsertTaskDependency,
+                        dep_params,
+                    )
                 cursor.executemany(
                     InsertInputTask,
                     [
-                        (job_id, task_id, position)
+                        (job_id.bytes, task_id.bytes, position)
                         for job_id, task_graph in zip(job_ids, task_graphs, strict=True)
                         for position, task_id in enumerate(task_graph.input_tasks)
                     ],
@@ -121,7 +134,7 @@ class MariaDBStorage(Storage):
                 cursor.executemany(
                     InsertOutputTask,
                     [
-                        (job_id, task_id, position)
+                        (job_id.bytes, task_id.bytes, position)
                         for job_id, task_graph in zip(job_ids, task_graphs, strict=True)
                         for position, task_id in enumerate(task_graph.output_tasks)
                     ],
@@ -129,49 +142,54 @@ class MariaDBStorage(Storage):
                 cursor.executemany(
                     InsertTaskOutput,
                     [
-                        (task.task_id, position, task_output.type)
+                        (task.task_id.bytes, position, task_output.type)
                         for task_graph in task_graphs
                         for task in task_graph.tasks.values()
                         for position, task_output in enumerate(task.task_outputs)
                     ],
                 )
-                cursor.executemany(
-                    InsertTaskInputData,
-                    [
-                        (task.task_id, position, task_input.type, task_input.value)
-                        for task_graph in task_graphs
-                        for task in task_graph.tasks.values()
-                        for position, task_input in enumerate(task.task_inputs)
-                        if isinstance(task_input.value, core.TaskInputData)
-                    ],
-                )
-                cursor.executemany(
-                    InsertTaskInputValue,
-                    [
-                        (task.task_id, position, task_input.type, task_input.value)
-                        for task_graph in task_graphs
-                        for task in task_graph.tasks.values()
-                        for position, task_input in enumerate(task.task_inputs)
-                        if isinstance(task_input.value, core.TaskInputValue)
-                    ],
-                )
-                cursor.executemany(
-                    InsertTaskInputOutput,
-                    [
-                        (
-                            task.task_id,
-                            position,
-                            task_input.type,
-                            task_input.value.task_id,
-                            task_input.value.position,
-                        )
-                        for task_graph in task_graphs
-                        for task in task_graph.tasks.values()
-                        for position, task_input in enumerate(task.task_inputs)
-                        if isinstance(task_input.value, core.TaskInputOutput)
-                    ],
-                )
-                cursor.executemany()
+                input_data_params = [
+                    (task.task_id.bytes, position, task_input.type, task_input.value.bytes)
+                    for task_graph in task_graphs
+                    for task in task_graph.tasks.values()
+                    for position, task_input in enumerate(task.task_inputs)
+                    if isinstance(task_input.value, core.TaskInputData)
+                ]
+                if len(input_data_params) > 0:
+                    cursor.executemany(
+                        InsertTaskInputData,
+                        input_data_params,
+                    )
+                input_value_params = [
+                    (task.task_id.bytes, position, task_input.type, task_input.value)
+                    for task_graph in task_graphs
+                    for task in task_graph.tasks.values()
+                    for position, task_input in enumerate(task.task_inputs)
+                    if isinstance(task_input.value, core.TaskInputValue)
+                ]
+                if len(input_value_params) > 0:
+                    cursor.executemany(
+                        InsertTaskInputValue,
+                        input_value_params,
+                    )
+                input_output_params = [
+                    (
+                        task.task_id.bytes,
+                        position,
+                        task_input.type,
+                        task_input.value.task_id.bytes,
+                        task_input.value.position,
+                    )
+                    for task_graph in task_graphs
+                    for task in task_graph.tasks.values()
+                    for position, task_input in enumerate(task.task_inputs)
+                    if isinstance(task_input.value, core.TaskInputOutput)
+                ]
+                if len(input_output_params) > 0:
+                    cursor.executemany(
+                        InsertTaskInputOutput,
+                        input_output_params,
+                    )
                 self._conn.commit()
                 return job_ids
         except mariadb.Error as e:
