@@ -34,13 +34,15 @@ class TaskGraph:
         if parents is not None and len(parents) > 0:
             for parent in parents:
                 self.dependencies.append((parent, task.task_id))
-                self.output_tasks.remove(parent)
+                if parent in self.output_tasks:
+                    self.output_tasks.remove(parent)
         else:
             self.input_tasks.append(task.task_id)
         if children is not None and len(children) > 0:
             for child in children:
                 self.dependencies.append((task.task_id, child))
-                self.input_tasks.remove(child)
+                if child in self.output_tasks:
+                    self.input_tasks.remove(child)
         else:
             self.output_tasks.append(task.task_id)
 
