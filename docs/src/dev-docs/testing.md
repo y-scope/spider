@@ -30,12 +30,14 @@ require this storage backend.
 
 You can use the following tasks to run the set of unit tests that's appropriate.
 
-| Task                          | Description                                                           |
-|-------------------------------|-----------------------------------------------------------------------|
-| `test:cpp-all`                | Runs all C++ unit tests.                                              |
-| `test:non-storage-unit-tests` | Runs all C++ unit tests which don't require a storage backend to run. |
-| `test:storage-unit-tests`     | Runs all C++ unit tests which require a storage backend to run.       |
-| `test:python-tests`           | Runs all Python tests.                                                |
+| Task                            | Description                                                           |
+|---------------------------------|-----------------------------------------------------------------------|
+| `test:cpp-all`                  | Runs all C++ unit tests.                                              |
+| `test:non-storage-unit-tests`   | Runs all C++ unit tests which don't require a storage backend to run. |
+| `test:storage-unit-tests`       | Runs all C++ unit tests which require a storage backend to run.       |
+| `test:python-tests`             | Runs all Python tests.                                                |
+| `test:python-non-storage-tests` | Runs all Python tests which don't require a storage backend to run.   |
+| `test:python-storage-tests`     | Runs all Python tests which require a storage backend to run.         |
 
 If any tests show error messages for the connection function below, revisit the
 [setup section](#set-up-mysql-as-storage-backend) and verify that `cStorageUrl` was set correctly.
