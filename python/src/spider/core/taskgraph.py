@@ -39,7 +39,7 @@ class TaskGraph:
         if children is not None and len(children) > 0:
             for child in children:
                 self.dependencies.append((task.task_id, child))
-                if child in self.output_tasks:
+                if child in self.input_Tasks:
                     self.input_tasks.remove(child)
         else:
             self.output_tasks.append(task.task_id)
@@ -95,7 +95,6 @@ class TaskGraph:
         """
         Merges another task graph into this task graph.
         :param graph: The task graph to merge.
-        :return:
         """
         new_graph = deepcopy(graph)
         new_graph.reset_ids()
