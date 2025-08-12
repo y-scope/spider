@@ -95,3 +95,15 @@ class StorageCursor(ABC):
         :return: Whether the exception is suppressed.
         """
         return self.close(exc_type, exc_value, traceback)
+
+
+class StorageConnection(ABC):
+    """Abstract base class for storage connection."""
+
+    @abstractmethod
+    def open_cursor(self) -> StorageCursor:
+        """
+        Opens the storage cursor.
+        :return:
+        :raise StorageError: If open cursor fails.
+        """
