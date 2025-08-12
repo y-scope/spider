@@ -29,16 +29,16 @@ class TaskGraph:
         :param children: The children ids of the task. Must be already in the task graph.
         """
         self.tasks[task.task_id] = deepcopy(task)
-        if parents:
+        if parents is not None and len(parents) > 0:
             for parent in parents:
                 self.dependencies.append((parent, task.task_id))
-                self.output_tasks.append(parent)
+                self.output_tasks.remove(parent)
         else:
             self.input_tasks.append(task.task_id)
-        if children:
+        if children is not None and len(children) > 0:
             for child in children:
                 self.dependencies.append((task.task_id, child))
-                self.input_tasks.append(child)
+                self.input_tasks.remove(child)
         else:
             self.output_tasks.append(task.task_id)
 
@@ -68,6 +68,7 @@ class TaskGraph:
         for task_id in self.tasks:
             new_task_id = id_map[task_id]
             new_tasks[new_task_id] = deepcopy(self.tasks[task_id])
+            new_tasks[new_task_id].task_id = new_task_id
             for task_input in new_tasks[new_task_id].task_inputs:
                 if isinstance(task_input.value, TaskInputOutput):
                     task_input.value.task_id = id_map[task_input.value.task_id]
