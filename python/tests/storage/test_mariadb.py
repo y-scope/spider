@@ -5,7 +5,7 @@ from uuid import uuid4
 import msgpack
 import pytest
 
-from spider import group, Int8, TaskContext
+from spider import chain, group, Int8, TaskContext
 from spider.core import TaskInputValue
 from spider.storage import MariaDBStorage, parse_jdbc_url
 
@@ -35,7 +35,7 @@ class TestMariaDBStorage:
     @pytest.mark.storage
     def test_job_submission(self, mariadb_storage: MariaDBStorage) -> None:
         """Test job submission to the MariaDB storage backend."""
-        graph = group([double, double, double, double])._impl
+        graph = chain(group([double, double, double, double]), group([swap, swap]))._impl
         # Fill input data
         for i, task_id in enumerate(graph.input_tasks):
             task = graph.tasks[task_id]
