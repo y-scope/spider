@@ -18,9 +18,10 @@ class Storage(ABC):
     """Storage backend interface."""
 
     @abstractmethod
-    def submit_jobs(self, task_graphs: Sequence[core.TaskGraph]) -> None:
+    def submit_jobs(self, driver_id: core.DriverID, task_graphs: Sequence[core.TaskGraph]) -> None:
         """
         Submit jobs to the storage.
+        :param driver_id: Driver ID.
         :param task_graphs: Task graphs to submit.
         :raises StorageError: If the storage operations fail.
         """
