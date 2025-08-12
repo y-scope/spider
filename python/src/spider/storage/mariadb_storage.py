@@ -67,7 +67,7 @@ VALUES
 
 
 class MariaDBStorage(Storage):
-    """MairaDB Storage class."""
+    """MariaDB Storage class."""
 
     def __init__(self, params: JdbcParameters) -> None:
         """
