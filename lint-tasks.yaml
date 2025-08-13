@@ -115,12 +115,14 @@ tasks:
       - task: "py"
         vars:
           RUFF_FORMAT_FLAGS: "--diff"
+      - task: "spider-py-check"
 
   py-fix:
     cmds:
       - task: "py"
         vars:
           RUFF_CHECK_FLAGS: "--fix"
+      - task: "spider-py-fix"
 
   py:
     internal: true
@@ -136,6 +138,25 @@ tasks:
           mypy "{{.ITEM}}"
           ruff check {{.RUFF_CHECK_FLAGS}} "{{.ITEM}}"
           ruff format {{.RUFF_FORMAT_FLAGS}} "{{.ITEM}}"
+
+  spider-py-check:
+    cmds:
+      - task: "spider-py"
+        vars:
+          RUFF_FORMAT_FLAGS: "--diff"
+
+  spider-py-fix:
+    cmds:
+      - task: "spider-py"
+        vars:
+          RUFF_CHECK_FLAGS: "--fix"
+
+  spider-py:
+    internal: true
+    vars:
+      RUFF_CHECK_FLAGS: "{{.RUFF_CHECK_FLAGS | default \"\"}}"
+      RUFF_FORMAT_FLAGS: "{{.RUFF_FORMAT_FLAGS | default \"\"}}"
+    cmds:
       - cmd: |-
           cd "{{.G_SRC_PYTHON_DIR}}"
           uv run mypy .
