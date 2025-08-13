@@ -1,6 +1,7 @@
 """Spider client driver module."""
 
 from collections.abc import Sequence
+from uuid import uuid4
 
 import msgpack
 
@@ -21,7 +22,7 @@ class Driver:
         :param storage_url: The URL of the storage to connect to.
         :raises StorageError: If the storage cannot be connected to.
         """
-        self.driver_id = core.DriverId()
+        self.driver_id = uuid4()
         self.storage = MariaDBStorage(parse_jdbc_url(storage_url))
 
     def submit_jobs(
