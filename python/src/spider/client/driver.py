@@ -36,7 +36,6 @@ class Driver:
         :raises StorageError: If the jobs cannot be submitted to the storage.
         :raises ValueError: If the number of job inputs does not match the number of arguments.
         :raises TypeError: If the arguments are not of the expected type.
-        :raises MsgpackError: If the arguments cannot be serialized with msgpack.
         """
         msg = "Number of job inputs does not match number of arguments"
         if len(jobs) != len(args):
