@@ -240,6 +240,7 @@ target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_tdl
     PUBLIC
+        absl::flat_hash_set
         fmt::fmt
         ystdlib::error_handling
 )

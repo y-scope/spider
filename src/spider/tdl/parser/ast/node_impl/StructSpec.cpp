@@ -4,10 +4,10 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include <absl/container/flat_hash_set.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <ystdlib/error_handling/ErrorCode.hpp>
@@ -49,7 +49,7 @@ auto StructSpec::create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<
         return ErrorCode{ErrorCodeEnum::EmptyStruct};
     }
 
-    std::unordered_set<std::string_view> field_names;
+    absl::flat_hash_set<std::string_view> field_names;
     for (auto const& field : fields) {
         YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<NamedVar>(field.get()));
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
