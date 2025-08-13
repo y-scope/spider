@@ -44,7 +44,7 @@ class Driver:
 
         if not jobs:
             return []
-        for task_graph, task_args in zip(jobs, args, strict=True):
+        for task_graph, task_args in zip(jobs, args):
             arg_index = 0
             for task_id in task_graph._impl.input_tasks:
                 task = task_graph._impl.tasks[task_id]
