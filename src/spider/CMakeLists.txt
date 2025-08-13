@@ -199,6 +199,7 @@ set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/Node.cpp
     tdl/parser/ast/node_impl/Identifier.cpp
     tdl/parser/ast/node_impl/NamedVar.cpp
+    tdl/parser/ast/node_impl/StructSpec.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/List.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/Map.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/Tuple.cpp
@@ -216,6 +217,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/IntSpec.hpp
     tdl/parser/ast/node_impl/Identifier.hpp
     tdl/parser/ast/node_impl/NamedVar.hpp
+    tdl/parser/ast/node_impl/StructSpec.hpp
     tdl/parser/ast/node_impl/Type.hpp
     tdl/parser/ast/node_impl/type_impl/Container.hpp
     tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp
@@ -238,6 +240,7 @@ target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(
     spider_tdl
     PUBLIC
+        absl::flat_hash_set
         fmt::fmt
         ystdlib::error_handling
 )
