@@ -47,6 +47,7 @@ jobs:
           python --version
           tar --version
           task --version
+          uv --version
 
       - name: "Install project dependencies "
         timeout-minutes: 10
@@ -55,3 +56,5 @@ jobs:
         run: "task deps:lib_install"
 
       - run: "task test:non-storage-unit-tests"
+
+      - run: "task test:python-tests"
