@@ -197,6 +197,7 @@ add_library(spider::spider ALIAS spider_client)
 
 set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/Node.cpp
+    tdl/parser/ast/node_impl/Function.cpp
     tdl/parser/ast/node_impl/Identifier.cpp
     tdl/parser/ast/node_impl/NamedVar.cpp
     tdl/parser/ast/node_impl/StructSpec.cpp
@@ -216,6 +217,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/Node.hpp
     tdl/parser/ast/FloatSpec.hpp
     tdl/parser/ast/IntSpec.hpp
+    tdl/parser/ast/node_impl/Function.hpp
     tdl/parser/ast/node_impl/Identifier.hpp
     tdl/parser/ast/node_impl/NamedVar.hpp
     tdl/parser/ast/node_impl/StructSpec.hpp
