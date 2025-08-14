@@ -233,8 +233,12 @@ class MariaDBStorage(Storage):
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(GetJobStatus, (job.job_id.bytes,))
-                job_str = cursor.fetchone()[0]
-                match job_str:
+                row = cursor.fetchone()
+                if row is None:
+                    msg = f"No job found with id {job.job_id}"
+                    raise StorageError(msg)
+                status_str = row[0]
+                match status_str:
                     case "running":
                         status = core.JobStatus.Running
                     case "success":
