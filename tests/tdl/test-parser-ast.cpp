@@ -13,6 +13,7 @@
 #include <spider/tdl/parser/ast/FloatSpec.hpp>
 #include <spider/tdl/parser/ast/IntSpec.hpp>
 #include <spider/tdl/parser/ast/Node.hpp>
+#include <spider/tdl/parser/ast/node_impl/Function.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
@@ -25,10 +26,47 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/Struct.hpp>
 
 namespace {
+/**
+ * @param name
+ * @return A struct AST node with the given name.
+ */
+[[nodiscard]] auto create_struct_node(std::string_view name)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+/**
+ * @param name
+ * @param type
+ * @return A named-var AST node with the given name and type.
+ */
+[[nodiscard]] auto
+create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast::Node> type)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+auto create_struct_node(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
+
+    auto struct_node_result{Struct::create(Identifier::create(std::string{name}))};
+    REQUIRE_FALSE(struct_node_result.has_error());
+    return std::move(struct_node_result.value());
+}
+
+auto create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast::Node> type)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::NamedVar;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
+
+    auto named_var_result{NamedVar::create(Identifier::create(std::string{name}), std::move(type))};
+    REQUIRE_FALSE(named_var_result.has_error());
+    return std::move(named_var_result.value());
+}
+
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::FloatSpec;
     using spider::tdl::parser::ast::IntSpec;
     using spider::tdl::parser::ast::Node;
+    using spider::tdl::parser::ast::node_impl::Function;
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::NamedVar;
     using spider::tdl::parser::ast::node_impl::StructSpec;
@@ -449,6 +487,185 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(set_spec_result.has_error());
             REQUIRE(set_spec_result.error()
                     == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecNameMismatch});
+        }
+    }
+
+    SECTION("Function") {
+        constexpr std::string_view cTestFuncName{"test_function"};
+        constexpr std::string_view cTestStructName{"TestStruct"};
+
+        auto function_name{Identifier::create(std::string{cTestFuncName})};
+
+        std::vector<std::unique_ptr<Node>> tuple_elements;
+        tuple_elements.emplace_back(Int::create(IntSpec::Int64));
+        tuple_elements.emplace_back(create_struct_node(cTestStructName));
+        tuple_elements.emplace_back(Bool::create());
+
+        auto return_tuple_result{Tuple::create(std::move(tuple_elements))};
+        REQUIRE_FALSE(return_tuple_result.has_error());
+
+        std::vector<std::unique_ptr<Node>> parameters;
+        parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
+        parameters.emplace_back(create_named_var("param_1", create_struct_node(cTestStructName)));
+
+        SECTION("Basic") {
+            auto func_result{Function::create(
+                    std::move(function_name),
+                    std::move(return_tuple_result.value()),
+                    std::move(parameters)
+            )};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 4);
+            REQUIRE(func_node->get_num_params() == 2);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr != func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function]:\n"
+                    "  Name:test_function\n"
+                    "  Return:\n"
+                    "    [Type[Container[Tuple]]]:\n"
+                    "      Element[0]:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "      Element[1]:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct\n"
+                    "      Element[2]:\n"
+                    "        [Type[Primitive[Bool]]]\n"
+                    "  Params[0]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_0\n"
+                    "      Type:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "  Params[1]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_1\n"
+                    "      Type:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct"
+            };
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("No return type") {
+            // The execution model of `SECTION` ensures objects are not moved when this section is
+            // executed, so use move below is safe.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 3);
+            REQUIRE(func_node->get_num_params() == 2);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr == func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function]:\n"
+                    "  Name:test_function\n"
+                    "  Return:\n"
+                    "    void\n"
+                    "  Params[0]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_0\n"
+                    "      Type:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "  Params[1]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_1\n"
+                    "      Type:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct"
+            };
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Empty param list") {
+            // The execution model of `SECTION` ensures objects are not moved when this section is
+            // executed, so use move below is safe.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            auto func_result{Function::create(
+                    std::move(function_name),
+                    std::move(return_tuple_result.value()),
+                    {}
+            )};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 2);
+            REQUIRE(func_node->get_num_params() == 0);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr != func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function]:\n"
+                    "  Name:test_function\n"
+                    "  Return:\n"
+                    "    [Type[Container[Tuple]]]:\n"
+                    "      Element[0]:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "      Element[1]:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct\n"
+                    "      Element[2]:\n"
+                    "        [Type[Primitive[Bool]]]\n"
+                    "  No Params"
+            };
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Empty param list and no return") {
+            // The execution model of `SECTION` ensures objects are not moved when this section is
+            // executed, so use move below is safe.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            auto func_result{Function::create(std::move(function_name), {}, {})};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 1);
+            REQUIRE(func_node->get_num_params() == 0);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr == func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{"[Function]:\n"
+                                                                 "  Name:test_function\n"
+                                                                 "  Return:\n"
+                                                                 "    void\n"
+                                                                 "  No Params"};
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Duplicated param names") {
+            // The execution model of `SECTION` ensures objects are not moved when this section is
+            // executed, so use and move these objects should be safe.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
+            auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
+            REQUIRE(func_result.has_error());
+            REQUIRE(func_result.error()
+                    == Function::ErrorCode{Function::ErrorCodeEnum::DuplicatedParamName});
         }
     }
 }
