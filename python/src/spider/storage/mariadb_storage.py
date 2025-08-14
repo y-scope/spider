@@ -97,6 +97,14 @@ WHERE
 ORDER BY
   `position`"""
 
+GetData = """
+SELECT
+  `value`,
+FROM
+  `data`
+WHERE
+  `id` = ?"""
+
 
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
@@ -181,7 +189,14 @@ class MariaDBStorage(Storage):
                     ],
                 )
                 input_data_params = [
-                    (task.task_id.bytes, position, task_input.type, task_input.value.bytes)
+                    (
+                        task.task_id.bytes,
+                        position,
+                        task_input.type,
+                        task_input.value.id.bytes
+                        if isinstance(task_input.value, core.Data)
+                        else task_input.value.bytes,
+                    )
                     for task_graph in task_graphs
                     for task in task_graph.tasks.values()
                     for position, task_input in enumerate(task.task_inputs)
@@ -275,10 +290,15 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         if data_id is not None:
+                            cursor.execute(GetData, (data_id,))
+                            row = cursor.fetchone()
+                            if row is None:
+                                msg = f"No data found with id {data_id}"
+                                raise StorageError(msg)
                             results.append(
                                 core.TaskOutput(
                                     type=output_type,
-                                    value=core.TaskOutputData(data_id),
+                                    value=core.Data(data_id, row[0]),
                                 )
                             )
                 self._conn.commit()
