@@ -22,6 +22,7 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
+#include <spider/tdl/parser/ast/node_impl/type_impl/Struct.hpp>
 
 namespace {
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
@@ -37,6 +38,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Float;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
     using ystdlib::error_handling::Result;
 
     SECTION("Identifier") {
@@ -382,6 +384,71 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(struct_spec_result.has_error());
             REQUIRE(struct_spec_result.error()
                     == StructSpec::ErrorCode{StructSpec::ErrorCodeEnum::EmptyStruct});
+        }
+    }
+
+    SECTION("Struct") {
+        constexpr std::string_view cTestStructName{"TestStruct"};
+
+        // Create a `StructSpec`
+        auto int_field_result{
+                NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
+        };
+        REQUIRE_FALSE(int_field_result.has_error());
+        std::vector<std::unique_ptr<Node>> fields;
+        fields.emplace_back(std::move(int_field_result.value()));
+
+        auto struct_spec_result{StructSpec::create(
+                Identifier::create(std::string{cTestStructName}),
+                std::move(fields)
+        )};
+        REQUIRE_FALSE(struct_spec_result.has_error());
+        REQUIRE(nullptr != dynamic_cast<StructSpec const*>(struct_spec_result.value().get()));
+
+        SECTION("Struct with StructSpec") {
+            auto struct_result{Struct::create(Identifier::create(std::string{cTestStructName}))};
+            REQUIRE_FALSE(struct_result.has_error());
+            auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
+            REQUIRE(nullptr != struct_node);
+
+            REQUIRE(struct_node->get_num_children() == 1);
+            REQUIRE(cTestStructName == struct_node->get_name());
+            REQUIRE(nullptr == struct_node->get_spec());
+
+            constexpr std::string_view cExpectedSerializedResult{"[Type[Struct]]:\n"
+                                                                 "  Name:\n"
+                                                                 "    [Identifier]:TestStruct"};
+            auto const serialized_result{struct_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+
+            // Ensure nullptr can't be set as `StructSpec`
+            auto const null_set_spec{struct_node->set_spec({})};
+            REQUIRE(null_set_spec.has_error());
+            REQUIRE(null_set_spec.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::NullStructSpec});
+            REQUIRE(nullptr == struct_node->get_spec());
+
+            // Set the `StructSpec` to the `Struct`
+            REQUIRE_FALSE(struct_node->set_spec(struct_spec_result.value()).has_error());
+            REQUIRE(nullptr != struct_node->get_spec());
+
+            // Ensure `StructSpec` can't be set again
+            auto const duplicated_set_spec{struct_node->set_spec(struct_spec_result.value())};
+            REQUIRE(duplicated_set_spec.has_error());
+            REQUIRE(duplicated_set_spec.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecAlreadySet});
+        }
+
+        SECTION("Set spec to a wrong Struct") {
+            auto struct_result{Struct::create(Identifier::create("WrongStruct"))};
+            REQUIRE_FALSE(struct_result.has_error());
+            auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
+            REQUIRE(nullptr != struct_node);
+            auto const set_spec_result{struct_node->set_spec(struct_spec_result.value())};
+            REQUIRE(set_spec_result.has_error());
+            REQUIRE(set_spec_result.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecNameMismatch});
         }
     }
 }
