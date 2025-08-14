@@ -427,6 +427,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(null_set_spec.has_error());
             REQUIRE(null_set_spec.error()
                     == Struct::ErrorCode{Struct::ErrorCodeEnum::NullStructSpec});
+            REQUIRE(nullptr == struct_node->get_spec());
 
             // Set the `StructSpec` to the `Struct`
             REQUIRE_FALSE(struct_node->set_spec(struct_spec_result.value()).has_error());
