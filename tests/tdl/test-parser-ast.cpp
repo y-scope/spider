@@ -16,6 +16,7 @@
 #include <spider/tdl/parser/ast/node_impl/Function.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
+#include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
@@ -42,6 +43,14 @@ namespace {
 create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast::Node> type)
         -> std::unique_ptr<spider::tdl::parser::ast::Node>;
 
+/**
+ * @param name
+ * @return A function AST node with the given name which has zero parameter and returns an empty
+ * tuple.
+ */
+[[nodiscard]] auto create_func(std::string_view name)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
 auto create_struct_node(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::type_impl::Struct;
@@ -62,6 +71,22 @@ auto create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser
     return std::move(named_var_result.value());
 }
 
+auto create_func(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::node_impl::Function;
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
+
+    auto tuple_result{Tuple::create({})};
+    REQUIRE_FALSE(tuple_result.has_error());
+    auto func_result{Function::create(
+            Identifier::create(std::string{name}),
+            std::move(tuple_result.value()),
+            {}
+    )};
+    REQUIRE_FALSE(func_result.has_error());
+    return std::move(func_result.value());
+}
+
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::FloatSpec;
     using spider::tdl::parser::ast::IntSpec;
@@ -69,6 +94,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::Function;
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::NamedVar;
+    using spider::tdl::parser::ast::node_impl::Namespace;
     using spider::tdl::parser::ast::node_impl::StructSpec;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
@@ -666,6 +692,73 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(func_result.has_error());
             REQUIRE(func_result.error()
                     == Function::ErrorCode{Function::ErrorCodeEnum::DuplicatedParamName});
+        }
+    }
+
+    SECTION("Namespace") {
+        constexpr std::string_view cTestNamespaceName{"TestNamespace"};
+
+        std::vector<std::unique_ptr<Node>> functions;
+        functions.emplace_back(create_func("func_0"));
+        functions.emplace_back(create_func("func_1"));
+
+        SECTION("Basic") {
+            auto namespace_result{Namespace::create(
+                    Identifier::create(std::string{cTestNamespaceName}),
+                    std::move(functions)
+            )};
+            REQUIRE_FALSE(namespace_result.has_error());
+            auto const* namespace_node{
+                    dynamic_cast<Namespace const*>(namespace_result.value().get())
+            };
+            REQUIRE(nullptr != namespace_node);
+
+            REQUIRE(namespace_node->get_name() == cTestNamespaceName);
+            REQUIRE(namespace_node->get_num_children() == 3);
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Namespace]:\n"
+                    "  Name:TestNamespace\n"
+                    "  Func[0]:\n"
+                    "    [Function]:\n"
+                    "      Name:func_0\n"
+                    "      Return:\n"
+                    "        [Type[Container[Tuple]]]:Empty\n"
+                    "      No Params\n"
+                    "  Func[1]:\n"
+                    "    [Function]:\n"
+                    "      Name:func_1\n"
+                    "      Return:\n"
+                    "        [Type[Container[Tuple]]]:Empty\n"
+                    "      No Params"
+            };
+            auto const serialized_result{namespace_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Empty") {
+            auto namespace_result{
+                    Namespace::create(Identifier::create(std::string{cTestNamespaceName}), {})
+            };
+            REQUIRE(namespace_result.has_error());
+            REQUIRE(namespace_result.error()
+                    == Namespace::ErrorCode{Namespace::ErrorCodeEnum::EmptyNamespace});
+        }
+
+        SECTION("Duplicated names") {
+            // The execution model of `SECTION` ensures objects are not moved when this section is
+            // executed, so use and move `functions` is safe.
+            // NOLINTBEGIN(bugprone-use-after-move)
+            functions.emplace_back(create_func("func_0"));
+            auto namespace_result{Namespace::create(
+                    Identifier::create(std::string{cTestNamespaceName}),
+                    std::move(functions)
+            )};
+            // NOLINTEND(bugprone-use-after-move)
+            REQUIRE(namespace_result.has_error());
+            REQUIRE(namespace_result.error()
+                    == Namespace::ErrorCode{Namespace::ErrorCodeEnum::DuplicatedFunctionName});
         }
     }
 }
