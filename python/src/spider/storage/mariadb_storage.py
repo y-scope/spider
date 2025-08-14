@@ -261,7 +261,7 @@ class MariaDBStorage(Storage):
 
                 cursor.executemany(GetTaskOutputs, [(task_id,) for task_id in task_ids])
                 results = []
-                for output_type, value, data_id in cursor:
+                for output_type, value, data_id in cursor.fetchall():
                     if value is not None:
                         results.append(
                             core.TaskOutput(
@@ -273,7 +273,7 @@ class MariaDBStorage(Storage):
                         results.append(
                             core.TaskOutput(
                                 type=output_type,
-                                value=core.TaskOutputValue(msgpack.unpackb(data_id)),
+                                value=core.TaskOutputData(data_id),
                             )
                         )
                 self._conn.commit()
