@@ -263,28 +263,29 @@ class MariaDBStorage(Storage):
                 cursor.execute(GetOutputTasks, (job.job_id.bytes,))
                 task_ids = [task_id for (task_id,) in cursor.fetchall()]
 
-                cursor.executemany(GetTaskOutputs, [(task_id,) for task_id in task_ids])
                 results = []
-                for output_type, value, data_id in cursor.fetchall():
-                    if value is not None:
-                        results.append(
-                            core.TaskOutput(
-                                type=output_type,
-                                value=core.TaskOutputValue(msgpack.unpackb(value)),
+                for task_id in task_ids:
+                    cursor.execute(GetTaskOutputs, (task_id,))
+                    for output_type, value, data_id in cursor.fetchall():
+                        if value is not None:
+                            results.append(
+                                core.TaskOutput(
+                                    type=output_type,
+                                    value=core.TaskOutputValue(msgpack.unpackb(value)),
+                                )
                             )
-                        )
-                    if data_id is not None:
-                        results.append(
-                            core.TaskOutput(
-                                type=output_type,
-                                value=core.TaskOutputData(data_id),
+                        if data_id is not None:
+                            results.append(
+                                core.TaskOutput(
+                                    type=output_type,
+                                    value=core.TaskOutputData(data_id),
+                                )
                             )
-                        )
                 self._conn.commit()
                 return results
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
-        except msgpack.exceptions.UnpackValueError:
+        except msgpack.exceptions.UnpackException:
             self._conn.rollback()
             raise
