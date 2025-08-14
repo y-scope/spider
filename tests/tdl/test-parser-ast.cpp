@@ -22,6 +22,7 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
+#include <spider/tdl/parser/ast/node_impl/type_impl/Struct.hpp>
 
 namespace {
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
@@ -37,6 +38,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Float;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
     using ystdlib::error_handling::Result;
 
     SECTION("Identifier") {
@@ -312,7 +314,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         fields.emplace_back(std::move(float_field_result.value()));
         fields.emplace_back(std::move(map_field_result.value()));
 
-        SECTION("Basic") {
+        SECTION("With Struct") {
             auto struct_spec_result{StructSpec::create(
                     Identifier::create(std::string{cTestStructName}),
                     std::move(fields)
@@ -326,35 +328,71 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(struct_spec_node->get_num_children() == 4);
             REQUIRE(struct_spec_node->get_name() == cTestStructName);
 
-            constexpr std::string_view cExpectedSerializedResult{
-                    "[StructSpec]:\n"
-                    "  Name:TestStruct\n"
-                    "  Fields[0]:\n"
-                    "    [NamedVar]:\n"
-                    "      Id:\n"
-                    "        [Identifier]:m_int\n"
-                    "      Type:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
-                    "  Fields[1]:\n"
-                    "    [NamedVar]:\n"
-                    "      Id:\n"
-                    "        [Identifier]:m_float\n"
-                    "      Type:\n"
-                    "        [Type[Primitive[Float]]]:double\n"
-                    "  Fields[2]:\n"
-                    "    [NamedVar]:\n"
-                    "      Id:\n"
-                    "        [Identifier]:m_map\n"
-                    "      Type:\n"
-                    "        [Type[Container[Map]]]:\n"
-                    "          KeyType:\n"
-                    "            [Type[Primitive[Int]]]:int64\n"
-                    "          ValueType:\n"
-                    "            [Type[Primitive[Float]]]:double"
-            };
-            auto const serialized_result{struct_spec_node->serialize_to_str(0)};
-            REQUIRE_FALSE(serialized_result.has_error());
-            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+            SECTION("StructSpec serialization") {
+                constexpr std::string_view cExpectedSerializedResult{
+                        "[StructSpec]:\n"
+                        "  Name:TestStruct\n"
+                        "  Fields[0]:\n"
+                        "    [NamedVar]:\n"
+                        "      Id:\n"
+                        "        [Identifier]:m_int\n"
+                        "      Type:\n"
+                        "        [Type[Primitive[Int]]]:int64\n"
+                        "  Fields[1]:\n"
+                        "    [NamedVar]:\n"
+                        "      Id:\n"
+                        "        [Identifier]:m_float\n"
+                        "      Type:\n"
+                        "        [Type[Primitive[Float]]]:double\n"
+                        "  Fields[2]:\n"
+                        "    [NamedVar]:\n"
+                        "      Id:\n"
+                        "        [Identifier]:m_map\n"
+                        "      Type:\n"
+                        "        [Type[Container[Map]]]:\n"
+                        "          KeyType:\n"
+                        "            [Type[Primitive[Int]]]:int64\n"
+                        "          ValueType:\n"
+                        "            [Type[Primitive[Float]]]:double"
+                };
+                auto const serialized_result{struct_spec_node->serialize_to_str(0)};
+                REQUIRE_FALSE(serialized_result.has_error());
+                REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+            }
+
+            auto struct_result{Struct::create(Identifier::create(std::string{cTestStructName}))};
+            REQUIRE_FALSE(struct_result.has_error());
+            auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
+            REQUIRE(nullptr != struct_node);
+
+            REQUIRE(struct_node->get_num_children() == 1);
+            REQUIRE(cTestStructName == struct_node->get_name());
+
+            REQUIRE_FALSE(struct_node->set_spec(struct_spec_result.value()).has_error());
+            auto const duplicated_set_spec{struct_node->set_spec(struct_spec_result.value())};
+            REQUIRE(duplicated_set_spec.has_error());
+            REQUIRE(duplicated_set_spec.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecAlreadySet});
+
+            SECTION("Struct serialization") {
+                constexpr std::string_view cExpectedSerializedResult{"[Type[Struct]]:\n"
+                                                                     "  Name:\n"
+                                                                     "    [Identifier]:TestStruct"};
+                auto const serialized_result{struct_node->serialize_to_str(0)};
+                REQUIRE_FALSE(serialized_result.has_error());
+                REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+            }
+
+            SECTION("Set spec to a wrong Struct") {
+                auto wrong_struct_result{Struct::create(Identifier::create("WrongStruct"))};
+                REQUIRE_FALSE(wrong_struct_result.has_error());
+                auto* wrong_struct_node{dynamic_cast<Struct*>(wrong_struct_result.value().get())};
+                REQUIRE(nullptr != wrong_struct_node);
+                auto const set_spec_result{wrong_struct_node->set_spec(struct_spec_result.value())};
+                REQUIRE(set_spec_result.has_error());
+                REQUIRE(set_spec_result.error()
+                        == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecNameMismatch});
+            }
         }
 
         SECTION("Fields with duplicated name") {
