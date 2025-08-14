@@ -20,8 +20,8 @@ To manually build a package for distribution, follow the steps below.
 task build:spider-py
 ```
 
-The command above will generate both a `.tar.gz` and a `.whl` package in the
-`build/spider-py` directory at the Spider project root.
+The command above will generate both a `.tar.gz` and a `.whl` package in the `build/spider-py`
+directory at the Spider project root.
 
 ## Linting
 
