@@ -53,7 +53,7 @@ class Driver:
                     arg = task_args[arg_index]
                     if isinstance(arg, Data):
                         task_input.type = to_tdl_type_str(Data)
-                        task_input.value = arg.data_id
+                        task_input.value = arg._impl.id
                     else:
                         task_input.type = to_tdl_type_str(type(arg))
                         task_input.value = core.TaskInputValue(msgpack.packb(arg))
