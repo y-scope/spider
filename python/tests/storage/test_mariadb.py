@@ -31,6 +31,7 @@ def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
 
 @pytest.fixture
 def submit_job(mariadb_storage: MariaDBStorage) -> Job:
+    """Submits a simple job."""
     graph = chain(group([double, double]), group([swap]))._impl
     # Fill input data
     for i, task_id in enumerate(graph.input_tasks):
@@ -59,7 +60,7 @@ class TestMariaDBStorage:
         assert len(jobs) == 1
 
     @pytest.mark.storage
-    def test_job_status(self, mariadb_storage: MariaDBStorage, submit_job) -> None:
+    def test_job_status(self, mariadb_storage: MariaDBStorage, submit_job: Job) -> None:
         """Test job status of the MariaDB storage backend."""
         status = mariadb_storage.get_job_status(submit_job)
         assert status == JobStatus.Running
