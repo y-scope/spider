@@ -1,10 +1,16 @@
 """Data module for Spider."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 DataId = UUID
 
+
+@dataclass
+class DataLocality:
+    """Represents the locality of a data object."""
+
+    address: str
 
 @dataclass
 class Data:
@@ -12,3 +18,6 @@ class Data:
 
     id: DataId
     value: bytes
+    localities: list[DataLocality] = field(default_factory=list)
+    hard_locality: bool = False
+    persisted: bool = False
