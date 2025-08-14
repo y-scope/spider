@@ -20,6 +20,9 @@ vars:
   G_TEST_DIR: "{{.ROOT_DIR}}/tests"
   G_EXAMPLES_DIR: "{{.ROOT_DIR}}/examples"
 
+  G_SRC_PYTHON_DIR: "{{.ROOT_DIR}}/python/spider-py"
+  G_BUILD_PYTHON_DIR: "{{.G_BUILD_DIR}}/spider-py"
+
   # Build parameters
   # NOTE: Defaulting to an empty string is safe since CMake ignores an empty string.
   G_DEPS_MAX_PARALLELISM_PER_TASK: >-
