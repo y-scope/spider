@@ -6,7 +6,7 @@ import msgpack
 import pytest
 
 from spider import chain, group, Int8, TaskContext
-from spider.core import TaskInputValue
+from spider.core import Job, JobStatus, TaskInputValue
 from spider.storage import MariaDBStorage, parse_jdbc_url
 
 MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
@@ -29,6 +29,19 @@ def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
     return y, x
 
 
+@pytest.fixture
+def submit_job(mariadb_storage: MariaDBStorage) -> Job:
+    graph = chain(group([double, double]), group([swap]))._impl
+    # Fill input data
+    for i, task_id in enumerate(graph.input_tasks):
+        task = graph.tasks[task_id]
+        task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
+
+    driver_id = uuid4()
+    jobs = mariadb_storage.submit_jobs(driver_id, [graph])
+    return jobs[0]
+
+
 class TestMariaDBStorage:
     """Test class for the MariaDB storage backend."""
 
@@ -44,3 +57,9 @@ class TestMariaDBStorage:
         driver_id = uuid4()
         jobs = mariadb_storage.submit_jobs(driver_id, [graph])
         assert len(jobs) == 1
+
+    @pytest.mark.storage
+    def test_job_status(self, mariadb_storage: MariaDBStorage, submit_job) -> None:
+        """Test job status of the MariaDB storage backend."""
+        status = mariadb_storage.get_job_status(submit_job)
+        assert status == JobStatus.Running
