@@ -2,7 +2,7 @@
 
 from .data import Data, DataId
 from .driver import DriverId
-from .job import Job, JobId
+from .job import Job, JobId, JobStatus
 from .task import (
     get_state_from_str,
     get_state_str,
@@ -25,6 +25,7 @@ __all__ = [
     "DriverId",
     "Job",
     "JobId",
+    "JobStatus",
     "Task",
     "TaskGraph",
     "TaskId",
