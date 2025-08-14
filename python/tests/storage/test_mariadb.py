@@ -42,5 +42,5 @@ class TestMariaDBStorage:
             task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
 
         driver_id = uuid4()
-        job_ids = mariadb_storage.submit_jobs(driver_id, [graph])
-        assert len(job_ids) == 1
+        jobs = mariadb_storage.submit_jobs(driver_id, [graph])
+        assert len(jobs) == 1
