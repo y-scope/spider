@@ -1,8 +1,10 @@
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -13,8 +15,10 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
+#include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
+#include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Tuple.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
@@ -26,8 +30,10 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::Node;
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::NamedVar;
+    using spider::tdl::parser::ast::node_impl::StructSpec;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
+    using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Float;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
@@ -230,6 +236,153 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         auto const serialized_result{named_var_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
         REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+    }
+
+    SECTION("Tuple") {
+        SECTION("Empty") {
+            auto empty_tuple_result{Tuple::create({})};
+            REQUIRE_FALSE(empty_tuple_result.has_error());
+            auto const* tuple_node{dynamic_cast<Tuple const*>(empty_tuple_result.value().get())};
+            REQUIRE(nullptr != tuple_node);
+
+            REQUIRE(tuple_node->get_num_children() == 0);
+
+            constexpr std::string_view cExpectedSerializedResult{"[Type[Container[Tuple]]]:Empty"};
+            auto const serialized_result{tuple_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Tuple with elements") {
+            auto int_node{Int::create(IntSpec::Int64)};
+            auto float_node{Float::create(FloatSpec::Double)};
+            auto map_result{
+                    Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))
+            };
+            REQUIRE_FALSE(map_result.has_error());
+            std::vector<std::unique_ptr<Node>> elements;
+            elements.emplace_back(std::move(int_node));
+            elements.emplace_back(std::move(float_node));
+            elements.emplace_back(std::move(map_result.value()));
+            auto tuple_result{Tuple::create(std::move(elements))};
+            REQUIRE_FALSE(tuple_result.has_error());
+            auto const* tuple_node{dynamic_cast<Tuple const*>(tuple_result.value().get())};
+            REQUIRE(nullptr != tuple_node);
+
+            REQUIRE(tuple_node->get_num_children() == 3);
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Type[Container[Tuple]]]:\n"
+                    "  Element[0]:\n"
+                    "    [Type[Primitive[Int]]]:int64\n"
+                    "  Element[1]:\n"
+                    "    [Type[Primitive[Float]]]:double\n"
+                    "  Element[2]:\n"
+                    "    [Type[Container[Map]]]:\n"
+                    "      KeyType:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "      ValueType:\n"
+                    "        [Type[Primitive[Float]]]:double"
+            };
+            auto const serialized_result{tuple_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+    }
+
+    SECTION("StructSpec") {
+        constexpr std::string_view cTestStructName{"TestStruct"};
+
+        auto int_field_result{
+                NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
+        };
+        REQUIRE_FALSE(int_field_result.has_error());
+        auto float_field_result{
+                NamedVar::create(Identifier::create("m_float"), Float::create(FloatSpec::Double))
+        };
+        REQUIRE_FALSE(float_field_result.has_error());
+        auto map_result{Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))};
+        REQUIRE_FALSE(map_result.has_error());
+        auto map_field_result{
+                NamedVar::create(Identifier::create("m_map"), std::move(map_result.value()))
+        };
+        REQUIRE_FALSE(map_field_result.has_error());
+        std::vector<std::unique_ptr<Node>> fields;
+        fields.emplace_back(std::move(int_field_result.value()));
+        fields.emplace_back(std::move(float_field_result.value()));
+        fields.emplace_back(std::move(map_field_result.value()));
+
+        SECTION("Basic") {
+            auto struct_spec_result{StructSpec::create(
+                    Identifier::create(std::string{cTestStructName}),
+                    std::move(fields)
+            )};
+            REQUIRE_FALSE(struct_spec_result.has_error());
+            auto const* struct_spec_node{
+                    dynamic_cast<StructSpec const*>(struct_spec_result.value().get())
+            };
+            REQUIRE(nullptr != struct_spec_node);
+
+            REQUIRE(struct_spec_node->get_num_children() == 4);
+            REQUIRE(struct_spec_node->get_name() == cTestStructName);
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[StructSpec]:\n"
+                    "  Name:TestStruct\n"
+                    "  Fields[0]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:m_int\n"
+                    "      Type:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "  Fields[1]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:m_float\n"
+                    "      Type:\n"
+                    "        [Type[Primitive[Float]]]:double\n"
+                    "  Fields[2]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:m_map\n"
+                    "      Type:\n"
+                    "        [Type[Container[Map]]]:\n"
+                    "          KeyType:\n"
+                    "            [Type[Primitive[Int]]]:int64\n"
+                    "          ValueType:\n"
+                    "            [Type[Primitive[Float]]]:double"
+            };
+            auto const serialized_result{struct_spec_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Fields with duplicated name") {
+            auto duplicated_int_field_result{
+                    NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
+            };
+            REQUIRE_FALSE(duplicated_int_field_result.has_error());
+            // The execution model of `SECTION` ensures `fields` is not moved when this section is
+            // executed, so using `fields` here is safe.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            fields.emplace_back(std::move(duplicated_int_field_result.value()));
+            auto struct_spec_result{StructSpec::create(
+                    Identifier::create(std::string{cTestStructName}),
+                    std::move(fields)
+            )};
+            REQUIRE(struct_spec_result.has_error());
+            REQUIRE(struct_spec_result.error()
+                    == StructSpec::ErrorCode{StructSpec::ErrorCodeEnum::DuplicatedFieldName});
+        }
+
+        SECTION("Empty") {
+            auto struct_spec_result{
+                    StructSpec::create(Identifier::create(std::string{cTestStructName}), {})
+            };
+            REQUIRE(struct_spec_result.has_error());
+            REQUIRE(struct_spec_result.error()
+                    == StructSpec::ErrorCode{StructSpec::ErrorCodeEnum::EmptyStruct});
+        }
     }
 }
 }  // namespace

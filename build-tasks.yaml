@@ -20,6 +20,6 @@ tasks:
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
 
-  py-build:
+  spider-py:
     cmds:
       - "uv build --directory {{.G_SRC_PYTHON_DIR}} -o {{.G_BUILD_PYTHON_DIR}}"
