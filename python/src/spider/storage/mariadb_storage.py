@@ -89,7 +89,7 @@ class MariaDBStorage(Storage):
     @override
     def submit_jobs(
         self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
-    ) -> Sequence[core.JobId]:
+    ) -> Sequence[core.Job]:
         if not task_graphs:
             return []
         try:
@@ -191,7 +191,7 @@ class MariaDBStorage(Storage):
                         input_output_params,
                     )
                 self._conn.commit()
-                return job_ids
+                return [core.Job(job_id) for job_id in job_ids]
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e

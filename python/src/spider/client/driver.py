@@ -26,11 +26,11 @@ class Driver:
         self.storage = MariaDBStorage(parse_jdbc_url(storage_url))
 
     def submit_jobs(
-        self, jobs: Sequence[TaskGraph], args: Sequence[Sequence[object]]
+        self, graphs: Sequence[TaskGraph], args: Sequence[Sequence[object]]
     ) -> Sequence[Job]:
         """
         Submits a list of jobs to the storage.
-        :param jobs: The list of task graphs to submit.
+        :param graphs: The list of task graphs to submit.
         :param args: The arguments for each job.
         :return: A sequence of Job objects representing the submitted jobs.
         :raises StorageError: If the jobs cannot be submitted to the storage.
@@ -38,12 +38,12 @@ class Driver:
         :raises TypeError: If the arguments are not of the expected type.
         """
         msg = "Number of job inputs does not match number of arguments"
-        if len(jobs) != len(args):
+        if len(graphs) != len(args):
             raise ValueError(msg)
 
-        if not jobs:
+        if not graphs:
             return []
-        for task_graph, task_args in zip(jobs, args, strict=True):
+        for task_graph, task_args in zip(graphs, args, strict=True):
             arg_index = 0
             for task_id in task_graph._impl.input_tasks:
                 task = task_graph._impl.tasks[task_id]
@@ -61,5 +61,5 @@ class Driver:
             if arg_index != len(task_args):
                 raise ValueError(msg)
 
-        job_ids = self.storage.submit_jobs(self.driver_id, [job._impl for job in jobs])
-        return [Job(job_id, self.storage) for job_id in job_ids]
+        jobs = self.storage.submit_jobs(self.driver_id, [graph._impl for graph in graphs])
+        return [Job(job, self.storage) for job in jobs]
