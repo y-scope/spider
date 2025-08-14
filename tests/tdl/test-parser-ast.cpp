@@ -428,8 +428,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
                     NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
             };
             REQUIRE_FALSE(duplicated_int_field_result.has_error());
-            // The execution model of `SECTION` ensures `fields` is not moved when this section is
-            // executed, so using `fields` here is safe.
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
             fields.emplace_back(std::move(duplicated_int_field_result.value()));
             auto struct_spec_result{StructSpec::create(
@@ -583,8 +584,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("No return type") {
-            // The execution model of `SECTION` ensures objects are not moved when this section is
-            // executed, so use move below is safe.
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
             auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
             REQUIRE_FALSE(func_result.has_error());
@@ -622,14 +624,16 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Empty param list") {
-            // The execution model of `SECTION` ensures objects are not moved when this section is
-            // executed, so use move below is safe.
-            // NOLINTNEXTLINE(bugprone-use-after-move)
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
+            // NOLINTBEGIN(bugprone-use-after-move)
             auto func_result{Function::create(
                     std::move(function_name),
                     std::move(return_tuple_result.value()),
                     {}
             )};
+            // NOLINTEND(bugprone-use-after-move)
             REQUIRE_FALSE(func_result.has_error());
             auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
             REQUIRE(nullptr != func_node);
@@ -660,8 +664,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Empty param list and no return") {
-            // The execution model of `SECTION` ensures objects are not moved when this section is
-            // executed, so use move below is safe.
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
             auto func_result{Function::create(std::move(function_name), {}, {})};
             REQUIRE_FALSE(func_result.has_error());
@@ -684,8 +689,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Duplicated param names") {
-            // The execution model of `SECTION` ensures objects are not moved when this section is
-            // executed, so use and move these objects should be safe.
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
             parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
             auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
@@ -747,8 +753,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Duplicated names") {
-            // The execution model of `SECTION` ensures objects are not moved when this section is
-            // executed, so use and move `functions` is safe.
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
             // NOLINTBEGIN(bugprone-use-after-move)
             functions.emplace_back(create_func("func_0"));
             auto namespace_result{Namespace::create(
