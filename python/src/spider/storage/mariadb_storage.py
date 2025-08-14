@@ -66,6 +66,16 @@ VALUES
   (?, ?, ?)"""
 
 
+GetJobStatus = """
+SELECT
+  `state`
+FROM
+  `jobs`
+WHERE
+  `id` = ?
+"""
+
+
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
 
@@ -195,3 +205,31 @@ class MariaDBStorage(Storage):
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
+
+    @override
+    def get_job_status(self, job: core.Job) -> core.JobStatus:
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(GetJobStatus, (job.job_id.bytes,))
+                job_str = cursor.fetchone()[0]
+                match job_str:
+                    case "running":
+                        status = core.JobStatus.Running
+                    case "success":
+                        status = core.JobStatus.Succeeded
+                    case "fail":
+                        status = core.JobStatus.Failed
+                    case "cancel":
+                        status = core.JobStatus.Cancelled
+                    case _:
+                        msg = "Unknown job status"
+                        raise StorageError(msg)
+                self._conn.commit()
+                return status
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
+    @override
+    def get_job_results(self, job: core.Job) -> object:
+        pass
