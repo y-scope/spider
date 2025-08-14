@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from uuid import uuid4
 
 import mariadb
+import msgpack
 from typing_extensions import override
 
 from spider import core
@@ -72,8 +73,29 @@ SELECT
 FROM
   `jobs`
 WHERE
-  `id` = ?
-"""
+  `id` = ?"""
+
+GetOutputTasks = """
+SELECT
+  `task_id`
+FROM
+  `output_tasks`
+WHERE
+  `job_id` = ?
+ORDER BY
+  `position`"""
+
+GetTaskOutputs = """
+SELECT
+  `type`,
+  `value`,
+  `data_id`
+FROM
+  `task_outputs`
+WHERE
+  `task_id` = ?
+ORDER BY
+  `position`"""
 
 
 class MariaDBStorage(Storage):
@@ -232,4 +254,33 @@ class MariaDBStorage(Storage):
 
     @override
     def get_job_results(self, job: core.Job) -> object:
-        pass
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(GetOutputTasks, (job.job_id.bytes,))
+                task_ids = [task_id for (task_id,) in cursor.fetchall()]
+
+                cursor.executemany(GetTaskOutputs, [(task_id,) for task_id in task_ids])
+                results = []
+                for output_type, value, data_id in cursor:
+                    if value is not None:
+                        results.append(
+                            core.TaskOutput(
+                                type=output_type,
+                                value=core.TaskOutputValue(msgpack.unpackb(value)),
+                            )
+                        )
+                    if data_id is not None:
+                        results.append(
+                            core.TaskOutput(
+                                type=output_type,
+                                value=core.TaskOutputValue(msgpack.unpackb(data_id)),
+                            )
+                        )
+                self._conn.commit()
+                return results
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+        except msgpack.exceptions.UnpackValueError:
+            self._conn.rollback()
+            raise

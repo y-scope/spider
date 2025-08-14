@@ -46,4 +46,5 @@ class Storage(ABC):
         :param job:
         :return:
         :raises StorageError: If the storage operations fail.
+        :raises msgpack.exceptions.UnPackError: If deserialization of the result fails.
         """
