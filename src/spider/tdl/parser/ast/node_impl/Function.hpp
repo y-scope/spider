@@ -2,11 +2,11 @@
 #define SPIDER_TDL_PARSER_AST_NODE_IMPL_FUNCTION_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <cstdint>
 #include <vector>
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
