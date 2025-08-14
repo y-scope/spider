@@ -200,6 +200,7 @@ set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/node_impl/Function.cpp
     tdl/parser/ast/node_impl/Identifier.cpp
     tdl/parser/ast/node_impl/NamedVar.cpp
+    tdl/parser/ast/node_impl/Namespace.cpp
     tdl/parser/ast/node_impl/StructSpec.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/List.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/Map.cpp
@@ -220,6 +221,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/node_impl/Function.hpp
     tdl/parser/ast/node_impl/Identifier.hpp
     tdl/parser/ast/node_impl/NamedVar.hpp
+    tdl/parser/ast/node_impl/Namespace.hpp
     tdl/parser/ast/node_impl/StructSpec.hpp
     tdl/parser/ast/node_impl/Type.hpp
     tdl/parser/ast/node_impl/type_impl/Container.hpp
