@@ -20,7 +20,8 @@ class Struct : public Type {
 public:
     // Types
     enum class ErrorCodeEnum : uint8_t {
-        StructSpecAlreadySet = 1,
+        NullStructSpec = 1,
+        StructSpecAlreadySet,
         StructSpecNameMismatch,
     };
 
@@ -51,6 +52,7 @@ public:
      * Sets the specification for this struct.
      * @param spec
      * @return A void result on success, or an error code indicating the failure:
+     * - ErrorCodeEnum::NullStructSpec if `spec` is a nullptr.
      * - ErrorCodeEnum::StructSpecNameMismatch if `spec`'s name does not match the underlying name.
      * - ErrorCodeEnum::StructSpecAlreadySet if the specification has already been set.
      */

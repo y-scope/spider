@@ -10,6 +10,7 @@
 #include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/tdl/parser/ast/Node.hpp>
+#include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
@@ -24,6 +25,8 @@ auto StructErrorCodeCategory::name() const noexcept -> char const* {
 template <>
 auto StructErrorCodeCategory::message(Struct::ErrorCodeEnum error_enum) const -> std::string {
     switch (error_enum) {
+        case Struct::ErrorCodeEnum::NullStructSpec:
+            return "The struct spec is NULL.";
         case Struct::ErrorCodeEnum::StructSpecAlreadySet:
             return "The struct spec is already set.";
         case Struct::ErrorCodeEnum::StructSpecNameMismatch:
@@ -60,6 +63,10 @@ auto Struct::serialize_to_str(size_t indentation_level) const
 auto Struct::set_spec(std::shared_ptr<StructSpec> spec) -> ystdlib::error_handling::Result<void> {
     if (nullptr != m_spec) {
         return Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecAlreadySet};
+    }
+
+    if (nullptr == spec) {
+        return Struct::ErrorCode{Struct::ErrorCodeEnum::NullStructSpec};
     }
 
     if (get_name() != spec->get_name()) {

@@ -422,11 +422,17 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE_FALSE(serialized_result.has_error());
             REQUIRE(serialized_result.value() == cExpectedSerializedResult);
 
+            // Ensure nullptr can't be set as `StructSpec`
+            auto const null_set_spec{struct_node->set_spec({})};
+            REQUIRE(null_set_spec.has_error());
+            REQUIRE(null_set_spec.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::NullStructSpec});
+
             // Set the `StructSpec` to the `Struct`
             REQUIRE_FALSE(struct_node->set_spec(struct_spec_result.value()).has_error());
             REQUIRE(nullptr != struct_node->get_spec());
 
-            // Ensure `StructSpec` cannot be set again
+            // Ensure `StructSpec` can't be set again
             auto const duplicated_set_spec{struct_node->set_spec(struct_spec_result.value())};
             REQUIRE(duplicated_set_spec.has_error());
             REQUIRE(duplicated_set_spec.error()
