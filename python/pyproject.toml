@@ -83,7 +83,7 @@ isort.order-by-type = false
 ]
 
 [tool.ruff.lint.flake8-self]
-ignore-names = ["_impl"]
+ignore-names = ["_from_impl", "_impl"]
 
 [tool.ruff.lint.pydocstyle]
 ignore-decorators = ["typing.override"]

@@ -12,6 +12,13 @@ class Data:
         """Initialize the Data object with the given value."""
         self._impl = core.Data(uuid4(), value)
 
+    @staticmethod
+    def _from_impl(impl: core.Data) -> "Data":
+        """Creates a Data instance from an existing core.Data implementation."""
+        data = Data(impl.value)
+        data._impl = impl
+        return data
+
     @property
     def value(self) -> bytes:
         """Property to get the value of the data."""
