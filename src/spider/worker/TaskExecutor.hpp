@@ -20,9 +20,11 @@
 #include <boost/process/v2/environment.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <fmt/format.h>
 
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/utils/ProgramOptions.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/message_pipe.hpp>
 #include <spider/worker/Process.hpp>
@@ -53,13 +55,13 @@ public:
             : m_read_pipe(context),
               m_write_pipe(context) {
         std::vector<std::string> process_args{
-                "--func",
+                fmt::format("--{}", core::cFunctionOption),
                 func_name,
-                "--task_id",
+                fmt::format("--{}", core::cTaskIdOption),
                 to_string(task_id),
-                "--storage_url",
+                fmt::format("--{}", core::cStorageUrlOption),
                 storage_url,
-                "--libs"
+                fmt::format("--{}", core::cLibsOption),
         };
         process_args.insert(process_args.end(), libs.begin(), libs.end());
         boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
@@ -106,13 +108,13 @@ public:
             : m_read_pipe(context),
               m_write_pipe(context) {
         std::vector<std::string> process_args{
-                "--func",
+                fmt::format("--{}", core::cFunctionOption),
                 func_name,
-                "--task_id",
+                fmt::format("--{}", core::cTaskIdOption),
                 to_string(task_id),
-                "--storage_url",
+                fmt::format("--{}", core::cStorageUrlOption),
                 storage_url,
-                "--libs"
+                fmt::format("--{}", core::cLibsOption),
         };
         process_args.insert(process_args.end(), libs.begin(), libs.end());
         boost::filesystem::path const exe = boost::process::v2::environment::find_executable(
