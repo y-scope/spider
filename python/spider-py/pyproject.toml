@@ -1,16 +1,20 @@
 [project]
-name = "spider"
+name = "spider-py"
 version = "0.0.1"
-description = "Spider is a distributed task execution framework"
+description = "A distributed task execution framework."
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+  { name = "Sitao Wang", email = "sitao.wang@yscope.com" },
+  { name = "Zhihao Lin", email = "lin.zhihao@yscope.com" },
+]
 dependencies = [
   "mariadb>=1.1.13",
   "msgpack-types>=0.5.0",
 ]
 
 [project.scripts]
-spider_task_executor = "spider.task_executor.task_executor:main"
+spider_task_executor = "spider_py.task_executor.task_executor:main"
 
 [dependency-groups]
 dev = [
