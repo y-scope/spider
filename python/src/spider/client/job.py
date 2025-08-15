@@ -20,7 +20,7 @@ def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
     for output in outputs:
         if isinstance(output.value, core.TaskOutputValue):
             results.append(msgpack.unpackb(output.value))
-        elif isinstance(output, core.Data):
+        elif isinstance(output.value, core.Data):
             results.append(Data._from_impl(output.value))
         else:
             msg = "Fail to get data from storage."
