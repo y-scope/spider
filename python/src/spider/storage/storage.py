@@ -66,3 +66,11 @@ class Storage(ABC):
         :return: The Data object associated with `data_id`.
         :raises StorageError: If the storage operations fail.
         """
+
+    @abstractmethod
+    def create_driver(self, driver_id: core.DriverId) -> None:
+        """
+        Creates a driver in the storage.
+        :param driver_id:
+        :raises StorageError: If the storage operations fail.
+        """

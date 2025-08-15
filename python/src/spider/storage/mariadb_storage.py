@@ -132,6 +132,12 @@ FROM
 WHERE
   `id` = ?"""
 
+InsertDriver = """
+INSERT INTO
+  `drivers` (`id`)
+VALUES
+  (?)"""
+
 
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
@@ -339,12 +345,12 @@ class MariaDBStorage(Storage):
             with self._conn.cursor() as cursor:
                 cursor.execute(
                     InsertData,
-                    (data.id.bytes, msgpack.packb(data.value), data.hard_locality),
+                    (data.id.bytes, data.value, data.hard_locality),
                 )
                 if data.localities:
                     cursor.executemany(
                         InsertDataLocality,
-                        [(data.id.bytes, address) for address in data.localities],
+                        [(data.id.bytes, locality.address) for locality in data.localities],
                     )
                 cursor.execute(
                     InsertDataRefDriver,
@@ -365,12 +371,22 @@ class MariaDBStorage(Storage):
                     msg = f"No data found with id {data_id}"
                     raise StorageError(msg)
                 value, hard_locality = row
-                data = core.Data(data_id, value, hard_locality)
+                data = core.Data(id=data_id, value=value, hard_locality=hard_locality)
                 cursor.execute(GetDataLocality, (data_id.bytes,))
                 for (address,) in cursor.fetchall():
-                    data.localities.append(address)
+                    data.localities.append(core.DataLocality(address))
                 self._conn.commit()
                 return data
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
+    @override
+    def create_driver(self, driver_id: core.DriverId) -> None:
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(InsertDriver, (driver_id.bytes,))
+                self._conn.commit()
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
