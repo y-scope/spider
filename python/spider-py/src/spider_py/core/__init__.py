@@ -13,7 +13,7 @@ from .task import (
     TaskOutputValue,
     TaskState,
 )
-from .taskgraph import TaskGraph
+from .task_graph import TaskGraph
 
 __all__ = [
     "Data",
