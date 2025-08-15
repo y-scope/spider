@@ -1,7 +1,11 @@
 """Job module for Spider."""
 
 from enum import IntEnum
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from spider.core.task import TaskOutput
 
 JobId = UUID
 
@@ -27,4 +31,4 @@ class Job:
         """
         self.job_id = job_id
         self.status = JobStatus.Running
-        self.results: object | None = None
+        self.results: list[TaskOutput] | None = None
