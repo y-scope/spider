@@ -309,3 +309,11 @@ class MariaDBStorage(Storage):
         except msgpack.exceptions.UnpackException:
             self._conn.rollback()
             raise
+
+    @override
+    def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
+        try:
+            pass
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e

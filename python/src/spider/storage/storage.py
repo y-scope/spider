@@ -48,3 +48,12 @@ class Storage(ABC):
         :raises StorageError: If the storage operations fail.
         :raises msgpack.exceptions.UnPackError: If deserialization of the result fails.
         """
+
+    @abstractmethod
+    def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
+        """
+        Creates data from a driver in the storage.
+        :param driver_id: The driver id.
+        :param data: Data to create.
+        :raises StorageError: If the storage operations fail.
+        """
