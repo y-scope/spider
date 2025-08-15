@@ -336,7 +336,21 @@ class MariaDBStorage(Storage):
     @override
     def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
         try:
-            pass
+            with self._conn.cursor() as cursor:
+                cursor.execute(
+                    InsertData,
+                    (data.id.bytes, msgpack.packb(data.value), data.hard_locality),
+                )
+                if data.localities:
+                    cursor.executemany(
+                        InsertDataLocality,
+                        [(data.id.bytes, address) for address in data.localities],
+                    )
+                cursor.execute(
+                    InsertDataRefDriver,
+                    (data.id.bytes, driver_id.bytes),
+                )
+                self._conn.commit()
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
