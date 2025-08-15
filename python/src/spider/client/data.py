@@ -22,6 +22,11 @@ class Data:
         """Property to check if the data has hard locality."""
         return self._impl.hard_locality
 
+    @hard_locality.setter
+    def hard_locality(self, value: bool) -> None:
+        """Sets the hard locality for the data."""
+        self._impl.hard_locality = value
+
     def get_localities(self) -> list[str]:
         """Gets the list of localities where the data is stored."""
         return [locality.address for locality in self._impl.localities]
