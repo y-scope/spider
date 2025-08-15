@@ -305,7 +305,7 @@ class MariaDBStorage(Storage):
             raise StorageError(str(e)) from e
 
     @override
-    def get_job_results(self, job: core.Job) -> object:
+    def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(GetOutputTasks, (job.job_id.bytes,))
@@ -322,7 +322,7 @@ class MariaDBStorage(Storage):
                                     value=core.TaskOutputValue(msgpack.unpackb(value)),
                                 )
                             )
-                        if data_id is not None:
+                        elif data_id is not None:
                             data = self.get_data(core.DataId(data_id))
                             results.append(
                                 core.TaskOutput(
@@ -330,6 +330,8 @@ class MariaDBStorage(Storage):
                                     value=data,
                                 )
                             )
+                        else:
+                            return None
                 self._conn.commit()
                 return results
         except mariadb.Error as e:
