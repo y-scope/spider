@@ -1,1 +1,0 @@
-"""Spider python client."""
