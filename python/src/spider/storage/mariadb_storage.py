@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from uuid import uuid4
 
 import mariadb
-import msgpack
 from typing_extensions import override
 
 from spider import core
@@ -319,7 +318,7 @@ class MariaDBStorage(Storage):
                             results.append(
                                 core.TaskOutput(
                                     type=output_type,
-                                    value=core.TaskOutputValue(msgpack.unpackb(value)),
+                                    value=core.TaskOutputValue(value),
                                 )
                             )
                         elif data_id is not None:
@@ -337,9 +336,6 @@ class MariaDBStorage(Storage):
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
-        except msgpack.exceptions.UnpackException:
-            self._conn.rollback()
-            raise
 
     @override
     def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
