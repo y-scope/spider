@@ -46,5 +46,4 @@ class Storage(ABC):
         :param job:
         :return: List of task outputs or None if the job has no results.
         :raises StorageError: If the storage operations fail.
-        :raises msgpack.exceptions.UnPackError: If deserialization of the result fails.
         """
