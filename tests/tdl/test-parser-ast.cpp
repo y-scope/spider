@@ -13,8 +13,10 @@
 #include <spider/tdl/parser/ast/FloatSpec.hpp>
 #include <spider/tdl/parser/ast/IntSpec.hpp>
 #include <spider/tdl/parser/ast/Node.hpp>
+#include <spider/tdl/parser/ast/node_impl/Function.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
+#include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
@@ -22,14 +24,77 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
+#include <spider/tdl/parser/ast/node_impl/type_impl/Struct.hpp>
 
 namespace {
+/**
+ * @param name
+ * @return A struct AST node with the given name.
+ */
+[[nodiscard]] auto create_struct_node(std::string_view name)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+/**
+ * @param name
+ * @param type
+ * @return A named-var AST node with the given name and type.
+ */
+[[nodiscard]] auto
+create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast::Node> type)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+/**
+ * @param name
+ * @return A function AST node with the given name which has zero parameter and returns an empty
+ * tuple.
+ */
+[[nodiscard]] auto create_func(std::string_view name)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+auto create_struct_node(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
+
+    auto struct_node_result{Struct::create(Identifier::create(std::string{name}))};
+    REQUIRE_FALSE(struct_node_result.has_error());
+    return std::move(struct_node_result.value());
+}
+
+auto create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast::Node> type)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::NamedVar;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
+
+    auto named_var_result{NamedVar::create(Identifier::create(std::string{name}), std::move(type))};
+    REQUIRE_FALSE(named_var_result.has_error());
+    return std::move(named_var_result.value());
+}
+
+auto create_func(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::node_impl::Function;
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
+
+    auto tuple_result{Tuple::create({})};
+    REQUIRE_FALSE(tuple_result.has_error());
+    auto func_result{Function::create(
+            Identifier::create(std::string{name}),
+            std::move(tuple_result.value()),
+            {}
+    )};
+    REQUIRE_FALSE(func_result.has_error());
+    return std::move(func_result.value());
+}
+
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::FloatSpec;
     using spider::tdl::parser::ast::IntSpec;
     using spider::tdl::parser::ast::Node;
+    using spider::tdl::parser::ast::node_impl::Function;
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::NamedVar;
+    using spider::tdl::parser::ast::node_impl::Namespace;
     using spider::tdl::parser::ast::node_impl::StructSpec;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
@@ -37,6 +102,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Bool;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Float;
     using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
+    using spider::tdl::parser::ast::node_impl::type_impl::Struct;
     using ystdlib::error_handling::Result;
 
     SECTION("Identifier") {
@@ -362,8 +428,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
                     NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
             };
             REQUIRE_FALSE(duplicated_int_field_result.has_error());
-            // The execution model of `SECTION` ensures `fields` is not moved when this section is
-            // executed, so using `fields` here is safe.
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
             fields.emplace_back(std::move(duplicated_int_field_result.value()));
             auto struct_spec_result{StructSpec::create(
@@ -382,6 +449,323 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(struct_spec_result.has_error());
             REQUIRE(struct_spec_result.error()
                     == StructSpec::ErrorCode{StructSpec::ErrorCodeEnum::EmptyStruct});
+        }
+    }
+
+    SECTION("Struct") {
+        constexpr std::string_view cTestStructName{"TestStruct"};
+
+        // Create a `StructSpec`
+        auto int_field_result{
+                NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
+        };
+        REQUIRE_FALSE(int_field_result.has_error());
+        std::vector<std::unique_ptr<Node>> fields;
+        fields.emplace_back(std::move(int_field_result.value()));
+
+        auto struct_spec_result{StructSpec::create(
+                Identifier::create(std::string{cTestStructName}),
+                std::move(fields)
+        )};
+        REQUIRE_FALSE(struct_spec_result.has_error());
+        REQUIRE(nullptr != dynamic_cast<StructSpec const*>(struct_spec_result.value().get()));
+
+        SECTION("Struct with StructSpec") {
+            auto struct_result{Struct::create(Identifier::create(std::string{cTestStructName}))};
+            REQUIRE_FALSE(struct_result.has_error());
+            auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
+            REQUIRE(nullptr != struct_node);
+
+            REQUIRE(struct_node->get_num_children() == 1);
+            REQUIRE(cTestStructName == struct_node->get_name());
+            REQUIRE(nullptr == struct_node->get_spec());
+
+            constexpr std::string_view cExpectedSerializedResult{"[Type[Struct]]:\n"
+                                                                 "  Name:\n"
+                                                                 "    [Identifier]:TestStruct"};
+            auto const serialized_result{struct_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+
+            // Ensure nullptr can't be set as `StructSpec`
+            auto const null_set_spec{struct_node->set_spec({})};
+            REQUIRE(null_set_spec.has_error());
+            REQUIRE(null_set_spec.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::NullStructSpec});
+            REQUIRE(nullptr == struct_node->get_spec());
+
+            // Set the `StructSpec` to the `Struct`
+            REQUIRE_FALSE(struct_node->set_spec(struct_spec_result.value()).has_error());
+            REQUIRE(nullptr != struct_node->get_spec());
+
+            // Ensure `StructSpec` can't be set again
+            auto const duplicated_set_spec{struct_node->set_spec(struct_spec_result.value())};
+            REQUIRE(duplicated_set_spec.has_error());
+            REQUIRE(duplicated_set_spec.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecAlreadySet});
+        }
+
+        SECTION("Set spec to a wrong Struct") {
+            auto struct_result{Struct::create(Identifier::create("WrongStruct"))};
+            REQUIRE_FALSE(struct_result.has_error());
+            auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
+            REQUIRE(nullptr != struct_node);
+            auto const set_spec_result{struct_node->set_spec(struct_spec_result.value())};
+            REQUIRE(set_spec_result.has_error());
+            REQUIRE(set_spec_result.error()
+                    == Struct::ErrorCode{Struct::ErrorCodeEnum::StructSpecNameMismatch});
+        }
+    }
+
+    SECTION("Function") {
+        constexpr std::string_view cTestFuncName{"test_function"};
+        constexpr std::string_view cTestStructName{"TestStruct"};
+
+        auto function_name{Identifier::create(std::string{cTestFuncName})};
+
+        std::vector<std::unique_ptr<Node>> tuple_elements;
+        tuple_elements.emplace_back(Int::create(IntSpec::Int64));
+        tuple_elements.emplace_back(create_struct_node(cTestStructName));
+        tuple_elements.emplace_back(Bool::create());
+
+        auto return_tuple_result{Tuple::create(std::move(tuple_elements))};
+        REQUIRE_FALSE(return_tuple_result.has_error());
+
+        std::vector<std::unique_ptr<Node>> parameters;
+        parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
+        parameters.emplace_back(create_named_var("param_1", create_struct_node(cTestStructName)));
+
+        SECTION("Basic") {
+            auto func_result{Function::create(
+                    std::move(function_name),
+                    std::move(return_tuple_result.value()),
+                    std::move(parameters)
+            )};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 4);
+            REQUIRE(func_node->get_num_params() == 2);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr != func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function]:\n"
+                    "  Name:test_function\n"
+                    "  Return:\n"
+                    "    [Type[Container[Tuple]]]:\n"
+                    "      Element[0]:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "      Element[1]:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct\n"
+                    "      Element[2]:\n"
+                    "        [Type[Primitive[Bool]]]\n"
+                    "  Params[0]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_0\n"
+                    "      Type:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "  Params[1]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_1\n"
+                    "      Type:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct"
+            };
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("No return type") {
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 3);
+            REQUIRE(func_node->get_num_params() == 2);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr == func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function]:\n"
+                    "  Name:test_function\n"
+                    "  Return:\n"
+                    "    void\n"
+                    "  Params[0]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_0\n"
+                    "      Type:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "  Params[1]:\n"
+                    "    [NamedVar]:\n"
+                    "      Id:\n"
+                    "        [Identifier]:param_1\n"
+                    "      Type:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct"
+            };
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Empty param list") {
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
+            // NOLINTBEGIN(bugprone-use-after-move)
+            auto func_result{Function::create(
+                    std::move(function_name),
+                    std::move(return_tuple_result.value()),
+                    {}
+            )};
+            // NOLINTEND(bugprone-use-after-move)
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 2);
+            REQUIRE(func_node->get_num_params() == 0);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr != func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function]:\n"
+                    "  Name:test_function\n"
+                    "  Return:\n"
+                    "    [Type[Container[Tuple]]]:\n"
+                    "      Element[0]:\n"
+                    "        [Type[Primitive[Int]]]:int64\n"
+                    "      Element[1]:\n"
+                    "        [Type[Struct]]:\n"
+                    "          Name:\n"
+                    "            [Identifier]:TestStruct\n"
+                    "      Element[2]:\n"
+                    "        [Type[Primitive[Bool]]]\n"
+                    "  No Params"
+            };
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Empty param list and no return") {
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            auto func_result{Function::create(std::move(function_name), {}, {})};
+            REQUIRE_FALSE(func_result.has_error());
+            auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
+            REQUIRE(nullptr != func_node);
+
+            REQUIRE(func_node->get_num_children() == 1);
+            REQUIRE(func_node->get_num_params() == 0);
+            REQUIRE(func_node->get_name() == cTestFuncName);
+            REQUIRE(nullptr == func_node->get_return_type());
+
+            constexpr std::string_view cExpectedSerializedResult{"[Function]:\n"
+                                                                 "  Name:test_function\n"
+                                                                 "  Return:\n"
+                                                                 "    void\n"
+                                                                 "  No Params"};
+            auto const serialized_result{func_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Duplicated param names") {
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
+            // NOLINTNEXTLINE(bugprone-use-after-move)
+            parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
+            auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
+            REQUIRE(func_result.has_error());
+            REQUIRE(func_result.error()
+                    == Function::ErrorCode{Function::ErrorCodeEnum::DuplicatedParamName});
+        }
+    }
+
+    SECTION("Namespace") {
+        constexpr std::string_view cTestNamespaceName{"TestNamespace"};
+
+        std::vector<std::unique_ptr<Node>> functions;
+        functions.emplace_back(create_func("func_0"));
+        functions.emplace_back(create_func("func_1"));
+
+        SECTION("Basic") {
+            auto namespace_result{Namespace::create(
+                    Identifier::create(std::string{cTestNamespaceName}),
+                    std::move(functions)
+            )};
+            REQUIRE_FALSE(namespace_result.has_error());
+            auto const* namespace_node{
+                    dynamic_cast<Namespace const*>(namespace_result.value().get())
+            };
+            REQUIRE(nullptr != namespace_node);
+
+            REQUIRE(namespace_node->get_name() == cTestNamespaceName);
+            REQUIRE(namespace_node->get_num_children() == 3);
+
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Namespace]:\n"
+                    "  Name:TestNamespace\n"
+                    "  Func[0]:\n"
+                    "    [Function]:\n"
+                    "      Name:func_0\n"
+                    "      Return:\n"
+                    "        [Type[Container[Tuple]]]:Empty\n"
+                    "      No Params\n"
+                    "  Func[1]:\n"
+                    "    [Function]:\n"
+                    "      Name:func_1\n"
+                    "      Return:\n"
+                    "        [Type[Container[Tuple]]]:Empty\n"
+                    "      No Params"
+            };
+            auto const serialized_result{namespace_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Empty") {
+            auto namespace_result{
+                    Namespace::create(Identifier::create(std::string{cTestNamespaceName}), {})
+            };
+            REQUIRE(namespace_result.has_error());
+            REQUIRE(namespace_result.error()
+                    == Namespace::ErrorCode{Namespace::ErrorCodeEnum::EmptyNamespace});
+        }
+
+        SECTION("Duplicated names") {
+            // The `SECTION` execution model ensures that objects are not reused across parallel
+            // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
+            // about potential use-after-move, as this is intentional.
+            // NOLINTBEGIN(bugprone-use-after-move)
+            functions.emplace_back(create_func("func_0"));
+            auto namespace_result{Namespace::create(
+                    Identifier::create(std::string{cTestNamespaceName}),
+                    std::move(functions)
+            )};
+            // NOLINTEND(bugprone-use-after-move)
+            REQUIRE(namespace_result.has_error());
+            REQUIRE(namespace_result.error()
+                    == Namespace::ErrorCode{Namespace::ErrorCodeEnum::DuplicatedFunctionName});
         }
     }
 }

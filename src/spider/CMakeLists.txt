@@ -197,8 +197,10 @@ add_library(spider::spider ALIAS spider_client)
 
 set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/Node.cpp
+    tdl/parser/ast/node_impl/Function.cpp
     tdl/parser/ast/node_impl/Identifier.cpp
     tdl/parser/ast/node_impl/NamedVar.cpp
+    tdl/parser/ast/node_impl/Namespace.cpp
     tdl/parser/ast/node_impl/StructSpec.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/List.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/Map.cpp
@@ -206,6 +208,7 @@ set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.cpp
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.cpp
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.cpp
+    tdl/parser/ast/node_impl/type_impl/Struct.cpp
     tdl/parser/ast/utils.cpp
     CACHE INTERNAL
     "spider task definition language shared source files"
@@ -215,8 +218,10 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/Node.hpp
     tdl/parser/ast/FloatSpec.hpp
     tdl/parser/ast/IntSpec.hpp
+    tdl/parser/ast/node_impl/Function.hpp
     tdl/parser/ast/node_impl/Identifier.hpp
     tdl/parser/ast/node_impl/NamedVar.hpp
+    tdl/parser/ast/node_impl/Namespace.hpp
     tdl/parser/ast/node_impl/StructSpec.hpp
     tdl/parser/ast/node_impl/Type.hpp
     tdl/parser/ast/node_impl/type_impl/Container.hpp
@@ -227,6 +232,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Bool.hpp
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp
+    tdl/parser/ast/node_impl/type_impl/Struct.hpp
     tdl/parser/ast/utils.hpp
     CACHE INTERNAL
     "spider task definition language shared header files"
