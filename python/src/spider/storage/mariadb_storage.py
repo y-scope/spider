@@ -97,11 +97,38 @@ WHERE
 ORDER BY
   `position`"""
 
+InsertData = """
+INSERT INTO
+  `data` (`id`, `value`, `hard_locality`)
+VALUES
+  (?, ?, ?)"""
+
+InsertDataLocality = """
+INSERT INTO
+  `data_locality` (`id`, `address`)
+VALUES
+  (?, ?)"""
+
+InsertDataRefDriver = """
+INSERT INTO
+  `data_ref_driver` (`id`, `driver_id`)
+VALUES
+  (?, ?)"""
+
 GetData = """
 SELECT
   `value`,
+  `hard_locality`
 FROM
   `data`
+WHERE
+  `id` = ?"""
+
+GetDataLocality = """
+SELECT
+  `address`
+FROM
+  `data_locality`
 WHERE
   `id` = ?"""
 
@@ -290,15 +317,11 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         if data_id is not None:
-                            cursor.execute(GetData, (data_id,))
-                            row = cursor.fetchone()
-                            if row is None:
-                                msg = f"No data found with id {data_id}"
-                                raise StorageError(msg)
+                            data = self.get_data(core.DataId(data_id))
                             results.append(
                                 core.TaskOutput(
                                     type=output_type,
-                                    value=core.Data(data_id, row[0]),
+                                    value=data,
                                 )
                             )
                 self._conn.commit()
@@ -314,6 +337,26 @@ class MariaDBStorage(Storage):
     def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
         try:
             pass
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
+    @override
+    def get_data(self, data_id: core.DataId) -> core.Data:
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(GetData, (data_id.bytes,))
+                row = cursor.fetchone()
+                if row is None:
+                    msg = f"No data found with id {data_id}"
+                    raise StorageError(msg)
+                value, hard_locality = row
+                data = core.Data(data_id, value, hard_locality)
+                cursor.execute(GetDataLocality, (data_id.bytes,))
+                for (address,) in cursor.fetchall():
+                    data.localities.append(address)
+                self._conn.commit()
+                return data
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e

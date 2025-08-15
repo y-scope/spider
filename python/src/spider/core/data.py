@@ -12,6 +12,7 @@ class DataLocality:
 
     address: str
 
+
 @dataclass
 class Data:
     """Represents a data object."""
