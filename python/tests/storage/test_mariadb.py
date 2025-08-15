@@ -48,7 +48,7 @@ class TestMariaDBStorage:
 
     @pytest.mark.storage
     def test_job_submission(self, mariadb_storage: MariaDBStorage) -> None:
-        """Test job submission to the MariaDB storage backend."""
+        """Tests job submission to the MariaDB storage backend."""
         graph = chain(group([double, double, double, double]), group([swap, swap]))._impl
         # Fill input data
         for i, task_id in enumerate(graph.input_tasks):
@@ -60,7 +60,13 @@ class TestMariaDBStorage:
         assert len(jobs) == 1
 
     @pytest.mark.storage
-    def test_job_status(self, mariadb_storage: MariaDBStorage, submit_job: Job) -> None:
-        """Test job status of the MariaDB storage backend."""
+    def test_running_job_status(self, mariadb_storage: MariaDBStorage, submit_job: Job) -> None:
+        """Tests getting status of a running job."""
         status = mariadb_storage.get_job_status(submit_job)
         assert status == JobStatus.Running
+
+    @pytest.mark.storage
+    def test_running_job_result(self, mariadb_storage: MariaDBStorage, submit_job: Job) -> None:
+        """Tests getting results of a running job."""
+        results = mariadb_storage.get_job_results(submit_job)
+        assert results is None
