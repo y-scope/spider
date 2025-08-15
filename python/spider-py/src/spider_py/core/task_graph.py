@@ -34,13 +34,13 @@ class TaskGraph:
         :param children: The children ids of the task. Must be already in the task graph.
         """
         self.tasks[task.task_id] = task
-        if parents:
+        if parents is not None and len(parents) > 0:
             for parent in parents:
                 self.dependencies.append((parent, task.task_id))
                 self.output_tasks.discard(parent)
         else:
             self.input_tasks.add(task.task_id)
-        if children:
+        if children is not None and len(children) > 0:
             for child in children:
                 self.dependencies.append((task.task_id, child))
                 self.input_tasks.discard(child)
