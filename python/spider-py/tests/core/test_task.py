@@ -1,6 +1,6 @@
 """Test core task."""
 
-from spider.core.task import Task
+from spider import Task
 
 
 def test_task() -> None:
