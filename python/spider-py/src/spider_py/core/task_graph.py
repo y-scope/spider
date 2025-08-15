@@ -49,16 +49,14 @@ class TaskGraph:
 
     def get_parents(self, task_id: TaskId) -> list[Task]:
         """
-        Gets parent tasks of task.
-        :param task_id: ID of the task.
-        :return: List of parent tasks.
+        :param task_id:
+        :return: Parent tasks of the task identified by `task_id`.
         """
         return [self.tasks[parent] for (parent, child) in self.dependencies if child == task_id]
 
     def get_children(self, task_id: TaskId) -> list[Task]:
         """
-        Gets child tasks of task.
-        :param task_id: ID of the task.
-        :return: List of children tasks.
+        :param task_id:
+        :return: Child tasks of the task identified by `task_id`.
         """
         return [self.tasks[child] for (parent, child) in self.dependencies if parent == task_id]
