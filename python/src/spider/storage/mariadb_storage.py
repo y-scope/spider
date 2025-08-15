@@ -281,6 +281,7 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         else:
+                            self._conn.commit()
                             return None
                 self._conn.commit()
                 return results
