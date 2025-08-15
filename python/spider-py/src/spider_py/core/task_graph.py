@@ -4,14 +4,22 @@ from spider_py.core.task import Task, TaskId
 
 
 class TaskGraph:
-    """Represents a task graph in Spider."""
+    """
+    Represents a task graph in Spider.
+    TaskGraph represents a directed acyclic graph (DAG) of tasks.
+    It stores:
+    - tasks: A dictionary mapping task ids to Task objects.
+    - dependencies: A list of tuples representing the dependencies between tasks. Each tuple
+      contains:
+        - parent task id
+        - child task id
+    - input_tasks: A set of task ids that have no parents (input tasks).
+    - output_tasks: A set of task ids that have no children (output tasks).
+    """
 
     def __init__(self) -> None:
         """Initializes an empty task graph."""
         self.tasks: dict[TaskId, Task] = {}
-        # Dependency list consists of a list of tuples of
-        #   - parent task id
-        #   - child task id
         self.dependencies: list[tuple[TaskId, TaskId]] = []
         self.input_tasks: set[TaskId] = set()
         self.output_tasks: set[TaskId] = set()
