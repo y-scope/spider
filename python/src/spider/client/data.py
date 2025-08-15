@@ -11,3 +11,21 @@ class Data:
     def __init__(self, value: bytes) -> None:
         """Initialize the Data object with the given value."""
         self._impl = core.Data(uuid4(), value)
+
+    @property
+    def value(self) -> bytes:
+        """Property to get the value of the data."""
+        return self._impl.value
+
+    @property
+    def hard_locality(self) -> bool:
+        """Property to check if the data has hard locality."""
+        return self._impl.hard_locality
+
+    def get_localities(self) -> list[str]:
+        """Gets the list of localities where the data is stored."""
+        return [locality.address for locality in self._impl.localities]
+
+    def add_locality(self, address: str) -> None:
+        """Adds a new locality to the data."""
+        self._impl.localities.append(core.DataLocality(address))

@@ -22,8 +22,9 @@ class Driver:
         :param storage_url: The URL of the storage to connect to.
         :raises StorageError: If the storage cannot be connected to.
         """
-        self.driver_id = uuid4()
-        self.storage = MariaDBStorage(parse_jdbc_url(storage_url))
+        self._driver_id = uuid4()
+        self._storage = MariaDBStorage(parse_jdbc_url(storage_url))
+        self._storage.create_driver(self._driver_id)
 
     def submit_jobs(
         self, graphs: Sequence[TaskGraph], args: Sequence[Sequence[object]]
@@ -61,5 +62,13 @@ class Driver:
             if arg_index != len(task_args):
                 raise ValueError(msg)
 
-        jobs = self.storage.submit_jobs(self.driver_id, [graph._impl for graph in graphs])
-        return [Job(job, self.storage) for job in jobs]
+        jobs = self._storage.submit_jobs(self._driver_id, [graph._impl for graph in graphs])
+        return [Job(job, self._storage) for job in jobs]
+
+    def create_data(self, data: Data) -> None:
+        """
+        Registers a Data object in the storage.
+        :param data: The Data object to register.
+        :raises StorageError: If the Data object cannot be registered in the storage.
+        """
+        self._storage.create_driver_data(self._driver_id, data._impl)
