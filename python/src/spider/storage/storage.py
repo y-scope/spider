@@ -40,11 +40,11 @@ class Storage(ABC):
         """
 
     @abstractmethod
-    def get_job_results(self, job: core.Job) -> object:
+    def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
         """
         Gets the job's results. This function does not set the `results` field in the job.
         :param job:
-        :return:
+        :return: List of task outputs or None if the job has no results.
         :raises StorageError: If the storage operations fail.
         :raises msgpack.exceptions.UnPackError: If deserialization of the result fails.
         """
