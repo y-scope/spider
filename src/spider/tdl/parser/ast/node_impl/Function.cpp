@@ -17,6 +17,7 @@
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 using spider::tdl::parser::ast::node_impl::Function;
@@ -41,7 +42,8 @@ namespace spider::tdl::parser::ast::node_impl {
 auto Function::create(
         std::unique_ptr<Node> name,
         std::unique_ptr<Node> return_type,
-        std::vector<std::unique_ptr<Node>> params
+        std::vector<std::unique_ptr<Node>> params,
+        SourceLocation source_location
 ) -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Identifier>(name.get()));
 
@@ -61,7 +63,7 @@ auto Function::create(
         param_names.emplace(param_name);
     }
 
-    auto function{std::make_unique<Function>(Function{has_return})};
+    auto function{std::make_unique<Function>(Function{has_return, source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(function->add_child(std::move(name)));
     if (has_return) {
         YSTDLIB_ERROR_HANDLING_TRYV(function->add_child(std::move(return_type)));

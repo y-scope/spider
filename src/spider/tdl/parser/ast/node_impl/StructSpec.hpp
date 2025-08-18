@@ -15,6 +15,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 /**
@@ -34,6 +35,7 @@ public:
     /**
      * @param name
      * @param fields
+     * @param source_location
      * @return A result containing a shared pointer to a new `StructSpec` instance with the name and
      * fields on success, or an error code indicating the failure:
      * - StructSpec::ErrorCodeEnum::DuplicatedFieldName if the `fields` contains duplicated field
@@ -41,9 +43,11 @@ public:
      * - StructSpec::ErrorCodeEnum::EmptyStruct if the `fields` is empty.
      * - Forwards `validate_child_node_type`'s return values.
      */
-    [[nodiscard]] static auto
-    create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<Node>> fields)
-            -> ystdlib::error_handling::Result<std::shared_ptr<StructSpec>>;
+    [[nodiscard]] static auto create(
+            std::unique_ptr<Node> name,
+            std::vector<std::unique_ptr<Node>> fields,
+            SourceLocation source_location
+    ) -> ystdlib::error_handling::Result<std::shared_ptr<StructSpec>>;
 
     // Methods implementing `Node`
     [[nodiscard]] auto serialize_to_str(size_t indentation_level) const
@@ -85,7 +89,7 @@ public:
 
 private:
     // Constructor
-    StructSpec() = default;
+    explicit StructSpec(SourceLocation source_location) : Node{source_location} {}
 };
 }  // namespace spider::tdl::parser::ast::node_impl
 

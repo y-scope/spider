@@ -13,16 +13,17 @@
 
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl {
-auto Tuple::create(std::vector<std::unique_ptr<Node>> elements)
+auto Tuple::create(std::vector<std::unique_ptr<Node>> elements, SourceLocation source_location)
         -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     for (auto const& type : elements) {
         YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(type.get()));
     }
 
-    auto tuple{std::make_unique<Tuple>(Tuple{})};
+    auto tuple{std::make_unique<Tuple>(Tuple{source_location})};
     for (auto& type : elements) {
         YSTDLIB_ERROR_HANDLING_TRYV(tuple->add_child(std::move(type)));
     }
