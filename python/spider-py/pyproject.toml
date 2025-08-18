@@ -1,0 +1,65 @@
+[project]
+name = "spider-py"
+version = "0.0.1"
+description = "A distributed task execution framework."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Sitao Wang", email = "sitao.wang@yscope.com" },
+  { name = "Zhihao Lin", email = "lin.zhihao@yscope.com" },
+]
+dependencies = [
+  "mariadb>=1.1.13",
+  "msgpack-types>=0.5.0",
+]
+
+[project.scripts]
+spider_task_executor = "spider_py.task_executor.task_executor:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.12.0",
+  "ruff>=0.4.4",
+]
+
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+[tool.mypy]
+strict = true
+# Additional output
+pretty = true
+show_error_code_links = true
+show_error_context = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+extend-select = ["PT"]
+ignore = [
+  "COM812",  # Redundant and conflicts with ruff format
+  "D203",  # No blank line before docstrings (D211)
+  "D205",  # Breaks if summary is larger than one line due to wrapping or if no summary exists
+  "D212",  # Enforce docstring summary line on the next line after quotes (D213)
+  "D400",  # First line of docstrings may not end in period
+  "D401",  # Docstrings should be written in present tense (not imperative)
+  "D415",  # First line of docstrings may not end in a period, question mark, or exclamation point
+  "FA102",  # Allow use of PEP 604 union in type annotations
+  "FBT",  # Allow bool positional parameters since other value positions are allowed
+  "FIX002",  # Allow todo statements
+  "PERF401",  # Allow for loops when creating lists
+  "PERF403",  # Allow for loops when creating dicts
+  "S311",  # Allow usage of `random` package
+  "SIM102",  # Allow collapsible if statements for readability
+  "TD002",  # Author unnecessary for todo statement
+  "TD003",  # Issue link unnecessary for todo statement
+  "UP015",  # Explicit open modes are helpful
+]
+isort.order-by-type = false

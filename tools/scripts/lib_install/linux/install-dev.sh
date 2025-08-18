@@ -16,7 +16,6 @@ ${privileged_command_prefix} apt-get update
 DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no-install-recommends -y \
     ca-certificates \
     checkinstall \
-    cmake \
     curl \
     g++ \
     gcc \
@@ -34,5 +33,9 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 lib_install_scripts_dir="$script_dir/.."
+${privileged_command_prefix} "$lib_install_scripts_dir"/install-cmake.sh 3.23.5
 # TODO https://github.com/y-scope/spider/issues/86
 "$lib_install_scripts_dir"/check-cmake-version.sh
+
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
