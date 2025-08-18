@@ -1,7 +1,7 @@
 """MariaDB Storage module."""
 
 from collections.abc import Sequence
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 import mariadb
 from typing_extensions import override
@@ -111,6 +111,12 @@ VALUES
 InsertDataRefDriver = """
 INSERT INTO
   `data_ref_driver` (`id`, `driver_id`)
+VALUES
+  (?, ?)"""
+
+InsertDataRefTask = """
+INSERT INTO
+  `data_ref_task` (`id`, `task_id`)
 VALUES
   (?, ?)"""
 
@@ -338,8 +344,14 @@ class MariaDBStorage(Storage):
             self._conn.rollback()
             raise StorageError(str(e)) from e
 
-    @override
-    def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
+    def _create_data_with_ref(self, data: core.Data, insert_ref: str, ref_id: UUID) -> None:
+        """
+        Inserts data object into the database with reference.
+        :param data: The data object to insert.
+        :param insert_ref: The SQL statement to insert the reference.
+        :param ref_id: The reference ID (DriverId or TaskId).
+        :raises StorageError: If the insertion fails.
+        """
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(
@@ -352,13 +364,21 @@ class MariaDBStorage(Storage):
                         [(data.id.bytes, locality.address) for locality in data.localities],
                     )
                 cursor.execute(
-                    InsertDataRefDriver,
-                    (data.id.bytes, driver_id.bytes),
+                    insert_ref,
+                    (data.id.bytes, ref_id.bytes),
                 )
                 self._conn.commit()
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
+
+    @override
+    def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
+        self._create_data_with_ref(data,InsertDataRefDriver, driver_id)
+
+    @override
+    def create_task_data(self, task_id: core.TaskId, data: core.Data) -> None:
+        self._create_data_with_ref(data, InsertDataRefTask, task_id)
 
     @override
     def get_data(self, data_id: core.DataId) -> core.Data:

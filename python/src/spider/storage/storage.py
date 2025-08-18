@@ -58,6 +58,15 @@ class Storage(ABC):
         """
 
     @abstractmethod
+    def create_task_data(self, task_id: core.TaskId, data: core.Data) -> None:
+        """
+        Creates data from a task in the storage.
+        :param task_id: The task id.
+        :param data: Data to create.
+        :raises StorageError: If the storage operations fail.
+        """
+
+    @abstractmethod
     def get_data(self, data_id: core.DataId) -> core.Data:
         """
         Gets data from the storage.
