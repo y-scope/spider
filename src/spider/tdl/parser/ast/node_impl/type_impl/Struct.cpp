@@ -12,6 +12,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 using spider::tdl::parser::ast::node_impl::type_impl::Struct;
@@ -37,11 +38,11 @@ auto StructErrorCodeCategory::message(Struct::ErrorCodeEnum error_enum) const ->
 }
 
 namespace spider::tdl::parser::ast::node_impl::type_impl {
-auto Struct::create(std::unique_ptr<Node> name)
+auto Struct::create(std::unique_ptr<Node> name, SourceLocation source_location)
         -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Identifier>(name.get()));
 
-    auto struct_node{std::make_unique<Struct>(Struct{})};
+    auto struct_node{std::make_unique<Struct>(Struct{source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(struct_node->add_child(std::move(name)));
     return struct_node;
 }

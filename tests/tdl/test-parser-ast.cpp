@@ -25,6 +25,7 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Struct.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace {
 /**
@@ -51,11 +52,19 @@ create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast
 [[nodiscard]] auto create_func(std::string_view name)
         -> std::unique_ptr<spider::tdl::parser::ast::Node>;
 
+/**
+ * @return A source location for testing.
+ */
+[[nodiscard]] auto create_source_location() -> spider::tdl::parser::ast::SourceLocation;
+
 auto create_struct_node(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::type_impl::Struct;
 
-    auto struct_node_result{Struct::create(Identifier::create(std::string{name}))};
+    auto struct_node_result{Struct::create(
+            Identifier::create(std::string{name}, create_source_location()),
+            create_source_location()
+    )};
     REQUIRE_FALSE(struct_node_result.has_error());
     return std::move(struct_node_result.value());
 }
@@ -66,7 +75,11 @@ auto create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser
     using spider::tdl::parser::ast::node_impl::NamedVar;
     using spider::tdl::parser::ast::node_impl::type_impl::Struct;
 
-    auto named_var_result{NamedVar::create(Identifier::create(std::string{name}), std::move(type))};
+    auto named_var_result{NamedVar::create(
+            Identifier::create(std::string{name}, create_source_location()),
+            std::move(type),
+            create_source_location()
+    )};
     REQUIRE_FALSE(named_var_result.has_error());
     return std::move(named_var_result.value());
 }
@@ -76,15 +89,20 @@ auto create_func(std::string_view name) -> std::unique_ptr<spider::tdl::parser::
     using spider::tdl::parser::ast::node_impl::Identifier;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
 
-    auto tuple_result{Tuple::create({})};
+    auto tuple_result{Tuple::create({}, create_source_location())};
     REQUIRE_FALSE(tuple_result.has_error());
     auto func_result{Function::create(
-            Identifier::create(std::string{name}),
+            Identifier::create(std::string{name}, create_source_location()),
             std::move(tuple_result.value()),
-            {}
+            {},
+            create_source_location()
     )};
     REQUIRE_FALSE(func_result.has_error());
     return std::move(func_result.value());
+}
+
+auto create_source_location() -> spider::tdl::parser::ast::SourceLocation {
+    return spider::tdl::parser::ast::SourceLocation{0, 0};
 }
 
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
@@ -109,7 +127,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         constexpr std::string_view cTestName{"test_name"};
         constexpr std::string_view cSerializedIdentifier{"[Identifier]:test_name"};
 
-        auto const node{Identifier::create(std::string{cTestName})};
+        auto const node{Identifier::create(std::string{cTestName}, create_source_location())};
         auto const* identifier{dynamic_cast<Identifier const*>(node.get())};
         REQUIRE(nullptr != identifier);
 
@@ -129,7 +147,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
                 std::make_pair(IntSpec::Int64, std::string_view{"[Type[Primitive[Int]]]:int64"})
         );
 
-        auto const node{Int::create(int_spec)};
+        auto const node{Int::create(int_spec, create_source_location())};
         auto const* int_node{dynamic_cast<Int const*>(node.get())};
         REQUIRE(nullptr != int_node);
 
@@ -153,7 +171,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
                 )
         );
 
-        auto const node{Float::create(float_spec)};
+        auto const node{Float::create(float_spec, create_source_location())};
         auto const* float_node{dynamic_cast<Float const*>(node.get())};
         REQUIRE(nullptr != float_node);
 
@@ -166,7 +184,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     }
 
     SECTION("Type Bool") {
-        auto const node{Bool::create()};
+        auto const node{Bool::create(create_source_location())};
         auto const* bool_node{dynamic_cast<Bool const*>(node.get())};
         REQUIRE(nullptr != bool_node);
 
@@ -179,9 +197,13 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     }
 
     SECTION("List of Map") {
-        auto map_result{Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))};
+        auto map_result{Map::create(
+                Int::create(IntSpec::Int64, create_source_location()),
+                Float::create(FloatSpec::Double, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(map_result.has_error());
-        auto list_result{List::create(std::move(map_result.value()))};
+        auto list_result{List::create(std::move(map_result.value()), create_source_location())};
         REQUIRE_FALSE(list_result.has_error());
         auto const* list_node{dynamic_cast<List const*>(list_result.value().get())};
         REQUIRE(nullptr != list_node);
@@ -203,13 +225,20 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     }
 
     SECTION("Map of List") {
-        auto key_list_result{List::create(Int::create(IntSpec::Int8))};
+        auto key_list_result{List::create(
+                Int::create(IntSpec::Int8, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(key_list_result.has_error());
-        auto value_list_result{List::create(Float::create(FloatSpec::Float))};
+        auto value_list_result{List::create(
+                Float::create(FloatSpec::Float, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(value_list_result.has_error());
         auto map_result{Map::create(
                 std::move(key_list_result.value()),
-                std::move(value_list_result.value())
+                std::move(value_list_result.value()),
+                create_source_location()
         )};
         REQUIRE_FALSE(map_result.has_error());
         auto const* map_node{dynamic_cast<Map const*>(map_result.value().get())};
@@ -235,21 +264,28 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
     SECTION("Invalid inputs for container type creation") {
         constexpr std::string_view cTestName{"test_name"};
-        auto list_result{List::create(Identifier::create(std::string{cTestName}))};
+        auto list_result{List::create(
+                Identifier::create(std::string{cTestName}, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE(list_result.has_error());
         REQUIRE(list_result.error()
                 == Node::ErrorCode{Node::ErrorCodeEnum::UnexpectedChildNodeType});
 
-        auto invalid_key_type_map_result{
-                Map::create(Identifier::create(std::string{cTestName}), Int::create(IntSpec::Int64))
-        };
+        auto invalid_key_type_map_result{Map::create(
+                Identifier::create(std::string{cTestName}, create_source_location()),
+                Int::create(IntSpec::Int64, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE(invalid_key_type_map_result.has_error());
         REQUIRE(invalid_key_type_map_result.error()
                 == Node::ErrorCode{Node::ErrorCodeEnum::UnexpectedChildNodeType});
 
-        auto invalid_value_type_map_result{
-                Map::create(Int::create(IntSpec::Int64), Identifier::create(std::string{cTestName}))
-        };
+        auto invalid_value_type_map_result{Map::create(
+                Int::create(IntSpec::Int64, create_source_location()),
+                Identifier::create(std::string{cTestName}, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE(invalid_value_type_map_result.has_error());
         REQUIRE(invalid_value_type_map_result.error()
                 == Node::ErrorCode{Node::ErrorCodeEnum::UnexpectedChildNodeType});
@@ -258,30 +294,43 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     SECTION("Unsupported key types in Map") {
         // We can't enum all types. Just asserting two types to ensure that the error is propagated
         // correctly.
-        auto unsupported_primitive_key_type_map_result{
-                Map::create(Float::create(FloatSpec::Float), Int::create(IntSpec::Int64))
-        };
+        auto unsupported_primitive_key_type_map_result{Map::create(
+                Float::create(FloatSpec::Float, create_source_location()),
+                Int::create(IntSpec::Int64, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE(unsupported_primitive_key_type_map_result.has_error());
         REQUIRE(unsupported_primitive_key_type_map_result.error()
                 == Map::ErrorCode{Map::ErrorCodeEnum::UnsupportedKeyType});
 
-        auto list_result{List::create(Int::create(IntSpec::Int64))};
+        auto list_result{List::create(
+                Int::create(IntSpec::Int64, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(list_result.has_error());
-        auto unsupported_list_key_type_map_result{
-                Map::create(std::move(list_result.value()), Int::create(IntSpec::Int64))
-        };
+        auto unsupported_list_key_type_map_result{Map::create(
+                std::move(list_result.value()),
+                Int::create(IntSpec::Int64, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE(unsupported_list_key_type_map_result.has_error());
         REQUIRE(unsupported_list_key_type_map_result.error()
                 == Map::ErrorCode{Map::ErrorCodeEnum::UnsupportedKeyType});
     }
 
     SECTION("NamedVar") {
-        auto id_result{Identifier::create("TestId")};
-        auto map_result{Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))};
+        auto id_result{Identifier::create("TestId", create_source_location())};
+        auto map_result{Map::create(
+                Int::create(IntSpec::Int64, create_source_location()),
+                Float::create(FloatSpec::Double, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(map_result.has_error());
-        auto named_var_result{
-                NamedVar::create(std::move(id_result), std::move(map_result.value()))
-        };
+        auto named_var_result{NamedVar::create(
+                std::move(id_result),
+                std::move(map_result.value()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(named_var_result.has_error());
         auto const* named_var_node{dynamic_cast<NamedVar const*>(named_var_result.value().get())};
         REQUIRE(nullptr != named_var_node);
@@ -306,7 +355,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
     SECTION("Tuple") {
         SECTION("Empty") {
-            auto empty_tuple_result{Tuple::create({})};
+            auto empty_tuple_result{Tuple::create({}, create_source_location())};
             REQUIRE_FALSE(empty_tuple_result.has_error());
             auto const* tuple_node{dynamic_cast<Tuple const*>(empty_tuple_result.value().get())};
             REQUIRE(nullptr != tuple_node);
@@ -320,17 +369,19 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Tuple with elements") {
-            auto int_node{Int::create(IntSpec::Int64)};
-            auto float_node{Float::create(FloatSpec::Double)};
-            auto map_result{
-                    Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))
-            };
+            auto int_node{Int::create(IntSpec::Int64, create_source_location())};
+            auto float_node{Float::create(FloatSpec::Double, create_source_location())};
+            auto map_result{Map::create(
+                    Int::create(IntSpec::Int64, create_source_location()),
+                    Float::create(FloatSpec::Double, create_source_location()),
+                    create_source_location()
+            )};
             REQUIRE_FALSE(map_result.has_error());
             std::vector<std::unique_ptr<Node>> elements;
             elements.emplace_back(std::move(int_node));
             elements.emplace_back(std::move(float_node));
             elements.emplace_back(std::move(map_result.value()));
-            auto tuple_result{Tuple::create(std::move(elements))};
+            auto tuple_result{Tuple::create(std::move(elements), create_source_location())};
             REQUIRE_FALSE(tuple_result.has_error());
             auto const* tuple_node{dynamic_cast<Tuple const*>(tuple_result.value().get())};
             REQUIRE(nullptr != tuple_node);
@@ -359,19 +410,29 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     SECTION("StructSpec") {
         constexpr std::string_view cTestStructName{"TestStruct"};
 
-        auto int_field_result{
-                NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
-        };
+        auto int_field_result{NamedVar::create(
+                Identifier::create("m_int", create_source_location()),
+                Int::create(IntSpec::Int64, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(int_field_result.has_error());
-        auto float_field_result{
-                NamedVar::create(Identifier::create("m_float"), Float::create(FloatSpec::Double))
-        };
+        auto float_field_result{NamedVar::create(
+                Identifier::create("m_float", create_source_location()),
+                Float::create(FloatSpec::Double, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(float_field_result.has_error());
-        auto map_result{Map::create(Int::create(IntSpec::Int64), Float::create(FloatSpec::Double))};
+        auto map_result{Map::create(
+                Int::create(IntSpec::Int64, create_source_location()),
+                Float::create(FloatSpec::Double, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(map_result.has_error());
-        auto map_field_result{
-                NamedVar::create(Identifier::create("m_map"), std::move(map_result.value()))
-        };
+        auto map_field_result{NamedVar::create(
+                Identifier::create("m_map", create_source_location()),
+                std::move(map_result.value()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(map_field_result.has_error());
         std::vector<std::unique_ptr<Node>> fields;
         fields.emplace_back(std::move(int_field_result.value()));
@@ -380,8 +441,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
         SECTION("Basic") {
             auto struct_spec_result{StructSpec::create(
-                    Identifier::create(std::string{cTestStructName}),
-                    std::move(fields)
+                    Identifier::create(std::string{cTestStructName}, create_source_location()),
+                    std::move(fields),
+                    create_source_location()
             )};
             REQUIRE_FALSE(struct_spec_result.has_error());
             auto const* struct_spec_node{
@@ -424,9 +486,11 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Fields with duplicated name") {
-            auto duplicated_int_field_result{
-                    NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
-            };
+            auto duplicated_int_field_result{NamedVar::create(
+                    Identifier::create("m_int", create_source_location()),
+                    Int::create(IntSpec::Int64, create_source_location()),
+                    create_source_location()
+            )};
             REQUIRE_FALSE(duplicated_int_field_result.has_error());
             // The `SECTION` execution model ensures that objects are not reused across parallel
             // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
@@ -434,8 +498,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             // NOLINTNEXTLINE(bugprone-use-after-move)
             fields.emplace_back(std::move(duplicated_int_field_result.value()));
             auto struct_spec_result{StructSpec::create(
-                    Identifier::create(std::string{cTestStructName}),
-                    std::move(fields)
+                    Identifier::create(std::string{cTestStructName}, create_source_location()),
+                    std::move(fields),
+                    create_source_location()
             )};
             REQUIRE(struct_spec_result.has_error());
             REQUIRE(struct_spec_result.error()
@@ -443,9 +508,11 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Empty") {
-            auto struct_spec_result{
-                    StructSpec::create(Identifier::create(std::string{cTestStructName}), {})
-            };
+            auto struct_spec_result{StructSpec::create(
+                    Identifier::create(std::string{cTestStructName}, create_source_location()),
+                    {},
+                    create_source_location()
+            )};
             REQUIRE(struct_spec_result.has_error());
             REQUIRE(struct_spec_result.error()
                     == StructSpec::ErrorCode{StructSpec::ErrorCodeEnum::EmptyStruct});
@@ -456,22 +523,28 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         constexpr std::string_view cTestStructName{"TestStruct"};
 
         // Create a `StructSpec`
-        auto int_field_result{
-                NamedVar::create(Identifier::create("m_int"), Int::create(IntSpec::Int64))
-        };
+        auto int_field_result{NamedVar::create(
+                Identifier::create("m_int", create_source_location()),
+                Int::create(IntSpec::Int64, create_source_location()),
+                create_source_location()
+        )};
         REQUIRE_FALSE(int_field_result.has_error());
         std::vector<std::unique_ptr<Node>> fields;
         fields.emplace_back(std::move(int_field_result.value()));
 
         auto struct_spec_result{StructSpec::create(
-                Identifier::create(std::string{cTestStructName}),
-                std::move(fields)
+                Identifier::create(std::string{cTestStructName}, create_source_location()),
+                std::move(fields),
+                create_source_location()
         )};
         REQUIRE_FALSE(struct_spec_result.has_error());
         REQUIRE(nullptr != dynamic_cast<StructSpec const*>(struct_spec_result.value().get()));
 
         SECTION("Struct with StructSpec") {
-            auto struct_result{Struct::create(Identifier::create(std::string{cTestStructName}))};
+            auto struct_result{Struct::create(
+                    Identifier::create(std::string{cTestStructName}, create_source_location()),
+                    create_source_location()
+            )};
             REQUIRE_FALSE(struct_result.has_error());
             auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
             REQUIRE(nullptr != struct_node);
@@ -506,7 +579,10 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Set spec to a wrong Struct") {
-            auto struct_result{Struct::create(Identifier::create("WrongStruct"))};
+            auto struct_result{Struct::create(
+                    Identifier::create("WrongStruct", create_source_location()),
+                    create_source_location()
+            )};
             REQUIRE_FALSE(struct_result.has_error());
             auto* struct_node{dynamic_cast<Struct*>(struct_result.value().get())};
             REQUIRE(nullptr != struct_node);
@@ -521,25 +597,32 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         constexpr std::string_view cTestFuncName{"test_function"};
         constexpr std::string_view cTestStructName{"TestStruct"};
 
-        auto function_name{Identifier::create(std::string{cTestFuncName})};
+        auto function_name{
+                Identifier::create(std::string{cTestFuncName}, create_source_location())
+        };
 
         std::vector<std::unique_ptr<Node>> tuple_elements;
-        tuple_elements.emplace_back(Int::create(IntSpec::Int64));
+        tuple_elements.emplace_back(Int::create(IntSpec::Int64, create_source_location()));
         tuple_elements.emplace_back(create_struct_node(cTestStructName));
-        tuple_elements.emplace_back(Bool::create());
+        tuple_elements.emplace_back(Bool::create(create_source_location()));
 
-        auto return_tuple_result{Tuple::create(std::move(tuple_elements))};
+        auto return_tuple_result{
+                Tuple::create(std::move(tuple_elements), create_source_location())
+        };
         REQUIRE_FALSE(return_tuple_result.has_error());
 
         std::vector<std::unique_ptr<Node>> parameters;
-        parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
+        parameters.emplace_back(
+                create_named_var("param_0", Int::create(IntSpec::Int64, create_source_location()))
+        );
         parameters.emplace_back(create_named_var("param_1", create_struct_node(cTestStructName)));
 
         SECTION("Basic") {
             auto func_result{Function::create(
                     std::move(function_name),
                     std::move(return_tuple_result.value()),
-                    std::move(parameters)
+                    std::move(parameters),
+                    create_source_location()
             )};
             REQUIRE_FALSE(func_result.has_error());
             auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
@@ -587,14 +670,21 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             // The `SECTION` execution model ensures that objects are not reused across parallel
             // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
             // about potential use-after-move, as this is intentional.
-            // NOLINTNEXTLINE(bugprone-use-after-move)
-            auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
+            // NOLINTBEGIN(bugprone-use-after-move)
+            auto func_result{Function::create(
+                    std::move(function_name),
+                    {},
+                    std::move(parameters),
+                    create_source_location()
+            )};
+            // NOLINTEND(bugprone-use-after-move)
             REQUIRE_FALSE(func_result.has_error());
             auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
             REQUIRE(nullptr != func_node);
 
             REQUIRE(func_node->get_num_children() == 3);
             REQUIRE(func_node->get_num_params() == 2);
+
             REQUIRE(func_node->get_name() == cTestFuncName);
             REQUIRE(nullptr == func_node->get_return_type());
 
@@ -631,7 +721,8 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             auto func_result{Function::create(
                     std::move(function_name),
                     std::move(return_tuple_result.value()),
-                    {}
+                    {},
+                    create_source_location()
             )};
             // NOLINTEND(bugprone-use-after-move)
             REQUIRE_FALSE(func_result.has_error());
@@ -668,7 +759,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
             // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
-            auto func_result{Function::create(std::move(function_name), {}, {})};
+            auto func_result{
+                    Function::create(std::move(function_name), {}, {}, create_source_location())
+            };
             REQUIRE_FALSE(func_result.has_error());
             auto const* func_node{dynamic_cast<Function const*>(func_result.value().get())};
             REQUIRE(nullptr != func_node);
@@ -693,8 +786,16 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             // `SECTION`s. Variables in different `SECTION`s are independent. Suppress warnings
             // about potential use-after-move, as this is intentional.
             // NOLINTNEXTLINE(bugprone-use-after-move)
-            parameters.emplace_back(create_named_var("param_0", Int::create(IntSpec::Int64)));
-            auto func_result{Function::create(std::move(function_name), {}, std::move(parameters))};
+            parameters.emplace_back(create_named_var(
+                    "param_0",
+                    Int::create(IntSpec::Int64, create_source_location())
+            ));
+            auto func_result{Function::create(
+                    std::move(function_name),
+                    {},
+                    std::move(parameters),
+                    create_source_location()
+            )};
             REQUIRE(func_result.has_error());
             REQUIRE(func_result.error()
                     == Function::ErrorCode{Function::ErrorCodeEnum::DuplicatedParamName});
@@ -710,8 +811,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
         SECTION("Basic") {
             auto namespace_result{Namespace::create(
-                    Identifier::create(std::string{cTestNamespaceName}),
-                    std::move(functions)
+                    Identifier::create(std::string{cTestNamespaceName}, create_source_location()),
+                    std::move(functions),
+                    create_source_location()
             )};
             REQUIRE_FALSE(namespace_result.has_error());
             auto const* namespace_node{
@@ -744,9 +846,11 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Empty") {
-            auto namespace_result{
-                    Namespace::create(Identifier::create(std::string{cTestNamespaceName}), {})
-            };
+            auto namespace_result{Namespace::create(
+                    Identifier::create(std::string{cTestNamespaceName}, create_source_location()),
+                    {},
+                    create_source_location()
+            )};
             REQUIRE(namespace_result.has_error());
             REQUIRE(namespace_result.error()
                     == Namespace::ErrorCode{Namespace::ErrorCodeEnum::EmptyNamespace});
@@ -759,8 +863,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             // NOLINTBEGIN(bugprone-use-after-move)
             functions.emplace_back(create_func("func_0"));
             auto namespace_result{Namespace::create(
-                    Identifier::create(std::string{cTestNamespaceName}),
-                    std::move(functions)
+                    Identifier::create(std::string{cTestNamespaceName}, create_source_location()),
+                    std::move(functions),
+                    create_source_location()
             )};
             // NOLINTEND(bugprone-use-after-move)
             REQUIRE(namespace_result.has_error());

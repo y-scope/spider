@@ -16,6 +16,7 @@
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 class Function : public Node {
@@ -32,6 +33,7 @@ public:
      * @param name
      * @param return_type
      * @param params
+     * @param source_location
      * @return A result containing a unique pointer to a new `Function` instance with the given
      * name, return type, and parameters on success, or an error code indicating the failure:
      * - ErrorCodeEnum::DuplicatedParamName if `params` contains duplicated parameter names.
@@ -40,7 +42,8 @@ public:
     [[nodiscard]] static auto create(
             std::unique_ptr<Node> name,
             std::unique_ptr<Node> return_type,
-            std::vector<std::unique_ptr<Node>> params
+            std::vector<std::unique_ptr<Node>> params,
+            SourceLocation source_location
     ) -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
 
     // Methods implementing `Node`
@@ -101,7 +104,9 @@ public:
 
 private:
     // Constructor
-    explicit Function(bool has_return) : m_has_return{has_return} {}
+    Function(bool has_return, SourceLocation source_location)
+            : Node{source_location},
+              m_has_return{has_return} {}
 
     // Methods
     [[nodiscard]] auto get_num_non_param_children() const noexcept -> size_t {

@@ -10,6 +10,7 @@
 #include <spider/tdl/parser/ast/FloatSpec.hpp>
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Primitive.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::primitive_impl {
 class Float : public Primitive {
@@ -17,10 +18,12 @@ public:
     // Factory function
     /**
      * @param spec
+     * @param source_location
      * @return A unique pointer to a new `Float` instance with the given type spec.
      */
-    [[nodiscard]] static auto create(FloatSpec spec) -> std::unique_ptr<Node> {
-        return std::make_unique<Float>(Float{spec});
+    [[nodiscard]] static auto create(FloatSpec spec, SourceLocation source_location)
+            -> std::unique_ptr<Node> {
+        return std::make_unique<Float>(Float{spec, source_location});
     }
 
     // Methods implementing `Node`
@@ -32,7 +35,9 @@ public:
 
 private:
     // Constructor
-    explicit Float(FloatSpec spec) : m_spec{spec} {}
+    Float(FloatSpec spec, SourceLocation source_location)
+            : Primitive{source_location},
+              m_spec{spec} {}
 
     // Variables
     FloatSpec m_spec;

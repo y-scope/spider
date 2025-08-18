@@ -12,6 +12,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Container.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl {
 class Map : public Container {
@@ -27,14 +28,17 @@ public:
     /**
      * @param key_type
      * @param value_type
+     * @param source_location
      * @return A result containing a unique pointer to a new `Map` instance with the given key and
      * value types on success, or an error code indicating the failure:
      * - Map::ErrorCodeEnum::UnsupportedKeyType if the `key_type` is not supported.
      * - Forwards `validate_child_node_type`'s return values.
      */
-    [[nodiscard]] static auto
-    create(std::unique_ptr<Node> key_type, std::unique_ptr<Node> value_type)
-            -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
+    [[nodiscard]] static auto create(
+            std::unique_ptr<Node> key_type,
+            std::unique_ptr<Node> value_type,
+            SourceLocation source_location
+    ) -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
 
     // Methods implementing `Node`
     [[nodiscard]] auto serialize_to_str(size_t indentation_level) const
@@ -55,7 +59,7 @@ public:
 
 private:
     // Constructor
-    Map() = default;
+    explicit Map(SourceLocation source_location) : Container{source_location} {}
 };
 }  // namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl
 
