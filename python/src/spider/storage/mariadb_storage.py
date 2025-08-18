@@ -1,7 +1,7 @@
 """MariaDB Storage module."""
 
 from collections.abc import Sequence
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
 
 import mariadb
 from typing_extensions import override
@@ -374,7 +374,7 @@ class MariaDBStorage(Storage):
 
     @override
     def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
-        self._create_data_with_ref(data,InsertDataRefDriver, driver_id)
+        self._create_data_with_ref(data, InsertDataRefDriver, driver_id)
 
     @override
     def create_task_data(self, task_id: core.TaskId, data: core.Data) -> None:

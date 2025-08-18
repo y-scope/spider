@@ -7,15 +7,9 @@ from typing import get_args, get_origin
 
 from spider import core
 from spider.client.data import Data
+from spider.client.task_context import TaskContext
 from spider.core import TaskInput, TaskOutput, TaskOutputValue
 from spider.type import to_tdl_type_str
-
-
-class TaskContext:
-    """Spider task context."""
-
-    # TODO: Implement task context for use in task executor
-
 
 # Check the TaskFunction signature at runtime.
 # Enforcing static check for first argument requires the use of Protocol. However, functions, which
