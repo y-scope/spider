@@ -233,6 +233,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp
     tdl/parser/ast/node_impl/type_impl/Struct.hpp
+    tdl/parser/ast/SourceLocation.hpp
     tdl/parser/ast/utils.hpp
     CACHE INTERNAL
     "spider task definition language shared header files"

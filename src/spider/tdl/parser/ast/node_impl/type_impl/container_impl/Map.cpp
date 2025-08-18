@@ -14,6 +14,7 @@
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
@@ -66,8 +67,11 @@ auto is_supported_key_type(Type const* key_type) -> bool {
 }
 }  // namespace
 
-auto Map::create(std::unique_ptr<Node> key_type, std::unique_ptr<Node> value_type)
-        -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
+auto Map::create(
+        std::unique_ptr<Node> key_type,
+        std::unique_ptr<Node> value_type,
+        SourceLocation source_location
+) -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(key_type.get()));
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(value_type.get()));
 
@@ -77,7 +81,7 @@ auto Map::create(std::unique_ptr<Node> key_type, std::unique_ptr<Node> value_typ
         return ErrorCode{ErrorCodeEnum::UnsupportedKeyType};
     }
 
-    auto map{std::make_unique<Map>(Map{})};
+    auto map{std::make_unique<Map>(Map{source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(map->add_child(std::move(key_type)));
     YSTDLIB_ERROR_HANDLING_TRYV(map->add_child(std::move(value_type)));
     return map;

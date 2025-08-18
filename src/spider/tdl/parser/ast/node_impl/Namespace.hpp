@@ -15,6 +15,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Function.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 /**
@@ -34,6 +35,7 @@ public:
     /**
      * @param name
      * @param functions
+     * @param source_location
      * @return A result containing a unique pointer to a new `Namespace` instance with the given
      * name and functions on success, or an error code indicating the failure:
      * - ErrorCodeEnum::DuplicatedFunctionName if the `functions` contains duplicated function
@@ -41,9 +43,11 @@ public:
      * - ErrorCodeEnum::EmptyNamespace if the `functions` is empty.
      * - Forwards `validate_child_node_type`'s return values.
      */
-    [[nodiscard]] static auto
-    create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<Node>> functions)
-            -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
+    [[nodiscard]] static auto create(
+            std::unique_ptr<Node> name,
+            std::vector<std::unique_ptr<Node>> functions,
+            SourceLocation source_location
+    ) -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
 
     // Methods implementing `Node`
     [[nodiscard]] auto serialize_to_str(size_t indentation_level) const
@@ -85,7 +89,7 @@ public:
 
 private:
     // Constructor
-    Namespace() = default;
+    explicit Namespace(SourceLocation source_location) : Node{source_location} {}
 };
 }  // namespace spider::tdl::parser::ast::node_impl
 

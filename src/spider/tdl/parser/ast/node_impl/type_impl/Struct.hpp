@@ -14,6 +14,7 @@
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl {
 class Struct : public Type {
@@ -30,11 +31,12 @@ public:
     // Factory function
     /**
      * @param name
+     * @param source_location
      * @return A result containing a unique pointer to a new `Struct` instance with the given name
      * on success, or an error code indicating the failure:
      * - Forwards `validate_child_node_type`'s return values.
      */
-    [[nodiscard]] static auto create(std::unique_ptr<Node> name)
+    [[nodiscard]] static auto create(std::unique_ptr<Node> name, SourceLocation source_location)
             -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
 
     // Methods implementing `Node`
@@ -63,7 +65,7 @@ public:
 
 private:
     // Constructor
-    Struct() = default;
+    explicit Struct(SourceLocation source_location) : Type{source_location} {}
 
     // Variables
     std::shared_ptr<StructSpec> m_spec;
