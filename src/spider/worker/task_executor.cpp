@@ -81,7 +81,6 @@ constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
-    // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.executor] %v");
 #ifndef NDEBUG
