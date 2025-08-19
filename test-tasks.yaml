@@ -80,7 +80,7 @@ tasks:
   python-tests:
     dir: "{{.G_SRC_PYTHON_DIR}}"
     env:
-      # Don't create __pycache__ directories in source tree.
+      # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
     cmds:
       - "uv run pytest"
