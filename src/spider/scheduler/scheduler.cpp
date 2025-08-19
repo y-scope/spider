@@ -2,6 +2,7 @@
 #include <chrono>
 #include <csignal>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -9,7 +10,6 @@
 #include <utility>
 #include <variant>
 
-#include <boost/any/bad_any_cast.hpp>
 #include <boost/program_options/errors.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -31,6 +31,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/ProgramOptions.hpp>
 #include <spider/utils/StopFlag.hpp>
 
 constexpr int cCmdArgParseErr = 1;
@@ -53,33 +54,70 @@ auto stop_scheduler_handler(int signal) -> void {
     }
 }
 
-auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
+auto parse_args(
+        int const argc,
+        char** argv,
+        std::string& host,
+        unsigned short& port,
+        std::string& storage_url
+) -> bool {
     boost::program_options::options_description desc;
-    desc.add_options()("help", "spider scheduler");
-    desc.add_options()(
-            "host",
-            boost::program_options::value<std::string>(),
-            "scheduler host address"
-    );
-    desc.add_options()(
-            "port",
-            boost::program_options::value<unsigned short>(),
-            "port to listen on"
-    );
-    desc.add_options()(
-            "storage_url",
-            boost::program_options::value<std::string>(),
-            "storage server url"
-    );
+    // clang-format off
+    desc.add_options()
+        (spider::core::cHelpOption.data(), spider::core::cHelpMessage.data())
+        (
+            spider::core::cHostOption.data(),
+            boost::program_options::value<std::string>(&host)->required(),
+            spider::core::cHostMessage.data()
+        )
+        (
+            spider::core::cPortOption.data(),
+            boost::program_options::value<unsigned short>(&port)->required(),
+            spider::core::cPortMessage.data()
+        )
+        (
+            spider::core::cStorageUrlOption.data(),
+            boost::program_options::value<std::string>(&storage_url)->required(),
+            spider::core::cStorageUrlMessage.data()
+        );
+    // clang-format on
 
-    boost::program_options::variables_map variables;
-    boost::program_options::store(
-            // NOLINTNEXTLINE(misc-include-cleaner)
-            boost::program_options::parse_command_line(argc, argv, desc),
-            variables
-    );
-    boost::program_options::notify(variables);
-    return variables;
+    try {
+        boost::program_options::variables_map variables;
+        boost::program_options::store(
+                // NOLINTNEXTLINE(misc-include-cleaner)
+                boost::program_options::parse_command_line(argc, argv, desc),
+                variables
+        );
+
+        if (false == variables.contains(std::string(spider::core::cHostOption))
+            && false == variables.contains(std::string(spider::core::cPortOption))
+            && false == variables.contains(std::string(spider::core::cStorageUrlOption)))
+        {
+            std::cout << spider::core::cSchedulerUsage << "\n";
+            std::cout << desc << "\n";
+            return false;
+        }
+
+        boost::program_options::notify(variables);
+
+        if (host.empty()) {
+            std::cerr << spider::core::cHostEmptyMessage << "\n";
+            return false;
+        }
+
+        if (storage_url.empty()) {
+            std::cerr << spider::core::cStorageUrlEmptyMessage << "\n";
+            return false;
+        }
+
+        return true;
+    } catch (boost::program_options::error& e) {
+        std::cerr << "spider_scheduler: " << e.what() << "\n";
+        std::cerr << spider::core::cSchedulerUsage << "\n";
+        std::cerr << spider::core::cSchedulerHelpMessage;
+        return false;
+    }
 }
 
 auto heartbeat_loop(
@@ -157,30 +195,10 @@ auto main(int argc, char** argv) -> int {
     spdlog::set_level(spdlog::level::trace);
 #endif
 
-    boost::program_options::variables_map const args = parse_args(argc, argv);
-
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
-    try {
-        if (!args.contains("port")) {
-            spdlog::error("port is required");
-            return cCmdArgParseErr;
-        }
-        port = args["port"].as<unsigned short>();
-        if (!args.contains("host")) {
-            spdlog::error("host is required");
-            return cCmdArgParseErr;
-        }
-        scheduler_addr = args["host"].as<std::string>();
-        if (!args.contains("storage_url")) {
-            spdlog::error("storage_url is required");
-            return cCmdArgParseErr;
-        }
-        storage_url = args["storage_url"].as<std::string>();
-    } catch (boost::bad_any_cast& e) {
-        return cCmdArgParseErr;
-    } catch (boost::program_options::error& e) {
+    if (false == parse_args(argc, argv, scheduler_addr, port, storage_url)) {
         return cCmdArgParseErr;
     }
 

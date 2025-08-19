@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -17,7 +18,6 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
-#include <boost/any/bad_any_cast.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/process/v2/environment.hpp>
@@ -45,6 +45,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/ProgramOptions.hpp>
 #include <spider/utils/StopFlag.hpp>
 #include <spider/worker/ChildPid.hpp>
 #include <spider/worker/TaskExecutor.hpp>
@@ -77,29 +78,75 @@ auto stop_task_handler(int signal) -> void {
     }
 }
 
-auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
+auto parse_args(
+        int const argc,
+        char** argv,
+        std::string& host,
+        std::string& storage_url,
+        std::vector<std::string>& libs
+) -> bool {
     boost::program_options::options_description desc;
-    desc.add_options()("help", "spider scheduler");
-    desc.add_options()(
-            "storage_url",
-            boost::program_options::value<std::string>(),
-            "storage server url"
-    );
-    desc.add_options()(
-            "libs",
-            boost::program_options::value<std::vector<std::string>>(),
-            "dynamic libraries that include the spider tasks"
-    );
-    desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
+    // clang-format off
+    desc.add_options()
+        (spider::core::cHelpOption.data(), spider::core::cHelpMessage.data())
+        (
+            spider::core::cHostOption.data(),
+            boost::program_options::value<std::string>(&host)->required(),
+            spider::core::cHostMessage.data()
+        )
+        (
+            spider::core::cStorageUrlOption.data(),
+            boost::program_options::value<std::string>(&storage_url)->required(),
+            spider::core::cStorageUrlMessage.data()
+        )
+        (
+            spider::core::cLibsOption.data(),
+            boost::program_options::value<std::vector<std::string>>(&libs),
+            spider::core::cLibsMessage.data()
+        );
+    // clang-format on
 
-    boost::program_options::variables_map variables;
-    boost::program_options::store(
-            // NOLINTNEXTLINE(misc-include-cleaner)
-            boost::program_options::parse_command_line(argc, argv, desc),
-            variables
-    );
-    boost::program_options::notify(variables);
-    return variables;
+    try {
+        boost::program_options::variables_map variables;
+        boost::program_options::store(
+                // NOLINTNEXTLINE(misc-include-cleaner)
+                boost::program_options::parse_command_line(argc, argv, desc),
+                variables
+        );
+
+        if (!variables.contains(std::string(spider::core::cHostOption))
+            && !variables.contains(std::string(spider::core::cStorageUrlOption))
+            && !variables.contains(std::string(spider::core::cLibsOption)))
+        {
+            std::cout << spider::core::cWorkerUsage << "\n";
+            std::cout << desc << "\n";
+            return false;
+        }
+
+        boost::program_options::notify(variables);
+
+        if (host.empty()) {
+            std::cerr << spider::core::cHostEmptyMessage << "\n";
+            return false;
+        }
+
+        if (storage_url.empty()) {
+            std::cerr << spider::core::cStorageUrlEmptyMessage << "\n";
+            return false;
+        }
+
+        if (libs.empty()) {
+            std::cerr << spider::core::cLibsEmptyMessage << "\n";
+            return false;
+        }
+
+        return true;
+    } catch (boost::program_options::error& e) {
+        std::cerr << "spider_worker: " << e.what() << "\n";
+        std::cerr << spider::core::cWorkerUsage << "\n";
+        std::cerr << spider::core::cWorkerHelpMessage;
+        return false;
+    }
 }
 
 auto get_environment_variable() -> absl::flat_hash_map<
@@ -420,32 +467,10 @@ auto main(int argc, char** argv) -> int {
     spdlog::set_level(spdlog::level::trace);
 #endif
 
-    boost::program_options::variables_map const args = parse_args(argc, argv);
-
     std::string storage_url;
     std::vector<std::string> libs;
     std::string worker_addr;
-    try {
-        if (!args.contains("storage_url")) {
-            spdlog::error("Missing storage_url");
-            return cCmdArgParseErr;
-        }
-        storage_url = args["storage_url"].as<std::string>();
-        if (!args.contains("host")) {
-            spdlog::error("Missing host");
-            return cCmdArgParseErr;
-        }
-        worker_addr = args["host"].as<std::string>();
-        if (!args.contains("libs") || args["libs"].empty()) {
-            spdlog::error("Missing libs");
-            return cCmdArgParseErr;
-        }
-        libs = args["libs"].as<std::vector<std::string>>();
-    } catch (boost::bad_any_cast const& e) {
-        spdlog::error("Error: {}", e.what());
-        return cCmdArgParseErr;
-    } catch (boost::program_options::error const& e) {
-        spdlog::error("Error: {}", e.what());
+    if (!parse_args(argc, argv, worker_addr, storage_url, libs)) {
         return cCmdArgParseErr;
     }
 

@@ -16,16 +16,17 @@
 #include <spider/client/Driver.hpp>
 #include <spider/client/Job.hpp>
 #include <spider/client/TaskGraph.hpp>
+#include <spider/utils/ProgramOptions.hpp>
 #include <tests/worker/worker-test.hpp>
 
 namespace {
 auto parse_args(int const argc, char** argv) -> boost::program_options::variables_map {
     boost::program_options::options_description desc;
-    desc.add_options()("help", "spider client test");
+    desc.add_options()(spider::core::cHelpOption.data(), spider::core::cHelpMessage.data());
     desc.add_options()(
-            "storage_url",
+            spider::core::cStorageUrlOption.data(),
             boost::program_options::value<std::string>(),
-            "storage server url"
+            spider::core::cStorageUrlMessage.data()
     );
 
     boost::program_options::variables_map variables;
@@ -220,11 +221,11 @@ auto main(int argc, char** argv) -> int {
 
     std::string storage_url;
     try {
-        if (!args.contains("storage_url")) {
-            spdlog::error("storage_url is required");
+        if (!args.contains(std::string(spider::core::cStorageUrlOption))) {
+            spdlog::error("storage-url is required");
             return cCmdArgParseErr;
         }
-        storage_url = args["storage_url"].as<std::string>();
+        storage_url = args[std::string(spider::core::cStorageUrlOption)].as<std::string>();
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {
