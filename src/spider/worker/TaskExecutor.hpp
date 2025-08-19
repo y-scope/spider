@@ -51,8 +51,8 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
-        auto [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
-        auto [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
+        auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
+        auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
 
         std::vector<std::string> process_args{
                 "--func",
@@ -108,8 +108,8 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
-        auto [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
-        auto [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
+        auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
+        auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
 
         std::vector<std::string> process_args{
                 "--func",
