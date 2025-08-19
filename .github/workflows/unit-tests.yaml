@@ -57,4 +57,4 @@ jobs:
 
       - run: "task test:cpp-non-storage-unit-tests"
 
-      - run: "task test:python-tests"
+      - run: "task test:spider-py-unit-tests"
