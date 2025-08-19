@@ -23,6 +23,14 @@ task build:spider-py
 The command above will generate both a `.tar.gz` and a `.whl` package in the `build/spider-py`
 directory at the Spider project root.
 
+## Testing
+
+To run all unit tests:
+
+```shell
+task test:spider-py-unit-tests
+```
+
 ## Linting
 
 To run all linting checks:

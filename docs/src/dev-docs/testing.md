@@ -35,7 +35,7 @@ You can use the following tasks to run the set of unit tests that's appropriate.
 | `test:cpp-unit-tests`             | Runs all C++ unit tests.                                              |
 | `test:cpp-non-storage-unit-tests` | Runs all C++ unit tests which don't require a storage backend to run. |
 | `test:cpp-storage-unit-tests`     | Runs all C++ unit tests which require a storage backend to run.       |
-| `test:spider-py-unit-tests`       | Runs all Python tests.                                                |
+| `test:spider-py-unit-tests`       | Runs all spider-py unit tests.                                        |
 
 If any tests show error messages for the connection function below, revisit the
 [setup section](#set-up-mysql-as-storage-backend) and verify that `cStorageUrl` was set correctly.
