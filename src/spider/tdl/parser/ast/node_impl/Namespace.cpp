@@ -17,6 +17,7 @@
 #include <spider/tdl/parser/ast/node_impl/Function.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 using spider::tdl::parser::ast::node_impl::Namespace;
@@ -40,8 +41,11 @@ auto NamespaceErrorCodeCategory::message(Namespace::ErrorCodeEnum error_enum) co
 }
 
 namespace spider::tdl::parser::ast::node_impl {
-auto Namespace::create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<Node>> functions)
-        -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
+auto Namespace::create(
+        std::unique_ptr<Node> name,
+        std::vector<std::unique_ptr<Node>> functions,
+        SourceLocation source_location
+) -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Identifier>(name.get()));
 
     if (functions.empty()) {
@@ -59,7 +63,7 @@ auto Namespace::create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<N
         fun_names.emplace(func_name);
     }
 
-    auto function{std::make_unique<Namespace>(Namespace{})};
+    auto function{std::make_unique<Namespace>(Namespace{source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(function->add_child(std::move(name)));
     for (auto& func : functions) {
         YSTDLIB_ERROR_HANDLING_TRYV(function->add_child(std::move(func)));

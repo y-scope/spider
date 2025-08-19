@@ -10,14 +10,15 @@
 
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl {
-auto List::create(std::unique_ptr<Node> element_type)
+auto List::create(std::unique_ptr<Node> element_type, SourceLocation source_location)
         -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(element_type.get()));
 
-    auto list{std::make_unique<List>(List{})};
+    auto list{std::make_unique<List>(List{source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(list->add_child(std::move(element_type)));
     return list;
 }
