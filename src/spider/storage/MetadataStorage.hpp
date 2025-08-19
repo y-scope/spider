@@ -78,6 +78,28 @@ public:
     virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr
             = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
+    /**
+     * Gets all the jobs that contains a failed task.
+     * @param conn The storage connection.
+     * @param job_ids Returns the job ids of the jobs that contains a failed task.
+     * @return The storage error code.
+     */
+    virtual auto get_failed_jobs(StorageConnection& conn, std::vector<boost::uuids::uuid>* job_ids)
+            -> StorageErr
+            = 0;
+    /**
+     * Resets tasks in a job to a previous runnable states.
+     * @param conn The storage connection.
+     * @param ready_tasks The tasks to be set to ready.
+     * @param pending_tasks The tasks to be set to pending.
+     * @return The storage error code.
+     */
+    virtual auto reset_tasks(
+            StorageConnection& conn,
+            std::vector<boost::uuids::uuid> const& ready_tasks,
+            std::vector<boost::uuids::uuid> const& pending_tasks
+    ) -> StorageErr
+            = 0;
     virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
             -> StorageErr
             = 0;

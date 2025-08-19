@@ -40,7 +40,7 @@ TEMPLATE_LIST_TEST_CASE(
     auto conn = std::move(std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result));
 
     // Add driver and data
-    spider::core::Data const data{"value"};
+    spider::core::Data data{"value"};
     boost::uuids::random_generator gen;
     boost::uuids::uuid const driver_id = gen();
     REQUIRE(metadata_storage->add_driver(*conn, spider::core::Driver{driver_id}).success());
@@ -53,6 +53,13 @@ TEMPLATE_LIST_TEST_CASE(
 
     // Get data should match
     spider::core::Data result{"temp"};
+    REQUIRE(data_storage->get_data(*conn, data.get_id(), &result).success());
+    REQUIRE(spider::test::data_equal(data, result));
+
+    // Set data persisted should succeed
+    data.set_persisted(true);
+    REQUIRE(data_storage->set_data_persisted(*conn, data).success());
+    // Get data should match
     REQUIRE(data_storage->get_data(*conn, data.get_id(), &result).success());
     REQUIRE(spider::test::data_equal(data, result));
 
