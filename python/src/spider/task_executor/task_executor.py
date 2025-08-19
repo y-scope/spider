@@ -1,12 +1,17 @@
 """Executes a Spider Python task."""
 
 import argparse
+import importlib
+import inspect
 import logging
 from io import BufferedReader
 from os import fdopen
 from uuid import UUID
 
 from spider.storage import MariaDBStorage
+from spider.task_executor.task_executor_message import get_request_body
+
+from spider.client import TaskContext
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -56,7 +61,6 @@ def main() -> None:
     # Parses arguments
     args = parse_args()
     func = args.func
-    libs = args.libs
     task_id = args.task_id
     task_id = UUID(task_id)
     storage_url = args.storage_url
@@ -70,7 +74,24 @@ def main() -> None:
 
     input_pipe = fdopen(input_pipe, "rb")
     output_pipe = fdopen(output_pipe, "wb")
-    input_data = receive_message(input_pipe)
+    input_message = receive_message(input_pipe)
+    arguments = get_request_body(input_message)
+    logger.debug("Args buffer parsed")
+
+    # Get the function to run
+    module_name, function_name = func.rsplit(".", 1)
+    module = importlib.import_module(module_name)
+    function = getattr(module, function_name)
+    logger.debug("Function %s imported from module %s", function_name, module_name)
+
+    signature = inspect.signature(function)
+    if len(signature.parameters) != len(arguments) + 1:
+        msg = (
+            f"Function {function_name} expects {len(signature.parameters) - 1} "
+            f"arguments, but {len(arguments)} were provided."
+        )
+        raise ValueError(msg)
+    task_context = TaskContext(task_id, storage)
 
 
 if __name__ == "__main__":
