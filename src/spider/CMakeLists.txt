@@ -77,6 +77,8 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/pipe.hpp
+    utils/pipe.cpp
     utils/StopFlag.hpp
     utils/StopFlag.cpp
     CACHE INTERNAL
