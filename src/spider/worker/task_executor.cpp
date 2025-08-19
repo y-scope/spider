@@ -103,7 +103,7 @@ auto main(int const argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         task_id_string = args["task_id"].as<std::string>();
-        if (!args.contains("input-pipe")) {
+        if (false == args.contains("input-pipe")) {
             return cCmdArgParseErr;
         }
         input_pipe_fd = args["input-pipe"].as<int>();
@@ -111,7 +111,7 @@ auto main(int const argc, char** argv) -> int {
             spdlog::error("Invalid input pipe file descriptor: {}", input_pipe_fd);
             return cCmdArgParseErr;
         }
-        if (!args.contains("output-pipe")) {
+        if (false == args.contains("output-pipe")) {
             return cCmdArgParseErr;
         }
         output_pipe_fd = args["output-pipe"].as<int>();
