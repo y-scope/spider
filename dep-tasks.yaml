@@ -28,7 +28,7 @@ tasks:
       - task: "install-mariadb-connector-cpp"
       - task: "install-msgpack"
       - task: "install-spdlog"
-      - task: "download-ystdlib"
+      - task: "install-ystdlib"
 
   install-abseil:
     internal: true
@@ -44,7 +44,7 @@ tasks:
           CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DABSL_BUILD_TESTING=OFF"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-antlr-jar:
     internal: true
@@ -142,23 +142,26 @@ tasks:
           CMAKE_GEN_ARGS:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DCATCH_BUILD_TESTING=OFF"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
-  download-ystdlib:
+  install-ystdlib:
     internal: true
     run: "once"
+    deps:
+      - "install-boost"
     cmds:
-      - task: ":utils:remote:download-and-extract-tar"
+      - task: ":utils:cmake:install-remote-tar"
         vars:
-          FILE_SHA256: "36fa0e9d96b7307ca92482343d6ba1091c5576370676e6d423cce32c20e34a3d"
-          OUTPUT_DIR: "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
-          URL: "https://github.com/y-scope/ystdlib-cpp/archive/d80cf86.tar.gz"
-      - |
-        cat <<EOF >> "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/ystdlib.cmake"
-        set(
-        SPIDER_YSTDLIB_SOURCE_DIRECTORY "{{.G_DEPS_DIR}}/ystdlib/ystdlib-src"
-        )
-        EOF
+          CMAKE_PACKAGE_NAME: "ystdlib"
+          WORK_DIR: "{{.G_DEPS_DIR}}/ystdlib"
+          TAR_SHA256: "4c027c884506e1775070192f9d1d58238a6d5b078608211fa442477393676738"
+          TAR_URL: "https://github.com/y-scope/ystdlib-cpp/archive/0ae886c.tar.gz"
+          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
+          CMAKE_GEN_ARGS:
+            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+            - "-Dystdlib_BUILD_TESTING=OFF"
+            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-fmtlib:
     internal: true
@@ -175,7 +178,7 @@ tasks:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DFMT_TEST=OFF"
             - "-DFMT_DOC=OFF"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-spdlog:
     internal: true
@@ -198,7 +201,7 @@ tasks:
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
             - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-mariadb-connector-cpp:
     internal: true
@@ -216,7 +219,7 @@ tasks:
             - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
             - "-DUSE_SYSTEM_INSTALLED_LIB=ON"
             - "-DINSTALL_LAYOUT=RPM"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-msgpack:
     internal: true
@@ -237,7 +240,7 @@ tasks:
             - "-DMSGPACK_BUILD_TESTS=OFF"
             - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
             - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
   install-boost:
     internal: true

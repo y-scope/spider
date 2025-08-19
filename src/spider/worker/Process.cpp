@@ -40,7 +40,9 @@ auto close_all_fds(std::vector<int> const& whitelist) -> bool {
         if (fd == 0 && (entry->d_name[0] != '0' && entry->d_name[1] != '\0')) {
             continue;
         }
-        if (fd == dir_fd || std::ranges::find(whitelist, fd) != whitelist.end()) {
+        if (fd == dir_fd || fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO
+            || std::ranges::find(whitelist, fd) != whitelist.end())
+        {
             continue;
         }
         close(fd);
@@ -55,7 +57,8 @@ auto Process::spawn(
         std::vector<std::string> const& args,
         std::optional<int> const in,
         std::optional<int> const out,
-        std::optional<int> const err
+        std::optional<int> const err,
+        std::vector<int> const& fd_whitelist
 ) -> Process {
     // Build execvp arguments
     std::vector<char*> exec_args;
@@ -85,7 +88,7 @@ auto Process::spawn(
         }
 
         // Close all file descriptors except for stdin, stdout, and stderr
-        if (false == close_all_fds({STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO})) {
+        if (false == close_all_fds(fd_whitelist)) {
             _exit(EXIT_FAILURE);
         }
 

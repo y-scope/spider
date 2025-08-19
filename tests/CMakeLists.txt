@@ -2,6 +2,7 @@ set(SPIDER_TEST_SOURCES
     storage/test-DataStorage.cpp
     storage/test-MetadataStorage.cpp
     storage/StorageTestHelper.hpp
+    tdl/test-parser-ast.cpp
     utils/CoreDataUtils.hpp
     utils/CoreTaskUtils.hpp
     utils/CoreTaskUtils.cpp
@@ -39,6 +40,7 @@ target_link_libraries(
     PRIVATE
         spider_core
         spider_client
+        spider_tdl
 )
 target_link_libraries(
     unitTest

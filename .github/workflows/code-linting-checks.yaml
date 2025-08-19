@@ -48,7 +48,33 @@ jobs:
       - name: "Install project dependencies "
         timeout-minutes: 10
         env:
-          SPIDER_DEP_BUILD_PARALLELISM: "1"
+          SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
         run: "task deps:lib_install"
 
+      # NOTE: We don't use the cache for scheduled runs so that they run lint:cpp-static-check
+      # on all files.
+      - if: "'schedule' != github.event_name"
+        name: "Restore lint:cpp-static-check cache"
+        id: "cache-restore-lint-cpp-static-check"
+        uses: "actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684"
+        with:
+          path: |
+            .task/checksum/lint-cpp-static-check
+            .task/checksum/utils-cpp-lint-clang-tidy-*
+            build/lint-clang-tidy
+          key: "main-branch-ubuntu-latest-lint:cpp-static-check"
+
       - run: "task lint:check -C $(nproc)"
+
+      # Cache the source file checksums and the generated files (logs) for the
+      # lint:cpp-static-check task, but only if it runs successfully on the main branch.
+      # NOTE: If we don't cache the generated files, the task will re-run to generate them.
+      - if: "'pull_request' != github.event_name && 'refs/heads/main' == github.ref"
+        name: "Update lint:cpp-static-check cache"
+        uses: "actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684"
+        with:
+          path: |
+            .task/checksum/lint-cpp-static-check
+            .task/checksum/utils-cpp-lint-clang-tidy-*
+            build/lint-clang-tidy
+          key: "${{steps.cache-restore-lint-cpp-static-check.outputs.cache-primary-key}}"

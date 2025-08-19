@@ -27,7 +27,7 @@ tasks:
   build-unit-test:
     internal: true
     deps:
-      - task: ":build:target"
+      - task: ":build:cpp-target"
         vars:
           TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
 
@@ -35,7 +35,7 @@ tasks:
     dir: "{{.G_BUILD_SPIDER_DIR}}"
     deps:
       - "venv"
-      - task: ":build:target"
+      - task: ":build:cpp-target"
         vars:
           TARGETS: [
             "spider_task_executor",
@@ -56,7 +56,7 @@ tasks:
     sources:
       - "{{.ROOT_DIR}}/taskfile.yaml"
       - "{{.TASKFILE}}"
-      - "test-requirements.txt"
+      - "requirements-dev.txt"
     generates: ["{{.CHECKSUM_FILE}}"]
     run: "once"
     deps:
@@ -70,7 +70,7 @@ tasks:
         vars:
           LABEL: "test"
           OUTPUT_DIR: "{{.OUTPUT_DIR}}"
-          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/test-requirements.txt"
+          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/requirements-dev.txt"
       # This command must be last
       - task: ":utils:checksum:compute"
         vars:

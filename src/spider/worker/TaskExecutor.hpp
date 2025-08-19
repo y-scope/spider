@@ -3,13 +3,11 @@
 
 #include <unistd.h>
 
-#include <array>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -23,6 +21,7 @@
 
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/utils/pipe.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/message_pipe.hpp>
 #include <spider/worker/Process.hpp>
@@ -52,11 +51,18 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
+        auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
+        auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
+
         std::vector<std::string> process_args{
                 "--func",
                 func_name,
                 "--task_id",
                 to_string(task_id),
+                "--input-pipe",
+                std::to_string(input_pipe_read_end),
+                "--output-pipe",
+                std::to_string(output_pipe_write_end),
                 "--storage_url",
                 storage_url,
                 "--libs"
@@ -66,22 +72,20 @@ public:
                 "spider_task_executor",
                 environment
         );
-        std::array<int, 2> write_pipe_fd{};
-        std::array<int, 2> read_pipe_fd{};
-        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
-            throw std::runtime_error("Failed to create pipe");
-        }
-        m_write_pipe.assign(write_pipe_fd[1]);
-        m_read_pipe.assign(read_pipe_fd[0]);
+
+        m_write_pipe.assign(input_pipe_write_end);
+        m_read_pipe.assign(output_pipe_read_end);
         m_process = std::make_unique<Process>(Process::spawn(
                 exe.string(),
                 process_args,
-                write_pipe_fd[0],
-                read_pipe_fd[1],
-                std::nullopt
+                std::nullopt,
+                std::nullopt,
+                std::nullopt,
+                {input_pipe_read_end, output_pipe_write_end}
         ));
-        close(write_pipe_fd[0]);
-        close(read_pipe_fd[1]);
+        // Close the following fds since they're no longer needed by the parent process.
+        close(input_pipe_read_end);
+        close(output_pipe_write_end);
 
         // Set up handler for output file
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
@@ -105,11 +109,18 @@ public:
     )
             : m_read_pipe(context),
               m_write_pipe(context) {
+        auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
+        auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
+
         std::vector<std::string> process_args{
                 "--func",
                 func_name,
                 "--task_id",
                 to_string(task_id),
+                "--input-pipe",
+                std::to_string(input_pipe_read_end),
+                "--output-pipe",
+                std::to_string(output_pipe_write_end),
                 "--storage_url",
                 storage_url,
                 "--libs"
@@ -119,22 +130,20 @@ public:
                 "spider_task_executor",
                 environment
         );
-        std::array<int, 2> write_pipe_fd{};
-        std::array<int, 2> read_pipe_fd{};
-        if (pipe(read_pipe_fd.data()) == -1 || pipe(write_pipe_fd.data()) == -1) {
-            throw std::runtime_error("Failed to create pipe");
-        }
-        m_write_pipe.assign(write_pipe_fd[1]);
-        m_read_pipe.assign(read_pipe_fd[0]);
+
+        m_write_pipe.assign(input_pipe_write_end);
+        m_read_pipe.assign(output_pipe_read_end);
         m_process = std::make_unique<Process>(Process::spawn(
                 exe.string(),
                 process_args,
-                write_pipe_fd[0],
-                read_pipe_fd[1],
-                std::nullopt
+                std::nullopt,
+                std::nullopt,
+                std::nullopt,
+                {input_pipe_read_end, output_pipe_write_end}
         ));
-        close(write_pipe_fd[0]);
-        close(read_pipe_fd[1]);
+        // Close the following fds since they're no longer needed by the parent process.
+        close(input_pipe_read_end);
+        close(output_pipe_write_end);
 
         // Set up handler for output file
         boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
