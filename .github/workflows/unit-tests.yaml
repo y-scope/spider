@@ -47,6 +47,7 @@ jobs:
           python --version
           tar --version
           task --version
+          uv --version
 
       - name: "Install project dependencies "
         timeout-minutes: 10
@@ -54,4 +55,6 @@ jobs:
           SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
         run: "task deps:lib_install"
 
-      - run: "task test:non-storage-unit-tests"
+      - run: "task test:cpp-non-storage-unit-tests"
+
+      - run: "task test:spider-py-unit-tests"
