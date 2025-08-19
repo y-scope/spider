@@ -77,6 +77,8 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/pipe.hpp
+    utils/pipe.cpp
     utils/StopFlag.hpp
     utils/StopFlag.cpp
     CACHE INTERNAL
@@ -233,6 +235,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp
     tdl/parser/ast/node_impl/type_impl/Struct.hpp
+    tdl/parser/ast/SourceLocation.hpp
     tdl/parser/ast/utils.hpp
     CACHE INTERNAL
     "spider task definition language shared header files"

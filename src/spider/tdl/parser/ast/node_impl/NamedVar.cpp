@@ -11,15 +11,19 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
-auto NamedVar::create(std::unique_ptr<Node> id, std::unique_ptr<Node> type)
-        -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
+auto NamedVar::create(
+        std::unique_ptr<Node> id,
+        std::unique_ptr<Node> type,
+        SourceLocation source_location
+) -> ystdlib::error_handling::Result<std::unique_ptr<Node>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Identifier>(id.get()));
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Type>(type.get()));
 
-    auto named_var{std::make_unique<NamedVar>(NamedVar{})};
+    auto named_var{std::make_unique<NamedVar>(NamedVar{source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(named_var->add_child(std::move(id)));
     YSTDLIB_ERROR_HANDLING_TRYV(named_var->add_child(std::move(type)));
     return named_var;

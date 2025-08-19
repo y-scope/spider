@@ -16,6 +16,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
 
 using spider::tdl::parser::ast::node_impl::StructSpec;
@@ -41,8 +42,11 @@ auto StructSpecErrorCodeCategory::message(StructSpec::ErrorCodeEnum error_enum) 
 }
 
 namespace spider::tdl::parser::ast::node_impl {
-auto StructSpec::create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<Node>> fields)
-        -> ystdlib::error_handling::Result<std::shared_ptr<StructSpec>> {
+auto StructSpec::create(
+        std::unique_ptr<Node> name,
+        std::vector<std::unique_ptr<Node>> fields,
+        SourceLocation source_location
+) -> ystdlib::error_handling::Result<std::shared_ptr<StructSpec>> {
     YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Identifier>(name.get()));
 
     if (fields.empty()) {
@@ -60,7 +64,7 @@ auto StructSpec::create(std::unique_ptr<Node> name, std::vector<std::unique_ptr<
         field_names.emplace(field_name);
     }
 
-    auto struct_spec{std::make_shared<StructSpec>(StructSpec{})};
+    auto struct_spec{std::make_shared<StructSpec>(StructSpec{source_location})};
     YSTDLIB_ERROR_HANDLING_TRYV(struct_spec->add_child(std::move(name)));
     for (auto& field : fields) {
         YSTDLIB_ERROR_HANDLING_TRYV(struct_spec->add_child(std::move(field)));

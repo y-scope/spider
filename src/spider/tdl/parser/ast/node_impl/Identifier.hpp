@@ -10,6 +10,7 @@
 #include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/tdl/parser/ast/Node.hpp>
+#include <spider/tdl/parser/ast/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 class Identifier : public Node {
@@ -17,10 +18,11 @@ public:
     // Factory function
     /**
      * @param name
+     * @param source_location
      * @return A unique pointer to a new `Identifier` instance with the given name.
      */
-    static auto create(std::string name) -> std::unique_ptr<Node> {
-        return std::make_unique<Identifier>(Identifier{std::move(name)});
+    static auto create(std::string name, SourceLocation source_location) -> std::unique_ptr<Node> {
+        return std::make_unique<Identifier>(Identifier{std::move(name), source_location});
     }
 
     // Methods implementing `Node`
@@ -32,7 +34,9 @@ public:
 
 private:
     // Constructor
-    explicit Identifier(std::string name) noexcept : m_name{std::move(name)} {}
+    Identifier(std::string name, SourceLocation source_location) noexcept
+            : Node{source_location},
+              m_name{std::move(name)} {}
 
     // Variables
     std::string m_name;
