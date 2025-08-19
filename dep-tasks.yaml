@@ -115,7 +115,7 @@ tasks:
       - task: ":utils:cmake:build"
         vars:
           BUILD_DIR: "{{.BUILD_DIR}}"
-          JOBS: "{{.G_DEP_BUILD_PARALLELISM}}"
+          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
       - task: ":utils:cmake:install"
         vars:
           BUILD_DIR: "{{.BUILD_DIR}}"
