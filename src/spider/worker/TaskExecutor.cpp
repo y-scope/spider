@@ -8,6 +8,7 @@
 #include <tuple>
 #include <vector>
 
+#include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
 
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
@@ -17,6 +18,10 @@
 #include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::worker {
+auto TaskExecutor::get_task_id() const -> boost::uuids::uuid {
+    return m_task_id;
+}
+
 auto TaskExecutor::get_pid() const -> pid_t {
     return m_process->get_pid();
 }
@@ -32,14 +37,19 @@ auto TaskExecutor::waiting() -> bool {
     return TaskExecutorState::Waiting == m_state;
 }
 
-auto TaskExecutor::succeed() -> bool {
+auto TaskExecutor::succeeded() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Succeed == m_state;
 }
 
-auto TaskExecutor::error() -> bool {
+auto TaskExecutor::errored() -> bool {
     std::lock_guard const lock(m_state_mutex);
     return TaskExecutorState::Error == m_state;
+}
+
+auto TaskExecutor::cancelled() -> bool {
+    std::lock_guard const lock(m_state_mutex);
+    return TaskExecutorState::Cancelled == m_state;
 }
 
 void TaskExecutor::wait() {
@@ -77,6 +87,12 @@ auto TaskExecutor::process_output_handler() -> boost::asio::awaitable<void> {
     while (true) {
         std::optional<msgpack::sbuffer> const response_option
                 = co_await receive_message_async(m_read_pipe);
+        {
+            std::lock_guard const lock(m_state_mutex);
+            if (m_state != TaskExecutorState::Waiting && m_state != TaskExecutorState::Running) {
+                co_return;
+            }
+        }
         if (!response_option.has_value()) {
             std::lock_guard const lock(m_state_mutex);
             m_state = TaskExecutorState::Error;

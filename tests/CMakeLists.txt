@@ -88,6 +88,18 @@ target_link_libraries(
         spider_client
 )
 
+add_executable(cancel_test)
+target_sources(cancel_test PRIVATE client/cancel-test.cpp)
+target_link_libraries(
+    cancel_test
+    PRIVATE
+        spider_core
+        spider_client
+        worker_test
+        Boost::program_options
+        spdlog::spdlog
+)
+
 add_custom_target(integrationTest ALL)
 add_custom_command(
     TARGET integrationTest
@@ -101,4 +113,5 @@ add_dependencies(
     worker_test
     client_test
     signal_test
+    cancel_test
 )

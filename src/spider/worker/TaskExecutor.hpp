@@ -49,7 +49,8 @@ public:
                     boost::process::v2::environment::value> const& environment,
             Args&&... args
     )
-            : m_read_pipe(context),
+            : m_task_id(task_id),
+              m_read_pipe(context),
               m_write_pipe(context) {
         auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
         auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
@@ -107,7 +108,8 @@ public:
                     boost::process::v2::environment::value> const& environment,
             std::vector<msgpack::sbuffer> const& args_buffers
     )
-            : m_read_pipe(context),
+            : m_task_id(task_id),
+              m_read_pipe(context),
               m_write_pipe(context) {
         auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
         auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
@@ -166,12 +168,15 @@ public:
 
     auto completed() -> bool;
     auto waiting() -> bool;
-    auto succeed() -> bool;
-    auto error() -> bool;
+    auto succeeded() -> bool;
+    auto errored() -> bool;
+    auto cancelled() -> bool;
 
     void wait();
 
     void cancel();
+
+    [[nodiscard]] auto get_task_id() const -> boost::uuids::uuid;
 
     template <class T>
     auto get_result() const -> std::optional<T> {
@@ -184,6 +189,8 @@ public:
 
 private:
     auto process_output_handler() -> boost::asio::awaitable<void>;
+
+    boost::uuids::uuid m_task_id;
 
     std::mutex m_state_mutex;
     std::condition_variable m_complete_cv;

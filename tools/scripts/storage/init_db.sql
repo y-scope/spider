@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS jobs
     INDEX idx_jobs_state (`state`),
     PRIMARY KEY (`id`)
 );
+CREATE TABLE IF NOT EXISTS `job_errors` (
+    `job_id` BINARY(16) NOT NULL,
+    `offender` VARCHAR(64) NOT NULL,
+    `message` VARCHAR(999) NOT NULL,
+    CONSTRAINT `job_error_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    PRIMARY KEY (`job_id`)
+);
 CREATE TABLE IF NOT EXISTS tasks
 (
     `id`          BINARY(16)                                                        NOT NULL,

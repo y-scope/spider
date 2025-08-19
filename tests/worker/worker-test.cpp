@@ -1,9 +1,11 @@
 #include "worker-test.hpp"
 
+#include <chrono>
 #include <iostream>
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <tuple>
 
 #include <spider/client/Data.hpp>
@@ -70,6 +72,16 @@ auto join_string_test(
     return input_1 + input_2;
 }
 
+auto sleep_test([[maybe_unused]] spider::TaskContext& context, int milliseconds) -> int {
+    std::this_thread::sleep_for(std::chrono::milliseconds{milliseconds});
+    return milliseconds;
+}
+
+auto abort_test(spider::TaskContext& context, [[maybe_unused]] int x) -> int {
+    context.abort("Abort test");
+    return 0;
+}
+
 // NOLINTBEGIN(cert-err58-cpp)
 SPIDER_REGISTER_TASK(sum_test);
 SPIDER_REGISTER_TASK(swap_test);
@@ -79,4 +91,6 @@ SPIDER_REGISTER_TASK(random_fail_test);
 SPIDER_REGISTER_TASK(create_data_test);
 SPIDER_REGISTER_TASK(create_task_test);
 SPIDER_REGISTER_TASK(join_string_test);
+SPIDER_REGISTER_TASK(sleep_test);
+SPIDER_REGISTER_TASK(abort_test);
 // NOLINTEND(cert-err58-cpp)
