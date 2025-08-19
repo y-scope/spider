@@ -83,6 +83,7 @@ public:
                 std::nullopt,
                 {input_pipe_read_end, output_pipe_write_end}
         ));
+        // Close the following fds since they're no longer needed by the parent process.
         close(input_pipe_read_end);
         close(output_pipe_write_end);
 

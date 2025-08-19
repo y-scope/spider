@@ -12,7 +12,7 @@
 
 namespace {
 TEST_CASE("Process exit", "[worker]") {
-    spider::worker::Process const true_process = spider::worker::Process::spawn(
+    auto const true_process = spider::worker::Process::spawn(
             "true",
             {},
             std::nullopt,
@@ -21,7 +21,7 @@ TEST_CASE("Process exit", "[worker]") {
             {}
     );
     REQUIRE(true_process.wait() == 0);
-    spider::worker::Process const false_process = spider::worker::Process::spawn(
+    auto const false_process = spider::worker::Process::spawn(
             "false",
             {},
             std::nullopt,
