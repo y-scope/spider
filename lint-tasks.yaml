@@ -139,11 +139,6 @@ tasks:
           mypy "{{.ITEM}}"
           ruff check {{.RUFF_CHECK_FLAGS}} "{{.ITEM}}"
           ruff format {{.RUFF_FORMAT_FLAGS}} "{{.ITEM}}"
-      - cmd: |-
-          cd "{{.G_SRC_PYTHON_DIR}}"
-          uv run mypy .
-          uv run ruff check {{.RUFF_CHECK_FLAGS}}
-          uv run ruff format {{.RUFF_FORMAT_FLAGS}}
 
   spider-py-check:
     cmds:
