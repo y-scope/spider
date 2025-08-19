@@ -4,7 +4,7 @@ from collections.abc import Collection
 from types import GenericAlias
 from typing import get_args, get_origin
 
-from spider.type.tdl_type import (
+from spider_py.type.tdl_type import (
     BoolType,
     ClassType,
     DoubleType,
@@ -17,8 +17,8 @@ from spider.type.tdl_type import (
     MapType,
     TdlType,
 )
-from spider.type.type import Double, Float, Int8, Int16, Int32, Int64
-from spider.type.utils import get_class_name
+from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
+from spider_py.type.utils import get_class_name
 
 
 def to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
