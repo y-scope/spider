@@ -40,4 +40,4 @@ jobs:
         shell: "bash"
         run:
           |
-          git status --exit-code src/spider/tdl/parser/antlr_generated
+          git diff --exit-code src/spider/tdl/parser/antlr_generated
