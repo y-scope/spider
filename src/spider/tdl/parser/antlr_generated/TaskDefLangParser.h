@@ -19,6 +19,7 @@ public:
   enum {
     RuleStart = 0
   };
+
   explicit TaskDefLangParser(antlr4::TokenStream *input);
 
   TaskDefLangParser(antlr4::TokenStream *input, const antlr4::atn::ParserATNSimulatorOptions &options);
