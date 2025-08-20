@@ -20,7 +20,6 @@ tasks:
     internal: true
     deps:
       - task: "install-abseil"
-      - task: "install-antlr-jar"
       - task: "install-antlr-runtime"
       - task: "install-boost"
       - task: "install-Catch2"
