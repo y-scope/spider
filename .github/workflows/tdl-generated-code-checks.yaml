@@ -3,6 +3,9 @@ name: "tdl-generated-code-checks"
 on:
   pull_request:
   push:
+  schedule:
+    # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
+    - cron: "15 0 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +21,12 @@ jobs:
       - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
         with:
           submodules: "recursive"
+
+      - name: "Set up Java"
+        uses: "actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
+        with:
+          distribution: "temurin"
+          java-version: "11"
 
       - name: "Install task"
         shell: "bash"
