@@ -6,12 +6,12 @@ import inspect
 import logging
 from io import BufferedReader
 from os import fdopen
+from types import GenericAlias
 from uuid import UUID
 
-from spider.storage import MariaDBStorage
+from spider import client, core, storage
 from spider.task_executor.task_executor_message import get_request_body
 
-from spider.client import TaskContext
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -52,6 +52,33 @@ def receive_message(pipe: BufferedReader) -> bytes:
         raise EOFError(msg)
     return body
 
+def parse_arguments(store: storage.Storage, params: list[inspect.Parameter], arguments: list[object]) -> list[object]:
+    """
+    Parses arguments for the function to be executed.
+    :param store: Storage instance to use to get Data.
+    :param params: List of parameters in the function signature.
+    :param arguments: List of arguments to parse.
+    :return: Parsed arguments.
+    :raises TypeError: If a parameter has no type annotation or if an argument cannot be parsed.
+    """
+    parsed_args = []
+    for i, param in enumerate(params):
+        arg = arguments[i]
+        cls = param.annotation
+        if param.annotation is inspect.Parameter.empty:
+            msg = f"Parameter {param.name} has no type annotation."
+            raise TypeError(msg)
+        if cls is bool:
+            parsed_args.append(arg)
+        elif cls is client.Data:
+            core_data = store.get_data(UUID(arg))
+            parsed_args.append(client.Data._from_impl(core_data))
+        else:
+            if isinstance(arg, list) or isinstance(arg, GenericAlias):
+                parsed_args.append(cls(*arg))
+            else:
+                parsed_args.append(cls(arg))
+    return parsed_args
 
 def main() -> None:
     """
@@ -70,7 +97,7 @@ def main() -> None:
     logger.debug("Function to run: %s", func)
 
     # Sets up storage
-    storage = MariaDBStorage(storage_url)
+    store = storage.MariaDBStorage(storage_url)
 
     input_pipe = fdopen(input_pipe, "rb")
     output_pipe = fdopen(output_pipe, "wb")
@@ -91,7 +118,14 @@ def main() -> None:
             f"arguments, but {len(arguments)} were provided."
         )
         raise ValueError(msg)
-    task_context = TaskContext(task_id, storage)
+    task_context = client.TaskContext(task_id, store)
+    args = [task_context]
+    for i, arg in enumerate(arguments):
+        param = list(signature.parameters.values())[i]
+        if param.annotation == inspect.Parameter.empty:
+            raise
+    results = function(*args)
+    logger.debug("Function %s executed", function_name)
 
 
 if __name__ == "__main__":
