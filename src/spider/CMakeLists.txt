@@ -258,8 +258,8 @@ add_library(spider_tdl)
 target_sources(
     spider_tdl
     PRIVATE
-        ${SPIDER_TDL_SHARED_SOURCES}
         ${SPIDER_TDL_ANTLR_GENERATED_SOURCES}
+        ${SPIDER_TDL_SHARED_SOURCES}
 )
 target_sources(spider_tdl PUBLIC ${SPIDER_TDL_SHARED_HEADERS})
 target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
