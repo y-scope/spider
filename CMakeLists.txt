@@ -93,11 +93,7 @@ endif()
 
 # Find and setup antlr4-runtime
 find_package(antlr4-runtime REQUIRED)
-if(antlr4-runtime_FOUND)
-    message(STATUS "Found antlr4-runtime ${antlr4-runtime_VERSION}")
-else()
-    message(FATAL_ERROR "Could not find antlr4-runtime")
-endif()
+message(STATUS "Found antlr4-runtime ${antlr4-runtime_VERSION}")
 
 # Find and setup Boost Library
 if(SPIDER_USE_STATIC_LIBS)
