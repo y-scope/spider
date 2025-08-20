@@ -40,8 +40,4 @@ jobs:
         shell: "bash"
         run:
           |
-          git status --porcelain \
-            src/spider/tdl/parser/antlr_generated \
-            | grep . > /dev/null \
-              && exit 1 \
-              || exit 0
+          git status --exit-code src/spider/tdl/parser/antlr_generated
