@@ -1,11 +1,11 @@
 version: "3"
 
 includes:
-  build: "build-tasks.yaml"
-  deps: "dep-tasks.yaml"
+  build: "taskfiles/build.yaml"
+  deps: "taskfiles/deps.yaml"
   docs: "docs/tasks.yaml"
-  lint: "lint-tasks.yaml"
-  test: "test-tasks.yaml"
+  lint: "taskfiles/lint.yaml"
+  test: "taskfiles/test.yaml"
   utils: "tools/yscope-dev-utils/exports/taskfiles/utils/utils.yaml"
 
 vars:

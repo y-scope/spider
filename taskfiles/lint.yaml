@@ -177,12 +177,8 @@ tasks:
           --strict \
           .gersemirc \
           .github/ \
-          build-tasks.yaml \
-          dep-tasks.yaml \
-          docs/tasks.yaml \
-          lint-tasks.yaml \
           taskfile.yaml \
-          test-tasks.yaml
+          taskfiles/
 
   toml-check:
     cmds:
