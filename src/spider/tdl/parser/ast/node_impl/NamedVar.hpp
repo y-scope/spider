@@ -10,7 +10,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 /**

@@ -10,7 +10,7 @@
 #include <spider/tdl/parser/ast/IntSpec.hpp>
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Primitive.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::primitive_impl {
 class Int : public Primitive {

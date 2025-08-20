@@ -1,9 +1,9 @@
-#ifndef SPIDER_TDL_AST_SOURCELOCATION_HPP
-#define SPIDER_TDL_AST_SOURCELOCATION_HPP
+#ifndef SPIDER_TDL_PARSER_SOURCELOCATION_HPP
+#define SPIDER_TDL_PARSER_SOURCELOCATION_HPP
 
 #include <cstddef>
 
-namespace spider::tdl::parser::ast {
+namespace spider::tdl::parser {
 class SourceLocation {
 public:
     // Constructor
@@ -19,6 +19,6 @@ private:
     size_t m_line;
     size_t m_column;
 };
-}  // namespace spider::tdl::parser::ast
+}  // namespace spider::tdl::parser
 
-#endif  // SPIDER_TDL_AST_SOURCELOCATION_HPP
+#endif  // SPIDER_TDL_PARSER_SOURCELOCATION_HPP
