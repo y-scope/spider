@@ -197,6 +197,19 @@ target_link_libraries(
 
 add_library(spider::spider ALIAS spider_client)
 
+set(SPIDER_TDL_ANTLR_GENERATED_SOURCES
+    tdl/parser/antlr_generated/TaskDefLangBaseVisitor.cpp
+    tdl/parser/antlr_generated/TaskDefLangBaseVisitor.h
+    tdl/parser/antlr_generated/TaskDefLangLexer.cpp
+    tdl/parser/antlr_generated/TaskDefLangLexer.h
+    tdl/parser/antlr_generated/TaskDefLangParser.cpp
+    tdl/parser/antlr_generated/TaskDefLangParser.h
+    tdl/parser/antlr_generated/TaskDefLangVisitor.cpp
+    tdl/parser/antlr_generated/TaskDefLangVisitor.h
+    CACHE INTERNAL
+    "spider task definition language ANTLR generated source files"
+)
+
 set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/Node.cpp
     tdl/parser/ast/node_impl/Function.cpp
@@ -243,7 +256,12 @@ set(SPIDER_TDL_SHARED_HEADERS
 )
 
 add_library(spider_tdl)
-target_sources(spider_tdl PRIVATE ${SPIDER_TDL_SHARED_SOURCES})
+target_sources(
+    spider_tdl
+    PRIVATE
+        ${SPIDER_TDL_ANTLR_GENERATED_SOURCES}
+        ${SPIDER_TDL_SHARED_SOURCES}
+)
 target_sources(spider_tdl PUBLIC ${SPIDER_TDL_SHARED_HEADERS})
 target_include_directories(spider_tdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
@@ -251,6 +269,7 @@ target_link_libraries(
     spider_tdl
     PUBLIC
         absl::flat_hash_set
+        antlr4_static
         fmt::fmt
         ystdlib::error_handling
 )
