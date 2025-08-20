@@ -225,6 +225,7 @@ set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.cpp
     tdl/parser/ast/node_impl/type_impl/Struct.cpp
     tdl/parser/ast/utils.cpp
+    tdl/parser/parse.cpp
     CACHE INTERNAL
     "spider task definition language shared source files"
 )
@@ -251,6 +252,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/nodes.hpp
     tdl/parser/ast/SourceLocation.hpp
     tdl/parser/ast/utils.hpp
+    tdl/parser/parse.hpp
     CACHE INTERNAL
     "spider task definition language shared header files"
 )
