@@ -12,8 +12,8 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 using spider::tdl::parser::ast::node_impl::type_impl::Struct;
 using StructErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Struct::ErrorCodeEnum>;

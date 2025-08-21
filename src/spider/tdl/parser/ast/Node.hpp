@@ -11,7 +11,7 @@
 #include <ystdlib/error_handling/ErrorCode.hpp>
 #include <ystdlib/error_handling/Result.hpp>
 
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast {
 /**

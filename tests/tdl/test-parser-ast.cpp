@@ -25,7 +25,7 @@
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Float.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Struct.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace {
 /**
@@ -55,7 +55,7 @@ create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast
 /**
  * @return A source location for testing.
  */
-[[nodiscard]] auto create_source_location() -> spider::tdl::parser::ast::SourceLocation;
+[[nodiscard]] auto create_source_location() -> spider::tdl::parser::SourceLocation;
 
 auto create_struct_node(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
     using spider::tdl::parser::ast::node_impl::Identifier;
@@ -101,8 +101,8 @@ auto create_func(std::string_view name) -> std::unique_ptr<spider::tdl::parser::
     return std::move(func_result.value());
 }
 
-auto create_source_location() -> spider::tdl::parser::ast::SourceLocation {
-    return spider::tdl::parser::ast::SourceLocation{0, 0};
+auto create_source_location() -> spider::tdl::parser::SourceLocation {
+    return {0, 0};
 }
 
 TEST_CASE("test-ast-node", "[tdl][ast][Node]") {

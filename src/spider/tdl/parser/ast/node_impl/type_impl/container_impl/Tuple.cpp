@@ -13,8 +13,8 @@
 
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl {
 auto Tuple::create(std::vector<std::unique_ptr<Node>> elements, SourceLocation source_location)
