@@ -1,7 +1,8 @@
 """Serialization and deserialization using msgpack."""
 
 from dataclasses import fields, is_dataclass
-from typing import get_args, get_origin
+from types import GenericAlias
+from typing import cast, get_args, get_origin
 
 
 def msgpack_encoder(obj: object) -> list[object] | object:
@@ -46,7 +47,7 @@ def _decode_class(cls: type, data: object) -> object:
     return cls(data)
 
 
-def msgpack_decoder(cls: type, data: object) -> object:
+def msgpack_decoder(cls: type | GenericAlias, data: object) -> object:
     """
     Decodes data into an instance of `cls`.
     This function recursively decodes nested dataclasses, lists, and dictionaries.
@@ -59,7 +60,8 @@ def msgpack_decoder(cls: type, data: object) -> object:
 
     origin = get_origin(cls)
     if origin is None:
-        return _decode_class(cls, data)
+        # If `cls` does not have an origin, it is a concrete type.
+        return _decode_class(cast("type", cls), data)
 
     if origin is list:
         (key_type,) = get_args(cls)
@@ -75,5 +77,4 @@ def msgpack_decoder(cls: type, data: object) -> object:
             msgpack_decoder(key_type, k): msgpack_decoder(value_type, v) for k, v in data.items()
         }
 
-    # Fall back
-    return cls(data)
+    raise TypeError(msg)
