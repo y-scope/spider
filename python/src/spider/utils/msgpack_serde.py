@@ -38,7 +38,7 @@ def _decode_class(cls: type, data: object) -> object:
         if len(data) != len(parameters):
             raise TypeError(msg)
         args = []
-        for param, value in zip(parameters, data, strict=False):
+        for param, value in zip(parameters, data, strict=True):
             if not isinstance(param.type, type):
                 raise TypeError(msg)
             args.append(msgpack_decoder(param.type, value))
