@@ -14,8 +14,8 @@
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/primitive_impl/Int.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
 using MapErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Map::ErrorCodeEnum>;

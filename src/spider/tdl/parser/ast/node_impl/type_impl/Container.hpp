@@ -2,7 +2,7 @@
 #define SPIDER_TDL_PARSER_AST_NODE_IMPL_TYPE_IMPL_CONTAINER_HPP
 
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl {
 // Abstract base class for all container type nodes in the AST.

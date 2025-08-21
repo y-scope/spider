@@ -17,8 +17,8 @@
 #include <spider/tdl/parser/ast/node_impl/Identifier.hpp>
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
-#include <spider/tdl/parser/ast/SourceLocation.hpp>
 #include <spider/tdl/parser/ast/utils.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 using spider::tdl::parser::ast::node_impl::Function;
 using FunctionErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Function::ErrorCodeEnum>;

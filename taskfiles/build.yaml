@@ -23,3 +23,38 @@ tasks:
   spider-py:
     cmds:
       - "uv build --directory {{.G_SRC_PYTHON_DIR}} -o {{.G_BUILD_PYTHON_DIR}}"
+
+  tdl-generate-parsers:
+    vars:
+      CHECKSUM_FILE: "{{.G_BUILD_DIR}}/{{.TASK}}.md5"
+      OUTPUT_DIR: "{{.G_SRC_SPIDER_DIR}}/tdl/parser/antlr_generated"
+    deps:
+      - ":deps:install-antlr-jar"
+      - task: ":utils:checksum:validate"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
+    generates: ["{{.CHECKSUM_FILE}}"]
+    sources:
+      - "{{.G_SRC_SPIDER_DIR}}/tdl/parser/TaskDefLang.g4"
+    dir: "{{.G_SRC_SPIDER_DIR}}"
+    cmds:
+      - |-
+        rm -rf "{{.OUTPUT_DIR}}/"* \
+        && java -jar {{.G_ANTLR_JAR_FILE}} \
+          -Dlanguage=Cpp \
+          -no-listener \
+          -visitor \
+          -package spider::tdl::parser::antlr_generated \
+          -o tdl/parser/antlr_generated \
+          -Xexact-output-dir \
+          tdl/parser/TaskDefLang.g4 \
+        && find "{{.OUTPUT_DIR}}" \
+          -type f -and -not \( -name "*.cpp" -o -name "*.h" \) \
+          -exec rm {} \;
+
+      # This command must be last
+      - task: ":utils:checksum:compute"
+        vars:
+          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
+          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
