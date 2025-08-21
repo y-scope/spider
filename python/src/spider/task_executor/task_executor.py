@@ -65,7 +65,7 @@ def parse_arguments(
     :return: Parsed arguments.
     :raises TypeError: If a parameter has no type annotation or if an argument cannot be parsed.
     """
-    parsed_args = []
+    parsed_args: list[object] = []
     for i, param in enumerate(params):
         arg = arguments[i]
         cls = param.annotation
@@ -73,7 +73,10 @@ def parse_arguments(
             msg = f"Parameter {param.name} has no type annotation."
             raise TypeError(msg)
         if cls is client.Data:
-            core_data = store.get_data(UUID(arg))
+            if not isinstance(arg, bytes):
+                msg = f"Argument {i} for spider.Data is not bytes."
+                raise TypeError(msg)
+            core_data = store.get_data(UUID(bytes=arg))
             parsed_args.append(client.Data._from_impl(core_data))
         else:
             parsed_args.append(msgpack_decoder(cls, arg))
@@ -87,7 +90,7 @@ def parse_results(results: object) -> list[object]:
     :return: Parsed results.
     :raises TypeError: If a result cannot be parsed.
     """
-    response_messages = [TaskExecutorResponseType.Result]
+    response_messages: list[object] = [TaskExecutorResponseType.Result]
     if isinstance(results, tuple):
         for result in results:
             if isinstance(result, client.Data):
@@ -136,8 +139,10 @@ def main() -> None:
         )
         raise ValueError(msg)
     task_context = client.TaskContext(task_id, store)
-    args = [task_context] + parse_arguments(store, list(signature.parameters.values()), arguments)
-    results = function(*args)
+    arguments = [task_context] + parse_arguments(
+        store, list(signature.parameters.values()), arguments
+    )
+    results = function(*arguments)
     logger.debug("Function %s executed", function_name)
 
     responses = parse_results(results)
