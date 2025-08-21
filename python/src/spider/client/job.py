@@ -5,6 +5,8 @@ import msgpack
 from spider import core
 from spider.client.data import Data
 from spider.storage import Storage, StorageError
+from spider.type import parse_tdl_type
+from spider.utils import msgpack_decoder
 
 
 def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
@@ -19,7 +21,9 @@ def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
     results = []
     for output in outputs:
         if isinstance(output.value, core.TaskOutputValue):
-            results.append(msgpack.unpackb(output.value))
+            cls = parse_tdl_type(output.type).native_type()
+            unpacked = msgpack.unpackb(output.value, raw=False, strict_map_key=False)
+            results.append(msgpack_decoder(cls, unpacked))
         elif isinstance(output.value, core.Data):
             results.append(Data._from_impl(output.value))
         else:
