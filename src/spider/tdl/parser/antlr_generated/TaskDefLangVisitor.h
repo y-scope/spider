@@ -38,9 +38,17 @@ public:
 
     virtual std::any visitId(TaskDefLangParser::IdContext *context) = 0;
 
-    virtual std::any visitType(TaskDefLangParser::TypeContext *context) = 0;
+    virtual std::any visitVarType(TaskDefLangParser::VarTypeContext *context) = 0;
 
-    virtual std::any visitTypeList(TaskDefLangParser::TypeListContext *context) = 0;
+    virtual std::any visitRetType(TaskDefLangParser::RetTypeContext *context) = 0;
+
+    virtual std::any visitVarTypeList(TaskDefLangParser::VarTypeListContext *context) = 0;
+
+    virtual std::any visitListType(TaskDefLangParser::ListTypeContext *context) = 0;
+
+    virtual std::any visitMapType(TaskDefLangParser::MapTypeContext *context) = 0;
+
+    virtual std::any visitTupleType(TaskDefLangParser::TupleTypeContext *context) = 0;
 
     virtual std::any visitBuiltinType(TaskDefLangParser::BuiltinTypeContext *context) = 0;
 

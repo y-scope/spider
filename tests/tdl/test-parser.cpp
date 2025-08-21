@@ -34,7 +34,6 @@ struct Input {
     field_6: bool,
     field_7: List<int8>,
     field_8: Map<List<int8>, double>,
-    field_9: Tuple<int8, int16, int32>,
 };
 
 struct Output {
@@ -63,6 +62,24 @@ TEST_CASE("Parser errors", "[tdl][parser]") {
 
         constexpr std::string_view cExpectedErrorMessage{"Parser: missing ID at '{'"};
         constexpr SourceLocation cExpectedErrorLocation{1, 10};
+        REQUIRE(error.get_message() == cExpectedErrorMessage);
+        REQUIRE(error.get_source_location() == cExpectedErrorLocation);
+    }
+
+    SECTION("Tuple as a variable type") {
+        constexpr std::string_view cTupleAsFuncParam{
+                "namespace test { fn empty_func(invalid: Tuple<int8>); }"
+        };
+        std::istringstream input_stream{std::string{cTupleAsFuncParam}};
+        auto const parse_result{parse_translation_unit_from_istream(input_stream)};
+        REQUIRE(parse_result.has_error());
+        auto const& error{parse_result.error()};
+
+        constexpr std::string_view cExpectedErrorMessage{
+                "Parser: mismatched input 'Tuple' expecting {'List', 'Map', 'int8', 'int16', "
+                "'int32', 'int64', 'float', 'double', 'bool', ID}"
+        };
+        constexpr SourceLocation cExpectedErrorLocation{1, 40};
         REQUIRE(error.get_message() == cExpectedErrorMessage);
         REQUIRE(error.get_source_location() == cExpectedErrorLocation);
     }

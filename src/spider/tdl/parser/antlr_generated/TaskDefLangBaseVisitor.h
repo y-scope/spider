@@ -53,11 +53,27 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitType(TaskDefLangParser::TypeContext *ctx) override {
+  virtual std::any visitVarType(TaskDefLangParser::VarTypeContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitTypeList(TaskDefLangParser::TypeListContext *ctx) override {
+  virtual std::any visitRetType(TaskDefLangParser::RetTypeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitVarTypeList(TaskDefLangParser::VarTypeListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitListType(TaskDefLangParser::ListTypeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitMapType(TaskDefLangParser::MapTypeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTupleType(TaskDefLangParser::TupleTypeContext *ctx) override {
     return visitChildren(ctx);
   }
 

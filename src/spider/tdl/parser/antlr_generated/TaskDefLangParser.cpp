@@ -54,58 +54,65 @@ void taskdeflangParserInitialize() {
   auto staticData = std::make_unique<TaskDefLangParserStaticData>(
     std::vector<std::string>{
       "translationUnit", "namespace", "funcDef", "ret", "params", "namedVar", 
-      "namedVarList", "structDef", "id", "type", "typeList", "builtinType"
+      "namedVarList", "structDef", "id", "varType", "retType", "varTypeList", 
+      "listType", "mapType", "tupleType", "builtinType"
     },
     std::vector<std::string>{
       "", "'namespace'", "'{'", "'}'", "'fn'", "'('", "')'", "';'", "'->'", 
-      "':'", "','", "'struct'", "'int8'", "'int16'", "'int32'", "'int64'", 
-      "'float'", "'double'", "'bool'", "'List<'", "'>'", "'Map<'", "'Tuple<'"
+      "':'", "','", "'struct'", "'List'", "'<'", "'>'", "'Map'", "'Tuple'", 
+      "'int8'", "'int16'", "'int32'", "'int64'", "'float'", "'double'", 
+      "'bool'"
     },
     std::vector<std::string>{
       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 
-      "", "", "", "", "", "", "ID", "SPACE", "COMMENT"
+      "", "", "", "", "", "", "", "ID", "SPACE", "COMMENT"
     }
   );
   static const int32_t serializedATNSegment[] = {
-  	4,1,25,129,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
-  	7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,1,0,1,0,5,0,27,8,0,10,0,12,
-  	0,30,9,0,1,0,1,0,1,1,1,1,1,1,1,1,5,1,38,8,1,10,1,12,1,41,9,1,1,1,1,1,
-  	1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,3,1,3,1,3,3,3,56,8,3,1,4,1,4,3,4,60,
-  	8,4,1,5,1,5,1,5,1,5,1,6,1,6,1,6,1,6,1,6,1,6,5,6,72,8,6,10,6,12,6,75,9,
-  	6,1,7,1,7,1,7,1,7,1,7,3,7,82,8,7,1,7,1,7,1,7,1,8,1,8,1,9,1,9,3,9,91,8,
-  	9,1,10,1,10,1,10,3,10,96,8,10,1,10,1,10,1,10,5,10,101,8,10,10,10,12,10,
-  	104,9,10,1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,
-  	1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,1,11,3,11,127,8,11,1,11,0,2,12,
-  	20,12,0,2,4,6,8,10,12,14,16,18,20,22,0,0,135,0,28,1,0,0,0,2,33,1,0,0,
-  	0,4,44,1,0,0,0,6,55,1,0,0,0,8,59,1,0,0,0,10,61,1,0,0,0,12,65,1,0,0,0,
-  	14,76,1,0,0,0,16,86,1,0,0,0,18,90,1,0,0,0,20,95,1,0,0,0,22,126,1,0,0,
-  	0,24,27,3,2,1,0,25,27,3,14,7,0,26,24,1,0,0,0,26,25,1,0,0,0,27,30,1,0,
-  	0,0,28,26,1,0,0,0,28,29,1,0,0,0,29,31,1,0,0,0,30,28,1,0,0,0,31,32,5,0,
-  	0,1,32,1,1,0,0,0,33,34,5,1,0,0,34,35,3,16,8,0,35,39,5,2,0,0,36,38,3,4,
-  	2,0,37,36,1,0,0,0,38,41,1,0,0,0,39,37,1,0,0,0,39,40,1,0,0,0,40,42,1,0,
-  	0,0,41,39,1,0,0,0,42,43,5,3,0,0,43,3,1,0,0,0,44,45,5,4,0,0,45,46,3,16,
-  	8,0,46,47,5,5,0,0,47,48,3,8,4,0,48,49,5,6,0,0,49,50,3,6,3,0,50,51,5,7,
-  	0,0,51,5,1,0,0,0,52,53,5,8,0,0,53,56,3,18,9,0,54,56,1,0,0,0,55,52,1,0,
-  	0,0,55,54,1,0,0,0,56,7,1,0,0,0,57,60,3,12,6,0,58,60,1,0,0,0,59,57,1,0,
-  	0,0,59,58,1,0,0,0,60,9,1,0,0,0,61,62,3,16,8,0,62,63,5,9,0,0,63,64,3,18,
-  	9,0,64,11,1,0,0,0,65,66,6,6,-1,0,66,67,3,10,5,0,67,73,1,0,0,0,68,69,10,
-  	1,0,0,69,70,5,10,0,0,70,72,3,10,5,0,71,68,1,0,0,0,72,75,1,0,0,0,73,71,
-  	1,0,0,0,73,74,1,0,0,0,74,13,1,0,0,0,75,73,1,0,0,0,76,77,5,11,0,0,77,78,
-  	3,16,8,0,78,79,5,2,0,0,79,81,3,12,6,0,80,82,5,10,0,0,81,80,1,0,0,0,81,
-  	82,1,0,0,0,82,83,1,0,0,0,83,84,5,3,0,0,84,85,5,7,0,0,85,15,1,0,0,0,86,
-  	87,5,23,0,0,87,17,1,0,0,0,88,91,3,22,11,0,89,91,3,16,8,0,90,88,1,0,0,
-  	0,90,89,1,0,0,0,91,19,1,0,0,0,92,93,6,10,-1,0,93,96,3,18,9,0,94,96,1,
-  	0,0,0,95,92,1,0,0,0,95,94,1,0,0,0,96,102,1,0,0,0,97,98,10,2,0,0,98,99,
-  	5,10,0,0,99,101,3,18,9,0,100,97,1,0,0,0,101,104,1,0,0,0,102,100,1,0,0,
-  	0,102,103,1,0,0,0,103,21,1,0,0,0,104,102,1,0,0,0,105,127,5,12,0,0,106,
-  	127,5,13,0,0,107,127,5,14,0,0,108,127,5,15,0,0,109,127,5,16,0,0,110,127,
-  	5,17,0,0,111,127,5,18,0,0,112,113,5,19,0,0,113,114,3,18,9,0,114,115,5,
-  	20,0,0,115,127,1,0,0,0,116,117,5,21,0,0,117,118,3,18,9,0,118,119,5,10,
-  	0,0,119,120,3,18,9,0,120,121,5,20,0,0,121,127,1,0,0,0,122,123,5,22,0,
-  	0,123,124,3,20,10,0,124,125,5,20,0,0,125,127,1,0,0,0,126,105,1,0,0,0,
-  	126,106,1,0,0,0,126,107,1,0,0,0,126,108,1,0,0,0,126,109,1,0,0,0,126,110,
-  	1,0,0,0,126,111,1,0,0,0,126,112,1,0,0,0,126,116,1,0,0,0,126,122,1,0,0,
-  	0,127,23,1,0,0,0,11,26,28,39,55,59,73,81,90,95,102,126
+  	4,1,26,146,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
+  	7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,13,2,14,7,
+  	14,2,15,7,15,1,0,1,0,5,0,35,8,0,10,0,12,0,38,9,0,1,0,1,0,1,1,1,1,1,1,
+  	1,1,5,1,46,8,1,10,1,12,1,49,9,1,1,1,1,1,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,
+  	2,1,3,1,3,1,3,3,3,64,8,3,1,4,1,4,3,4,68,8,4,1,5,1,5,1,5,1,5,1,6,1,6,1,
+  	6,1,6,1,6,1,6,5,6,80,8,6,10,6,12,6,83,9,6,1,7,1,7,1,7,1,7,1,7,3,7,90,
+  	8,7,1,7,1,7,1,7,1,8,1,8,1,9,1,9,3,9,99,8,9,1,10,1,10,3,10,103,8,10,1,
+  	11,1,11,1,11,3,11,108,8,11,1,11,1,11,1,11,5,11,113,8,11,10,11,12,11,116,
+  	9,11,1,12,1,12,1,12,1,12,1,12,1,13,1,13,1,13,1,13,1,13,1,13,1,13,1,14,
+  	1,14,1,14,1,14,1,14,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,3,15,
+  	144,8,15,1,15,0,2,12,22,16,0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,
+  	0,0,148,0,36,1,0,0,0,2,41,1,0,0,0,4,52,1,0,0,0,6,63,1,0,0,0,8,67,1,0,
+  	0,0,10,69,1,0,0,0,12,73,1,0,0,0,14,84,1,0,0,0,16,94,1,0,0,0,18,98,1,0,
+  	0,0,20,102,1,0,0,0,22,107,1,0,0,0,24,117,1,0,0,0,26,122,1,0,0,0,28,129,
+  	1,0,0,0,30,143,1,0,0,0,32,35,3,2,1,0,33,35,3,14,7,0,34,32,1,0,0,0,34,
+  	33,1,0,0,0,35,38,1,0,0,0,36,34,1,0,0,0,36,37,1,0,0,0,37,39,1,0,0,0,38,
+  	36,1,0,0,0,39,40,5,0,0,1,40,1,1,0,0,0,41,42,5,1,0,0,42,43,3,16,8,0,43,
+  	47,5,2,0,0,44,46,3,4,2,0,45,44,1,0,0,0,46,49,1,0,0,0,47,45,1,0,0,0,47,
+  	48,1,0,0,0,48,50,1,0,0,0,49,47,1,0,0,0,50,51,5,3,0,0,51,3,1,0,0,0,52,
+  	53,5,4,0,0,53,54,3,16,8,0,54,55,5,5,0,0,55,56,3,8,4,0,56,57,5,6,0,0,57,
+  	58,3,6,3,0,58,59,5,7,0,0,59,5,1,0,0,0,60,61,5,8,0,0,61,64,3,20,10,0,62,
+  	64,1,0,0,0,63,60,1,0,0,0,63,62,1,0,0,0,64,7,1,0,0,0,65,68,3,12,6,0,66,
+  	68,1,0,0,0,67,65,1,0,0,0,67,66,1,0,0,0,68,9,1,0,0,0,69,70,3,16,8,0,70,
+  	71,5,9,0,0,71,72,3,18,9,0,72,11,1,0,0,0,73,74,6,6,-1,0,74,75,3,10,5,0,
+  	75,81,1,0,0,0,76,77,10,1,0,0,77,78,5,10,0,0,78,80,3,10,5,0,79,76,1,0,
+  	0,0,80,83,1,0,0,0,81,79,1,0,0,0,81,82,1,0,0,0,82,13,1,0,0,0,83,81,1,0,
+  	0,0,84,85,5,11,0,0,85,86,3,16,8,0,86,87,5,2,0,0,87,89,3,12,6,0,88,90,
+  	5,10,0,0,89,88,1,0,0,0,89,90,1,0,0,0,90,91,1,0,0,0,91,92,5,3,0,0,92,93,
+  	5,7,0,0,93,15,1,0,0,0,94,95,5,24,0,0,95,17,1,0,0,0,96,99,3,30,15,0,97,
+  	99,3,16,8,0,98,96,1,0,0,0,98,97,1,0,0,0,99,19,1,0,0,0,100,103,3,18,9,
+  	0,101,103,3,28,14,0,102,100,1,0,0,0,102,101,1,0,0,0,103,21,1,0,0,0,104,
+  	105,6,11,-1,0,105,108,3,18,9,0,106,108,1,0,0,0,107,104,1,0,0,0,107,106,
+  	1,0,0,0,108,114,1,0,0,0,109,110,10,2,0,0,110,111,5,10,0,0,111,113,3,18,
+  	9,0,112,109,1,0,0,0,113,116,1,0,0,0,114,112,1,0,0,0,114,115,1,0,0,0,115,
+  	23,1,0,0,0,116,114,1,0,0,0,117,118,5,12,0,0,118,119,5,13,0,0,119,120,
+  	3,18,9,0,120,121,5,14,0,0,121,25,1,0,0,0,122,123,5,15,0,0,123,124,5,13,
+  	0,0,124,125,3,18,9,0,125,126,5,10,0,0,126,127,3,18,9,0,127,128,5,14,0,
+  	0,128,27,1,0,0,0,129,130,5,16,0,0,130,131,5,13,0,0,131,132,3,22,11,0,
+  	132,133,5,14,0,0,133,29,1,0,0,0,134,144,5,17,0,0,135,144,5,18,0,0,136,
+  	144,5,19,0,0,137,144,5,20,0,0,138,144,5,21,0,0,139,144,5,22,0,0,140,144,
+  	5,23,0,0,141,144,3,24,12,0,142,144,3,26,13,0,143,134,1,0,0,0,143,135,
+  	1,0,0,0,143,136,1,0,0,0,143,137,1,0,0,0,143,138,1,0,0,0,143,139,1,0,0,
+  	0,143,140,1,0,0,0,143,141,1,0,0,0,143,142,1,0,0,0,144,31,1,0,0,0,12,34,
+  	36,47,63,67,81,89,98,102,107,114,143
   };
   staticData->serializedATN = antlr4::atn::SerializedATNView(serializedATNSegment, sizeof(serializedATNSegment) / sizeof(serializedATNSegment[0]));
 
@@ -207,23 +214,23 @@ TaskDefLangParser::TranslationUnitContext* TaskDefLangParser::translationUnit() 
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(28);
+    setState(36);
     _errHandler->sync(this);
     _la = _input->LA(1);
     while (_la == TaskDefLangParser::T__0
 
     || _la == TaskDefLangParser::T__10) {
-      setState(26);
+      setState(34);
       _errHandler->sync(this);
       switch (_input->LA(1)) {
         case TaskDefLangParser::T__0: {
-          setState(24);
+          setState(32);
           namespace_();
           break;
         }
 
         case TaskDefLangParser::T__10: {
-          setState(25);
+          setState(33);
           structDef();
           break;
         }
@@ -231,11 +238,11 @@ TaskDefLangParser::TranslationUnitContext* TaskDefLangParser::translationUnit() 
       default:
         throw NoViableAltException(this);
       }
-      setState(30);
+      setState(38);
       _errHandler->sync(this);
       _la = _input->LA(1);
     }
-    setState(31);
+    setState(39);
     match(TaskDefLangParser::EOF);
    
   }
@@ -293,23 +300,23 @@ TaskDefLangParser::NamespaceContext* TaskDefLangParser::namespace_() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(33);
+    setState(41);
     match(TaskDefLangParser::T__0);
-    setState(34);
+    setState(42);
     id();
-    setState(35);
+    setState(43);
     match(TaskDefLangParser::T__1);
-    setState(39);
+    setState(47);
     _errHandler->sync(this);
     _la = _input->LA(1);
     while (_la == TaskDefLangParser::T__3) {
-      setState(36);
+      setState(44);
       funcDef();
-      setState(41);
+      setState(49);
       _errHandler->sync(this);
       _la = _input->LA(1);
     }
-    setState(42);
+    setState(50);
     match(TaskDefLangParser::T__2);
    
   }
@@ -366,19 +373,19 @@ TaskDefLangParser::FuncDefContext* TaskDefLangParser::funcDef() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(44);
+    setState(52);
     match(TaskDefLangParser::T__3);
-    setState(45);
+    setState(53);
     id();
-    setState(46);
+    setState(54);
     match(TaskDefLangParser::T__4);
-    setState(47);
+    setState(55);
     params();
-    setState(48);
+    setState(56);
     match(TaskDefLangParser::T__5);
-    setState(49);
+    setState(57);
     ret();
-    setState(50);
+    setState(58);
     match(TaskDefLangParser::T__6);
    
   }
@@ -397,8 +404,8 @@ TaskDefLangParser::RetContext::RetContext(ParserRuleContext *parent, size_t invo
   : ParserRuleContext(parent, invokingState) {
 }
 
-TaskDefLangParser::TypeContext* TaskDefLangParser::RetContext::type() {
-  return getRuleContext<TaskDefLangParser::TypeContext>(0);
+TaskDefLangParser::RetTypeContext* TaskDefLangParser::RetContext::retType() {
+  return getRuleContext<TaskDefLangParser::RetTypeContext>(0);
 }
 
 
@@ -426,15 +433,15 @@ TaskDefLangParser::RetContext* TaskDefLangParser::ret() {
     exitRule();
   });
   try {
-    setState(55);
+    setState(63);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::T__7: {
         enterOuterAlt(_localctx, 1);
-        setState(52);
+        setState(60);
         match(TaskDefLangParser::T__7);
-        setState(53);
-        type();
+        setState(61);
+        retType();
         break;
       }
 
@@ -493,12 +500,12 @@ TaskDefLangParser::ParamsContext* TaskDefLangParser::params() {
     exitRule();
   });
   try {
-    setState(59);
+    setState(67);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::ID: {
         enterOuterAlt(_localctx, 1);
-        setState(57);
+        setState(65);
         namedVarList(0);
         break;
       }
@@ -533,8 +540,8 @@ TaskDefLangParser::IdContext* TaskDefLangParser::NamedVarContext::id() {
   return getRuleContext<TaskDefLangParser::IdContext>(0);
 }
 
-TaskDefLangParser::TypeContext* TaskDefLangParser::NamedVarContext::type() {
-  return getRuleContext<TaskDefLangParser::TypeContext>(0);
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::NamedVarContext::varType() {
+  return getRuleContext<TaskDefLangParser::VarTypeContext>(0);
 }
 
 
@@ -563,12 +570,12 @@ TaskDefLangParser::NamedVarContext* TaskDefLangParser::namedVar() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(61);
+    setState(69);
     id();
-    setState(62);
+    setState(70);
     match(TaskDefLangParser::T__8);
-    setState(63);
-    type();
+    setState(71);
+    varType();
    
   }
   catch (RecognitionException &e) {
@@ -633,10 +640,10 @@ TaskDefLangParser::NamedVarListContext* TaskDefLangParser::namedVarList(int prec
   try {
     size_t alt;
     enterOuterAlt(_localctx, 1);
-    setState(66);
+    setState(74);
     namedVar();
     _ctx->stop = _input->LT(-1);
-    setState(73);
+    setState(81);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 5, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -646,15 +653,15 @@ TaskDefLangParser::NamedVarListContext* TaskDefLangParser::namedVarList(int prec
         previousContext = _localctx;
         _localctx = _tracker.createInstance<NamedVarListContext>(parentContext, parentState);
         pushNewRecursionContext(_localctx, startState, RuleNamedVarList);
-        setState(68);
+        setState(76);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(69);
+        setState(77);
         match(TaskDefLangParser::T__9);
-        setState(70);
+        setState(78);
         namedVar(); 
       }
-      setState(75);
+      setState(83);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 5, _ctx);
     }
@@ -708,25 +715,25 @@ TaskDefLangParser::StructDefContext* TaskDefLangParser::structDef() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(76);
+    setState(84);
     match(TaskDefLangParser::T__10);
-    setState(77);
+    setState(85);
     id();
-    setState(78);
+    setState(86);
     match(TaskDefLangParser::T__1);
-    setState(79);
+    setState(87);
     namedVarList(0);
-    setState(81);
+    setState(89);
     _errHandler->sync(this);
 
     _la = _input->LA(1);
     if (_la == TaskDefLangParser::T__9) {
-      setState(80);
+      setState(88);
       match(TaskDefLangParser::T__9);
     }
-    setState(83);
+    setState(91);
     match(TaskDefLangParser::T__2);
-    setState(84);
+    setState(92);
     match(TaskDefLangParser::T__6);
    
   }
@@ -775,7 +782,7 @@ TaskDefLangParser::IdContext* TaskDefLangParser::id() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(86);
+    setState(94);
     match(TaskDefLangParser::ID);
    
   }
@@ -788,36 +795,36 @@ TaskDefLangParser::IdContext* TaskDefLangParser::id() {
   return _localctx;
 }
 
-//----------------- TypeContext ------------------------------------------------------------------
+//----------------- VarTypeContext ------------------------------------------------------------------
 
-TaskDefLangParser::TypeContext::TypeContext(ParserRuleContext *parent, size_t invokingState)
+TaskDefLangParser::VarTypeContext::VarTypeContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::TypeContext::builtinType() {
+TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::VarTypeContext::builtinType() {
   return getRuleContext<TaskDefLangParser::BuiltinTypeContext>(0);
 }
 
-TaskDefLangParser::IdContext* TaskDefLangParser::TypeContext::id() {
+TaskDefLangParser::IdContext* TaskDefLangParser::VarTypeContext::id() {
   return getRuleContext<TaskDefLangParser::IdContext>(0);
 }
 
 
-size_t TaskDefLangParser::TypeContext::getRuleIndex() const {
-  return TaskDefLangParser::RuleType;
+size_t TaskDefLangParser::VarTypeContext::getRuleIndex() const {
+  return TaskDefLangParser::RuleVarType;
 }
 
 
-std::any TaskDefLangParser::TypeContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any TaskDefLangParser::VarTypeContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<TaskDefLangVisitor*>(visitor))
-    return parserVisitor->visitType(this);
+    return parserVisitor->visitVarType(this);
   else
     return visitor->visitChildren(this);
 }
 
-TaskDefLangParser::TypeContext* TaskDefLangParser::type() {
-  TypeContext *_localctx = _tracker.createInstance<TypeContext>(_ctx, getState());
-  enterRule(_localctx, 18, TaskDefLangParser::RuleType);
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::varType() {
+  VarTypeContext *_localctx = _tracker.createInstance<VarTypeContext>(_ctx, getState());
+  enterRule(_localctx, 18, TaskDefLangParser::RuleVarType);
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
@@ -827,28 +834,27 @@ TaskDefLangParser::TypeContext* TaskDefLangParser::type() {
     exitRule();
   });
   try {
-    setState(90);
+    setState(98);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::T__11:
-      case TaskDefLangParser::T__12:
-      case TaskDefLangParser::T__13:
       case TaskDefLangParser::T__14:
-      case TaskDefLangParser::T__15:
       case TaskDefLangParser::T__16:
       case TaskDefLangParser::T__17:
       case TaskDefLangParser::T__18:
+      case TaskDefLangParser::T__19:
       case TaskDefLangParser::T__20:
-      case TaskDefLangParser::T__21: {
+      case TaskDefLangParser::T__21:
+      case TaskDefLangParser::T__22: {
         enterOuterAlt(_localctx, 1);
-        setState(88);
+        setState(96);
         builtinType();
         break;
       }
 
       case TaskDefLangParser::ID: {
         enterOuterAlt(_localctx, 2);
-        setState(89);
+        setState(97);
         id();
         break;
       }
@@ -867,46 +873,125 @@ TaskDefLangParser::TypeContext* TaskDefLangParser::type() {
   return _localctx;
 }
 
-//----------------- TypeListContext ------------------------------------------------------------------
+//----------------- RetTypeContext ------------------------------------------------------------------
 
-TaskDefLangParser::TypeListContext::TypeListContext(ParserRuleContext *parent, size_t invokingState)
+TaskDefLangParser::RetTypeContext::RetTypeContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-TaskDefLangParser::TypeContext* TaskDefLangParser::TypeListContext::type() {
-  return getRuleContext<TaskDefLangParser::TypeContext>(0);
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::RetTypeContext::varType() {
+  return getRuleContext<TaskDefLangParser::VarTypeContext>(0);
 }
 
-TaskDefLangParser::TypeListContext* TaskDefLangParser::TypeListContext::typeList() {
-  return getRuleContext<TaskDefLangParser::TypeListContext>(0);
-}
-
-
-size_t TaskDefLangParser::TypeListContext::getRuleIndex() const {
-  return TaskDefLangParser::RuleTypeList;
+TaskDefLangParser::TupleTypeContext* TaskDefLangParser::RetTypeContext::tupleType() {
+  return getRuleContext<TaskDefLangParser::TupleTypeContext>(0);
 }
 
 
-std::any TaskDefLangParser::TypeListContext::accept(tree::ParseTreeVisitor *visitor) {
+size_t TaskDefLangParser::RetTypeContext::getRuleIndex() const {
+  return TaskDefLangParser::RuleRetType;
+}
+
+
+std::any TaskDefLangParser::RetTypeContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<TaskDefLangVisitor*>(visitor))
-    return parserVisitor->visitTypeList(this);
+    return parserVisitor->visitRetType(this);
+  else
+    return visitor->visitChildren(this);
+}
+
+TaskDefLangParser::RetTypeContext* TaskDefLangParser::retType() {
+  RetTypeContext *_localctx = _tracker.createInstance<RetTypeContext>(_ctx, getState());
+  enterRule(_localctx, 20, TaskDefLangParser::RuleRetType);
+
+#if __cplusplus > 201703L
+  auto onExit = finally([=, this] {
+#else
+  auto onExit = finally([=] {
+#endif
+    exitRule();
+  });
+  try {
+    setState(102);
+    _errHandler->sync(this);
+    switch (_input->LA(1)) {
+      case TaskDefLangParser::T__11:
+      case TaskDefLangParser::T__14:
+      case TaskDefLangParser::T__16:
+      case TaskDefLangParser::T__17:
+      case TaskDefLangParser::T__18:
+      case TaskDefLangParser::T__19:
+      case TaskDefLangParser::T__20:
+      case TaskDefLangParser::T__21:
+      case TaskDefLangParser::T__22:
+      case TaskDefLangParser::ID: {
+        enterOuterAlt(_localctx, 1);
+        setState(100);
+        varType();
+        break;
+      }
+
+      case TaskDefLangParser::T__15: {
+        enterOuterAlt(_localctx, 2);
+        setState(101);
+        tupleType();
+        break;
+      }
+
+    default:
+      throw NoViableAltException(this);
+    }
+   
+  }
+  catch (RecognitionException &e) {
+    _errHandler->reportError(this, e);
+    _localctx->exception = std::current_exception();
+    _errHandler->recover(this, _localctx->exception);
+  }
+
+  return _localctx;
+}
+
+//----------------- VarTypeListContext ------------------------------------------------------------------
+
+TaskDefLangParser::VarTypeListContext::VarTypeListContext(ParserRuleContext *parent, size_t invokingState)
+  : ParserRuleContext(parent, invokingState) {
+}
+
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::VarTypeListContext::varType() {
+  return getRuleContext<TaskDefLangParser::VarTypeContext>(0);
+}
+
+TaskDefLangParser::VarTypeListContext* TaskDefLangParser::VarTypeListContext::varTypeList() {
+  return getRuleContext<TaskDefLangParser::VarTypeListContext>(0);
+}
+
+
+size_t TaskDefLangParser::VarTypeListContext::getRuleIndex() const {
+  return TaskDefLangParser::RuleVarTypeList;
+}
+
+
+std::any TaskDefLangParser::VarTypeListContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<TaskDefLangVisitor*>(visitor))
+    return parserVisitor->visitVarTypeList(this);
   else
     return visitor->visitChildren(this);
 }
 
 
-TaskDefLangParser::TypeListContext* TaskDefLangParser::typeList() {
-   return typeList(0);
+TaskDefLangParser::VarTypeListContext* TaskDefLangParser::varTypeList() {
+   return varTypeList(0);
 }
 
-TaskDefLangParser::TypeListContext* TaskDefLangParser::typeList(int precedence) {
+TaskDefLangParser::VarTypeListContext* TaskDefLangParser::varTypeList(int precedence) {
   ParserRuleContext *parentContext = _ctx;
   size_t parentState = getState();
-  TaskDefLangParser::TypeListContext *_localctx = _tracker.createInstance<TypeListContext>(_ctx, parentState);
-  TaskDefLangParser::TypeListContext *previousContext = _localctx;
+  TaskDefLangParser::VarTypeListContext *_localctx = _tracker.createInstance<VarTypeListContext>(_ctx, parentState);
+  TaskDefLangParser::VarTypeListContext *previousContext = _localctx;
   (void)previousContext; // Silence compiler, in case the context is not used by generated code.
-  size_t startState = 20;
-  enterRecursionRule(_localctx, 20, TaskDefLangParser::RuleTypeList, precedence);
+  size_t startState = 22;
+  enterRecursionRule(_localctx, 22, TaskDefLangParser::RuleVarTypeList, precedence);
 
     
 
@@ -920,12 +1005,12 @@ TaskDefLangParser::TypeListContext* TaskDefLangParser::typeList(int precedence) 
   try {
     size_t alt;
     enterOuterAlt(_localctx, 1);
-    setState(95);
+    setState(107);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 8, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 9, _ctx)) {
     case 1: {
-      setState(93);
-      type();
+      setState(105);
+      varType();
       break;
     }
 
@@ -937,27 +1022,27 @@ TaskDefLangParser::TypeListContext* TaskDefLangParser::typeList(int precedence) 
       break;
     }
     _ctx->stop = _input->LT(-1);
-    setState(102);
+    setState(114);
     _errHandler->sync(this);
-    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 9, _ctx);
+    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 10, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
       if (alt == 1) {
         if (!_parseListeners.empty())
           triggerExitRuleEvent();
         previousContext = _localctx;
-        _localctx = _tracker.createInstance<TypeListContext>(parentContext, parentState);
-        pushNewRecursionContext(_localctx, startState, RuleTypeList);
-        setState(97);
+        _localctx = _tracker.createInstance<VarTypeListContext>(parentContext, parentState);
+        pushNewRecursionContext(_localctx, startState, RuleVarTypeList);
+        setState(109);
 
         if (!(precpred(_ctx, 2))) throw FailedPredicateException(this, "precpred(_ctx, 2)");
-        setState(98);
+        setState(110);
         match(TaskDefLangParser::T__9);
-        setState(99);
-        type(); 
+        setState(111);
+        varType(); 
       }
-      setState(104);
+      setState(116);
       _errHandler->sync(this);
-      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 9, _ctx);
+      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 10, _ctx);
     }
   }
   catch (RecognitionException &e) {
@@ -968,22 +1053,191 @@ TaskDefLangParser::TypeListContext* TaskDefLangParser::typeList(int precedence) 
   return _localctx;
 }
 
+//----------------- ListTypeContext ------------------------------------------------------------------
+
+TaskDefLangParser::ListTypeContext::ListTypeContext(ParserRuleContext *parent, size_t invokingState)
+  : ParserRuleContext(parent, invokingState) {
+}
+
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::ListTypeContext::varType() {
+  return getRuleContext<TaskDefLangParser::VarTypeContext>(0);
+}
+
+
+size_t TaskDefLangParser::ListTypeContext::getRuleIndex() const {
+  return TaskDefLangParser::RuleListType;
+}
+
+
+std::any TaskDefLangParser::ListTypeContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<TaskDefLangVisitor*>(visitor))
+    return parserVisitor->visitListType(this);
+  else
+    return visitor->visitChildren(this);
+}
+
+TaskDefLangParser::ListTypeContext* TaskDefLangParser::listType() {
+  ListTypeContext *_localctx = _tracker.createInstance<ListTypeContext>(_ctx, getState());
+  enterRule(_localctx, 24, TaskDefLangParser::RuleListType);
+
+#if __cplusplus > 201703L
+  auto onExit = finally([=, this] {
+#else
+  auto onExit = finally([=] {
+#endif
+    exitRule();
+  });
+  try {
+    enterOuterAlt(_localctx, 1);
+    setState(117);
+    match(TaskDefLangParser::T__11);
+    setState(118);
+    match(TaskDefLangParser::T__12);
+    setState(119);
+    varType();
+    setState(120);
+    match(TaskDefLangParser::T__13);
+   
+  }
+  catch (RecognitionException &e) {
+    _errHandler->reportError(this, e);
+    _localctx->exception = std::current_exception();
+    _errHandler->recover(this, _localctx->exception);
+  }
+
+  return _localctx;
+}
+
+//----------------- MapTypeContext ------------------------------------------------------------------
+
+TaskDefLangParser::MapTypeContext::MapTypeContext(ParserRuleContext *parent, size_t invokingState)
+  : ParserRuleContext(parent, invokingState) {
+}
+
+std::vector<TaskDefLangParser::VarTypeContext *> TaskDefLangParser::MapTypeContext::varType() {
+  return getRuleContexts<TaskDefLangParser::VarTypeContext>();
+}
+
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::MapTypeContext::varType(size_t i) {
+  return getRuleContext<TaskDefLangParser::VarTypeContext>(i);
+}
+
+
+size_t TaskDefLangParser::MapTypeContext::getRuleIndex() const {
+  return TaskDefLangParser::RuleMapType;
+}
+
+
+std::any TaskDefLangParser::MapTypeContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<TaskDefLangVisitor*>(visitor))
+    return parserVisitor->visitMapType(this);
+  else
+    return visitor->visitChildren(this);
+}
+
+TaskDefLangParser::MapTypeContext* TaskDefLangParser::mapType() {
+  MapTypeContext *_localctx = _tracker.createInstance<MapTypeContext>(_ctx, getState());
+  enterRule(_localctx, 26, TaskDefLangParser::RuleMapType);
+
+#if __cplusplus > 201703L
+  auto onExit = finally([=, this] {
+#else
+  auto onExit = finally([=] {
+#endif
+    exitRule();
+  });
+  try {
+    enterOuterAlt(_localctx, 1);
+    setState(122);
+    match(TaskDefLangParser::T__14);
+    setState(123);
+    match(TaskDefLangParser::T__12);
+    setState(124);
+    varType();
+    setState(125);
+    match(TaskDefLangParser::T__9);
+    setState(126);
+    varType();
+    setState(127);
+    match(TaskDefLangParser::T__13);
+   
+  }
+  catch (RecognitionException &e) {
+    _errHandler->reportError(this, e);
+    _localctx->exception = std::current_exception();
+    _errHandler->recover(this, _localctx->exception);
+  }
+
+  return _localctx;
+}
+
+//----------------- TupleTypeContext ------------------------------------------------------------------
+
+TaskDefLangParser::TupleTypeContext::TupleTypeContext(ParserRuleContext *parent, size_t invokingState)
+  : ParserRuleContext(parent, invokingState) {
+}
+
+TaskDefLangParser::VarTypeListContext* TaskDefLangParser::TupleTypeContext::varTypeList() {
+  return getRuleContext<TaskDefLangParser::VarTypeListContext>(0);
+}
+
+
+size_t TaskDefLangParser::TupleTypeContext::getRuleIndex() const {
+  return TaskDefLangParser::RuleTupleType;
+}
+
+
+std::any TaskDefLangParser::TupleTypeContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<TaskDefLangVisitor*>(visitor))
+    return parserVisitor->visitTupleType(this);
+  else
+    return visitor->visitChildren(this);
+}
+
+TaskDefLangParser::TupleTypeContext* TaskDefLangParser::tupleType() {
+  TupleTypeContext *_localctx = _tracker.createInstance<TupleTypeContext>(_ctx, getState());
+  enterRule(_localctx, 28, TaskDefLangParser::RuleTupleType);
+
+#if __cplusplus > 201703L
+  auto onExit = finally([=, this] {
+#else
+  auto onExit = finally([=] {
+#endif
+    exitRule();
+  });
+  try {
+    enterOuterAlt(_localctx, 1);
+    setState(129);
+    match(TaskDefLangParser::T__15);
+    setState(130);
+    match(TaskDefLangParser::T__12);
+    setState(131);
+    varTypeList(0);
+    setState(132);
+    match(TaskDefLangParser::T__13);
+   
+  }
+  catch (RecognitionException &e) {
+    _errHandler->reportError(this, e);
+    _localctx->exception = std::current_exception();
+    _errHandler->recover(this, _localctx->exception);
+  }
+
+  return _localctx;
+}
+
 //----------------- BuiltinTypeContext ------------------------------------------------------------------
 
 TaskDefLangParser::BuiltinTypeContext::BuiltinTypeContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-std::vector<TaskDefLangParser::TypeContext *> TaskDefLangParser::BuiltinTypeContext::type() {
-  return getRuleContexts<TaskDefLangParser::TypeContext>();
+TaskDefLangParser::ListTypeContext* TaskDefLangParser::BuiltinTypeContext::listType() {
+  return getRuleContext<TaskDefLangParser::ListTypeContext>(0);
 }
 
-TaskDefLangParser::TypeContext* TaskDefLangParser::BuiltinTypeContext::type(size_t i) {
-  return getRuleContext<TaskDefLangParser::TypeContext>(i);
-}
-
-TaskDefLangParser::TypeListContext* TaskDefLangParser::BuiltinTypeContext::typeList() {
-  return getRuleContext<TaskDefLangParser::TypeListContext>(0);
+TaskDefLangParser::MapTypeContext* TaskDefLangParser::BuiltinTypeContext::mapType() {
+  return getRuleContext<TaskDefLangParser::MapTypeContext>(0);
 }
 
 
@@ -1001,7 +1255,7 @@ std::any TaskDefLangParser::BuiltinTypeContext::accept(tree::ParseTreeVisitor *v
 
 TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
   BuiltinTypeContext *_localctx = _tracker.createInstance<BuiltinTypeContext>(_ctx, getState());
-  enterRule(_localctx, 22, TaskDefLangParser::RuleBuiltinType);
+  enterRule(_localctx, 30, TaskDefLangParser::RuleBuiltinType);
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
@@ -1011,92 +1265,69 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
     exitRule();
   });
   try {
-    setState(126);
+    setState(143);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
-      case TaskDefLangParser::T__11: {
-        enterOuterAlt(_localctx, 1);
-        setState(105);
-        match(TaskDefLangParser::T__11);
-        break;
-      }
-
-      case TaskDefLangParser::T__12: {
-        enterOuterAlt(_localctx, 2);
-        setState(106);
-        match(TaskDefLangParser::T__12);
-        break;
-      }
-
-      case TaskDefLangParser::T__13: {
-        enterOuterAlt(_localctx, 3);
-        setState(107);
-        match(TaskDefLangParser::T__13);
-        break;
-      }
-
-      case TaskDefLangParser::T__14: {
-        enterOuterAlt(_localctx, 4);
-        setState(108);
-        match(TaskDefLangParser::T__14);
-        break;
-      }
-
-      case TaskDefLangParser::T__15: {
-        enterOuterAlt(_localctx, 5);
-        setState(109);
-        match(TaskDefLangParser::T__15);
-        break;
-      }
-
       case TaskDefLangParser::T__16: {
-        enterOuterAlt(_localctx, 6);
-        setState(110);
+        enterOuterAlt(_localctx, 1);
+        setState(134);
         match(TaskDefLangParser::T__16);
         break;
       }
 
       case TaskDefLangParser::T__17: {
-        enterOuterAlt(_localctx, 7);
-        setState(111);
+        enterOuterAlt(_localctx, 2);
+        setState(135);
         match(TaskDefLangParser::T__17);
         break;
       }
 
       case TaskDefLangParser::T__18: {
-        enterOuterAlt(_localctx, 8);
-        setState(112);
+        enterOuterAlt(_localctx, 3);
+        setState(136);
         match(TaskDefLangParser::T__18);
-        setState(113);
-        type();
-        setState(114);
+        break;
+      }
+
+      case TaskDefLangParser::T__19: {
+        enterOuterAlt(_localctx, 4);
+        setState(137);
         match(TaskDefLangParser::T__19);
         break;
       }
 
       case TaskDefLangParser::T__20: {
-        enterOuterAlt(_localctx, 9);
-        setState(116);
+        enterOuterAlt(_localctx, 5);
+        setState(138);
         match(TaskDefLangParser::T__20);
-        setState(117);
-        type();
-        setState(118);
-        match(TaskDefLangParser::T__9);
-        setState(119);
-        type();
-        setState(120);
-        match(TaskDefLangParser::T__19);
         break;
       }
 
       case TaskDefLangParser::T__21: {
-        enterOuterAlt(_localctx, 10);
-        setState(122);
+        enterOuterAlt(_localctx, 6);
+        setState(139);
         match(TaskDefLangParser::T__21);
-        setState(123);
-        typeList(0);
-        setState(124);
-        match(TaskDefLangParser::T__19);
+        break;
+      }
+
+      case TaskDefLangParser::T__22: {
+        enterOuterAlt(_localctx, 7);
+        setState(140);
+        match(TaskDefLangParser::T__22);
+        break;
+      }
+
+      case TaskDefLangParser::T__11: {
+        enterOuterAlt(_localctx, 8);
+        setState(141);
+        listType();
+        break;
+      }
+
+      case TaskDefLangParser::T__14: {
+        enterOuterAlt(_localctx, 9);
+        setState(142);
+        mapType();
         break;
       }
 
@@ -1117,7 +1348,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 bool TaskDefLangParser::sempred(RuleContext *context, size_t ruleIndex, size_t predicateIndex) {
   switch (ruleIndex) {
     case 6: return namedVarListSempred(antlrcpp::downCast<NamedVarListContext *>(context), predicateIndex);
-    case 10: return typeListSempred(antlrcpp::downCast<TypeListContext *>(context), predicateIndex);
+    case 11: return varTypeListSempred(antlrcpp::downCast<VarTypeListContext *>(context), predicateIndex);
 
   default:
     break;
@@ -1135,7 +1366,7 @@ bool TaskDefLangParser::namedVarListSempred(NamedVarListContext *_localctx, size
   return true;
 }
 
-bool TaskDefLangParser::typeListSempred(TypeListContext *_localctx, size_t predicateIndex) {
+bool TaskDefLangParser::varTypeListSempred(VarTypeListContext *_localctx, size_t predicateIndex) {
   switch (predicateIndex) {
     case 1: return precpred(_ctx, 2);
 

@@ -11,7 +11,7 @@ funcDef
 ;
 
 ret
-: '->' type
+: '->' retType
 |
 ;
 
@@ -21,7 +21,7 @@ params
 ;
 
 namedVar
-: id ':' type
+: id ':' varType
 ;
 
 namedVarList
@@ -37,15 +37,32 @@ id
 : ID
 ;
 
-type
+varType
 : builtinType
 | id
 ;
 
-typeList
-: type
-| typeList ',' type
+retType
+: varType
+| tupleType
+;
+
+varTypeList
+: varType
+| varTypeList ',' varType
 |
+;
+
+listType
+: 'List' '<' varType '>'
+;
+
+mapType
+: 'Map' '<' varType ',' varType '>'
+;
+
+tupleType
+: 'Tuple' '<' varTypeList '>'
 ;
 
 builtinType
@@ -56,9 +73,8 @@ builtinType
 | 'float'
 | 'double'
 | 'bool'
-| 'List<' type '>'
-| 'Map<' type ',' type '>'
-| 'Tuple<' typeList '>'
+| listType
+| mapType
 ;
 
 ID: [a-zA-Z_][a-zA-Z0-9_]* ;
