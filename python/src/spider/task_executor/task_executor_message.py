@@ -27,8 +27,12 @@ class TaskExecutorRequestType(IntEnum):
 class InvalidRequestTypeError(Exception):
     """Exception raised for invalid request types."""
 
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
+        """Initializes the InvalidRequestTypeError with a message."""
         super().__init__(message)
+
+
+MinArgRequestLength = 2
 
 
 def get_request_body(message: bytes) -> list[object]:
@@ -44,7 +48,7 @@ def get_request_body(message: bytes) -> list[object]:
     if not isinstance(data, list):
         msg = "Message is not a list."
         raise TypeError(msg)
-    if len(data) < 2:
+    if len(data) < MinArgRequestLength:
         msg = "Message is too short."
         raise TypeError(msg)
     message_header = int(data[0])

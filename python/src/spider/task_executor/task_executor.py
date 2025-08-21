@@ -10,7 +10,7 @@ from uuid import UUID
 
 import msgpack
 
-from spider import client, core, storage
+from spider import client, storage
 from spider.task_executor.task_executor_message import get_request_body, TaskExecutorResponseType
 from spider.utils import msgpack_decoder, msgpack_encoder
 
@@ -139,9 +139,10 @@ def main() -> None:
         )
         raise ValueError(msg)
     task_context = client.TaskContext(task_id, store)
-    arguments = [task_context] + parse_arguments(
-        store, list(signature.parameters.values()), arguments
-    )
+    arguments = [
+        task_context,
+        *parse_arguments(store, list(signature.parameters.values()), arguments),
+    ]
     results = function(*arguments)
     logger.debug("Function %s executed", function_name)
 
