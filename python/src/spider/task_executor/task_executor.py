@@ -141,7 +141,7 @@ def main() -> None:
     task_context = client.TaskContext(task_id, store)
     arguments = [
         task_context,
-        *parse_arguments(store, list(signature.parameters.values()), arguments),
+        *parse_arguments(store, list(signature.parameters.values())[1:], arguments),
     ]
     results = function(*arguments)
     logger.debug("Function %s executed", function_name)
