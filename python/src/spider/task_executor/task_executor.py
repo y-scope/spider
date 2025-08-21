@@ -94,7 +94,7 @@ def parse_results(results: object) -> list[object]:
     if isinstance(results, tuple):
         for result in results:
             if isinstance(result, client.Data):
-                response_messages.append(result.value)
+                response_messages.append(result._impl.id)
             else:
                 response_messages.append(msgpack_encoder(result))
     return response_messages
@@ -148,6 +148,8 @@ def main() -> None:
 
     responses = parse_results(results)
     output_pipe.write(msgpack.packb(responses))
+    output_pipe.flush()
+    output_pipe.close()
 
 
 if __name__ == "__main__":
