@@ -6,12 +6,13 @@ import inspect
 import logging
 from io import BufferedReader
 from os import fdopen
-from types import GenericAlias
 from uuid import UUID
 
-from spider import client, core, storage
-from spider.task_executor.task_executor_message import get_request_body
+import msgpack
 
+from spider import client, core, storage
+from spider.task_executor.task_executor_message import get_request_body, TaskExecutorResponseType
+from spider.utils import msgpack_decoder, msgpack_encoder
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -52,7 +53,10 @@ def receive_message(pipe: BufferedReader) -> bytes:
         raise EOFError(msg)
     return body
 
-def parse_arguments(store: storage.Storage, params: list[inspect.Parameter], arguments: list[object]) -> list[object]:
+
+def parse_arguments(
+    store: storage.Storage, params: list[inspect.Parameter], arguments: list[object]
+) -> list[object]:
     """
     Parses arguments for the function to be executed.
     :param store: Storage instance to use to get Data.
@@ -68,17 +72,30 @@ def parse_arguments(store: storage.Storage, params: list[inspect.Parameter], arg
         if param.annotation is inspect.Parameter.empty:
             msg = f"Parameter {param.name} has no type annotation."
             raise TypeError(msg)
-        if cls is bool:
-            parsed_args.append(arg)
-        elif cls is client.Data:
+        if cls is client.Data:
             core_data = store.get_data(UUID(arg))
             parsed_args.append(client.Data._from_impl(core_data))
         else:
-            if isinstance(arg, list) or isinstance(arg, GenericAlias):
-                parsed_args.append(cls(*arg))
-            else:
-                parsed_args.append(cls(arg))
+            parsed_args.append(msgpack_decoder(cls, arg))
     return parsed_args
+
+
+def parse_results(results: object) -> list[object]:
+    """
+    Parses results from the function execution.
+    :param results: Results to parse.
+    :return: Parsed results.
+    :raises TypeError: If a result cannot be parsed.
+    """
+    response_messages = [TaskExecutorResponseType.Result]
+    if isinstance(results, tuple):
+        for result in results:
+            if isinstance(result, client.Data):
+                response_messages.append(result.value)
+            else:
+                response_messages.append(msgpack_encoder(result))
+    return response_messages
+
 
 def main() -> None:
     """
@@ -119,13 +136,12 @@ def main() -> None:
         )
         raise ValueError(msg)
     task_context = client.TaskContext(task_id, store)
-    args = [task_context]
-    for i, arg in enumerate(arguments):
-        param = list(signature.parameters.values())[i]
-        if param.annotation == inspect.Parameter.empty:
-            raise
+    args = [task_context] + parse_arguments(store, list(signature.parameters.values()), arguments)
     results = function(*args)
     logger.debug("Function %s executed", function_name)
+
+    responses = parse_results(results)
+    output_pipe.write(msgpack.packb(responses))
 
 
 if __name__ == "__main__":

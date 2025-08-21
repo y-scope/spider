@@ -15,6 +15,7 @@ class TaskExecutorResponseType(IntEnum):
     Ready = 4
     Cancel = 5
 
+
 class TaskExecutorRequestType(IntEnum):
     """Task executor request type."""
 
@@ -22,11 +23,13 @@ class TaskExecutorRequestType(IntEnum):
     Arguments = 1
     Resume = 2
 
+
 class InvalidRequestTypeError(Exception):
     """Exception raised for invalid request types."""
 
     def __init__(self, message: str):
         super().__init__(message)
+
 
 def get_request_body(message: bytes) -> list[object]:
     """
