@@ -362,13 +362,14 @@ void MySqlMetadataStorage::add_task_batch(
     task_statement.setBytes(1, &task_id_bytes);
     task_statement.setBytes(2, &job_id);
     task_statement.setString(3, task.get_function_name());
+    task_statement.setString(4, task_language_to_string(task.get_language()));
     if (state.has_value()) {
-        task_statement.setString(4, task_state_to_string(state.value()));
+        task_statement.setString(5, task_state_to_string(state.value()));
     } else {
-        task_statement.setString(4, task_state_to_string(task.get_state()));
+        task_statement.setString(5, task_state_to_string(task.get_state()));
     }
-    task_statement.setFloat(5, task.get_timeout());
-    task_statement.setUInt(6, task.get_max_retries());
+    task_statement.setFloat(6, task.get_timeout());
+    task_statement.setUInt(7, task.get_max_retries());
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement.addBatch();
 
