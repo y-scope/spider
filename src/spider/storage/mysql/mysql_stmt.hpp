@@ -36,7 +36,7 @@ std::string const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `id` BINARY(16) NOT NULL,
     `job_id` BINARY(16) NOT NULL,
     `func_name` VARCHAR(64) NOT NULL,
-    `languague` ENUM('cpp', 'python', 'java') NOT NULL,
+    `language` ENUM('cpp', 'python', 'java') NOT NULL,
     `state` ENUM('pending', 'ready', 'running', 'success', 'cancel', 'fail') NOT NULL,
     `timeout` FLOAT,
     `max_retry` INT UNSIGNED DEFAULT 0,
