@@ -24,7 +24,7 @@ namespace test1 {
     fn return_empty_tuple() -> Tuple<>;
 
     // Function that returns a tuple of containers
-    fn return_empty_tuple() -> Tuple<List<int8>, Map<List<int8>, Map<int64, List<int8>>>>;
+    fn return_tuple_of_containers() -> Tuple<List<int8>, Map<List<int8>, Map<int64, List<int8>>>>;
 }
 
 struct Input {
