@@ -97,6 +97,10 @@ def parse_results(results: object) -> list[object]:
                 response_messages.append(result._impl.id)
             else:
                 response_messages.append(msgpack_encoder(result))
+    if isinstance(results, client.Data):
+        response_messages.append(results._impl.id)
+    else:
+        response_messages.append(msgpack_encoder(results))
     return response_messages
 
 
