@@ -66,7 +66,7 @@ TEST_CASE("Parser errors", "[tdl][parser]") {
         REQUIRE(error.get_message() == cExpectedErrorMessage);
         REQUIRE(error.get_source_location() == cExpectedErrorLocation);
     }
-}  // namespace
+}
 }  // namespace
 
 // NOLINTEND(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
