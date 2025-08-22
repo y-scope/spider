@@ -18,6 +18,7 @@ from .client import (
     get_task_state,
     remove_job,
     SQLConnection,
+    storage,  # noqa: F401
     submit_job,
     Task,
     TaskGraph,
@@ -72,7 +73,7 @@ def start_scheduler_worker(
 
 @pytest.fixture
 def scheduler_worker_signal(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None]:
     """
     Fixture to start a scheduler and a worker process.
@@ -97,7 +98,7 @@ class TestWorkerSignal:
 
     def test_task_signal(
         self,
-        storage: SQLConnection,
+        storage: SQLConnection,  # noqa: F811
         scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
@@ -174,7 +175,7 @@ class TestWorkerSignal:
 
     def test_task_exit(
         self,
-        storage: SQLConnection,
+        storage: SQLConnection,  # noqa: F811
         scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
