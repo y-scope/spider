@@ -67,6 +67,7 @@ ignore = [
   "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
+typing-extensions = false  # Disable type extensions for 3.10 compatibility
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
