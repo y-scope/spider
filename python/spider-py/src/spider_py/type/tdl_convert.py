@@ -21,30 +21,6 @@ from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
 from spider_py.type.utils import get_class_name
 
 
-def to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
-    """
-    Converts a native type to primitive TDL type.
-    :param native_type:
-    :return: Converted TDL primitive. None if `native_type` is not a supported primitive type.
-    """
-    tdl_type: TdlType | None = None
-    if native_type is Int8:
-        tdl_type = Int8Type()
-    elif native_type is Int16:
-        tdl_type = Int16Type()
-    elif native_type is Int32:
-        tdl_type = Int32Type()
-    elif native_type is Int64:
-        tdl_type = Int64Type()
-    elif native_type is Float:
-        tdl_type = FloatType()
-    elif native_type is Double:
-        tdl_type = DoubleType()
-    elif native_type is bool:
-        tdl_type = BoolType()
-    return tdl_type
-
-
 TypeDict = {
     Int8: Int8Type(),
     Int16: Int16Type(),
