@@ -83,19 +83,19 @@ class TypeTransformer(Transformer[Token, TdlType]):
         return ClassType(name)
 
 
-parser = Lark(grammar, start="type", parser="lalr")
+_parser = Lark(grammar, start="type", parser="lalr")
 
 
-def parse_tdl_type(string: str) -> TdlType:
+def parse_tdl_type(type_string: str) -> TdlType:
     """
     Parses TDL type string into TDL type.
-    :param string: TDL type string.
+    :param type_string: TDL type string.
     :return: Parsed TDL type.
     :raises TypeError: If string is not a valid TDL type.
     """
     try:
-        tree = parser.parse(string)
+        tree = _parser.parse(type_string)
         return TypeTransformer(visit_tokens=False).transform(tree)
-    except LarkError as ecx:
-        msg = f"Cannot parse TDL type '{string}'"
-        raise TypeError(msg) from ecx
+    except LarkError as e:
+        msg = f"Cannot parse TDL type `{type_string}`"
+        raise TypeError(msg) from e
