@@ -9,6 +9,7 @@
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
+#include <spider/tdl/parser/ast/node_impl/TranslationUnit.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Container.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
@@ -43,6 +44,7 @@ using Tuple = node_impl::type_impl::container_impl::Tuple;
 using Int = node_impl::type_impl::primitive_impl::Int;
 using Float = node_impl::type_impl::primitive_impl::Float;
 using Bool = node_impl::type_impl::primitive_impl::Bool;
+using TranslationUnit = node_impl::TranslationUnit;
 }  // namespace spider::tdl::parser::ast
 
 #endif  // SPIDER_TDL_PARSER_AST_NODES_HPP
