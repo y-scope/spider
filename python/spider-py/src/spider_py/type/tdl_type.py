@@ -102,7 +102,7 @@ class ListType(TdlType):
 def is_integral(tdl_type: TdlType) -> bool:
     """
     :param tdl_type:
-    :return: If `tdl_type` is a TDL integral type.
+    :return: Whether `tdl_type` is a TDL integral type.
     """
     return isinstance(tdl_type, (Int8Type, Int16Type, Int32Type, Int64Type))
 
