@@ -20,7 +20,6 @@ from spider_py.type.tdl_type import (
 from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
 from spider_py.type.utils import get_class_name
 
-
 TypeDict = {
     Int8: Int8Type(),
     Int16: Int16Type(),
