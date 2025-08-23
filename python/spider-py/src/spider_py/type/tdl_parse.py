@@ -71,16 +71,16 @@ class TypeTransformer(Transformer[Token, TdlType]):
         """
         return ListType(element_type)
 
-    def base_type(self, children: list[Token]) -> TdlType:
+    @v_args(inline=True)
+    def base_type(self, token_id: str) -> TdlType:
         """
         Transforms primitive node into primitive type.
-        :param children: The children of the primitive node. Should contain a single child.
-        :return: The corresponding TdlType of the child node.
+        :param token_id: The token id of the primitive type.
+        :return: The corresponding TdlType of the `token_id`.
         """
-        name = str(children[0])
-        if name in PrimitiveTypeDict:
-            return PrimitiveTypeDict[name]
-        return ClassType(name)
+        if token_id in PrimitiveTypeDict:
+            return PrimitiveTypeDict[token_id]
+        return ClassType(token_id)
 
 
 _parser = Lark(grammar, start="type", parser="lalr")
