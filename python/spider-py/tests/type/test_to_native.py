@@ -11,8 +11,8 @@ from spider_py.type.utils import get_class_name
 
 def string_to_native(s: str) -> type | GenericAlias:
     """
-    Converts TDL string to native type.
-    :param s: TDL string to convert.
+    Converts a TDL type string to a native type object.
+    :param s: The TDL type string to convert.
     :return: The converted native type.
     :raises: TypeError forwards from `parse_tdl_type` and `native_type`.
     """
