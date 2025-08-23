@@ -4,9 +4,9 @@ from types import GenericAlias
 
 import pytest
 
-import spider
-from spider.type.tdl_parse import parse_tdl_type
-from spider.type.utils import get_class_name
+import spider_py
+from spider_py.type.tdl_parse import parse_tdl_type
+from spider_py.type.utils import get_class_name
 
 
 def string_to_native(s: str) -> type | GenericAlias:
@@ -25,12 +25,12 @@ class TestToNativeType:
     def test_to_primitive_native_type(self) -> None:
         """Test converting primitive TDL type to native type."""
         assert string_to_native("bool") is bool
-        assert string_to_native("double") is spider.Double
-        assert string_to_native("float") is spider.Float
-        assert string_to_native("int8") is spider.Int8
-        assert string_to_native("int16") is spider.Int16
-        assert string_to_native("int32") is spider.Int32
-        assert string_to_native("int64") is spider.Int64
+        assert string_to_native("double") is spider_py.Double
+        assert string_to_native("float") is spider_py.Float
+        assert string_to_native("int8") is spider_py.Int8
+        assert string_to_native("int16") is spider_py.Int16
+        assert string_to_native("int32") is spider_py.Int32
+        assert string_to_native("int64") is spider_py.Int64
 
     def test_to_class_type(self) -> None:
         """Test converting class TDL type to native type."""
@@ -42,13 +42,13 @@ class TestToNativeType:
 
     def test_to_list_type(self) -> None:
         """Test converting list TDL type to native type."""
-        assert string_to_native("List<int8>") == list[spider.Int8]
-        assert string_to_native("List<List<int8>>") == list[list[spider.Int8]]
+        assert string_to_native("List<int8>") == list[spider_py.Int8]
+        assert string_to_native("List<List<int8>>") == list[list[spider_py.Int8]]
 
     def test_to_map_type(self) -> None:
         """Test converting map TDL type to native type."""
-        assert string_to_native("Map<int8,int8>") == dict[spider.Int8, spider.Int8]
+        assert string_to_native("Map<int8,int8>") == dict[spider_py.Int8, spider_py.Int8]
         assert (
             string_to_native("Map<List<int8>,Map<int8,double>>")
-            == dict[list[spider.Int8], dict[spider.Int8, spider.Double]]
+            == dict[list[spider_py.Int8], dict[spider_py.Int8, spider_py.Double]]
         )

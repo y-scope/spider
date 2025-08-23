@@ -1,9 +1,13 @@
 [project]
-name = "spider"
+name = "spider-py"
 version = "0.0.1"
-description = "Spider is a distributed task execution framework"
+description = "A distributed task execution framework."
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+  { name = "Sitao Wang", email = "sitao.wang@yscope.com" },
+  { name = "Zhihao Lin", email = "lin.zhihao@yscope.com" },
+]
 dependencies = [
   "lark>=1.2.2",
   "mariadb>=1.1.13",
@@ -11,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-spider_task_executor = "spider.task_executor.task_executor:main"
+spider_task_executor = "spider_py.task_executor.task_executor:main"
 
 [dependency-groups]
 dev = [
@@ -57,6 +61,7 @@ ignore = [
   "FIX002",  # Allow todo statements
   "PERF401",  # Allow for loops when creating lists
   "PERF403",  # Allow for loops when creating dicts
+  "PLR1716",  # Allow chained boolean comparisons
   "S311",  # Allow usage of `random` package
   "SIM102",  # Allow collapsible if statements for readability
   "TD002",  # Author unnecessary for todo statement
@@ -64,6 +69,7 @@ ignore = [
   "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
+typing-extensions = false  # Disable type extensions for 3.10 compatibility
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [

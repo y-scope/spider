@@ -2,7 +2,7 @@
 
 from lark import Lark, LarkError, Token, Transformer, v_args
 
-from spider.type.tdl_type import (
+from spider_py.type.tdl_type import (
     BoolType,
     ClassType,
     DoubleType,
