@@ -65,22 +65,20 @@ def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
     if isinstance(native_type, GenericAlias):
         origin = get_origin(native_type)
         if origin is list:
-            arg = get_args(native_type)
-            if arg is None:
+            args = get_args(native_type)
+            if len(args) == 0:
                 msg = "List does not have an element type."
                 raise TypeError(msg)
-            arg = arg[0]
+            arg = args[0]
             return ListType(to_tdl_type(arg))
 
         if origin is dict:
-            arg = get_args(native_type)
+            args = get_args(native_type)
             msg = "Dict does not have a key/value type."
-            if arg is None:
+            if len(args) != 2:  # noqa: PLR2004
                 raise TypeError(msg)
-            if len(arg) != 2:  # noqa: PLR2004
-                raise TypeError(msg)
-            key = arg[0]
-            value = arg[1]
+            key = args[0]
+            value = args[1]
             return MapType(to_tdl_type(key), to_tdl_type(value))
 
         msg = f"{native_type} is not a valid TDL type."
