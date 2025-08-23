@@ -52,7 +52,7 @@ def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
     Converts a Python type to TDL type.
     :param native_type:
     :return: The converted TDL type.
-    :raise: TypeError if `native_type` is not a valid TDL type.
+    :raises TypeError: If `native_type` is not a valid TDL type.
     """
     primitive_tdl_type = _to_primitive_tdl_type(native_type)
     if primitive_tdl_type is not None:
@@ -95,6 +95,6 @@ def to_tdl_type_str(native_type: type | GenericAlias) -> str:
     """
     :param native_type: A Python native type.
     :return: A string representation of the TDL type.
-    :raise: TypeError if `native_type` is not a valid TDL type.
+    :raises TypeError: If `native_type` is not a valid TDL type.
     """
     return to_tdl_type(native_type).type_str()
