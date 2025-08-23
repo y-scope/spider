@@ -88,7 +88,10 @@ class ListType(TdlType):
     """TDL List type."""
 
     def __init__(self, element_type: TdlType) -> None:
-        """Creates a TDL list type."""
+        """
+        Creates a TDL list type.
+        :param element_type:
+        """
         self.element_type = element_type
 
     @override
@@ -97,17 +100,26 @@ class ListType(TdlType):
 
 
 def is_integral(tdl_type: TdlType) -> bool:
-    """:return: If TDL type is an integral type."""
+    """
+    :param tdl_type:
+    :return: If `tdl_type` is a TDL integral type.
+    """
     return isinstance(tdl_type, (Int8Type, Int16Type, Int32Type, Int64Type))
 
 
 def is_string(tdl_type: TdlType) -> bool:
-    """:return: If TDL type is a string type, i.e. List<int8>."""
+    """
+    :param tdl_type:
+    :return: Whether `tdl_type` is a TDL string type, i.e. `List<int8>`.
+    """
     return isinstance(tdl_type, ListType) and isinstance(tdl_type.element_type, Int8Type)
 
 
 def is_map_key(tdl_type: TdlType) -> bool:
-    """:return: If TDL type is a valid type for map key."""
+    """
+    :param tdl_type:
+    :return: Whether `tdl_type` is a supported key type of a map.
+    """
     return is_integral(tdl_type) or is_string(tdl_type)
 
 
@@ -117,6 +129,8 @@ class MapType(TdlType):
     def __init__(self, key_type: TdlType, value_type: TdlType) -> None:
         """
         Creates a TDL map type.
+        :param key_type:
+        :param value_type:
         :raises TypeError: If key is not a supported type.
         """
         if not is_map_key(key_type):

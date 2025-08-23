@@ -18,7 +18,7 @@ class BoundedInt(int):
             raise ValueError(msg)
 
         if not (min_val <= value and value <= max_val):
-            msg = f"Bounded integer value ({value}) must be between {min_val} and {max_val}"
+            msg = f"Bounded integer value ({value}) must be between {min_val} and {max_val}."
             raise ValueError(msg)
 
         return super().__new__(cls, value)

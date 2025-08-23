@@ -25,7 +25,9 @@ def to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
     """
     Converts a native type to primitive TDL type.
     :param native_type:
-    :return: Converted TDL primitive. None if `native_type` is not a supported primitive type.
+    :return:
+        - The converted TDL primitive if `native_type` is supported.
+        - None otherwise.
     """
     tdl_type: TdlType | None = None
     if native_type is Int8:
@@ -49,7 +51,7 @@ def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
     """
     Converts a Python type to TDL type.
     :param native_type:
-    :return:
+    :return: The converted TDL type.
     :raise: TypeError if `native_type` is not a valid TDL type.
     """
     primitive_tdl_type = to_primitive_tdl_type(native_type)
@@ -65,7 +67,7 @@ def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
         if origin is list:
             arg = get_args(native_type)
             if arg is None:
-                msg = "List does not have a key type."
+                msg = "List does not have an element type."
                 raise TypeError(msg)
             arg = arg[0]
             return ListType(to_tdl_type(arg))
