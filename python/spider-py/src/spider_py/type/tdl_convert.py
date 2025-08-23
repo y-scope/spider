@@ -27,7 +27,8 @@ def _to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
     :param native_type:
     :return:
         - The converted TDL primitive if `native_type` is supported.
-        - None otherwise.
+        - None if `native_type` is not a primitive Python type.
+    :raises TypeError: If `native_type` is a primitive Python type not supported by TDL.
     """
     tdl_type: TdlType | None = None
     if native_type is Int8:
@@ -44,6 +45,11 @@ def _to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
         tdl_type = DoubleType()
     elif native_type is bool:
         tdl_type = BoolType()
+
+    if native_type in (int, float, str, complex, bytes):
+        msg = f"{native_type} is not a TDL type. Please use the corresponding TDL primitive type."
+        raise TypeError(msg)
+
     return tdl_type
 
 
@@ -57,10 +63,6 @@ def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
     primitive_tdl_type = _to_primitive_tdl_type(native_type)
     if primitive_tdl_type is not None:
         return primitive_tdl_type
-
-    if native_type in (int, float, str, complex, bytes):
-        msg = f"{native_type} is not a valid TDL type."
-        raise TypeError(msg)
 
     if isinstance(native_type, GenericAlias):
         origin = get_origin(native_type)
