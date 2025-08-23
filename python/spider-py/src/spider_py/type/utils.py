@@ -16,12 +16,13 @@ def get_class_by_name(name: str) -> type:
     """
     Gets class by name.
     :param name:
-    :return:
+    :return: The type object identified by `name`.
     :raise: TypeError if `class_name` is not a valid class.
     """
-    parts = name.split(".")
-    module_name = ".".join(parts[:-1])
-    class_name = parts[-1]
+    module_name, _, class_name = name.rpartition(".")
+    if "" == module_name:
+        msg = f"{name} does not contain a valid Python module."
+        raise TypeError(msg)
     try:
         module = import_module(module_name)
         return cast("type", getattr(module, class_name))
