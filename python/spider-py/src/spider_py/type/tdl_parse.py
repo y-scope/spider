@@ -84,6 +84,7 @@ class TypeTransformer(Transformer[Token, TdlType]):
 
 
 _parser = Lark(grammar, start="type", parser="lalr")
+_transformer = TypeTransformer(visit_tokens=False)
 
 
 def parse_tdl_type(type_string: str) -> TdlType:
@@ -95,7 +96,7 @@ def parse_tdl_type(type_string: str) -> TdlType:
     """
     try:
         tree = _parser.parse(type_string)
-        return TypeTransformer(visit_tokens=False).transform(tree)
+        return _transformer.transform(tree)
     except LarkError as e:
         msg = f"Cannot parse TDL type `{type_string}`"
         raise TypeError(msg) from e
