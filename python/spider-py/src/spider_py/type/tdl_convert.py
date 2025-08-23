@@ -21,7 +21,7 @@ from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
 from spider_py.type.utils import get_class_name
 
 
-def to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
+def _to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
     """
     Converts a native type to primitive TDL type.
     :param native_type:
@@ -54,7 +54,7 @@ def to_tdl_type(native_type: type | GenericAlias) -> TdlType:
     :return: The converted TDL type.
     :raise: TypeError if `native_type` is not a valid TDL type.
     """
-    primitive_tdl_type = to_primitive_tdl_type(native_type)
+    primitive_tdl_type = _to_primitive_tdl_type(native_type)
     if primitive_tdl_type is not None:
         return primitive_tdl_type
 
