@@ -26,6 +26,6 @@ def get_class_by_name(name: str) -> type:
     try:
         module = import_module(module_name)
         return cast("type", getattr(module, class_name))
-    except (ValueError, ModuleNotFoundError, AttributeError) as exc:
+    except (ValueError, ModuleNotFoundError, AttributeError) as e:
         msg = f"{name} is not a valid TDL type."
-        raise TypeError(msg) from exc
+        raise TypeError(msg) from e
