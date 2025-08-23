@@ -20,7 +20,7 @@ def get_class_by_name(name: str) -> type:
     :raise: TypeError if `class_name` is not a valid class.
     """
     module_name, _, class_name = name.rpartition(".")
-    if "" == module_name:
+    if module_name == "":
         msg = f"{name} does not contain a valid Python module."
         raise TypeError(msg)
     try:
