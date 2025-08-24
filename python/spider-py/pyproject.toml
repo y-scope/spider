@@ -9,6 +9,7 @@ authors = [
   { name = "Zhihao Lin", email = "lin.zhihao@yscope.com" },
 ]
 dependencies = [
+  "lark>=1.2.2",
   "mariadb>=1.1.13",
   "msgpack-types>=0.5.0",
 ]
