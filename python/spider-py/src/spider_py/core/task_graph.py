@@ -7,14 +7,22 @@ from spider_py.core.task import Task, TaskId, TaskInputOutput
 
 
 class TaskGraph:
-    """Represents a task graph in Spider."""
+    """
+    Represents a task graph in Spider.
+    TaskGraph represents a directed acyclic graph (DAG) of tasks.
+    It stores:
+    - tasks: A dictionary mapping task ids to Task objects.
+    - dependencies: A list of tuples representing the dependencies between tasks. Each tuple
+      contains:
+        - parent task id
+        - child task id
+    - input_tasks: A list of task ids that have no parents (input tasks).
+    - output_tasks: A list of task ids that have no children (output tasks).
+    """
 
     def __init__(self) -> None:
         """Initializes an empty task graph."""
         self.tasks: dict[TaskId, Task] = {}
-        # Dependency list consists of a list of tuples of
-        #   - parent task id
-        #   - child task id
         self.dependencies: list[tuple[TaskId, TaskId]] = []
         self.input_tasks: list[TaskId] = []
         self.output_tasks: list[TaskId] = []
@@ -46,17 +54,16 @@ class TaskGraph:
 
     def get_parents(self, task_id: TaskId) -> list[Task]:
         """
-        Gets parent tasks of task.
-        :param task_id: ID of the task.
-        :return: List of parent tasks.
+        :param task_id:
+        :return: Parent tasks of the task identified by `task_id`.
         """
         return [self.tasks[parent] for (parent, child) in self.dependencies if child == task_id]
 
     def get_children(self, task_id: TaskId) -> list[Task]:
         """
         Gets child tasks of task.
-        :param task_id: ID of the task.
-        :return: List of children tasks.
+        :param task_id:
+        :return: Child tasks of the task identified by `task_id`.
         """
         return [self.tasks[child] for (parent, child) in self.dependencies if parent == task_id]
 

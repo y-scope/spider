@@ -1,8 +1,12 @@
 """Spider TDL types."""
 
 from abc import ABC, abstractmethod
+from types import GenericAlias
 
 from typing_extensions import override
+
+from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
+from spider_py.type.utils import get_class_by_name
 
 
 class TdlType(ABC):
@@ -12,6 +16,10 @@ class TdlType(ABC):
     def type_str(self) -> str:
         """:return: String representation of the TDL type."""
 
+    @abstractmethod
+    def native_type(self) -> type | GenericAlias:
+        """:return: Native Python type of the TDL type."""
+
 
 class DoubleType(TdlType):
     """TDL double type."""
@@ -19,6 +27,10 @@ class DoubleType(TdlType):
     @override
     def type_str(self) -> str:
         return "double"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return Double
 
 
 class FloatType(TdlType):
@@ -28,6 +40,10 @@ class FloatType(TdlType):
     def type_str(self) -> str:
         return "float"
 
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return Float
+
 
 class Int8Type(TdlType):
     """TDL int8 type."""
@@ -35,6 +51,10 @@ class Int8Type(TdlType):
     @override
     def type_str(self) -> str:
         return "int8"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return Int8
 
 
 class Int16Type(TdlType):
@@ -44,6 +64,10 @@ class Int16Type(TdlType):
     def type_str(self) -> str:
         return "int16"
 
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return Int16
+
 
 class Int32Type(TdlType):
     """TDL int32 type."""
@@ -51,6 +75,10 @@ class Int32Type(TdlType):
     @override
     def type_str(self) -> str:
         return "int32"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return Int32
 
 
 class Int64Type(TdlType):
@@ -60,6 +88,10 @@ class Int64Type(TdlType):
     def type_str(self) -> str:
         return "int64"
 
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return Int64
+
 
 class BoolType(TdlType):
     """TDL bool type."""
@@ -67,6 +99,10 @@ class BoolType(TdlType):
     @override
     def type_str(self) -> str:
         return "bool"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return bool
 
 
 class ClassType(TdlType):
@@ -77,54 +113,84 @@ class ClassType(TdlType):
         Creates a TDL custom class type.
         :param name: The name of the class.
         """
-        self.name = name
+        self._name = name
 
     @override
     def type_str(self) -> str:
-        return self.name
+        return self._name
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        """
+        :return: Native Python type of the class.
+        :raise: TypeError if `class_name` is not a valid class.
+        """
+        return get_class_by_name(self._name)
 
 
 class ListType(TdlType):
     """TDL List type."""
 
-    def __init__(self, key: TdlType) -> None:
-        """Creates a TDL list type."""
-        self.key = key
+    def __init__(self, element_type: TdlType) -> None:
+        """
+        Creates a TDL list type.
+        :param element_type:
+        """
+        self.element_type = element_type
 
     @override
     def type_str(self) -> str:
-        return f"List<{self.key.type_str()}>"
+        return f"List<{self.element_type.type_str()}>"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return list[self.element_type.native_type()]  # type: ignore[misc]
 
 
 def is_integral(tdl_type: TdlType) -> bool:
-    """:return: If TDL type is an integral type."""
+    """
+    :param tdl_type:
+    :return: Whether `tdl_type` is a TDL integral type.
+    """
     return isinstance(tdl_type, (Int8Type, Int16Type, Int32Type, Int64Type))
 
 
 def is_string(tdl_type: TdlType) -> bool:
-    """:return: If TDL type is a string type, i.e. List<int8>."""
-    return isinstance(tdl_type, ListType) and isinstance(tdl_type.key, Int8Type)
+    """
+    :param tdl_type:
+    :return: Whether `tdl_type` is a TDL string type, i.e. `List<int8>`.
+    """
+    return isinstance(tdl_type, ListType) and isinstance(tdl_type.element_type, Int8Type)
 
 
 def is_map_key(tdl_type: TdlType) -> bool:
-    """:return: If TDL type is a valid type for map key."""
+    """
+    :param tdl_type:
+    :return: Whether `tdl_type` is a supported key type of a map.
+    """
     return is_integral(tdl_type) or is_string(tdl_type)
 
 
 class MapType(TdlType):
     """TDL Map type."""
 
-    def __init__(self, key: TdlType, value: TdlType) -> None:
+    def __init__(self, key_type: TdlType, value_type: TdlType) -> None:
         """
         Creates a TDL map type.
+        :param key_type:
+        :param value_type:
         :raises TypeError: If key is not a supported type.
         """
-        if not is_map_key(key):
-            msg = f"{key} is not a supported type for map key."
+        if not is_map_key(key_type):
+            msg = f"{key_type} is not a supported type for map key."
             raise TypeError(msg)
-        self.key = key
-        self.value = value
+        self.key_type = key_type
+        self.value_type = value_type
 
     @override
     def type_str(self) -> str:
-        return f"Map<{self.key.type_str()},{self.value.type_str()}>"
+        return f"Map<{self.key_type.type_str()},{self.value_type.type_str()}>"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return dict[self.key_type.native_type(), self.value_type.native_type()]  # type: ignore[misc]

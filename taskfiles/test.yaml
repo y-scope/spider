@@ -6,19 +6,19 @@ vars:
   G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
 
 tasks:
-  non-storage-unit-tests:
+  cpp-non-storage-unit-tests:
     deps:
       - "build-unit-test"
     cmds:
       - "{{.G_UNIT_TEST_BINARY}} \"~[storage]\""
 
-  storage-unit-tests:
+  cpp-storage-unit-tests:
     deps:
       - "build-unit-test"
     cmds:
       - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
 
-  cpp-all:
+  cpp-unit-tests:
     deps:
       - "build-unit-test"
     cmds:
@@ -77,10 +77,10 @@ tasks:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
 
-  python-tests:
+  spider-py-unit-tests:
     dir: "{{.G_SRC_PYTHON_DIR}}"
     env:
-      # Don't create __pycache__ directories in source tree.
+      # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
     cmds:
       - "uv run pytest"
