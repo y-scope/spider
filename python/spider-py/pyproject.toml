@@ -9,6 +9,7 @@ authors = [
   { name = "Zhihao Lin", email = "lin.zhihao@yscope.com" },
 ]
 dependencies = [
+  "lark>=1.2.2",
   "mariadb>=1.1.13",
   "msgpack-types>=0.5.0",
 ]
@@ -60,6 +61,7 @@ ignore = [
   "FIX002",  # Allow todo statements
   "PERF401",  # Allow for loops when creating lists
   "PERF403",  # Allow for loops when creating dicts
+  "PLR1716",  # Allow chained boolean comparisons
   "S311",  # Allow usage of `random` package
   "SIM102",  # Allow collapsible if statements for readability
   "TD002",  # Author unnecessary for todo statement
@@ -67,6 +69,7 @@ ignore = [
   "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
+typing-extensions = false  # Disable type extensions for 3.10 compatibility
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
@@ -75,3 +78,6 @@ isort.order-by-type = false
   "S603",  # Allow use of `subprocess.Popen` (security warning)
   "T201",  # Allow use of `print` (testing)
 ]
+
+[tool.ruff.lint.pydocstyle]
+ignore-decorators = ["typing.override"]
