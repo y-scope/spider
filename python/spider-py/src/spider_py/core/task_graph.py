@@ -1,5 +1,7 @@
 """TaskGraph module for Spider."""
 
+from __future__ import annotations
+
 from copy import deepcopy
 from uuid import uuid4
 
@@ -61,7 +63,6 @@ class TaskGraph:
 
     def get_children(self, task_id: TaskId) -> list[Task]:
         """
-        Gets child tasks of task.
         :param task_id:
         :return: Child tasks of the task identified by `task_id`.
         """
@@ -98,7 +99,7 @@ class TaskGraph:
             new_output_tasks.append(id_map[task_id])
         self.output_tasks = new_output_tasks
 
-    def merge_graph(self, graph: "TaskGraph") -> None:
+    def merge_graph(self, graph: TaskGraph) -> None:
         """
         Merges another task graph into this task graph.
         :param graph: The task graph to merge.
@@ -110,7 +111,7 @@ class TaskGraph:
         self.input_tasks.extend(new_graph.input_tasks)
         self.output_tasks.extend(new_graph.output_tasks)
 
-    def chain_graph(self, child: "TaskGraph") -> "TaskGraph":
+    def chain_graph(self, child: TaskGraph) -> TaskGraph:
         """
         Chains another task graph with this task graph.
         :param child: The task graph to be chained as child.
