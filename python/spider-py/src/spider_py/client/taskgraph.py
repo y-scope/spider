@@ -2,8 +2,8 @@
 
 from collections.abc import Sequence
 
-from spider import core
-from spider.client.task import _create_task, TaskFunction
+from spider_py import core
+from spider_py.client.task import _create_task, TaskFunction
 
 
 class TaskGraph:

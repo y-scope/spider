@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from uuid import UUID, uuid4
 
-from spider.core.data import DataId
+from spider_py.core.data import DataId
 
 TaskId = UUID
 
