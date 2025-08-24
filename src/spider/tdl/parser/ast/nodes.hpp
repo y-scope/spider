@@ -34,6 +34,7 @@ using Identifier = node_impl::Identifier;
 using NamedVar = node_impl::NamedVar;
 using Namespace = node_impl::Namespace;
 using StructSpec = node_impl::StructSpec;
+using TranslationUnit = node_impl::TranslationUnit;
 using Type = node_impl::Type;
 using Container = node_impl::type_impl::Container;
 using Primitive = node_impl::type_impl::Primitive;
@@ -44,7 +45,6 @@ using Tuple = node_impl::type_impl::container_impl::Tuple;
 using Int = node_impl::type_impl::primitive_impl::Int;
 using Float = node_impl::type_impl::primitive_impl::Float;
 using Bool = node_impl::type_impl::primitive_impl::Bool;
-using TranslationUnit = node_impl::TranslationUnit;
 }  // namespace spider::tdl::parser::ast
 
 #endif  // SPIDER_TDL_PARSER_AST_NODES_HPP

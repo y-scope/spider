@@ -18,6 +18,7 @@
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
+#include <spider/tdl/parser/ast/node_impl/TranslationUnit.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Tuple.hpp>
@@ -50,6 +51,22 @@ create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast
  * tuple.
  */
 [[nodiscard]] auto create_func(std::string_view name)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+/**
+ * @param name
+ * @return A struct specification with the given name. The returned struct spec has one `int32`
+ * field named `member_0`.
+ */
+[[nodiscard]] auto create_struct_spec(std::string_view name)
+        -> std::shared_ptr<spider::tdl::parser::ast::node_impl::StructSpec>;
+
+/**
+ * @param name
+ * @return A namespace with the given name. The returned namespace one function named `func_0`
+ * created by `create_func`.
+ */
+[[nodiscard]] auto create_namespace(std::string_view name)
         -> std::unique_ptr<spider::tdl::parser::ast::Node>;
 
 /**
@@ -101,6 +118,44 @@ auto create_func(std::string_view name) -> std::unique_ptr<spider::tdl::parser::
     return std::move(func_result.value());
 }
 
+auto create_struct_spec(std::string_view name)
+        -> std::shared_ptr<spider::tdl::parser::ast::node_impl::StructSpec> {
+    using spider::tdl::parser::ast::IntSpec;
+    using spider::tdl::parser::ast::Node;
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
+
+    std::vector<std::unique_ptr<Node>> members;
+    members.emplace_back(
+            create_named_var("member_0", Int::create(IntSpec::Int32, create_source_location()))
+    );
+
+    auto struct_spec_result{spider::tdl::parser::ast::node_impl::StructSpec::create(
+            Identifier::create(std::string{name}, create_source_location()),
+            std::move(members),
+            create_source_location()
+    )};
+    REQUIRE_FALSE(struct_spec_result.has_error());
+    return struct_spec_result.value();
+}
+
+auto create_namespace(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::Node;
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::Namespace;
+
+    std::vector<std::unique_ptr<Node>> functions;
+    functions.emplace_back(create_func("func_0"));
+
+    auto namespace_result{Namespace::create(
+            Identifier::create(std::string{name}, create_source_location()),
+            std::move(functions),
+            create_source_location()
+    )};
+    REQUIRE_FALSE(namespace_result.has_error());
+    return std::move(namespace_result.value());
+}
+
 auto create_source_location() -> spider::tdl::parser::SourceLocation {
     return {0, 0};
 }
@@ -114,6 +169,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::NamedVar;
     using spider::tdl::parser::ast::node_impl::Namespace;
     using spider::tdl::parser::ast::node_impl::StructSpec;
+    using spider::tdl::parser::ast::node_impl::TranslationUnit;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
@@ -871,6 +927,82 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(namespace_result.has_error());
             REQUIRE(namespace_result.error()
                     == Namespace::ErrorCode{Namespace::ErrorCodeEnum::DuplicatedFunctionName});
+        }
+    }
+
+    SECTION("TranslationUnit") {
+        auto translation_unit_result{TranslationUnit::create(create_source_location())};
+        auto* translation_unit_node{dynamic_cast<TranslationUnit*>(translation_unit_result.get())};
+        REQUIRE(nullptr != translation_unit_node);
+
+        REQUIRE_FALSE(
+                translation_unit_node->add_struct_spec(create_struct_spec("Struct0")).has_error()
+        );
+        REQUIRE_FALSE(
+                translation_unit_node->add_struct_spec(create_struct_spec("Struct1")).has_error()
+        );
+        REQUIRE_FALSE(translation_unit_node->add_namespace(create_namespace("ns0")).has_error());
+        REQUIRE_FALSE(translation_unit_node->add_namespace(create_namespace("ns1")).has_error());
+
+        SECTION("Serialization") {
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[TranslationUnit]:\n"
+                    "  StructSpecs:\n"
+                    "    [StructSpec]:\n"
+                    "      Name:Struct0\n"
+                    "      Fields[0]:\n"
+                    "        [NamedVar]:\n"
+                    "          Id:\n"
+                    "            [Identifier]:member_0\n"
+                    "          Type:\n"
+                    "            [Type[Primitive[Int]]]:int32\n"
+                    "    [StructSpec]:\n"
+                    "      Name:Struct1\n"
+                    "      Fields[0]:\n"
+                    "        [NamedVar]:\n"
+                    "          Id:\n"
+                    "            [Identifier]:member_0\n"
+                    "          Type:\n"
+                    "            [Type[Primitive[Int]]]:int32\n"
+                    "  Namespaces:\n"
+                    "    [Namespace]:\n"
+                    "      Name:ns0\n"
+                    "      Func[0]:\n"
+                    "        [Function]:\n"
+                    "          Name:func_0\n"
+                    "          Return:\n"
+                    "            [Type[Container[Tuple]]]:Empty\n"
+                    "          No Params\n"
+                    "    [Namespace]:\n"
+                    "      Name:ns1\n"
+                    "      Func[0]:\n"
+                    "        [Function]:\n"
+                    "          Name:func_0\n"
+                    "          Return:\n"
+                    "            [Type[Container[Tuple]]]:Empty\n"
+                    "          No Params"
+            };
+            auto const serialized_result{translation_unit_node->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Duplicated StructSpec names") {
+            auto result{translation_unit_node->add_struct_spec(create_struct_spec("Struct0"))};
+            REQUIRE(result.has_error());
+            REQUIRE(result.error()
+                    == TranslationUnit::ErrorCode{
+                            TranslationUnit::ErrorCodeEnum::DuplicatedStructSpecName
+                    });
+        }
+
+        SECTION("Duplicated Namespace names") {
+            auto result{translation_unit_node->add_namespace(create_namespace("ns0"))};
+            REQUIRE(result.has_error());
+            REQUIRE(result.error()
+                    == TranslationUnit::ErrorCode{
+                            TranslationUnit::ErrorCodeEnum::DuplicatedNamespaceName
+                    });
         }
     }
 }
