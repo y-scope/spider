@@ -43,6 +43,21 @@ class TestDriver:
         )
         assert len(jobs) == 3
 
+    def test_submit_same_graph(self, driver: Driver) -> None:
+        """Tests successful job submission for same graph."""
+        graph = group([double])
+        jobs = driver.submit_jobs(
+            [
+                graph,
+                graph,
+            ],
+            [
+                (Int8(1),),
+                (Int8(1),),
+            ],
+        )
+        assert len(jobs) == 2
+
     def test_job_submission_fail(self, driver: Driver) -> None:
         """Tests job submission failure."""
         with pytest.raises(

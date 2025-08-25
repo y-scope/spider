@@ -1,6 +1,7 @@
 """Spider client driver module."""
 
 from collections.abc import Sequence
+from copy import deepcopy
 from uuid import uuid4
 
 import msgpack
@@ -43,10 +44,13 @@ class Driver:
 
         if not graphs:
             return []
+        task_graphs = []
         for task_graph, task_args in zip(graphs, args, strict=True):
+            graph = deepcopy(task_graph._impl)
+            graph.reset_ids()
             arg_index = 0
-            for task_id in task_graph._impl.input_tasks:
-                task = task_graph._impl.tasks[task_id]
+            for task_id in graph.input_tasks:
+                task = graph.tasks[task_id]
                 for task_input in task.task_inputs:
                     if arg_index >= len(task_args):
                         raise ValueError(msg)
@@ -60,6 +64,7 @@ class Driver:
                     arg_index += 1
             if arg_index != len(task_args):
                 raise ValueError(msg)
+            task_graphs.append(graph)
 
-        jobs = self.storage.submit_jobs(self.driver_id, [graph._impl for graph in graphs])
+        jobs = self.storage.submit_jobs(self.driver_id, task_graphs)
         return [Job(job, self.storage) for job in jobs]
