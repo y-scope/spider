@@ -24,6 +24,9 @@ namespace test1 {
     // Function that returns an empty tuple
     fn return_empty_tuple() -> Tuple<>;
 
+    // Function that returns a Tuple of one element, and takes only one parameter
+    fn return_singleton_tuple(a: int64) -> Tuple<int32>;
+
     // Function that returns a tuple of containers
     fn return_tuple_of_containers() -> Tuple<List<int8>, Map<List<int8>, Map<int64, List<int8>>>>;
 }
@@ -171,6 +174,19 @@ TEST_CASE("Parsing `cTestInput1`", "[tdl][parser]") {
             "            [Type[Container[Tuple]]]:Empty\n"
             "          No Params\n"
             "      Func[3]:\n"
+            "        [Function]:\n"
+            "          Name:return_singleton_tuple\n"
+            "          Return:\n"
+            "            [Type[Container[Tuple]]]:\n"
+            "              Element[0]:\n"
+            "                [Type[Primitive[Int]]]:int32\n"
+            "          Params[0]:\n"
+            "            [NamedVar]:\n"
+            "              Id:\n"
+            "                [Identifier]:a\n"
+            "              Type:\n"
+            "                [Type[Primitive[Int]]]:int64\n"
+            "      Func[4]:\n"
             "        [Function]:\n"
             "          Name:return_tuple_of_containers\n"
             "          Return:\n"

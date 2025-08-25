@@ -80,66 +80,63 @@ void taskdeflangParserInitialize() {
     }
   );
   static const int32_t serializedATNSegment[] = {
-  	4,1,26,198,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
+  	4,1,26,186,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
   	7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,13,2,14,7,
   	14,2,15,7,15,2,16,7,16,1,0,1,0,1,0,1,0,1,0,1,0,5,0,41,8,0,10,0,12,0,44,
-  	9,0,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,
-  	2,5,2,63,8,2,10,2,12,2,66,9,2,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,4,
-  	1,4,1,4,1,4,1,4,3,4,82,8,4,1,5,1,5,1,5,1,5,3,5,88,8,5,1,6,1,6,1,6,1,6,
-  	1,6,1,7,1,7,1,7,1,7,1,7,1,7,1,7,1,7,1,7,5,7,104,8,7,10,7,12,7,107,9,7,
-  	1,8,1,8,1,8,1,8,1,8,3,8,114,8,8,1,8,1,8,1,8,1,8,1,9,1,9,1,9,1,10,1,10,
-  	1,10,1,10,1,10,1,10,3,10,129,8,10,1,11,1,11,1,11,1,11,1,11,1,11,3,11,
-  	137,8,11,1,12,1,12,1,12,1,12,1,12,3,12,144,8,12,1,12,1,12,1,12,1,12,1,
-  	12,5,12,151,8,12,10,12,12,12,154,9,12,1,13,1,13,1,13,1,13,1,13,1,13,1,
-  	14,1,14,1,14,1,14,1,14,1,14,1,14,1,14,1,15,1,15,1,15,1,15,1,15,1,15,1,
-  	16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,
-  	16,1,16,1,16,1,16,1,16,1,16,3,16,196,8,16,1,16,0,3,4,14,24,17,0,2,4,6,
-  	8,10,12,14,16,18,20,22,24,26,28,30,32,0,0,199,0,42,1,0,0,0,2,47,1,0,0,
-  	0,4,54,1,0,0,0,6,67,1,0,0,0,8,81,1,0,0,0,10,87,1,0,0,0,12,89,1,0,0,0,
-  	14,94,1,0,0,0,16,108,1,0,0,0,18,119,1,0,0,0,20,128,1,0,0,0,22,136,1,0,
-  	0,0,24,143,1,0,0,0,26,155,1,0,0,0,28,161,1,0,0,0,30,169,1,0,0,0,32,195,
-  	1,0,0,0,34,35,3,2,1,0,35,36,6,0,-1,0,36,41,1,0,0,0,37,38,3,16,8,0,38,
-  	39,6,0,-1,0,39,41,1,0,0,0,40,34,1,0,0,0,40,37,1,0,0,0,41,44,1,0,0,0,42,
-  	40,1,0,0,0,42,43,1,0,0,0,43,45,1,0,0,0,44,42,1,0,0,0,45,46,5,0,0,1,46,
-  	1,1,0,0,0,47,48,5,1,0,0,48,49,3,18,9,0,49,50,5,2,0,0,50,51,3,4,2,0,51,
-  	52,5,3,0,0,52,53,6,1,-1,0,53,3,1,0,0,0,54,55,6,2,-1,0,55,56,3,6,3,0,56,
-  	57,6,2,-1,0,57,64,1,0,0,0,58,59,10,1,0,0,59,60,3,6,3,0,60,61,6,2,-1,0,
-  	61,63,1,0,0,0,62,58,1,0,0,0,63,66,1,0,0,0,64,62,1,0,0,0,64,65,1,0,0,0,
-  	65,5,1,0,0,0,66,64,1,0,0,0,67,68,5,4,0,0,68,69,3,18,9,0,69,70,5,5,0,0,
-  	70,71,3,10,5,0,71,72,5,6,0,0,72,73,3,8,4,0,73,74,5,7,0,0,74,75,6,3,-1,
-  	0,75,7,1,0,0,0,76,77,5,8,0,0,77,78,3,22,11,0,78,79,6,4,-1,0,79,82,1,0,
-  	0,0,80,82,6,4,-1,0,81,76,1,0,0,0,81,80,1,0,0,0,82,9,1,0,0,0,83,84,3,14,
-  	7,0,84,85,6,5,-1,0,85,88,1,0,0,0,86,88,6,5,-1,0,87,83,1,0,0,0,87,86,1,
-  	0,0,0,88,11,1,0,0,0,89,90,3,18,9,0,90,91,5,9,0,0,91,92,3,20,10,0,92,93,
-  	6,6,-1,0,93,13,1,0,0,0,94,95,6,7,-1,0,95,96,3,12,6,0,96,97,6,7,-1,0,97,
-  	105,1,0,0,0,98,99,10,1,0,0,99,100,5,10,0,0,100,101,3,12,6,0,101,102,6,
-  	7,-1,0,102,104,1,0,0,0,103,98,1,0,0,0,104,107,1,0,0,0,105,103,1,0,0,0,
-  	105,106,1,0,0,0,106,15,1,0,0,0,107,105,1,0,0,0,108,109,5,11,0,0,109,110,
-  	3,18,9,0,110,111,5,2,0,0,111,113,3,14,7,0,112,114,5,10,0,0,113,112,1,
-  	0,0,0,113,114,1,0,0,0,114,115,1,0,0,0,115,116,5,3,0,0,116,117,5,7,0,0,
-  	117,118,6,8,-1,0,118,17,1,0,0,0,119,120,5,24,0,0,120,121,6,9,-1,0,121,
-  	19,1,0,0,0,122,123,3,32,16,0,123,124,6,10,-1,0,124,129,1,0,0,0,125,126,
-  	3,18,9,0,126,127,6,10,-1,0,127,129,1,0,0,0,128,122,1,0,0,0,128,125,1,
-  	0,0,0,129,21,1,0,0,0,130,131,3,20,10,0,131,132,6,11,-1,0,132,137,1,0,
-  	0,0,133,134,3,30,15,0,134,135,6,11,-1,0,135,137,1,0,0,0,136,130,1,0,0,
-  	0,136,133,1,0,0,0,137,23,1,0,0,0,138,139,6,12,-1,0,139,140,3,20,10,0,
-  	140,141,6,12,-1,0,141,144,1,0,0,0,142,144,6,12,-1,0,143,138,1,0,0,0,143,
-  	142,1,0,0,0,144,152,1,0,0,0,145,146,10,2,0,0,146,147,5,10,0,0,147,148,
-  	3,20,10,0,148,149,6,12,-1,0,149,151,1,0,0,0,150,145,1,0,0,0,151,154,1,
-  	0,0,0,152,150,1,0,0,0,152,153,1,0,0,0,153,25,1,0,0,0,154,152,1,0,0,0,
-  	155,156,5,12,0,0,156,157,5,13,0,0,157,158,3,20,10,0,158,159,5,14,0,0,
-  	159,160,6,13,-1,0,160,27,1,0,0,0,161,162,5,15,0,0,162,163,5,13,0,0,163,
-  	164,3,20,10,0,164,165,5,10,0,0,165,166,3,20,10,0,166,167,5,14,0,0,167,
-  	168,6,14,-1,0,168,29,1,0,0,0,169,170,5,16,0,0,170,171,5,13,0,0,171,172,
-  	3,24,12,0,172,173,5,14,0,0,173,174,6,15,-1,0,174,31,1,0,0,0,175,176,5,
-  	17,0,0,176,196,6,16,-1,0,177,178,5,18,0,0,178,196,6,16,-1,0,179,180,5,
-  	19,0,0,180,196,6,16,-1,0,181,182,5,20,0,0,182,196,6,16,-1,0,183,184,5,
-  	21,0,0,184,196,6,16,-1,0,185,186,5,22,0,0,186,196,6,16,-1,0,187,188,5,
-  	23,0,0,188,196,6,16,-1,0,189,190,3,26,13,0,190,191,6,16,-1,0,191,196,
-  	1,0,0,0,192,193,3,28,14,0,193,194,6,16,-1,0,194,196,1,0,0,0,195,175,1,
-  	0,0,0,195,177,1,0,0,0,195,179,1,0,0,0,195,181,1,0,0,0,195,183,1,0,0,0,
-  	195,185,1,0,0,0,195,187,1,0,0,0,195,189,1,0,0,0,195,192,1,0,0,0,196,33,
-  	1,0,0,0,12,40,42,64,81,87,105,113,128,136,143,152,195
+  	9,0,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,2,1,2,4,2,58,8,2,11,2,12,
+  	2,59,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,4,1,4,1,4,1,4,1,4,3,4,76,8,
+  	4,1,5,1,5,1,5,1,5,3,5,82,8,5,1,6,1,6,1,6,1,6,1,6,1,7,1,7,1,7,1,7,1,7,
+  	1,7,5,7,95,8,7,10,7,12,7,98,9,7,1,8,1,8,1,8,1,8,1,8,3,8,105,8,8,1,8,1,
+  	8,1,8,1,8,1,9,1,9,1,9,1,10,1,10,1,10,1,10,1,10,1,10,3,10,120,8,10,1,11,
+  	1,11,1,11,1,11,1,11,1,11,3,11,128,8,11,1,12,1,12,1,12,1,12,1,12,1,12,
+  	5,12,136,8,12,10,12,12,12,139,9,12,1,12,3,12,142,8,12,1,13,1,13,1,13,
+  	1,13,1,13,1,13,1,14,1,14,1,14,1,14,1,14,1,14,1,14,1,14,1,15,1,15,1,15,
+  	1,15,1,15,1,15,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,
+  	1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,1,16,3,16,184,8,16,1,16,0,0,17,
+  	0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,0,0,187,0,42,1,0,0,0,2,
+  	47,1,0,0,0,4,57,1,0,0,0,6,61,1,0,0,0,8,75,1,0,0,0,10,81,1,0,0,0,12,83,
+  	1,0,0,0,14,88,1,0,0,0,16,99,1,0,0,0,18,110,1,0,0,0,20,119,1,0,0,0,22,
+  	127,1,0,0,0,24,141,1,0,0,0,26,143,1,0,0,0,28,149,1,0,0,0,30,157,1,0,0,
+  	0,32,183,1,0,0,0,34,35,3,2,1,0,35,36,6,0,-1,0,36,41,1,0,0,0,37,38,3,16,
+  	8,0,38,39,6,0,-1,0,39,41,1,0,0,0,40,34,1,0,0,0,40,37,1,0,0,0,41,44,1,
+  	0,0,0,42,40,1,0,0,0,42,43,1,0,0,0,43,45,1,0,0,0,44,42,1,0,0,0,45,46,5,
+  	0,0,1,46,1,1,0,0,0,47,48,5,1,0,0,48,49,3,18,9,0,49,50,5,2,0,0,50,51,3,
+  	4,2,0,51,52,5,3,0,0,52,53,6,1,-1,0,53,3,1,0,0,0,54,55,3,6,3,0,55,56,6,
+  	2,-1,0,56,58,1,0,0,0,57,54,1,0,0,0,58,59,1,0,0,0,59,57,1,0,0,0,59,60,
+  	1,0,0,0,60,5,1,0,0,0,61,62,5,4,0,0,62,63,3,18,9,0,63,64,5,5,0,0,64,65,
+  	3,10,5,0,65,66,5,6,0,0,66,67,3,8,4,0,67,68,5,7,0,0,68,69,6,3,-1,0,69,
+  	7,1,0,0,0,70,71,5,8,0,0,71,72,3,22,11,0,72,73,6,4,-1,0,73,76,1,0,0,0,
+  	74,76,6,4,-1,0,75,70,1,0,0,0,75,74,1,0,0,0,76,9,1,0,0,0,77,78,3,14,7,
+  	0,78,79,6,5,-1,0,79,82,1,0,0,0,80,82,6,5,-1,0,81,77,1,0,0,0,81,80,1,0,
+  	0,0,82,11,1,0,0,0,83,84,3,18,9,0,84,85,5,9,0,0,85,86,3,20,10,0,86,87,
+  	6,6,-1,0,87,13,1,0,0,0,88,89,3,12,6,0,89,96,6,7,-1,0,90,91,5,10,0,0,91,
+  	92,3,12,6,0,92,93,6,7,-1,0,93,95,1,0,0,0,94,90,1,0,0,0,95,98,1,0,0,0,
+  	96,94,1,0,0,0,96,97,1,0,0,0,97,15,1,0,0,0,98,96,1,0,0,0,99,100,5,11,0,
+  	0,100,101,3,18,9,0,101,102,5,2,0,0,102,104,3,14,7,0,103,105,5,10,0,0,
+  	104,103,1,0,0,0,104,105,1,0,0,0,105,106,1,0,0,0,106,107,5,3,0,0,107,108,
+  	5,7,0,0,108,109,6,8,-1,0,109,17,1,0,0,0,110,111,5,24,0,0,111,112,6,9,
+  	-1,0,112,19,1,0,0,0,113,114,3,32,16,0,114,115,6,10,-1,0,115,120,1,0,0,
+  	0,116,117,3,18,9,0,117,118,6,10,-1,0,118,120,1,0,0,0,119,113,1,0,0,0,
+  	119,116,1,0,0,0,120,21,1,0,0,0,121,122,3,20,10,0,122,123,6,11,-1,0,123,
+  	128,1,0,0,0,124,125,3,30,15,0,125,126,6,11,-1,0,126,128,1,0,0,0,127,121,
+  	1,0,0,0,127,124,1,0,0,0,128,23,1,0,0,0,129,130,3,20,10,0,130,137,6,12,
+  	-1,0,131,132,5,10,0,0,132,133,3,20,10,0,133,134,6,12,-1,0,134,136,1,0,
+  	0,0,135,131,1,0,0,0,136,139,1,0,0,0,137,135,1,0,0,0,137,138,1,0,0,0,138,
+  	142,1,0,0,0,139,137,1,0,0,0,140,142,6,12,-1,0,141,129,1,0,0,0,141,140,
+  	1,0,0,0,142,25,1,0,0,0,143,144,5,12,0,0,144,145,5,13,0,0,145,146,3,20,
+  	10,0,146,147,5,14,0,0,147,148,6,13,-1,0,148,27,1,0,0,0,149,150,5,15,0,
+  	0,150,151,5,13,0,0,151,152,3,20,10,0,152,153,5,10,0,0,153,154,3,20,10,
+  	0,154,155,5,14,0,0,155,156,6,14,-1,0,156,29,1,0,0,0,157,158,5,16,0,0,
+  	158,159,5,13,0,0,159,160,3,24,12,0,160,161,5,14,0,0,161,162,6,15,-1,0,
+  	162,31,1,0,0,0,163,164,5,17,0,0,164,184,6,16,-1,0,165,166,5,18,0,0,166,
+  	184,6,16,-1,0,167,168,5,19,0,0,168,184,6,16,-1,0,169,170,5,20,0,0,170,
+  	184,6,16,-1,0,171,172,5,21,0,0,172,184,6,16,-1,0,173,174,5,22,0,0,174,
+  	184,6,16,-1,0,175,176,5,23,0,0,176,184,6,16,-1,0,177,178,3,26,13,0,178,
+  	179,6,16,-1,0,179,184,1,0,0,0,180,181,3,28,14,0,181,182,6,16,-1,0,182,
+  	184,1,0,0,0,183,163,1,0,0,0,183,165,1,0,0,0,183,167,1,0,0,0,183,169,1,
+  	0,0,0,183,171,1,0,0,0,183,173,1,0,0,0,183,175,1,0,0,0,183,177,1,0,0,0,
+  	183,180,1,0,0,0,184,33,1,0,0,0,12,40,42,59,75,81,96,104,119,127,137,141,
+  	183
   };
   staticData->serializedATN = antlr4::atn::SerializedATNView(serializedATNSegment, sizeof(serializedATNSegment) / sizeof(serializedATNSegment[0]));
 
@@ -349,7 +346,7 @@ TaskDefLangParser::NamespaceContext* TaskDefLangParser::namespace_() {
     setState(49);
     match(TaskDefLangParser::T__1);
     setState(50);
-    antlrcpp::downCast<NamespaceContext *>(_localctx)->funcDefsContext = funcDefs(0);
+    antlrcpp::downCast<NamespaceContext *>(_localctx)->funcDefsContext = funcDefs();
     setState(51);
     match(TaskDefLangParser::T__2);
 
@@ -383,12 +380,12 @@ TaskDefLangParser::FuncDefsContext::FuncDefsContext(ParserRuleContext *parent, s
   : ParserRuleContext(parent, invokingState) {
 }
 
-TaskDefLangParser::FuncDefContext* TaskDefLangParser::FuncDefsContext::funcDef() {
-  return getRuleContext<TaskDefLangParser::FuncDefContext>(0);
+std::vector<TaskDefLangParser::FuncDefContext *> TaskDefLangParser::FuncDefsContext::funcDef() {
+  return getRuleContexts<TaskDefLangParser::FuncDefContext>();
 }
 
-TaskDefLangParser::FuncDefsContext* TaskDefLangParser::FuncDefsContext::funcDefs() {
-  return getRuleContext<TaskDefLangParser::FuncDefsContext>(0);
+TaskDefLangParser::FuncDefContext* TaskDefLangParser::FuncDefsContext::funcDef(size_t i) {
+  return getRuleContext<TaskDefLangParser::FuncDefContext>(i);
 }
 
 
@@ -404,70 +401,44 @@ std::any TaskDefLangParser::FuncDefsContext::accept(tree::ParseTreeVisitor *visi
     return visitor->visitChildren(this);
 }
 
-
 TaskDefLangParser::FuncDefsContext* TaskDefLangParser::funcDefs() {
-   return funcDefs(0);
-}
+  FuncDefsContext *_localctx = _tracker.createInstance<FuncDefsContext>(_ctx, getState());
+  enterRule(_localctx, 4, TaskDefLangParser::RuleFuncDefs);
 
-TaskDefLangParser::FuncDefsContext* TaskDefLangParser::funcDefs(int precedence) {
-  ParserRuleContext *parentContext = _ctx;
-  size_t parentState = getState();
-  TaskDefLangParser::FuncDefsContext *_localctx = _tracker.createInstance<FuncDefsContext>(_ctx, parentState);
-  TaskDefLangParser::FuncDefsContext *previousContext = _localctx;
-  (void)previousContext; // Silence compiler, in case the context is not used by generated code.
-  size_t startState = 4;
-  enterRecursionRule(_localctx, 4, TaskDefLangParser::RuleFuncDefs, precedence);
+      _localctx->retval.clear();
 
-    
+  size_t _la = 0;
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
 #else
   auto onExit = finally([=] {
 #endif
-    unrollRecursionContexts(parentContext);
+    exitRule();
   });
   try {
-    size_t alt;
     enterOuterAlt(_localctx, 1);
-    setState(55);
-    antlrcpp::downCast<FuncDefsContext *>(_localctx)->funcDefContext = funcDef();
-
-        _localctx->retval.clear();
-        _localctx->retval.emplace_back(std::move(antlrcpp::downCast<FuncDefsContext *>(_localctx)->funcDefContext->retval));
-
-    _ctx->stop = _input->LT(-1);
-    setState(64);
+    setState(57); 
     _errHandler->sync(this);
-    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 2, _ctx);
-    while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
-      if (alt == 1) {
-        if (!_parseListeners.empty())
-          triggerExitRuleEvent();
-        previousContext = _localctx;
-        _localctx = _tracker.createInstance<FuncDefsContext>(parentContext, parentState);
-        _localctx->parsed_funcs = previousContext;
-        pushNewRecursionContext(_localctx, startState, RuleFuncDefs);
-        setState(58);
+    _la = _input->LA(1);
+    do {
+      setState(54);
+      antlrcpp::downCast<FuncDefsContext *>(_localctx)->funcDefContext = funcDef();
 
-        if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(59);
-        antlrcpp::downCast<FuncDefsContext *>(_localctx)->funcDefContext = funcDef();
+          _localctx->retval.emplace_back(std::move(antlrcpp::downCast<FuncDefsContext *>(_localctx)->funcDefContext->retval));
 
-                      antlrcpp::downCast<FuncDefsContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<FuncDefsContext *>(_localctx)->parsed_funcs->retval);
-                      _localctx->retval.emplace_back(std::move(antlrcpp::downCast<FuncDefsContext *>(_localctx)->funcDefContext->retval));
-                   
-      }
-      setState(66);
+      setState(59); 
       _errHandler->sync(this);
-      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 2, _ctx);
-    }
+      _la = _input->LA(1);
+    } while (_la == TaskDefLangParser::T__3);
+   
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
     _localctx->exception = std::current_exception();
     _errHandler->recover(this, _localctx->exception);
   }
+
   return _localctx;
 }
 
@@ -515,19 +486,19 @@ TaskDefLangParser::FuncDefContext* TaskDefLangParser::funcDef() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(67);
+    setState(61);
     match(TaskDefLangParser::T__3);
-    setState(68);
+    setState(62);
     antlrcpp::downCast<FuncDefContext *>(_localctx)->idContext = id();
-    setState(69);
+    setState(63);
     match(TaskDefLangParser::T__4);
-    setState(70);
+    setState(64);
     antlrcpp::downCast<FuncDefContext *>(_localctx)->paramsContext = params();
-    setState(71);
+    setState(65);
     match(TaskDefLangParser::T__5);
-    setState(72);
+    setState(66);
     antlrcpp::downCast<FuncDefContext *>(_localctx)->retContext = ret();
-    setState(73);
+    setState(67);
     match(TaskDefLangParser::T__6);
 
         SourceLocation const loc{
@@ -590,14 +561,14 @@ TaskDefLangParser::RetContext* TaskDefLangParser::ret() {
     exitRule();
   });
   try {
-    setState(81);
+    setState(75);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::T__7: {
         enterOuterAlt(_localctx, 1);
-        setState(76);
+        setState(70);
         match(TaskDefLangParser::T__7);
-        setState(77);
+        setState(71);
         antlrcpp::downCast<RetContext *>(_localctx)->retTypeContext = retType();
 
             antlrcpp::downCast<RetContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<RetContext *>(_localctx)->retTypeContext->retval);
@@ -662,13 +633,13 @@ TaskDefLangParser::ParamsContext* TaskDefLangParser::params() {
     exitRule();
   });
   try {
-    setState(87);
+    setState(81);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::ID: {
         enterOuterAlt(_localctx, 1);
-        setState(83);
-        antlrcpp::downCast<ParamsContext *>(_localctx)->namedVarListContext = namedVarList(0);
+        setState(77);
+        antlrcpp::downCast<ParamsContext *>(_localctx)->namedVarListContext = namedVarList();
 
             antlrcpp::downCast<ParamsContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<ParamsContext *>(_localctx)->namedVarListContext->retval);
 
@@ -737,11 +708,11 @@ TaskDefLangParser::NamedVarContext* TaskDefLangParser::namedVar() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(89);
+    setState(83);
     antlrcpp::downCast<NamedVarContext *>(_localctx)->idContext = id();
-    setState(90);
+    setState(84);
     match(TaskDefLangParser::T__8);
-    setState(91);
+    setState(85);
     antlrcpp::downCast<NamedVarContext *>(_localctx)->varTypeContext = varType();
 
         SourceLocation const loc{
@@ -774,12 +745,12 @@ TaskDefLangParser::NamedVarListContext::NamedVarListContext(ParserRuleContext *p
   : ParserRuleContext(parent, invokingState) {
 }
 
-TaskDefLangParser::NamedVarContext* TaskDefLangParser::NamedVarListContext::namedVar() {
-  return getRuleContext<TaskDefLangParser::NamedVarContext>(0);
+std::vector<TaskDefLangParser::NamedVarContext *> TaskDefLangParser::NamedVarListContext::namedVar() {
+  return getRuleContexts<TaskDefLangParser::NamedVarContext>();
 }
 
-TaskDefLangParser::NamedVarListContext* TaskDefLangParser::NamedVarListContext::namedVarList() {
-  return getRuleContext<TaskDefLangParser::NamedVarListContext>(0);
+TaskDefLangParser::NamedVarContext* TaskDefLangParser::NamedVarListContext::namedVar(size_t i) {
+  return getRuleContext<TaskDefLangParser::NamedVarContext>(i);
 }
 
 
@@ -795,72 +766,53 @@ std::any TaskDefLangParser::NamedVarListContext::accept(tree::ParseTreeVisitor *
     return visitor->visitChildren(this);
 }
 
-
 TaskDefLangParser::NamedVarListContext* TaskDefLangParser::namedVarList() {
-   return namedVarList(0);
-}
+  NamedVarListContext *_localctx = _tracker.createInstance<NamedVarListContext>(_ctx, getState());
+  enterRule(_localctx, 14, TaskDefLangParser::RuleNamedVarList);
 
-TaskDefLangParser::NamedVarListContext* TaskDefLangParser::namedVarList(int precedence) {
-  ParserRuleContext *parentContext = _ctx;
-  size_t parentState = getState();
-  TaskDefLangParser::NamedVarListContext *_localctx = _tracker.createInstance<NamedVarListContext>(_ctx, parentState);
-  TaskDefLangParser::NamedVarListContext *previousContext = _localctx;
-  (void)previousContext; // Silence compiler, in case the context is not used by generated code.
-  size_t startState = 14;
-  enterRecursionRule(_localctx, 14, TaskDefLangParser::RuleNamedVarList, precedence);
+      _localctx->retval.clear();
 
-    
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
 #else
   auto onExit = finally([=] {
 #endif
-    unrollRecursionContexts(parentContext);
+    exitRule();
   });
   try {
     size_t alt;
     enterOuterAlt(_localctx, 1);
-    setState(95);
-    antlrcpp::downCast<NamedVarListContext *>(_localctx)->namedVarContext = namedVar();
+    setState(88);
+    antlrcpp::downCast<NamedVarListContext *>(_localctx)->first_named_var = namedVar();
 
-        _localctx->retval.clear();
-        _localctx->retval.emplace_back(std::move(antlrcpp::downCast<NamedVarListContext *>(_localctx)->namedVarContext->retval));
+        _localctx->retval.emplace_back(std::move(antlrcpp::downCast<NamedVarListContext *>(_localctx)->first_named_var->retval));
 
-    _ctx->stop = _input->LT(-1);
-    setState(105);
+    setState(96);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 5, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
       if (alt == 1) {
-        if (!_parseListeners.empty())
-          triggerExitRuleEvent();
-        previousContext = _localctx;
-        _localctx = _tracker.createInstance<NamedVarListContext>(parentContext, parentState);
-        _localctx->parsed_named_vars = previousContext;
-        pushNewRecursionContext(_localctx, startState, RuleNamedVarList);
-        setState(98);
-
-        if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(99);
+        setState(90);
         match(TaskDefLangParser::T__9);
-        setState(100);
-        antlrcpp::downCast<NamedVarListContext *>(_localctx)->namedVarContext = namedVar();
+        setState(91);
+        antlrcpp::downCast<NamedVarListContext *>(_localctx)->subsequent_named_var = namedVar();
 
-                      antlrcpp::downCast<NamedVarListContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<NamedVarListContext *>(_localctx)->parsed_named_vars->retval);
-                      _localctx->retval.emplace_back(std::move(antlrcpp::downCast<NamedVarListContext *>(_localctx)->namedVarContext->retval));
-                   
+            _localctx->retval.emplace_back(std::move(antlrcpp::downCast<NamedVarListContext *>(_localctx)->subsequent_named_var->retval));
+     
       }
-      setState(107);
+      setState(98);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 5, _ctx);
     }
+   
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
     _localctx->exception = std::current_exception();
     _errHandler->recover(this, _localctx->exception);
   }
+
   return _localctx;
 }
 
@@ -905,25 +857,25 @@ TaskDefLangParser::StructDefContext* TaskDefLangParser::structDef() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(108);
+    setState(99);
     match(TaskDefLangParser::T__10);
-    setState(109);
+    setState(100);
     antlrcpp::downCast<StructDefContext *>(_localctx)->idContext = id();
-    setState(110);
+    setState(101);
     match(TaskDefLangParser::T__1);
-    setState(111);
-    antlrcpp::downCast<StructDefContext *>(_localctx)->namedVarListContext = namedVarList(0);
-    setState(113);
+    setState(102);
+    antlrcpp::downCast<StructDefContext *>(_localctx)->namedVarListContext = namedVarList();
+    setState(104);
     _errHandler->sync(this);
 
     _la = _input->LA(1);
     if (_la == TaskDefLangParser::T__9) {
-      setState(112);
+      setState(103);
       match(TaskDefLangParser::T__9);
     }
-    setState(115);
+    setState(106);
     match(TaskDefLangParser::T__2);
-    setState(116);
+    setState(107);
     match(TaskDefLangParser::T__6);
 
         SourceLocation const loc{
@@ -986,7 +938,7 @@ TaskDefLangParser::IdContext* TaskDefLangParser::id() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(119);
+    setState(110);
     antlrcpp::downCast<IdContext *>(_localctx)->idToken = match(TaskDefLangParser::ID);
 
         antlrcpp::downCast<IdContext *>(_localctx)->retval =  spider::tdl::parser::ast::Identifier::create(
@@ -1047,7 +999,7 @@ TaskDefLangParser::VarTypeContext* TaskDefLangParser::varType() {
     exitRule();
   });
   try {
-    setState(128);
+    setState(119);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::T__11:
@@ -1060,7 +1012,7 @@ TaskDefLangParser::VarTypeContext* TaskDefLangParser::varType() {
       case TaskDefLangParser::T__21:
       case TaskDefLangParser::T__22: {
         enterOuterAlt(_localctx, 1);
-        setState(122);
+        setState(113);
         antlrcpp::downCast<VarTypeContext *>(_localctx)->builtinTypeContext = builtinType();
 
             antlrcpp::downCast<VarTypeContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<VarTypeContext *>(_localctx)->builtinTypeContext->retval);
@@ -1070,7 +1022,7 @@ TaskDefLangParser::VarTypeContext* TaskDefLangParser::varType() {
 
       case TaskDefLangParser::ID: {
         enterOuterAlt(_localctx, 2);
-        setState(125);
+        setState(116);
         antlrcpp::downCast<VarTypeContext *>(_localctx)->idContext = id();
 
             SourceLocation const loc{
@@ -1138,7 +1090,7 @@ TaskDefLangParser::RetTypeContext* TaskDefLangParser::retType() {
     exitRule();
   });
   try {
-    setState(136);
+    setState(127);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::T__11:
@@ -1152,7 +1104,7 @@ TaskDefLangParser::RetTypeContext* TaskDefLangParser::retType() {
       case TaskDefLangParser::T__22:
       case TaskDefLangParser::ID: {
         enterOuterAlt(_localctx, 1);
-        setState(130);
+        setState(121);
         antlrcpp::downCast<RetTypeContext *>(_localctx)->varTypeContext = varType();
 
             antlrcpp::downCast<RetTypeContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<RetTypeContext *>(_localctx)->varTypeContext->retval);
@@ -1162,7 +1114,7 @@ TaskDefLangParser::RetTypeContext* TaskDefLangParser::retType() {
 
       case TaskDefLangParser::T__15: {
         enterOuterAlt(_localctx, 2);
-        setState(133);
+        setState(124);
         antlrcpp::downCast<RetTypeContext *>(_localctx)->tupleTypeContext = tupleType();
 
             antlrcpp::downCast<RetTypeContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<RetTypeContext *>(_localctx)->tupleTypeContext->retval);
@@ -1190,12 +1142,12 @@ TaskDefLangParser::VarTypeListContext::VarTypeListContext(ParserRuleContext *par
   : ParserRuleContext(parent, invokingState) {
 }
 
-TaskDefLangParser::VarTypeContext* TaskDefLangParser::VarTypeListContext::varType() {
-  return getRuleContext<TaskDefLangParser::VarTypeContext>(0);
+std::vector<TaskDefLangParser::VarTypeContext *> TaskDefLangParser::VarTypeListContext::varType() {
+  return getRuleContexts<TaskDefLangParser::VarTypeContext>();
 }
 
-TaskDefLangParser::VarTypeListContext* TaskDefLangParser::VarTypeListContext::varTypeList() {
-  return getRuleContext<TaskDefLangParser::VarTypeListContext>(0);
+TaskDefLangParser::VarTypeContext* TaskDefLangParser::VarTypeListContext::varType(size_t i) {
+  return getRuleContext<TaskDefLangParser::VarTypeContext>(i);
 }
 
 
@@ -1211,89 +1163,78 @@ std::any TaskDefLangParser::VarTypeListContext::accept(tree::ParseTreeVisitor *v
     return visitor->visitChildren(this);
 }
 
-
 TaskDefLangParser::VarTypeListContext* TaskDefLangParser::varTypeList() {
-   return varTypeList(0);
-}
+  VarTypeListContext *_localctx = _tracker.createInstance<VarTypeListContext>(_ctx, getState());
+  enterRule(_localctx, 24, TaskDefLangParser::RuleVarTypeList);
 
-TaskDefLangParser::VarTypeListContext* TaskDefLangParser::varTypeList(int precedence) {
-  ParserRuleContext *parentContext = _ctx;
-  size_t parentState = getState();
-  TaskDefLangParser::VarTypeListContext *_localctx = _tracker.createInstance<VarTypeListContext>(_ctx, parentState);
-  TaskDefLangParser::VarTypeListContext *previousContext = _localctx;
-  (void)previousContext; // Silence compiler, in case the context is not used by generated code.
-  size_t startState = 24;
-  enterRecursionRule(_localctx, 24, TaskDefLangParser::RuleVarTypeList, precedence);
+      _localctx->retval.clear();
 
-    
+  size_t _la = 0;
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
 #else
   auto onExit = finally([=] {
 #endif
-    unrollRecursionContexts(parentContext);
+    exitRule();
   });
   try {
-    size_t alt;
-    enterOuterAlt(_localctx, 1);
-    setState(143);
+    setState(141);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 9, _ctx)) {
-    case 1: {
-      setState(139);
-      antlrcpp::downCast<VarTypeListContext *>(_localctx)->varTypeContext = varType();
+    switch (_input->LA(1)) {
+      case TaskDefLangParser::T__11:
+      case TaskDefLangParser::T__14:
+      case TaskDefLangParser::T__16:
+      case TaskDefLangParser::T__17:
+      case TaskDefLangParser::T__18:
+      case TaskDefLangParser::T__19:
+      case TaskDefLangParser::T__20:
+      case TaskDefLangParser::T__21:
+      case TaskDefLangParser::T__22:
+      case TaskDefLangParser::ID: {
+        enterOuterAlt(_localctx, 1);
+        setState(129);
+        antlrcpp::downCast<VarTypeListContext *>(_localctx)->first_var_type = varType();
 
-          _localctx->retval.clear();
-          _localctx->retval.emplace_back(std::move(antlrcpp::downCast<VarTypeListContext *>(_localctx)->varTypeContext->retval));
+            _localctx->retval.emplace_back(std::move(antlrcpp::downCast<VarTypeListContext *>(_localctx)->first_var_type->retval));
 
-      break;
-    }
+        setState(137);
+        _errHandler->sync(this);
+        _la = _input->LA(1);
+        while (_la == TaskDefLangParser::T__9) {
+          setState(131);
+          match(TaskDefLangParser::T__9);
+          setState(132);
+          antlrcpp::downCast<VarTypeListContext *>(_localctx)->subsequent_var_type = varType();
 
-    case 2: {
+              _localctx->retval.emplace_back(std::move(antlrcpp::downCast<VarTypeListContext *>(_localctx)->subsequent_var_type->retval));
 
-          _localctx->retval.clear();
+          setState(139);
+          _errHandler->sync(this);
+          _la = _input->LA(1);
+        }
+        break;
+      }
 
-      break;
-    }
+      case TaskDefLangParser::T__13: {
+        enterOuterAlt(_localctx, 2);
+
+            _localctx->retval.clear();
+
+        break;
+      }
 
     default:
-      break;
+      throw NoViableAltException(this);
     }
-    _ctx->stop = _input->LT(-1);
-    setState(152);
-    _errHandler->sync(this);
-    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 10, _ctx);
-    while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
-      if (alt == 1) {
-        if (!_parseListeners.empty())
-          triggerExitRuleEvent();
-        previousContext = _localctx;
-        _localctx = _tracker.createInstance<VarTypeListContext>(parentContext, parentState);
-        _localctx->parsed_var_types = previousContext;
-        pushNewRecursionContext(_localctx, startState, RuleVarTypeList);
-        setState(145);
-
-        if (!(precpred(_ctx, 2))) throw FailedPredicateException(this, "precpred(_ctx, 2)");
-        setState(146);
-        match(TaskDefLangParser::T__9);
-        setState(147);
-        antlrcpp::downCast<VarTypeListContext *>(_localctx)->varTypeContext = varType();
-
-                      antlrcpp::downCast<VarTypeListContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<VarTypeListContext *>(_localctx)->parsed_var_types->retval);
-                      _localctx->retval.emplace_back(std::move(antlrcpp::downCast<VarTypeListContext *>(_localctx)->varTypeContext->retval));
-                   
-      }
-      setState(154);
-      _errHandler->sync(this);
-      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 10, _ctx);
-    }
+   
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
     _localctx->exception = std::current_exception();
     _errHandler->recover(this, _localctx->exception);
   }
+
   return _localctx;
 }
 
@@ -1333,13 +1274,13 @@ TaskDefLangParser::ListTypeContext* TaskDefLangParser::listType() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(155);
+    setState(143);
     match(TaskDefLangParser::T__11);
-    setState(156);
+    setState(144);
     match(TaskDefLangParser::T__12);
-    setState(157);
+    setState(145);
     antlrcpp::downCast<ListTypeContext *>(_localctx)->varTypeContext = varType();
-    setState(158);
+    setState(146);
     match(TaskDefLangParser::T__13);
 
         SourceLocation const loc{
@@ -1402,17 +1343,17 @@ TaskDefLangParser::MapTypeContext* TaskDefLangParser::mapType() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(161);
+    setState(149);
     match(TaskDefLangParser::T__14);
-    setState(162);
+    setState(150);
     match(TaskDefLangParser::T__12);
-    setState(163);
+    setState(151);
     antlrcpp::downCast<MapTypeContext *>(_localctx)->key_type = varType();
-    setState(164);
+    setState(152);
     match(TaskDefLangParser::T__9);
-    setState(165);
+    setState(153);
     antlrcpp::downCast<MapTypeContext *>(_localctx)->val_type = varType();
-    setState(166);
+    setState(154);
     match(TaskDefLangParser::T__13);
 
         SourceLocation const loc{
@@ -1475,13 +1416,13 @@ TaskDefLangParser::TupleTypeContext* TaskDefLangParser::tupleType() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(169);
+    setState(157);
     match(TaskDefLangParser::T__15);
-    setState(170);
+    setState(158);
     match(TaskDefLangParser::T__12);
-    setState(171);
-    antlrcpp::downCast<TupleTypeContext *>(_localctx)->varTypeListContext = varTypeList(0);
-    setState(172);
+    setState(159);
+    antlrcpp::downCast<TupleTypeContext *>(_localctx)->varTypeListContext = varTypeList();
+    setState(160);
     match(TaskDefLangParser::T__13);
 
         SourceLocation const loc{
@@ -1549,12 +1490,12 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
     exitRule();
   });
   try {
-    setState(195);
+    setState(183);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case TaskDefLangParser::T__16: {
         enterOuterAlt(_localctx, 1);
-        setState(175);
+        setState(163);
         match(TaskDefLangParser::T__16);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Int::create(spider::tdl::parser::ast::IntSpec::Int8, loc);
@@ -1564,7 +1505,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__17: {
         enterOuterAlt(_localctx, 2);
-        setState(177);
+        setState(165);
         match(TaskDefLangParser::T__17);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Int::create(spider::tdl::parser::ast::IntSpec::Int16, loc);
@@ -1574,7 +1515,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__18: {
         enterOuterAlt(_localctx, 3);
-        setState(179);
+        setState(167);
         match(TaskDefLangParser::T__18);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Int::create(spider::tdl::parser::ast::IntSpec::Int32, loc);
@@ -1584,7 +1525,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__19: {
         enterOuterAlt(_localctx, 4);
-        setState(181);
+        setState(169);
         match(TaskDefLangParser::T__19);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Int::create(spider::tdl::parser::ast::IntSpec::Int64, loc);
@@ -1594,7 +1535,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__20: {
         enterOuterAlt(_localctx, 5);
-        setState(183);
+        setState(171);
         match(TaskDefLangParser::T__20);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Float::create(
@@ -1607,7 +1548,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__21: {
         enterOuterAlt(_localctx, 6);
-        setState(185);
+        setState(173);
         match(TaskDefLangParser::T__21);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Float::create(
@@ -1620,7 +1561,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__22: {
         enterOuterAlt(_localctx, 7);
-        setState(187);
+        setState(175);
         match(TaskDefLangParser::T__22);
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  spider::tdl::parser::ast::Bool::create(loc);
@@ -1630,7 +1571,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__11: {
         enterOuterAlt(_localctx, 8);
-        setState(189);
+        setState(177);
         antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->listTypeContext = listType();
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->listTypeContext->retval);
@@ -1640,7 +1581,7 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
 
       case TaskDefLangParser::T__14: {
         enterOuterAlt(_localctx, 9);
-        setState(192);
+        setState(180);
         antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->mapTypeContext = mapType();
 
             antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->retval =  std::move(antlrcpp::downCast<BuiltinTypeContext *>(_localctx)->mapTypeContext->retval);
@@ -1660,48 +1601,6 @@ TaskDefLangParser::BuiltinTypeContext* TaskDefLangParser::builtinType() {
   }
 
   return _localctx;
-}
-
-bool TaskDefLangParser::sempred(RuleContext *context, size_t ruleIndex, size_t predicateIndex) {
-  switch (ruleIndex) {
-    case 2: return funcDefsSempred(antlrcpp::downCast<FuncDefsContext *>(context), predicateIndex);
-    case 7: return namedVarListSempred(antlrcpp::downCast<NamedVarListContext *>(context), predicateIndex);
-    case 12: return varTypeListSempred(antlrcpp::downCast<VarTypeListContext *>(context), predicateIndex);
-
-  default:
-    break;
-  }
-  return true;
-}
-
-bool TaskDefLangParser::funcDefsSempred(FuncDefsContext *_localctx, size_t predicateIndex) {
-  switch (predicateIndex) {
-    case 0: return precpred(_ctx, 1);
-
-  default:
-    break;
-  }
-  return true;
-}
-
-bool TaskDefLangParser::namedVarListSempred(NamedVarListContext *_localctx, size_t predicateIndex) {
-  switch (predicateIndex) {
-    case 1: return precpred(_ctx, 1);
-
-  default:
-    break;
-  }
-  return true;
-}
-
-bool TaskDefLangParser::varTypeListSempred(VarTypeListContext *_localctx, size_t predicateIndex) {
-  switch (predicateIndex) {
-    case 2: return precpred(_ctx, 2);
-
-  default:
-    break;
-  }
-  return true;
 }
 
 void TaskDefLangParser::initialize() {

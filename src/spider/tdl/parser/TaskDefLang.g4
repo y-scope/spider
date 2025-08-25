@@ -52,14 +52,12 @@ namespace returns [std::unique_ptr<spider::tdl::parser::ast::Node> retval]
 ;
 
 funcDefs returns [std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval]
-: funcDef {
+@init {
     $retval.clear();
-    $retval.emplace_back(std::move($funcDef.retval));
 }
-| parsed_funcs=funcDefs funcDef {
-    $retval = std::move($parsed_funcs.retval);
+: (funcDef {
     $retval.emplace_back(std::move($funcDef.retval));
-}
+})+
 ;
 
 funcDef returns [std::unique_ptr<spider::tdl::parser::ast::Node> retval]
@@ -116,14 +114,14 @@ namedVar returns [std::unique_ptr<spider::tdl::parser::ast::Node> retval]
 ;
 
 namedVarList returns [std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval]
-: namedVar {
+@init {
     $retval.clear();
-    $retval.emplace_back(std::move($namedVar.retval));
 }
-| parsed_named_vars=namedVarList ',' namedVar {
-    $retval = std::move($parsed_named_vars.retval);
-    $retval.emplace_back(std::move($namedVar.retval));
-}
+: first_named_var=namedVar {
+    $retval.emplace_back(std::move($first_named_var.retval));
+} (',' subsequent_named_var=namedVar {
+    $retval.emplace_back(std::move($subsequent_named_var.retval));
+})*
 ;
 
 structDef returns [std::shared_ptr<spider::tdl::parser::ast::StructSpec> retval]
@@ -181,14 +179,15 @@ retType returns [std::unique_ptr<spider::tdl::parser::ast::Node> retval]
 ;
 
 varTypeList returns [std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval]
-: varType {
+@init {
     $retval.clear();
-    $retval.emplace_back(std::move($varType.retval));
 }
-| parsed_var_types=varTypeList ',' varType {
-    $retval = std::move($parsed_var_types.retval);
-    $retval.emplace_back(std::move($varType.retval));
+: first_var_type=varType {
+    $retval.emplace_back(std::move($first_var_type.retval));
 }
+(',' subsequent_var_type=varType {
+    $retval.emplace_back(std::move($subsequent_var_type.retval));
+})*
 | {
     $retval.clear();
 }

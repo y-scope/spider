@@ -112,12 +112,11 @@ public:
   class  FuncDefsContext : public antlr4::ParserRuleContext {
   public:
     std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
-    TaskDefLangParser::FuncDefsContext *parsed_funcs = nullptr;
     TaskDefLangParser::FuncDefContext *funcDefContext = nullptr;
     FuncDefsContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    FuncDefContext *funcDef();
-    FuncDefsContext *funcDefs();
+    std::vector<FuncDefContext *> funcDef();
+    FuncDefContext* funcDef(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -125,7 +124,7 @@ public:
   };
 
   FuncDefsContext* funcDefs();
-  FuncDefsContext* funcDefs(int precedence);
+
   class  FuncDefContext : public antlr4::ParserRuleContext {
   public:
     std::unique_ptr<spider::tdl::parser::ast::Node> retval;
@@ -195,12 +194,12 @@ public:
   class  NamedVarListContext : public antlr4::ParserRuleContext {
   public:
     std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
-    TaskDefLangParser::NamedVarListContext *parsed_named_vars = nullptr;
-    TaskDefLangParser::NamedVarContext *namedVarContext = nullptr;
+    TaskDefLangParser::NamedVarContext *first_named_var = nullptr;
+    TaskDefLangParser::NamedVarContext *subsequent_named_var = nullptr;
     NamedVarListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    NamedVarContext *namedVar();
-    NamedVarListContext *namedVarList();
+    std::vector<NamedVarContext *> namedVar();
+    NamedVarContext* namedVar(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -208,7 +207,7 @@ public:
   };
 
   NamedVarListContext* namedVarList();
-  NamedVarListContext* namedVarList(int precedence);
+
   class  StructDefContext : public antlr4::ParserRuleContext {
   public:
     std::shared_ptr<spider::tdl::parser::ast::StructSpec> retval;
@@ -278,12 +277,12 @@ public:
   class  VarTypeListContext : public antlr4::ParserRuleContext {
   public:
     std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
-    TaskDefLangParser::VarTypeListContext *parsed_var_types = nullptr;
-    TaskDefLangParser::VarTypeContext *varTypeContext = nullptr;
+    TaskDefLangParser::VarTypeContext *first_var_type = nullptr;
+    TaskDefLangParser::VarTypeContext *subsequent_var_type = nullptr;
     VarTypeListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    VarTypeContext *varType();
-    VarTypeListContext *varTypeList();
+    std::vector<VarTypeContext *> varType();
+    VarTypeContext* varType(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -291,7 +290,7 @@ public:
   };
 
   VarTypeListContext* varTypeList();
-  VarTypeListContext* varTypeList(int precedence);
+
   class  ListTypeContext : public antlr4::ParserRuleContext {
   public:
     std::unique_ptr<spider::tdl::parser::ast::Node> retval;
@@ -356,12 +355,6 @@ public:
 
   BuiltinTypeContext* builtinType();
 
-
-  bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
-
-  bool funcDefsSempred(FuncDefsContext *_localctx, size_t predicateIndex);
-  bool namedVarListSempred(NamedVarListContext *_localctx, size_t predicateIndex);
-  bool varTypeListSempred(VarTypeListContext *_localctx, size_t predicateIndex);
 
   // By default the static state used to implement the parser is lazily initialized during the first
   // call to the constructor. You can call this function if you wish to initialize the static state
