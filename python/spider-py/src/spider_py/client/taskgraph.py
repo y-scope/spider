@@ -55,5 +55,5 @@ def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> 
         child = TaskGraph()
         child._impl.add_task(task)
     graph = TaskGraph()
-    graph._impl = parent._impl.chain_graph(child._impl)
+    graph._impl = core.TaskGraph.chain_graph(parent._impl, child._impl)
     return graph
