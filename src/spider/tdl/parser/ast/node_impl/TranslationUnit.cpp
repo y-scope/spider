@@ -51,6 +51,7 @@ auto TranslationUnit::serialize_to_str(size_t indentation_level) const
     std::ranges::sort(struct_spec_names);
 
     std::vector<std::string> serialized_struct_specs;
+    serialized_struct_specs.reserve(struct_spec_names.size());
     for (auto const name : struct_spec_names) {
         serialized_struct_specs.emplace_back(YSTDLIB_ERROR_HANDLING_TRYX(
                 m_struct_spec_table.at(name)->serialize_to_str(indentation_level + 2)
