@@ -13,7 +13,7 @@ def msgpack_encoder(obj: object) -> list[object] | object:
     :return: List of field values.
     """
     if is_dataclass(obj):
-        return [msgpack_encoder(getattr(obj, f.name)) for f in fields(obj)]
+        return {f.name: getattr(obj, f.name) for f in fields(obj)}
     if isinstance(obj, list):
         return [msgpack_encoder(item) for item in obj]
     if isinstance(obj, dict):
@@ -32,17 +32,18 @@ def _decode_class(cls: type, data: object) -> object:
     """
     msg = f"Cannot create instance of {cls} with {data!r}"
     if is_dataclass(cls):
-        if not isinstance(data, list):
+        if not isinstance(data, dict):
             raise TypeError(msg)
-        parameters = fields(cls)
-        if len(data) != len(parameters):
-            raise TypeError(msg)
-        args = []
-        for param, value in zip(parameters, data, strict=True):
-            if not isinstance(param.type, type):
+        args = {}
+        parameters = {f.name: f for f in fields(cls)}
+        for name, value in data.items():
+            if name not in parameters:
                 raise TypeError(msg)
-            args.append(msgpack_decoder(param.type, value))
-        return cls(*args)
+            arg_cls = parameters[name].type
+            if not isinstance(arg_cls, type):
+                raise TypeError(msg)
+            args[name] = msgpack_decoder(arg_cls, value)
+        return cls(**args)
 
     return cls(data)
 
