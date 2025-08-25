@@ -91,6 +91,10 @@ if(BUILD_TESTING AND SPIDER_BUILD_TESTING)
     set(SPIDER_ENABLE_TESTS ON)
 endif()
 
+# Find and setup antlr4-runtime
+find_package(antlr4-runtime REQUIRED)
+message(STATUS "Found antlr4-runtime ${antlr4-runtime_VERSION}")
+
 # Find and setup Boost Library
 if(SPIDER_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS ON)

@@ -9,16 +9,18 @@
 
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Primitive.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::primitive_impl {
 class Bool : public Primitive {
 public:
     // Factory function
     /**
+     * @param source_location
      * @return A unique pointer to a new `Bool` instance.
      */
-    [[nodiscard]] static auto create() -> std::unique_ptr<Node> {
-        return std::make_unique<Bool>(Bool{});
+    [[nodiscard]] static auto create(SourceLocation source_location) -> std::unique_ptr<Node> {
+        return std::make_unique<Bool>(Bool{source_location});
     }
 
     // Methods implementing `Node`
@@ -27,7 +29,7 @@ public:
 
 private:
     // Constructor
-    explicit Bool() = default;
+    explicit Bool(SourceLocation source_location) : Primitive{source_location} {}
 };
 }  // namespace spider::tdl::parser::ast::node_impl::type_impl::primitive_impl
 
