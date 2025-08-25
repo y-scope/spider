@@ -931,21 +931,13 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     }
 
     SECTION("TranslationUnit") {
-        auto translation_unit_result{TranslationUnit::create(create_source_location())};
-        auto* translation_unit_node{dynamic_cast<TranslationUnit*>(translation_unit_result.get())};
-        REQUIRE(nullptr != translation_unit_node);
+        auto translation_unit{TranslationUnit::create(create_source_location())};
 
-        REQUIRE_FALSE(
-                translation_unit_node->add_struct_spec(create_struct_spec("Struct2")).has_error()
-        );
-        REQUIRE_FALSE(
-                translation_unit_node->add_struct_spec(create_struct_spec("Struct1")).has_error()
-        );
-        REQUIRE_FALSE(
-                translation_unit_node->add_struct_spec(create_struct_spec("Struct0")).has_error()
-        );
-        REQUIRE_FALSE(translation_unit_node->add_namespace(create_namespace("ns0")).has_error());
-        REQUIRE_FALSE(translation_unit_node->add_namespace(create_namespace("ns1")).has_error());
+        REQUIRE_FALSE(translation_unit->add_struct_spec(create_struct_spec("Struct2")).has_error());
+        REQUIRE_FALSE(translation_unit->add_struct_spec(create_struct_spec("Struct1")).has_error());
+        REQUIRE_FALSE(translation_unit->add_struct_spec(create_struct_spec("Struct0")).has_error());
+        REQUIRE_FALSE(translation_unit->add_namespace(create_namespace("ns0")).has_error());
+        REQUIRE_FALSE(translation_unit->add_namespace(create_namespace("ns1")).has_error());
 
         SECTION("Serialization") {
             constexpr std::string_view cExpectedSerializedResult{
@@ -993,13 +985,13 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
                     "            [Type[Container[Tuple]]]:Empty\n"
                     "          No Params"
             };
-            auto const serialized_result{translation_unit_node->serialize_to_str(0)};
+            auto const serialized_result{translation_unit->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
             REQUIRE(serialized_result.value() == cExpectedSerializedResult);
         }
 
         SECTION("Duplicated StructSpec names") {
-            auto result{translation_unit_node->add_struct_spec(create_struct_spec("Struct0"))};
+            auto result{translation_unit->add_struct_spec(create_struct_spec("Struct0"))};
             REQUIRE(result.has_error());
             REQUIRE(result.error()
                     == TranslationUnit::ErrorCode{
@@ -1008,7 +1000,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         }
 
         SECTION("Duplicated Namespace names") {
-            auto result{translation_unit_node->add_namespace(create_namespace("ns0"))};
+            auto result{translation_unit->add_namespace(create_namespace("ns0"))};
             REQUIRE(result.has_error());
             REQUIRE(result.error()
                     == TranslationUnit::ErrorCode{

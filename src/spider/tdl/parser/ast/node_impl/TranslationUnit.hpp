@@ -36,7 +36,8 @@ public:
      * @param source_location
      * @return A unique pointer to a new `TranslationUnit` instance.
      */
-    [[nodiscard]] static auto create(SourceLocation source_location) -> std::unique_ptr<Node> {
+    [[nodiscard]] static auto create(SourceLocation source_location)
+            -> std::unique_ptr<TranslationUnit> {
         return std::make_unique<TranslationUnit>(TranslationUnit{source_location});
     }
 
