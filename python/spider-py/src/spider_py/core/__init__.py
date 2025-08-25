@@ -16,7 +16,7 @@ from .task import (
     TaskOutputValue,
     TaskState,
 )
-from .taskgraph import JobId, TaskGraph
+from .task_graph import JobId, TaskGraph
 
 __all__ = [
     "Data",

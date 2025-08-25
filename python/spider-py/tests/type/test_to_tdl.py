@@ -2,8 +2,8 @@
 
 import pytest
 
-from spider import Double, Float, Int8, Int16, Int32, Int64
-from spider.type import to_tdl_type_str
+from spider_py import Double, Float, Int8, Int16, Int32, Int64
+from spider_py.type import to_tdl_type_str
 
 
 class TestToTDL:

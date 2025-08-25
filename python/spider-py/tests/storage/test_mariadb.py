@@ -5,9 +5,9 @@ from uuid import uuid4
 import msgpack
 import pytest
 
-from spider import chain, group, Int8, TaskContext
-from spider.core import TaskInputValue
-from spider.storage import MariaDBStorage, parse_jdbc_url
+from spider_py import chain, group, Int8, TaskContext
+from spider_py.core import TaskInputValue
+from spider_py.storage import MariaDBStorage, parse_jdbc_url
 
 MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
 

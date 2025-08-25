@@ -6,10 +6,10 @@ from uuid import uuid4
 import mariadb
 from typing_extensions import override
 
-from spider import core
-from spider.core import get_state_str
-from spider.storage.jdbc_url import JdbcParameters
-from spider.storage.storage import Storage, StorageError
+from spider_py import core
+from spider_py.core import get_state_str
+from spider_py.storage.jdbc_url import JdbcParameters
+from spider_py.storage.storage import Storage, StorageError
 
 InsertJob = """
 INSERT INTO

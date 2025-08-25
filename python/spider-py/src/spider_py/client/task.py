@@ -5,10 +5,10 @@ from collections.abc import Callable
 from types import FunctionType, GenericAlias
 from typing import get_args, get_origin
 
-from spider import core
-from spider.client.data import Data
-from spider.core import TaskInput, TaskOutput, TaskOutputData, TaskOutputValue
-from spider.type import to_tdl_type_str
+from spider_py import core
+from spider_py.client.data import Data
+from spider_py.core import TaskInput, TaskOutput, TaskOutputData, TaskOutputValue
+from spider_py.type import to_tdl_type_str
 
 
 class TaskContext:
