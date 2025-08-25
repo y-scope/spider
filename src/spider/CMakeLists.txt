@@ -255,6 +255,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/nodes.hpp
     tdl/parser/ast/utils.hpp
     tdl/parser/ErrorListener.hpp
+    tdl/parser/Exception.hpp
     tdl/parser/parse.hpp
     tdl/parser/SourceLocation.hpp
     CACHE INTERNAL

@@ -1,4 +1,15 @@
 
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include <spider/tdl/parser/ast/FloatSpec.hpp>
+#include <spider/tdl/parser/ast/IntSpec.hpp>
+#include <spider/tdl/parser/ast/nodes.hpp>
+#include <spider/tdl/parser/Exception.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
+
+
 // Generated from tdl/parser/TaskDefLang.g4 by ANTLR 4.13.2
 
 #pragma once
@@ -20,10 +31,10 @@ public:
   };
 
   enum {
-    RuleTranslationUnit = 0, RuleNamespace = 1, RuleFuncDef = 2, RuleRet = 3, 
-    RuleParams = 4, RuleNamedVar = 5, RuleNamedVarList = 6, RuleStructDef = 7, 
-    RuleId = 8, RuleVarType = 9, RuleRetType = 10, RuleVarTypeList = 11, 
-    RuleListType = 12, RuleMapType = 13, RuleTupleType = 14, RuleBuiltinType = 15
+    RuleTranslationUnit = 0, RuleNamespace = 1, RuleFuncDefs = 2, RuleFuncDef = 3, 
+    RuleRet = 4, RuleParams = 5, RuleNamedVar = 6, RuleNamedVarList = 7, 
+    RuleStructDef = 8, RuleId = 9, RuleVarType = 10, RuleRetType = 11, RuleVarTypeList = 12, 
+    RuleListType = 13, RuleMapType = 14, RuleTupleType = 15, RuleBuiltinType = 16
   };
 
   explicit TaskDefLangParser(antlr4::TokenStream *input);
@@ -45,6 +56,7 @@ public:
 
   class TranslationUnitContext;
   class NamespaceContext;
+  class FuncDefsContext;
   class FuncDefContext;
   class RetContext;
   class ParamsContext;
@@ -62,6 +74,9 @@ public:
 
   class  TranslationUnitContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::TranslationUnit> tu;
+    TaskDefLangParser::NamespaceContext *namespaceContext = nullptr;
+    TaskDefLangParser::StructDefContext *structDefContext = nullptr;
     TranslationUnitContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *EOF();
@@ -79,11 +94,13 @@ public:
 
   class  NamespaceContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::IdContext *idContext = nullptr;
+    TaskDefLangParser::FuncDefsContext *funcDefsContext = nullptr;
     NamespaceContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     IdContext *id();
-    std::vector<FuncDefContext *> funcDef();
-    FuncDefContext* funcDef(size_t i);
+    FuncDefsContext *funcDefs();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -92,8 +109,29 @@ public:
 
   NamespaceContext* namespace_();
 
+  class  FuncDefsContext : public antlr4::ParserRuleContext {
+  public:
+    std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
+    TaskDefLangParser::FuncDefsContext *parsed_funcs = nullptr;
+    TaskDefLangParser::FuncDefContext *funcDefContext = nullptr;
+    FuncDefsContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    FuncDefContext *funcDef();
+    FuncDefsContext *funcDefs();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  FuncDefsContext* funcDefs();
+  FuncDefsContext* funcDefs(int precedence);
   class  FuncDefContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::IdContext *idContext = nullptr;
+    TaskDefLangParser::ParamsContext *paramsContext = nullptr;
+    TaskDefLangParser::RetContext *retContext = nullptr;
     FuncDefContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     IdContext *id();
@@ -109,6 +147,8 @@ public:
 
   class  RetContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::RetTypeContext *retTypeContext = nullptr;
     RetContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     RetTypeContext *retType();
@@ -122,6 +162,8 @@ public:
 
   class  ParamsContext : public antlr4::ParserRuleContext {
   public:
+    std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
+    TaskDefLangParser::NamedVarListContext *namedVarListContext = nullptr;
     ParamsContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     NamedVarListContext *namedVarList();
@@ -135,6 +177,9 @@ public:
 
   class  NamedVarContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::IdContext *idContext = nullptr;
+    TaskDefLangParser::VarTypeContext *varTypeContext = nullptr;
     NamedVarContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     IdContext *id();
@@ -149,6 +194,9 @@ public:
 
   class  NamedVarListContext : public antlr4::ParserRuleContext {
   public:
+    std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
+    TaskDefLangParser::NamedVarListContext *parsed_named_vars = nullptr;
+    TaskDefLangParser::NamedVarContext *namedVarContext = nullptr;
     NamedVarListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     NamedVarContext *namedVar();
@@ -163,6 +211,9 @@ public:
   NamedVarListContext* namedVarList(int precedence);
   class  StructDefContext : public antlr4::ParserRuleContext {
   public:
+    std::shared_ptr<spider::tdl::parser::ast::StructSpec> retval;
+    TaskDefLangParser::IdContext *idContext = nullptr;
+    TaskDefLangParser::NamedVarListContext *namedVarListContext = nullptr;
     StructDefContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     IdContext *id();
@@ -177,6 +228,8 @@ public:
 
   class  IdContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    antlr4::Token *idToken = nullptr;
     IdContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *ID();
@@ -190,6 +243,9 @@ public:
 
   class  VarTypeContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::BuiltinTypeContext *builtinTypeContext = nullptr;
+    TaskDefLangParser::IdContext *idContext = nullptr;
     VarTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     BuiltinTypeContext *builtinType();
@@ -204,6 +260,9 @@ public:
 
   class  RetTypeContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::VarTypeContext *varTypeContext = nullptr;
+    TaskDefLangParser::TupleTypeContext *tupleTypeContext = nullptr;
     RetTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     VarTypeContext *varType();
@@ -218,6 +277,9 @@ public:
 
   class  VarTypeListContext : public antlr4::ParserRuleContext {
   public:
+    std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>> retval;
+    TaskDefLangParser::VarTypeListContext *parsed_var_types = nullptr;
+    TaskDefLangParser::VarTypeContext *varTypeContext = nullptr;
     VarTypeListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     VarTypeContext *varType();
@@ -232,6 +294,8 @@ public:
   VarTypeListContext* varTypeList(int precedence);
   class  ListTypeContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::VarTypeContext *varTypeContext = nullptr;
     ListTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     VarTypeContext *varType();
@@ -245,6 +309,9 @@ public:
 
   class  MapTypeContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::VarTypeContext *key_type = nullptr;
+    TaskDefLangParser::VarTypeContext *val_type = nullptr;
     MapTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     std::vector<VarTypeContext *> varType();
@@ -259,6 +326,8 @@ public:
 
   class  TupleTypeContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::VarTypeListContext *varTypeListContext = nullptr;
     TupleTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     VarTypeListContext *varTypeList();
@@ -272,6 +341,9 @@ public:
 
   class  BuiltinTypeContext : public antlr4::ParserRuleContext {
   public:
+    std::unique_ptr<spider::tdl::parser::ast::Node> retval;
+    TaskDefLangParser::ListTypeContext *listTypeContext = nullptr;
+    TaskDefLangParser::MapTypeContext *mapTypeContext = nullptr;
     BuiltinTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     ListTypeContext *listType();
@@ -287,6 +359,7 @@ public:
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
 
+  bool funcDefsSempred(FuncDefsContext *_localctx, size_t predicateIndex);
   bool namedVarListSempred(NamedVarListContext *_localctx, size_t predicateIndex);
   bool varTypeListSempred(VarTypeListContext *_localctx, size_t predicateIndex);
 
