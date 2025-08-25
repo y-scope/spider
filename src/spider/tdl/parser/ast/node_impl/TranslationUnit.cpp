@@ -58,6 +58,7 @@ auto TranslationUnit::serialize_to_str(size_t indentation_level) const
     }
 
     std::vector<std::string> serialized_namespaces;
+    serialized_namespaces.reserve(get_num_children());
     YSTDLIB_ERROR_HANDLING_TRYV(
             visit_children([&](Node const& child) -> ystdlib::error_handling::Result<void> {
                 YSTDLIB_ERROR_HANDLING_TRYV(validate_child_node_type<Namespace>(&child));
