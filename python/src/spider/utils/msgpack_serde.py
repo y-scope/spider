@@ -40,7 +40,7 @@ def _decode_class(cls: type, data: object) -> object:
             if name not in parameters:
                 raise TypeError(msg)
             arg_cls = parameters[name].type
-            if not isinstance(arg_cls, type):
+            if not isinstance(arg_cls, type) and not isinstance(arg_cls, GenericAlias):
                 raise TypeError(msg)
             args[name] = msgpack_decoder(arg_cls, value)
         return cls(**args)
