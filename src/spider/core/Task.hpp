@@ -104,6 +104,12 @@ struct TaskInstance {
     TaskInstance(boost::uuids::uuid id, boost::uuids::uuid task_id) : id(id), task_id(task_id) {}
 };
 
+enum class TaskLanguage : std::uint8_t {
+    Cpp,
+    Python,
+    Java,
+};
+
 enum class TaskState : std::uint8_t {
     Pending,
     Ready,
@@ -178,13 +184,20 @@ public:
         m_id = gen();
     }
 
-    Task(boost::uuids::uuid id, std::string function_name, TaskState state, float timeout)
+    Task(boost::uuids::uuid id,
+         std::string function_name,
+         TaskLanguage language,
+         TaskState state,
+         float timeout)
             : m_id(id),
               m_function_name(std::move(function_name)),
+              m_language(language),
               m_state(state),
               m_timeout(timeout) {}
 
     void set_id(boost::uuids::uuid const id) { m_id = id; }
+
+    void set_language(TaskLanguage language) { m_language = language; }
 
     void set_max_retries(unsigned int num_retries) { m_max_tries = num_retries; }
 
@@ -195,6 +208,8 @@ public:
     [[nodiscard]] auto get_id() const -> boost::uuids::uuid { return m_id; }
 
     [[nodiscard]] auto get_function_name() const -> std::string { return m_function_name; }
+
+    [[nodiscard]] auto get_language() const -> TaskLanguage { return m_language; }
 
     [[nodiscard]] auto get_state() const -> TaskState { return m_state; }
 
@@ -225,6 +240,7 @@ public:
 private:
     boost::uuids::uuid m_id;
     std::string m_function_name;
+    TaskLanguage m_language = TaskLanguage::Cpp;
     TaskState m_state = TaskState::Pending;
     float m_timeout = 0;
     unsigned int m_max_tries = 0;

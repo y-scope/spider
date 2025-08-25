@@ -80,6 +80,32 @@ auto get_sql_string(sql::SQLString const& str) -> std::string {
 
 // NOLINTEND
 
+auto task_language_to_string(spider::core::TaskLanguage language) -> std::string {
+    switch (language) {
+        case spider::core::TaskLanguage::Python:
+            return "python";
+        case spider::core::TaskLanguage::Cpp:
+            return "cpp";
+        case spider::core::TaskLanguage::Java:
+            return "java";
+        default:
+            return "";
+    }
+}
+
+auto string_to_task_language(std::string const& language) -> spider::core::TaskLanguage {
+    if (language == "python") {
+        return spider::core::TaskLanguage::Python;
+    }
+    if (language == "cpp") {
+        return spider::core::TaskLanguage::Cpp;
+    }
+    if (language == "java") {
+        return spider::core::TaskLanguage::Java;
+    }
+    return spider::core::TaskLanguage::Cpp;
+}
+
 auto task_state_to_string(spider::core::TaskState state) -> std::string {
     switch (state) {
         case spider::core::TaskState::Pending:
@@ -256,13 +282,14 @@ void MySqlMetadataStorage::add_task(
     task_statement->setBytes(1, &task_id_bytes);
     task_statement->setBytes(2, &job_id);
     task_statement->setString(3, task.get_function_name());
+    task_statement->setString(4, task_language_to_string(task.get_language()));
     if (state.has_value()) {
-        task_statement->setString(4, task_state_to_string(state.value()));
+        task_statement->setString(5, task_state_to_string(state.value()));
     } else {
-        task_statement->setString(4, task_state_to_string(task.get_state()));
+        task_statement->setString(5, task_state_to_string(task.get_state()));
     }
-    task_statement->setFloat(5, task.get_timeout());
-    task_statement->setUInt(6, task.get_max_retries());
+    task_statement->setFloat(6, task.get_timeout());
+    task_statement->setUInt(7, task.get_max_retries());
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement->executeUpdate();
 
@@ -335,13 +362,14 @@ void MySqlMetadataStorage::add_task_batch(
     task_statement.setBytes(1, &task_id_bytes);
     task_statement.setBytes(2, &job_id);
     task_statement.setString(3, task.get_function_name());
+    task_statement.setString(4, task_language_to_string(task.get_language()));
     if (state.has_value()) {
-        task_statement.setString(4, task_state_to_string(state.value()));
+        task_statement.setString(5, task_state_to_string(state.value()));
     } else {
-        task_statement.setString(4, task_state_to_string(task.get_state()));
+        task_statement.setString(5, task_state_to_string(task.get_state()));
     }
-    task_statement.setFloat(5, task.get_timeout());
-    task_statement.setUInt(6, task.get_max_retries());
+    task_statement.setFloat(6, task.get_timeout());
+    task_statement.setUInt(7, task.get_max_retries());
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
     task_statement.addBatch();
 
@@ -651,9 +679,11 @@ namespace {
 auto fetch_task(std::unique_ptr<sql::ResultSet> const& res) -> Task {
     boost::uuids::uuid const id = read_id(res->getBinaryStream("id"));
     std::string const function_name = get_sql_string(res->getString("func_name"));
+    TaskLanguage const language
+            = string_to_task_language(get_sql_string(res->getString("language")));
     TaskState const state = string_to_task_state(get_sql_string(res->getString("state")));
     float const timeout = res->getFloat("timeout");
-    return Task{id, function_name, state, timeout};
+    return Task{id, function_name, language, state, timeout};
 }
 
 auto fetch_task_input(Task* task, std::unique_ptr<sql::ResultSet> const& res) {
@@ -780,7 +810,8 @@ auto MySqlMetadataStorage::get_task_graph(
         // Get all tasks
         std::unique_ptr<sql::PreparedStatement> task_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `job_id` "
+                        "SELECT `id`, `func_name`, `language`, `state`, `timeout` FROM `tasks` "
+                        "WHERE `job_id` "
                         "= ?"
                 )
         );
@@ -1202,7 +1233,8 @@ auto MySqlMetadataStorage::get_task(StorageConnection& conn, boost::uuids::uuid 
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` WHERE `id` = ?"
+                        "SELECT `id`, `func_name`, `language`, `state`, `timeout` FROM `tasks` "
+                        "WHERE `id` = ?"
                 )
         );
         sql::bytes id_bytes = uuid_get_bytes(id);
@@ -1857,7 +1889,8 @@ auto MySqlMetadataStorage::get_child_tasks(
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN "
+                        "SELECT `id`, `func_name`, `language`, `state`, `timeout` FROM `tasks` "
+                        "JOIN "
                         "`task_dependencies` as `t2` WHERE `tasks`.`id` = `t2`.`child` AND "
                         "`t2`.`parent` = ?"
                 )
@@ -1884,7 +1917,8 @@ auto MySqlMetadataStorage::get_parent_tasks(
     try {
         std::unique_ptr<sql::PreparedStatement> statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "SELECT `id`, `func_name`, `state`, `timeout` FROM `tasks` JOIN "
+                        "SELECT `id`, `func_name`, `language`, `state`, `timeout` FROM `tasks` "
+                        "JOIN "
                         "`task_dependencies` as `t2` WHERE `tasks`.`id` = `t2`.`parent` AND "
                         "`t2`.`child` = ?"
                 )

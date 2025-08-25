@@ -36,6 +36,7 @@ std::string const cCreateTaskTable = R"(CREATE TABLE IF NOT EXISTS tasks (
     `id` BINARY(16) NOT NULL,
     `job_id` BINARY(16) NOT NULL,
     `func_name` VARCHAR(64) NOT NULL,
+    `language` ENUM('cpp', 'python', 'java') NOT NULL,
     `state` ENUM('pending', 'ready', 'running', 'success', 'cancel', 'fail') NOT NULL,
     `timeout` FLOAT,
     `max_retry` INT UNSIGNED DEFAULT 0,
@@ -191,7 +192,7 @@ std::array<std::string const, 17> const cCreateStorage = {
 std::string const cInsertJob = R"(INSERT INTO `jobs` (`id`, `client_id`) VALUES (?, ?))";
 
 std::string const cInsertTask
-        = R"(INSERT INTO `tasks` (`id`, `job_id`, `func_name`, `state`, `timeout`, `max_retry`) VALUES (?, ?, ?, ?, ?, ?))";
+        = R"(INSERT INTO `tasks` (`id`, `job_id`, `func_name`, `language`, `state`, `timeout`, `max_retry`) VALUES (?, ?, ?, ?, ?, ?, ?))";
 
 std::string const cInsertTaskInputOutput
         = R"(INSERT INTO `task_inputs` (`task_id`, `position`, `type`, `output_task_id`, `output_task_position`) VALUES (?, ?, ?, ?, ?))";
