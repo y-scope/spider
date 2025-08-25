@@ -189,7 +189,9 @@ varTypeList returns [std::vector<std::unique_ptr<spider::tdl::parser::ast::Node>
     $retval = std::move($parsed_var_types.retval);
     $retval.emplace_back(std::move($varType.retval));
 }
-|
+| {
+    $retval.clear();
+}
 ;
 
 listType returns [std::unique_ptr<spider::tdl::parser::ast::Node> retval]
