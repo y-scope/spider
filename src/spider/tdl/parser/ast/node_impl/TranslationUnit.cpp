@@ -1,5 +1,6 @@
 #include "TranslationUnit.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -42,11 +43,18 @@ auto TranslationUnitErrorCodeCategory::message(TranslationUnit::ErrorCodeEnum er
 namespace spider::tdl::parser::ast::node_impl {
 auto TranslationUnit::serialize_to_str(size_t indentation_level) const
         -> ystdlib::error_handling::Result<std::string> {
+    std::vector<std::string_view> struct_spec_names;
+    struct_spec_names.reserve(m_struct_spec_table.size());
+    for (auto const& [name, _] : m_struct_spec_table) {
+        struct_spec_names.emplace_back(name);
+    }
+    std::ranges::sort(struct_spec_names);
+
     std::vector<std::string> serialized_struct_specs;
-    for (auto const& [name, struct_spec] : m_struct_spec_table) {
-        serialized_struct_specs.emplace_back(
-                YSTDLIB_ERROR_HANDLING_TRYX(struct_spec->serialize_to_str(indentation_level + 2))
-        );
+    for (auto const name : struct_spec_names) {
+        serialized_struct_specs.emplace_back(YSTDLIB_ERROR_HANDLING_TRYX(
+                m_struct_spec_table.at(name)->serialize_to_str(indentation_level + 2)
+        ));
     }
 
     std::vector<std::string> serialized_namespaces;

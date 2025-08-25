@@ -936,10 +936,13 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         REQUIRE(nullptr != translation_unit_node);
 
         REQUIRE_FALSE(
-                translation_unit_node->add_struct_spec(create_struct_spec("Struct0")).has_error()
+                translation_unit_node->add_struct_spec(create_struct_spec("Struct2")).has_error()
         );
         REQUIRE_FALSE(
                 translation_unit_node->add_struct_spec(create_struct_spec("Struct1")).has_error()
+        );
+        REQUIRE_FALSE(
+                translation_unit_node->add_struct_spec(create_struct_spec("Struct0")).has_error()
         );
         REQUIRE_FALSE(translation_unit_node->add_namespace(create_namespace("ns0")).has_error());
         REQUIRE_FALSE(translation_unit_node->add_namespace(create_namespace("ns1")).has_error());
@@ -958,6 +961,14 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
                     "            [Type[Primitive[Int]]]:int32\n"
                     "    [StructSpec]:\n"
                     "      Name:Struct1\n"
+                    "      Fields[0]:\n"
+                    "        [NamedVar]:\n"
+                    "          Id:\n"
+                    "            [Identifier]:member_0\n"
+                    "          Type:\n"
+                    "            [Type[Primitive[Int]]]:int32\n"
+                    "    [StructSpec]:\n"
+                    "      Name:Struct2\n"
                     "      Fields[0]:\n"
                     "        [NamedVar]:\n"
                     "          Id:\n"
