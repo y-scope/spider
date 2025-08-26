@@ -11,7 +11,7 @@ TaskId = UUID
 
 @dataclass
 class TaskInputOutput:
-    """Represents a task input that points to output of another task"""
+    """Represents a task input that references the output of another task by its ID and position."""
 
     task_id: TaskId
     position: int
@@ -42,7 +42,7 @@ class TaskOutput:
 
 
 class TaskState(IntEnum):
-    """Represents state of a task"""
+    """Represents the state of a task"""
 
     Pending = 0
     Ready = 1
