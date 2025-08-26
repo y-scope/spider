@@ -287,6 +287,8 @@ RESERVED_CONTROL_FLOW_WORDS
 | 'elif'
 | 'switch'
 | 'case'
+| 'default'
+| 'match'
 | 'while'
 | 'for'
 | 'loop'
@@ -308,13 +310,16 @@ RESERVED_DEF_WORDS
 | 'namespace'
 | 'using'
 | 'typedef'
+| 'decltype'
 | 'def'
+| 'dataclass'
 | 'fn'
 | 'let'
 | 'module'
 | 'import'
 | 'template'
 | 'requires'
+| 'concept'
 ;
 
 RESERVED_TYPE_AND_STORAGE_WORDS
@@ -327,6 +332,9 @@ RESERVED_TYPE_AND_STORAGE_WORDS
 | 'char'
 | 'string'
 | 'str'
+| 'float'
+| 'double'
+| 'bool'
 | 'void'
 | 'const'
 | 'static'
@@ -341,6 +349,7 @@ RESERVED_TYPE_AND_STORAGE_WORDS
 | 'delete'
 | 'null'
 | 'nullptr'
+| 'None'
 | 'true'
 | 'false'
 | 'True'
@@ -384,6 +393,12 @@ RESERVED_OTHER_WORDS
 | 'in'
 | 'is'
 | 'del'
+| 'lambda'
+| 'from'
+| 'as'
+| 'constexpr'
+| 'nodiscard'
+| 'noexcept'
 ;
 
 // ID must be defined after RESERVED_* so that the reserved words get higher precedence.
