@@ -308,6 +308,7 @@ RESERVED_DEF_WORDS
 | 'using'
 | 'typedef'
 | 'def'
+| 'fn'
 | 'let'
 | 'module'
 | 'import'
