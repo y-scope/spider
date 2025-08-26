@@ -159,7 +159,7 @@ class MariaDBStorage(Storage):
                 )
                 input_data_params = [
                     (
-                        task_ids[graph_index][task_index],
+                        task_ids[graph_index][task_index].bytes,
                         position,
                         task_input.type,
                         task_input.value.bytes,
