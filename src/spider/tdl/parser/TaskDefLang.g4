@@ -382,4 +382,5 @@ RESERVED_OTHER_WORDS
 | 'del'
 ;
 
+// ID must be defined after RESERVED_* so that the reserved words get higher precedence.
 ID: [a-zA-Z_][a-zA-Z0-9_]* ;
