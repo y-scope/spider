@@ -22,8 +22,8 @@ class TaskGraph:
       contains:
         - parent task index
         - child task index
-    - input_tasks: A list of task ids that have no parents (input tasks).
-    - output_tasks: A list of task ids that have no children (output tasks).
+    - input_tasks: A list of task indices that have no parents (input tasks).
+    - output_tasks: A list of task indices that have no children (output tasks).
     - task_input_output_refs: A list of tuples representing the task inputs referencing task
       outputs of parent tasks. Each tuple contains:
       - input task index
@@ -45,7 +45,7 @@ class TaskGraph:
         Adds a task to the graph.
         :param task: The task to add.
         """
-        self.tasks.append(deepcopy(task))
+        self.tasks.append(task)
         index = len(self.tasks) - 1
         self.input_tasks.append(index)
         self.output_tasks.append(index)
@@ -65,6 +65,22 @@ class TaskGraph:
         )
         self.input_tasks.extend([index + index_offset for index in graph.input_tasks])
         self.output_tasks.extend([index + index_offset for index in graph.output_tasks])
+        self.task_input_output_refs.extend(
+            [
+                (
+                    input_index + index_offset,
+                    input_position,
+                    output_index + index_offset,
+                    output_position,
+                )
+                for (
+                    input_index,
+                    input_position,
+                    output_index,
+                    output_position,
+                ) in graph.task_input_output_refs
+            ]
+        )
 
     @staticmethod
     def chain_graph(parent: TaskGraph, child: TaskGraph) -> TaskGraph:
@@ -116,5 +132,22 @@ class TaskGraph:
 
         if task_output_index != len(parent_output_tasks) or output_position != 0:
             raise TypeError(size_mismatch_msg)
+
+        graph.task_input_output_refs.extend(
+            [
+                (
+                    input_index + index_offset,
+                    input_position,
+                    output_index + index_offset,
+                    output_position,
+                )
+                for (
+                    input_index,
+                    input_position,
+                    output_index,
+                    output_position,
+                ) in child.task_input_output_refs
+            ]
+        )
 
         return graph

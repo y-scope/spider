@@ -9,6 +9,7 @@
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
+#include <spider/tdl/parser/ast/node_impl/TranslationUnit.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Container.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
@@ -33,6 +34,7 @@ using Identifier = node_impl::Identifier;
 using NamedVar = node_impl::NamedVar;
 using Namespace = node_impl::Namespace;
 using StructSpec = node_impl::StructSpec;
+using TranslationUnit = node_impl::TranslationUnit;
 using Type = node_impl::Type;
 using Container = node_impl::type_impl::Container;
 using Primitive = node_impl::type_impl::Primitive;
