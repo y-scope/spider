@@ -19,8 +19,8 @@ class TaskGraph:
       contains:
         - parent task index
         - child task index
-    - input_tasks: A list of task ids that have no parents (input tasks).
-    - output_tasks: A list of task ids that have no children (output tasks).
+    - input_tasks: A list of task indices that have no parents (input tasks).
+    - output_tasks: A list of task indices that have no children (output tasks).
     - task_input_output_refs: A list of tuples representing the task inputs referencing task
       outputs of parent tasks. Each tuple contains:
       - input task index
@@ -53,7 +53,7 @@ class TaskGraph:
         :param graph: The task graph to merge.
         """
         index_offset = len(self.tasks)
-        self.tasks.extend(graph.tasks)
+        self.tasks.extend(deepcopy(graph.tasks))
         self.dependencies.extend(
             [
                 (parent + index_offset, child + index_offset)
@@ -62,6 +62,22 @@ class TaskGraph:
         )
         self.input_tasks.extend([index + index_offset for index in graph.input_tasks])
         self.output_tasks.extend([index + index_offset for index in graph.output_tasks])
+        self.task_input_output_refs.extend(
+            [
+                (
+                    input_index + index_offset,
+                    input_position,
+                    output_index + index_offset,
+                    output_position,
+                )
+                for (
+                    input_index,
+                    input_position,
+                    output_index,
+                    output_position,
+                ) in graph.task_input_output_refs
+            ]
+        )
 
     @staticmethod
     def chain_graph(parent: TaskGraph, child: TaskGraph) -> TaskGraph:
