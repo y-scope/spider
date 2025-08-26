@@ -77,7 +77,7 @@ task deps:lib_install
 This will install all dependencies in the `build/deps` directory.
 
 Alternatively, you can install the dependencies to the system. See the `install-all-run` task in
-[deps-task.yaml] for the list of dependencies to install.
+[taskfiles/deps.yaml][deps-task] for the list of dependencies to install.
 
 # Building the task into a shared library
 
@@ -257,7 +257,7 @@ task, and the worker handles the task output as usual. Then the worker exits wit
 In future guides, we'll explain how to write more complex tasks, as well as how to leverage Spider's
 support for fault tolerance.
 
-[deps-task.yaml]: https://github.com/y-scope/spider/blob/main/dep-tasks.yaml
+[deps-task]: https://github.com/y-scope/spider/blob/main/taskfiles/deps.yaml
 [Docker]: https://docs.docker.com/engine/install/
 [docker-non-root]: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
 [examples/quick-start]: https://github.com/y-scope/spider/tree/main/examples/quick-start

@@ -1,6 +1,7 @@
 version: "3"
 
 vars:
+  G_LINT_CLANG_TIDY_DIR: "{{.G_BUILD_DIR}}/lint-clang-tidy"
   G_LINT_VENV_DIR: "{{.G_BUILD_DIR}}/lint-venv"
   G_LINT_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/lint#venv.md5"
 
@@ -61,6 +62,8 @@ tasks:
       - task: ":utils:cpp-lint:clang-format"
         vars:
           FLAGS: ["--dry-run"]
+          EXCLUDE_PATTERNS: &cpp_exclude_patterns
+            - "tdl/parser/antlr_generated/*"
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp"]
           ROOT_PATHS: &cpp_source_files
             - "{{.G_SRC_SPIDER_DIR}}"
@@ -75,6 +78,7 @@ tasks:
       - task: ":utils:cpp-lint:clang-format"
         vars:
           FLAGS: ["-i"]
+          EXCLUDE_PATTERNS: *cpp_exclude_patterns
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp"]
           ROOT_PATHS: *cpp_source_files
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
@@ -93,6 +97,7 @@ tasks:
           FLAGS:
             - "--config-file '{{.ROOT_DIR}}/.clang-tidy'"
             - "-p '{{.G_SPIDER_COMPILE_COMMANDS_DB}}'"
+          EXCLUDE_PATTERNS: *cpp_exclude_patterns
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp"]
           OUTPUT_DIR: "{{.G_LINT_CLANG_TIDY_DIR}}"
           ROOT_PATHS:
@@ -115,12 +120,14 @@ tasks:
       - task: "py"
         vars:
           RUFF_FORMAT_FLAGS: "--diff"
+      - task: "spider-py-check"
 
   py-fix:
     cmds:
       - task: "py"
         vars:
           RUFF_CHECK_FLAGS: "--fix"
+      - task: "spider-py-fix"
 
   py:
     internal: true
@@ -136,6 +143,25 @@ tasks:
           mypy "{{.ITEM}}"
           ruff check {{.RUFF_CHECK_FLAGS}} "{{.ITEM}}"
           ruff format {{.RUFF_FORMAT_FLAGS}} "{{.ITEM}}"
+
+  spider-py-check:
+    cmds:
+      - task: "spider-py"
+        vars:
+          RUFF_FORMAT_FLAGS: "--diff"
+
+  spider-py-fix:
+    cmds:
+      - task: "spider-py"
+        vars:
+          RUFF_CHECK_FLAGS: "--fix"
+
+  spider-py:
+    internal: true
+    vars:
+      RUFF_CHECK_FLAGS: "{{.RUFF_CHECK_FLAGS | default \"\"}}"
+      RUFF_FORMAT_FLAGS: "{{.RUFF_FORMAT_FLAGS | default \"\"}}"
+    cmds:
       - cmd: |-
           cd "{{.G_SRC_PYTHON_DIR}}"
           uv run mypy .
@@ -155,12 +181,8 @@ tasks:
           --strict \
           .gersemirc \
           .github/ \
-          build-tasks.yaml \
-          dep-tasks.yaml \
-          docs/tasks.yaml \
-          lint-tasks.yaml \
           taskfile.yaml \
-          test-tasks.yaml
+          taskfiles/
 
   toml-check:
     cmds:

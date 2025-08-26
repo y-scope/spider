@@ -1,5 +1,3 @@
-#include <unistd.h>
-
 #include <cerrno>
 #include <csignal>
 #include <exception>
@@ -48,6 +46,16 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
             "dynamic libraries that include the spider tasks"
     );
     desc.add_options()(
+            "input-pipe",
+            boost::program_options::value<int>(),
+            "file number of the input pipe"
+    );
+    desc.add_options()(
+            "output-pipe",
+            boost::program_options::value<int>(),
+            "file number of the output pipe"
+    );
+    desc.add_options()(
             "storage_url",
             boost::program_options::value<std::string>(),
             "storage server url"
@@ -73,9 +81,7 @@ constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
-    // Set up spdlog to write to stderr
     // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_default_logger(spdlog::stderr_color_mt("stderr"));
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.executor] %v");
 #ifndef NDEBUG
     spdlog::set_level(spdlog::level::trace);
@@ -86,6 +92,8 @@ auto main(int const argc, char** argv) -> int {
     std::string func_name;
     std::string storage_url;
     std::string task_id_string;
+    int input_pipe_fd{-1};
+    int output_pipe_fd{-1};
     try {
         if (!args.contains("func")) {
             return cCmdArgParseErr;
@@ -95,6 +103,22 @@ auto main(int const argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         task_id_string = args["task_id"].as<std::string>();
+        if (false == args.contains("input-pipe")) {
+            return cCmdArgParseErr;
+        }
+        input_pipe_fd = args["input-pipe"].as<int>();
+        if (input_pipe_fd < 0) {
+            spdlog::error("Invalid input pipe file descriptor: {}", input_pipe_fd);
+            return cCmdArgParseErr;
+        }
+        if (false == args.contains("output-pipe")) {
+            return cCmdArgParseErr;
+        }
+        output_pipe_fd = args["output-pipe"].as<int>();
+        if (output_pipe_fd < 0) {
+            spdlog::error("Invalid output pipe file descriptor: {}", output_pipe_fd);
+            return cCmdArgParseErr;
+        }
         if (!args.contains("storage_url")) {
             return cCmdArgParseErr;
         }
@@ -132,8 +156,8 @@ auto main(int const argc, char** argv) -> int {
 
         // Set up asio
         boost::asio::io_context context;
-        boost::asio::posix::stream_descriptor in(context, dup(STDIN_FILENO));
-        boost::asio::posix::stream_descriptor out(context, dup(STDOUT_FILENO));
+        boost::asio::posix::stream_descriptor in(context, input_pipe_fd);
+        boost::asio::posix::stream_descriptor out(context, output_pipe_fd);
 
         // Get args buffer from stdin
         std::optional<msgpack::sbuffer> request_buffer_option = spider::worker::receive_message(in);

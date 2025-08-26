@@ -48,7 +48,9 @@ class TestMsgpackSerde:
         compare_serde(spider_py.Float(0.0))
         compare_serde([spider_py.Int8(1), spider_py.Int8(2)])
         compare_serde({spider_py.Int8(1): spider_py.Int8(3)})
-        compare_serde([[spider_py.Int8(1), spider_py.Int8(2)], [spider_py.Int8(3), spider_py.Int8(4)]])
+        compare_serde(
+            [[spider_py.Int8(1), spider_py.Int8(2)], [spider_py.Int8(3), spider_py.Int8(4)]]
+        )
 
     def test_class(self) -> None:
         """Tests serialization and deserialization of a custom class."""
