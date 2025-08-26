@@ -1,148 +1,153 @@
 """TaskGraph module for Spider."""
 
-from copy import deepcopy
-from uuid import uuid4
+from __future__ import annotations
 
-from spider_py.core.task import Task, TaskId, TaskInputOutput
+from copy import deepcopy
+from typing import TYPE_CHECKING
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from spider_py.core.task import Task
+
+JobId = UUID
 
 
 class TaskGraph:
-    """Represents a task graph in Spider."""
+    """
+    Represents a task graph in Spider.
+    TaskGraph represents a directed acyclic graph (DAG) of tasks.
+    It stores:
+    - tasks: A list of Task objects.
+    - dependencies: A list of tuples representing the dependencies between tasks. Each tuple
+      contains:
+        - parent task index
+        - child task index
+    - input_tasks: A list of task indices that have no parents (input tasks).
+    - output_tasks: A list of task indices that have no children (output tasks).
+    - task_input_output_refs: A list of tuples representing the task inputs referencing task
+      outputs of parent tasks. Each tuple contains:
+      - input task index
+      - input task's task input index
+      - output task index
+      - output task's task output index
+    """
 
     def __init__(self) -> None:
         """Initializes an empty task graph."""
-        self.tasks: dict[TaskId, Task] = {}
-        # Dependency list consists of a list of tuples of
-        #   - parent task id
-        #   - child task id
-        self.dependencies: list[tuple[TaskId, TaskId]] = []
-        self.input_tasks: list[TaskId] = []
-        self.output_tasks: list[TaskId] = []
+        self.tasks: list[Task] = []
+        self.dependencies: list[tuple[int, int]] = []
+        self.input_tasks: list[int] = []
+        self.output_tasks: list[int] = []
+        self.task_input_output_refs: list[tuple[int, int, int, int]] = []
 
-    def add_task(
-        self, task: Task, parents: list[TaskId] | None = None, children: list[TaskId] | None = None
-    ) -> None:
+    def add_task(self, task: Task) -> None:
         """
         Adds a task to the graph.
         :param task: The task to add.
-        :param parents: The parent ids of the task. Must be already in the task graph.
-        :param children: The children ids of the task. Must be already in the task graph.
         """
-        self.tasks[task.task_id] = deepcopy(task)
-        if parents is not None and len(parents) > 0:
-            for parent in parents:
-                self.dependencies.append((parent, task.task_id))
-                if parent in self.output_tasks:
-                    self.output_tasks.remove(parent)
-        else:
-            self.input_tasks.append(task.task_id)
-        if children is not None and len(children) > 0:
-            for child in children:
-                self.dependencies.append((task.task_id, child))
-                if child in self.input_tasks:
-                    self.input_tasks.remove(child)
-        else:
-            self.output_tasks.append(task.task_id)
+        self.tasks.append(task)
+        index = len(self.tasks) - 1
+        self.input_tasks.append(index)
+        self.output_tasks.append(index)
 
-    def get_parents(self, task_id: TaskId) -> list[Task]:
-        """
-        Gets parent tasks of task.
-        :param task_id: ID of the task.
-        :return: List of parent tasks.
-        """
-        return [self.tasks[parent] for (parent, child) in self.dependencies if child == task_id]
-
-    def get_children(self, task_id: TaskId) -> list[Task]:
-        """
-        Gets child tasks of task.
-        :param task_id: ID of the task.
-        :return: List of children tasks.
-        """
-        return [self.tasks[child] for (parent, child) in self.dependencies if parent == task_id]
-
-    def reset_ids(self) -> None:
-        """Resets task ids."""
-        id_map = {}
-        for task_id in self.tasks:
-            id_map[task_id] = uuid4()
-
-        new_tasks = {}
-        for task_id in self.tasks:
-            new_task_id = id_map[task_id]
-            new_tasks[new_task_id] = deepcopy(self.tasks[task_id])
-            new_tasks[new_task_id].task_id = new_task_id
-            for task_input in new_tasks[new_task_id].task_inputs:
-                if isinstance(task_input.value, TaskInputOutput):
-                    task_input.value.task_id = id_map[task_input.value.task_id]
-        self.tasks = new_tasks
-
-        new_dependencies = []
-        for parent, child in self.dependencies:
-            new_dependencies.append((id_map[parent], id_map[child]))
-        self.dependencies = new_dependencies
-
-        new_input_tasks = []
-        for task_id in self.input_tasks:
-            new_input_tasks.append(id_map[task_id])
-        self.input_tasks = new_input_tasks
-
-        new_output_tasks = []
-        for task_id in self.output_tasks:
-            new_output_tasks.append(id_map[task_id])
-        self.output_tasks = new_output_tasks
-
-    def merge_graph(self, graph: "TaskGraph") -> None:
+    def merge_graph(self, graph: TaskGraph) -> None:
         """
         Merges another task graph into this task graph.
         :param graph: The task graph to merge.
         """
-        new_graph = deepcopy(graph)
-        new_graph.reset_ids()
-        self.tasks.update(new_graph.tasks)
-        self.dependencies.extend(new_graph.dependencies)
-        self.input_tasks.extend(new_graph.input_tasks)
-        self.output_tasks.extend(new_graph.output_tasks)
+        index_offset = len(self.tasks)
+        self.tasks.extend(graph.tasks)
+        self.dependencies.extend(
+            [
+                (parent + index_offset, child + index_offset)
+                for (parent, child) in graph.dependencies
+            ]
+        )
+        self.input_tasks.extend([index + index_offset for index in graph.input_tasks])
+        self.output_tasks.extend([index + index_offset for index in graph.output_tasks])
+        self.task_input_output_refs.extend(
+            [
+                (
+                    input_index + index_offset,
+                    input_position,
+                    output_index + index_offset,
+                    output_position,
+                )
+                for (
+                    input_index,
+                    input_position,
+                    output_index,
+                    output_position,
+                ) in graph.task_input_output_refs
+            ]
+        )
 
-    def chain_graph(self, child: "TaskGraph") -> "TaskGraph":
+    @staticmethod
+    def chain_graph(parent: TaskGraph, child: TaskGraph) -> TaskGraph:
         """
-        Chains another task graph with this task graph.
-        :param child: The task graph to be chained as child.
+        Chains two task graphs into a new task graph.
+        :param parent: The parent task graph.
+        :param child: The child task graph.
         :return: The chained task graph.
         :raise TypeError: If the outputs and the inputs of `graph` do not match.
         """
-        graph = deepcopy(self)
-        graph.reset_ids()
+        graph = deepcopy(parent)
+        index_offset = len(graph.tasks)
         parent_output_tasks = graph.output_tasks
-        graph.tasks.update(child.tasks)
-        graph.dependencies.extend(child.dependencies)
-        graph.output_tasks = deepcopy(child.output_tasks)
+        graph.tasks.extend(child.tasks)
+        graph.dependencies.extend(
+            [
+                (parent_index + index_offset, child_index + index_offset)
+                for (parent_index, child_index) in child.dependencies
+            ]
+        )
+        graph.output_tasks = [index + index_offset for index in child.output_tasks]
 
         size_mismatch_msg = "Parent outputs size and child inputs size do not match."
 
-        task_index, output_position = 0, 0
-        for task_id in child.input_tasks:
-            input_task = graph.tasks[task_id]
+        task_output_index, output_position = 0, 0
+        for index in child.input_tasks:
+            input_task_index = index + index_offset
+            input_task = graph.tasks[input_task_index]
             for i in range(len(input_task.task_inputs)):
-                if task_index >= len(parent_output_tasks):
+                if task_output_index >= len(parent_output_tasks):
                     raise TypeError(size_mismatch_msg)
-                output_task_id = parent_output_tasks[task_index]
+                output_task_index = parent_output_tasks[task_output_index]
 
-                if (output_task_id, task_id) not in graph.dependencies:
-                    graph.dependencies.append((output_task_id, task_id))
+                if (output_task_index, input_task_index) not in graph.dependencies:
+                    graph.dependencies.append((output_task_index, input_task_index))
 
                 input_type = input_task.task_inputs[i].type
-                output_type = graph.tasks[output_task_id].task_outputs[output_position].type
+                output_type = graph.tasks[output_task_index].task_outputs[output_position].type
                 if input_type != output_type:
                     msg = f"Output type {output_type} does not match input type {input_type}"
                     raise TypeError(msg)
-                input_task.task_inputs[i].value = TaskInputOutput(output_task_id, output_position)
+                graph.task_input_output_refs.append(
+                    (input_task_index, i, output_task_index, output_position)
+                )
                 output_position += 1
-                if output_position >= len(graph.tasks[output_task_id].task_outputs):
+                if output_position >= len(graph.tasks[output_task_index].task_outputs):
                     output_position = 0
-                    task_index += 1
+                    task_output_index += 1
 
-        if task_index != len(parent_output_tasks) or output_position != 0:
+        if task_output_index != len(parent_output_tasks) or output_position != 0:
             raise TypeError(size_mismatch_msg)
 
-        graph.reset_ids()
+        graph.task_input_output_refs.extend(
+            [
+                (
+                    input_index + index_offset,
+                    input_position,
+                    output_index + index_offset,
+                    output_position,
+                )
+                for (
+                    input_index,
+                    input_position,
+                    output_index,
+                    output_position,
+                ) in child.task_input_output_refs
+            ]
+        )
+
         return graph

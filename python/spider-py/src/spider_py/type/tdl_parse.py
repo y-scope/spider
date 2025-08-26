@@ -29,56 +29,74 @@ ID: /[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*/
 %ignore WS
 """
 
-primitive_type_map = {
-    "bool": BoolType,
-    "double": DoubleType,
-    "float": FloatType,
-    "int8": Int8Type,
-    "int16": Int16Type,
-    "int32": Int32Type,
-    "int64": Int64Type,
+PrimitiveTypeDict = {
+    "bool": BoolType(),
+    "double": DoubleType(),
+    "float": FloatType(),
+    "int8": Int8Type(),
+    "int16": Int16Type(),
+    "int32": Int32Type(),
+    "int64": Int64Type(),
 }
 
 
 class TypeTransformer(Transformer[Token, TdlType]):
-    """Transform Lark parse tree into TDL type."""
+    """Transforms Lark parse tree into TDL type."""
 
     @v_args(inline=True)
-    def type(self, value: TdlType) -> TdlType:
-        """Unwraps the type node to return the TdlType."""
-        return value
+    def type(self, value_type: TdlType) -> TdlType:
+        """
+        Unwraps the type node to return the TdlType.
+        :param value_type: The type node to unwrap.
+        :return: The unwrapped TdlType.
+        """
+        return value_type
 
     @v_args(inline=True)
-    def map_type(self, key: TdlType, value: TdlType) -> TdlType:
-        """Transforms map node into Map type."""
-        return MapType(key, value)
+    def map_type(self, key_type: TdlType, value_type: TdlType) -> TdlType:
+        """
+        Transforms map node into Map type.
+        :param key_type: The key type of the map.
+        :param value_type: The value type of the map.
+        :return: The MapType with the given `key_type` and `value_type`.
+        """
+        return MapType(key_type, value_type)
 
     @v_args(inline=True)
-    def list_type(self, key: TdlType) -> TdlType:
-        """Transforms list node into List type."""
-        return ListType(key)
+    def list_type(self, element_type: TdlType) -> TdlType:
+        """
+        Transforms list node into List type.
+        :param element_type: The element type of the list.
+        :return: The ListType with the given `element_type`.
+        """
+        return ListType(element_type)
 
-    def base_type(self, children: list[Token]) -> TdlType:
-        """Transforms primitive node into primitive type."""
-        name = str(children[0])
-        if name in primitive_type_map:
-            return primitive_type_map[name]()  # type: ignore[abstract]
-        return ClassType(name)
+    @v_args(inline=True)
+    def base_type(self, token_id: str) -> TdlType:
+        """
+        Transforms primitive node into primitive type.
+        :param token_id: The token id of the primitive type.
+        :return: The corresponding TdlType of the `token_id`.
+        """
+        if token_id in PrimitiveTypeDict:
+            return PrimitiveTypeDict[token_id]
+        return ClassType(token_id)
 
 
-parser = Lark(grammar, start="type", parser="lalr")
+_parser = Lark(grammar, start="type", parser="lalr")
+_transformer = TypeTransformer(visit_tokens=False)
 
 
-def parse_tdl_type(string: str) -> TdlType:
+def parse_tdl_type(type_string: str) -> TdlType:
     """
     Parses TDL type string into TDL type.
-    :param string: TDL type string.
+    :param type_string: TDL type string.
     :return: Parsed TDL type.
-    :raise: TypeError if string is not a valid TDL type.
+    :raises TypeError: If string is not a valid TDL type.
     """
     try:
-        tree = parser.parse(string)
-        return TypeTransformer(visit_tokens=False).transform(tree)
-    except LarkError as ecx:
-        msg = f"Cannot parse TDL type '{string}'"
-        raise TypeError(msg) from ecx
+        tree = _parser.parse(type_string)
+        return _transformer.transform(tree)
+    except LarkError as e:
+        msg = f"Cannot parse TDL type `{type_string}`"
+        raise TypeError(msg) from e
