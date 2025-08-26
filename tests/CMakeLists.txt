@@ -2,6 +2,7 @@ set(SPIDER_TEST_SOURCES
     storage/test-DataStorage.cpp
     storage/test-MetadataStorage.cpp
     storage/StorageTestHelper.hpp
+    tdl/test-parser.cpp
     tdl/test-parser-ast.cpp
     utils/CoreDataUtils.hpp
     utils/CoreTaskUtils.hpp

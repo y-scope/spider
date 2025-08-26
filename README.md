@@ -25,10 +25,10 @@ task lint:cpp-configs
 Certain file types need to be added to our linting rules manually:
 
 * **CMake**. If adding a CMake file, add it (or its parent directory) as an argument to the
-  `gersemi` command in [lint-tasks.yaml](lint-tasks.yaml).
+  `gersemi` command in [taskfiles/lint.yaml](taskfiles/lint.yaml).
   * If adding a directory, the file must be named `CMakeLists.txt` or use the `.cmake` extension.
 * **YAML**. If adding a YAML file (regardless of its extension), add it as an argument to the
-  `yamllint` command in [lint-tasks.yaml](lint-tasks.yaml).
+  `yamllint` command in [taskfiles/lint.yaml](taskfiles/lint.yaml).
 
 ## Linting
 Before submitting a pull request, ensure you’ve run the linting commands below and either fixed any

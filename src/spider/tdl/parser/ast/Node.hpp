@@ -5,10 +5,13 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <ystdlib/error_handling/ErrorCode.hpp>
 #include <ystdlib/error_handling/Result.hpp>
+
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast {
 /**
@@ -89,9 +92,13 @@ public:
             -> ystdlib::error_handling::Result<std::string>
             = 0;
 
+    [[nodiscard]] auto get_source_location() const noexcept -> SourceLocation {
+        return m_source_location;
+    }
+
 protected:
     // Constructor
-    Node() = default;
+    explicit Node(SourceLocation source_location) : m_source_location{source_location} {}
 
     /**
      * Adds a child node to this AST node.
@@ -117,6 +124,7 @@ private:
     // Variables
     std::vector<std::unique_ptr<Node>> m_children;
     Node const* m_parent = nullptr;
+    SourceLocation m_source_location;
 };
 }  // namespace spider::tdl::parser::ast
 

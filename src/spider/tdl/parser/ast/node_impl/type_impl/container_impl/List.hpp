@@ -10,6 +10,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/Type.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Container.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl {
 class List : public Container {
@@ -17,11 +18,13 @@ public:
     // Factory function
     /**
      * @param element_type The type of elements in the list.
+     * @param source_location
      * @return A result containing a unique pointer to a new `List` instance with the given element
      * type on success, or an error code indicating the failure:
      * - Forwards `validate_child_node_type`'s return values.
      */
-    [[nodiscard]] static auto create(std::unique_ptr<Node> element_type)
+    [[nodiscard]] static auto
+    create(std::unique_ptr<Node> element_type, SourceLocation source_location)
             -> ystdlib::error_handling::Result<std::unique_ptr<Node>>;
 
     // Methods implementing `Node`
@@ -37,7 +40,7 @@ public:
 
 private:
     // Constructor
-    List() = default;
+    explicit List(SourceLocation source_location) : Container{source_location} {}
 };
 }  // namespace spider::tdl::parser::ast::node_impl::type_impl::container_impl
 
