@@ -284,6 +284,7 @@ COMMENT: '//' (~[\r\n])* -> skip;
 RESERVED_CONTROL_FLOW_WORDS
 : 'if'
 | 'else'
+| 'elif'
 | 'switch'
 | 'case'
 | 'while'
