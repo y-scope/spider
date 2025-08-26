@@ -2,7 +2,7 @@
 
 import pytest
 
-from spider.storage import parse_jdbc_url
+from spider_py.storage import parse_jdbc_url
 
 
 class TestJdbcUrl:

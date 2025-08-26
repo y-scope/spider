@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import msgpack
 
-from spider import core
-from spider.client.data import Data
-from spider.client.job import Job
-from spider.client.taskgraph import TaskGraph
-from spider.storage import MariaDBStorage, parse_jdbc_url
-from spider.type import to_tdl_type_str
+from spider_py import core
+from spider_py.client.data import Data
+from spider_py.client.job import Job
+from spider_py.client.taskgraph import TaskGraph
+from spider_py.storage import MariaDBStorage, parse_jdbc_url
+from spider_py.type import to_tdl_type_str
 
 
 class Driver:

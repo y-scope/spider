@@ -1,6 +1,6 @@
 """Spider client Data module."""
 
-from spider import core
+from spider_py import core
 
 
 class Data:

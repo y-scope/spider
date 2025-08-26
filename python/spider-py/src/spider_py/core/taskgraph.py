@@ -3,7 +3,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from spider.core.task import Task, TaskId, TaskInputOutput
+from spider_py.core.task import Task, TaskId, TaskInputOutput
 
 
 class TaskGraph:

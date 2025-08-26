@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
-from spider import core
+from spider_py import core
 
 
 class StorageError(Exception):

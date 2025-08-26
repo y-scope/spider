@@ -1,7 +1,7 @@
 """Spider job module."""
 
-from spider import core
-from spider.storage import Storage
+from spider_py import core
+from spider_py.storage import Storage
 
 
 class Job:

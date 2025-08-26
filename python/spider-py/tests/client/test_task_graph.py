@@ -2,7 +2,7 @@
 
 import pytest
 
-from spider import chain, group, Int8, TaskContext
+from spider_py import chain, group, Int8, TaskContext
 
 
 def no_context(x: Int8, y: Int8) -> Int8:
