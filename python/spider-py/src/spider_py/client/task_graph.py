@@ -1,9 +1,14 @@
 """Spider client TaskGraph module."""
 
-from collections.abc import Sequence
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from spider_py import core
 from spider_py.client.task import _create_task, TaskFunction
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class TaskGraph:
@@ -13,19 +18,8 @@ class TaskGraph:
     """
 
     def __init__(self) -> None:
-        """Initialize TaskGraph."""
+        """Initializes TaskGraph."""
         self._impl = core.TaskGraph()
-
-    def chain_graph(self, child: "TaskGraph") -> "TaskGraph":
-        """
-        Chains another task graph with this task graph.
-        :param child: The task graph to be chained as child.
-        :return: The chained task graph.
-        :raise TypeError: If the outputs and the inputs of `graph` do not match.
-        """
-        graph = TaskGraph()
-        graph._impl = self._impl.chain_graph(child._impl)
-        return graph
 
 
 def group(tasks: Sequence[TaskFunction | TaskGraph]) -> TaskGraph:
@@ -60,4 +54,6 @@ def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> 
         task = _create_task(child)
         child = TaskGraph()
         child._impl.add_task(task)
-    return parent.chain_graph(child)
+    graph = TaskGraph()
+    graph._impl = core.TaskGraph.chain_graph(parent._impl, child._impl)
+    return graph

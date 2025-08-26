@@ -94,6 +94,9 @@ class MariaDBStorage(Storage):
             return []
         try:
             job_ids = [uuid4() for _ in task_graphs]
+
+            task_ids = [[uuid4() for _ in graph.tasks] for graph in task_graphs]
+
             with self._conn.cursor() as cursor:
                 cursor.executemany(
                     InsertJob, [(job_id.bytes, driver_id.bytes) for job_id in job_ids]
@@ -102,20 +105,22 @@ class MariaDBStorage(Storage):
                     InsertTask,
                     [
                         (
-                            task.task_id.bytes,
+                            task_ids[graph_index][task_index].bytes,
                             job_id.bytes,
                             task.function_name,
                             get_state_str(task.state),
                             task.timeout,
                             task.max_retries,
                         )
-                        for job_id, task_graph in zip(job_ids, task_graphs, strict=True)
-                        for task in task_graph.tasks.values()
+                        for graph_index, (job_id, task_graph) in enumerate(
+                            zip(job_ids, task_graphs, strict=True)
+                        )
+                        for task_index, task in enumerate(task_graph.tasks)
                     ],
                 )
                 dep_params = [
-                    (parent.bytes, child.bytes)
-                    for task_graph in task_graphs
+                    (task_ids[graph_index][parent].bytes, task_ids[graph_index][child].bytes)
+                    for graph_index, task_graph in enumerate(task_graphs)
                     for parent, child in task_graph.dependencies
                 ]
                 if dep_params:
@@ -126,32 +131,41 @@ class MariaDBStorage(Storage):
                 cursor.executemany(
                     InsertInputTask,
                     [
-                        (job_id.bytes, task_id.bytes, position)
-                        for job_id, task_graph in zip(job_ids, task_graphs, strict=True)
-                        for position, task_id in enumerate(task_graph.input_tasks)
+                        (job_id.bytes, task_ids[graph_index][task_index].bytes, position)
+                        for graph_index, (job_id, task_graph) in enumerate(
+                            zip(job_ids, task_graphs, strict=True)
+                        )
+                        for position, task_index in enumerate(task_graph.input_tasks)
                     ],
                 )
                 cursor.executemany(
                     InsertOutputTask,
                     [
-                        (job_id.bytes, task_id.bytes, position)
-                        for job_id, task_graph in zip(job_ids, task_graphs, strict=True)
-                        for position, task_id in enumerate(task_graph.output_tasks)
+                        (job_id.bytes, task_ids[graph_index][task_index].bytes, position)
+                        for graph_index, (job_id, task_graph) in enumerate(
+                            zip(job_ids, task_graphs, strict=True)
+                        )
+                        for position, task_index in enumerate(task_graph.output_tasks)
                     ],
                 )
                 cursor.executemany(
                     InsertTaskOutput,
                     [
-                        (task.task_id.bytes, position, task_output.type)
-                        for task_graph in task_graphs
-                        for task in task_graph.tasks.values()
+                        (task_ids[graph_index][task_index].bytes, position, task_output.type)
+                        for graph_index, task_graph in enumerate(task_graphs)
+                        for task_index, task in enumerate(task_graph.tasks)
                         for position, task_output in enumerate(task.task_outputs)
                     ],
                 )
                 input_data_params = [
-                    (task.task_id.bytes, position, task_input.type, task_input.value.bytes)
-                    for task_graph in task_graphs
-                    for task in task_graph.tasks.values()
+                    (
+                        task_ids[graph_index][task_index].bytes,
+                        position,
+                        task_input.type,
+                        task_input.value.bytes,
+                    )
+                    for graph_index, task_graph in enumerate(task_graphs)
+                    for task_index, task in enumerate(task_graph.tasks)
                     for position, task_input in enumerate(task.task_inputs)
                     if isinstance(task_input.value, core.TaskInputData)
                 ]
@@ -161,9 +175,14 @@ class MariaDBStorage(Storage):
                         input_data_params,
                     )
                 input_value_params = [
-                    (task.task_id.bytes, position, task_input.type, task_input.value)
-                    for task_graph in task_graphs
-                    for task in task_graph.tasks.values()
+                    (
+                        task_ids[graph_index][task_index].bytes,
+                        position,
+                        task_input.type,
+                        task_input.value,
+                    )
+                    for graph_index, task_graph in enumerate(task_graphs)
+                    for task_index, task in enumerate(task_graph.tasks)
                     for position, task_input in enumerate(task.task_inputs)
                     if isinstance(task_input.value, core.TaskInputValue)
                 ]
@@ -174,16 +193,19 @@ class MariaDBStorage(Storage):
                     )
                 input_output_params = [
                     (
-                        task.task_id.bytes,
-                        position,
-                        task_input.type,
-                        task_input.value.task_id.bytes,
-                        task_input.value.position,
+                        task_ids[graph_index][input_task_index].bytes,
+                        input_task_position,
+                        task_graph.tasks[input_task_index].task_inputs[input_task_position].type,
+                        task_ids[graph_index][output_task_index].bytes,
+                        output_task_position,
                     )
-                    for task_graph in task_graphs
-                    for task in task_graph.tasks.values()
-                    for position, task_input in enumerate(task.task_inputs)
-                    if isinstance(task_input.value, core.TaskInputOutput)
+                    for graph_index, task_graph in enumerate(task_graphs)
+                    for (
+                        input_task_index,
+                        input_task_position,
+                        output_task_index,
+                        output_task_position,
+                    ) in task_graph.task_input_output_refs
                 ]
                 if input_output_params:
                     cursor.executemany(

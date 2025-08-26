@@ -9,7 +9,7 @@ import msgpack
 from spider_py import core
 from spider_py.client.data import Data
 from spider_py.client.job import Job
-from spider_py.client.taskgraph import TaskGraph
+from spider_py.client.task_graph import TaskGraph
 from spider_py.storage import MariaDBStorage, parse_jdbc_url
 from spider_py.type import to_tdl_type_str
 
@@ -47,7 +47,6 @@ class Driver:
         task_graphs = []
         for task_graph, task_args in zip(graphs, args, strict=True):
             graph = deepcopy(task_graph._impl)
-            graph.reset_ids()
             arg_index = 0
             for task_id in graph.input_tasks:
                 task = graph.tasks[task_id]

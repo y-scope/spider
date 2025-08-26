@@ -10,6 +10,7 @@
 #include <spider/tdl/parser/ast/IntSpec.hpp>
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/Primitive.hpp>
+#include <spider/tdl/parser/SourceLocation.hpp>
 
 namespace spider::tdl::parser::ast::node_impl::type_impl::primitive_impl {
 class Int : public Primitive {
@@ -17,10 +18,12 @@ public:
     // Factory function
     /**
      * @param spec
+     * @param source_location
      * @return A unique pointer to a new `Int` instance with the given type spec.
      */
-    [[nodiscard]] static auto create(IntSpec spec) -> std::unique_ptr<Node> {
-        return std::make_unique<Int>(Int{spec});
+    [[nodiscard]] static auto create(IntSpec spec, SourceLocation source_location)
+            -> std::unique_ptr<Node> {
+        return std::make_unique<Int>(Int{spec, source_location});
     }
 
     // Methods implementing `Node`
@@ -32,7 +35,7 @@ public:
 
 private:
     // Constructor
-    explicit Int(IntSpec spec) : m_spec{spec} {}
+    Int(IntSpec spec, SourceLocation source_location) : Primitive{source_location}, m_spec{spec} {}
 
     // Variables
     IntSpec m_spec;
