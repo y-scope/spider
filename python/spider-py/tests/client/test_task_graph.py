@@ -21,7 +21,7 @@ def add(_: TaskContext, x: Int8, y: Int8) -> Int8:
 
 
 def double(_: TaskContext, x: Int8) -> Int8:
-    """Double a number."""
+    """Doubles a number."""
     return Int8(x * 2)
 
 
@@ -31,7 +31,7 @@ def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
 
 
 class TestTaskGraph:
-    """Test task graph composition."""
+    """Tests task graph composition."""
 
     def test_group(self) -> None:
         """Tests task grouping."""
@@ -41,9 +41,10 @@ class TestTaskGraph:
         assert len(graph._impl.dependencies) == 0
         assert len(graph._impl.input_tasks) == 4
         assert len(graph._impl.output_tasks) == 4
+        assert len(graph._impl.task_input_output_refs) == 0
 
     def test_task_fail(self) -> None:
-        """Tests task failing."""
+        """Tests task grouping failure."""
         with pytest.raises(TypeError):
             group([no_context])
         with pytest.raises(TypeError):
@@ -57,16 +58,19 @@ class TestTaskGraph:
         assert len(graph._impl.dependencies) == 2
         assert len(graph._impl.input_tasks) == 2
         assert len(graph._impl.output_tasks) == 1
+        assert len(graph._impl.task_input_output_refs) == 2
         graph = chain(graph, add)
         assert len(graph._impl.tasks) == 4
         assert len(graph._impl.dependencies) == 3
         assert len(graph._impl.input_tasks) == 2
         assert len(graph._impl.output_tasks) == 1
+        assert len(graph._impl.task_input_output_refs) == 4
         graph = chain(swap, group([double, double]))
         assert len(graph._impl.tasks) == 3
         assert len(graph._impl.dependencies) == 2
         assert len(graph._impl.input_tasks) == 1
         assert len(graph._impl.output_tasks) == 2
+        assert len(graph._impl.task_input_output_refs) == 2
 
     def test_chain_fail(self) -> None:
         """Tests task chaining failure."""

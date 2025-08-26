@@ -55,6 +55,6 @@ jobs:
           SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
         run: "task deps:lib_install"
 
-      - run: "task test:non-storage-unit-tests"
+      - run: "task test:cpp-non-storage-unit-tests"
 
-      - run: "task test:python-non-storage-tests"
+      - run: "task test:spider-py-non-storage-unit-tests"

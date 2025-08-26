@@ -23,7 +23,7 @@ class TaskContext:
 TaskFunction = Callable[..., object]
 
 
-def is_tuple(t: type | GenericAlias) -> bool:
+def _is_tuple(t: type | GenericAlias) -> bool:
     """
     :param t:
     :return: Whether t is a tuple.
@@ -64,7 +64,7 @@ def _process_return(task: core.Task, signature: inspect.Signature) -> None:
     if returns is inspect.Parameter.empty:
         msg = "Return type must have type annotation"
         raise TypeError(msg)
-    if is_tuple(returns):
+    if _is_tuple(returns):
         args = get_args(returns)
         if Ellipsis in args:
             msg = "Variable-length tuple return types are not supported."
