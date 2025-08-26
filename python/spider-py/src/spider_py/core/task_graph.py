@@ -130,4 +130,21 @@ class TaskGraph:
         if task_output_index != len(parent_output_tasks) or output_position != 0:
             raise TypeError(size_mismatch_msg)
 
+        graph.task_input_output_refs.extend(
+            [
+                (
+                    input_index + index_offset,
+                    input_position,
+                    output_index + index_offset,
+                    output_position,
+                )
+                for (
+                    input_index,
+                    input_position,
+                    output_index,
+                    output_position,
+                ) in child.task_input_output_refs
+            ]
+        )
+
         return graph
