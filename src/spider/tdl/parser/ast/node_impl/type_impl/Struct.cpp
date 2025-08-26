@@ -50,8 +50,9 @@ auto Struct::create(std::unique_ptr<Node> name, SourceLocation source_location)
 auto Struct::serialize_to_str(size_t indentation_level) const
         -> ystdlib::error_handling::Result<std::string> {
     return fmt::format(
-            "{}[Type[Struct]]:\n{}Name:\n{}",
+            "{}[Type[Struct]]{}:\n{}Name:\n{}",
             create_indentation(indentation_level),
+            get_source_location().serialize_to_str(),
             create_indentation(indentation_level + 1),
             YSTDLIB_ERROR_HANDLING_TRYX(
                     // The factory function ensures that the first child is of type `Identifier`.
