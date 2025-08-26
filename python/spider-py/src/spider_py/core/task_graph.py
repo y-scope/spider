@@ -42,7 +42,7 @@ class TaskGraph:
         Adds a task to the graph.
         :param task: The task to add.
         """
-        self.tasks.append(deepcopy(task))
+        self.tasks.append(task)
         index = len(self.tasks) - 1
         self.input_tasks.append(index)
         self.output_tasks.append(index)
@@ -53,7 +53,7 @@ class TaskGraph:
         :param graph: The task graph to merge.
         """
         index_offset = len(self.tasks)
-        self.tasks.extend(deepcopy(graph.tasks))
+        self.tasks.extend(graph.tasks)
         self.dependencies.extend(
             [
                 (parent + index_offset, child + index_offset)
