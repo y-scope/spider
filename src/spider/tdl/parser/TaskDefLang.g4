@@ -313,6 +313,8 @@ RESERVED_DEF_WORDS
 | 'let'
 | 'module'
 | 'import'
+| 'template'
+| 'requires'
 ;
 
 RESERVED_TYPE_AND_STORAGE_WORDS
@@ -328,6 +330,7 @@ RESERVED_TYPE_AND_STORAGE_WORDS
 | 'void'
 | 'const'
 | 'static'
+| 'auto'
 | 'volatile'
 | 'register'
 | 'final'
