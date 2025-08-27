@@ -19,8 +19,8 @@ class TaskGraph:
       contains:
         - parent task index
         - child task index
-    - input_tasks: A list of task indices that have no parents (input tasks).
-    - output_tasks: A list of task indices that have no children (output tasks).
+    - input_task_indices: A list of task indices that have no parents (input tasks).
+    - output_task_indices: A list of task indices that have no children (output tasks).
     - task_input_output_refs: A list of `InputOutputRef` representing references from task inputs
       to task outputs.
     """
@@ -29,8 +29,8 @@ class TaskGraph:
         """Initializes an empty task graph."""
         self.tasks: list[Task] = []
         self.dependencies: list[tuple[int, int]] = []
-        self.input_tasks: list[int] = []
-        self.output_tasks: list[int] = []
+        self.input_task_indices: list[int] = []
+        self.output_task_indices: list[int] = []
         self.task_input_output_refs: list[TaskGraph.InputOutputRef] = []
 
     class InputOutputRef:
@@ -69,8 +69,8 @@ class TaskGraph:
         """
         index = len(self.tasks)
         self.tasks.append(task)
-        self.input_tasks.append(index)
-        self.output_tasks.append(index)
+        self.input_task_indices.append(index)
+        self.output_task_indices.append(index)
 
     def merge_graph(self, graph: TaskGraph) -> None:
         """
@@ -85,8 +85,10 @@ class TaskGraph:
                 for (parent, child) in graph.dependencies
             ]
         )
-        self.input_tasks.extend([index + index_offset for index in graph.input_tasks])
-        self.output_tasks.extend([index + index_offset for index in graph.output_tasks])
+        self.input_task_indices.extend([index + index_offset for index in graph.input_task_indices])
+        self.output_task_indices.extend(
+            [index + index_offset for index in graph.output_task_indices]
+        )
         self.task_input_output_refs.extend(
             [ref.offset(index_offset) for ref in graph.task_input_output_refs]
         )
@@ -102,7 +104,7 @@ class TaskGraph:
         """
         graph = deepcopy(parent)
         index_offset = len(graph.tasks)
-        parent_output_task_indices = graph.output_tasks
+        parent_output_task_indices = graph.output_task_indices
         graph.tasks.extend(child.tasks)
         graph.dependencies.extend(
             [
@@ -110,14 +112,14 @@ class TaskGraph:
                 for (parent_index, child_index) in child.dependencies
             ]
         )
-        graph.output_tasks = [index + index_offset for index in child.output_tasks]
+        graph.output_task_indices = [index + index_offset for index in child.output_task_indices]
 
         size_mismatch_msg = "Parent outputs size and child inputs size do not match."
 
         parent_output_task_it = iter(parent_output_task_indices)
         output_task_index = next(parent_output_task_it, None)
         output_position = 0
-        for input_task_index in (i + index_offset for i in child.input_tasks):
+        for input_task_index in (i + index_offset for i in child.input_task_indices):
             input_task = graph.tasks[input_task_index]
             for input_position, task_input in enumerate(input_task.task_inputs):
                 if output_task_index is None:
