@@ -71,8 +71,9 @@ auto TranslationUnit::serialize_to_str(size_t indentation_level) const
     );
 
     return fmt::format(
-            "{}[TranslationUnit]:\n{}StructSpecs:\n{}\n{}Namespaces:\n{}",
+            "{}[TranslationUnit]{}:\n{}StructSpecs:\n{}\n{}Namespaces:\n{}",
             create_indentation(indentation_level),
+            get_source_location().serialize_to_str(),
             create_indentation(indentation_level + 1),
             fmt::join(serialized_struct_specs, "\n"),
             create_indentation(indentation_level + 1),
