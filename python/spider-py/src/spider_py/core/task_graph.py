@@ -21,12 +21,8 @@ class TaskGraph:
         - child task index
     - input_tasks: A list of task indices that have no parents (input tasks).
     - output_tasks: A list of task indices that have no children (output tasks).
-    - task_input_output_refs: A list of tuples representing the task inputs referencing task
-      outputs of parent tasks. Each tuple contains:
-      - input task index
-      - input task's task input index
-      - output task index
-      - output task's task output index
+    - task_input_output_refs: A list of `InputOutputRef` representing references from task inputs
+      to task outputs.
     """
 
     def __init__(self) -> None:
@@ -35,7 +31,36 @@ class TaskGraph:
         self.dependencies: list[tuple[int, int]] = []
         self.input_tasks: list[int] = []
         self.output_tasks: list[int] = []
-        self.task_input_output_refs: list[tuple[int, int, int, int]] = []
+        self.task_input_output_refs: list[TaskGraph.InputOutputRef] = []
+
+    class InputOutputRef:
+        """Represents a reference from a task input to a task output."""
+
+        def __init__(
+            self,
+            input_task_index: int,
+            input_position: int,
+            output_task_index: int,
+            output_position: int,
+        ) -> None:
+            """Initializes an InputOutputRef object."""
+            self.input_task_index: int = input_task_index
+            self.input_position: int = input_position
+            self.output_task_index: int = output_task_index
+            self.output_position: int = output_position
+
+        def offset(self, index_offset: int) -> TaskGraph.InputOutputRef:
+            """
+            Returns a new InputOutputRef with the task indices offset by the given value.
+            :param index_offset: The value to offset the task indices by.
+            :return: A new InputOutputRef with the task indices offset.
+            """
+            return TaskGraph.InputOutputRef(
+                self.input_task_index + index_offset,
+                self.input_position,
+                self.output_task_index + index_offset,
+                self.output_position,
+            )
 
     def add_task(self, task: Task) -> None:
         """
@@ -63,20 +88,7 @@ class TaskGraph:
         self.input_tasks.extend([index + index_offset for index in graph.input_tasks])
         self.output_tasks.extend([index + index_offset for index in graph.output_tasks])
         self.task_input_output_refs.extend(
-            [
-                (
-                    input_index + index_offset,
-                    input_position,
-                    output_index + index_offset,
-                    output_position,
-                )
-                for (
-                    input_index,
-                    input_position,
-                    output_index,
-                    output_position,
-                ) in graph.task_input_output_refs
-            ]
+            [ref.offset(index_offset) for ref in graph.task_input_output_refs]
         )
 
     @staticmethod
@@ -90,7 +102,7 @@ class TaskGraph:
         """
         graph = deepcopy(parent)
         index_offset = len(graph.tasks)
-        parent_output_tasks = graph.output_tasks
+        parent_output_task_indices = graph.output_tasks
         graph.tasks.extend(child.tasks)
         graph.dependencies.extend(
             [
@@ -102,10 +114,10 @@ class TaskGraph:
 
         size_mismatch_msg = "Parent outputs size and child inputs size do not match."
 
-        parent_output_task_it = iter(parent_output_task_ids)
+        parent_output_task_it = iter(parent_output_task_indices)
         output_task_index = next(parent_output_task_it, None)
         output_position = 0
-        for input_task_index in (i + index_offset for i in child.input_task_ids):
+        for input_task_index in (i + index_offset for i in child.input_tasks):
             input_task = graph.tasks[input_task_index]
             for input_position, task_input in enumerate(input_task.task_inputs):
                 if output_task_index is None:
@@ -124,7 +136,9 @@ class TaskGraph:
                     raise TypeError(msg)
 
                 graph.task_input_output_refs.append(
-                    (input_task_index, input_position, output_task_index, output_position)
+                    TaskGraph.InputOutputRef(
+                        input_task_index, input_position, output_task_index, output_position
+                    )
                 )
 
                 output_position += 1
@@ -136,20 +150,7 @@ class TaskGraph:
             raise TypeError(size_mismatch_msg)
 
         graph.task_input_output_refs.extend(
-            [
-                (
-                    input_index + index_offset,
-                    input_position,
-                    output_index + index_offset,
-                    output_position,
-                )
-                for (
-                    input_index,
-                    input_position,
-                    output_index,
-                    output_position,
-                ) in child.task_input_output_refs
-            ]
+            [ref.offset(index_offset) for ref in child.task_input_output_refs]
         )
 
         return graph
