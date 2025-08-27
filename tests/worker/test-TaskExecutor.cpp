@@ -62,6 +62,18 @@ auto get_libraries() -> std::vector<std::string> {
     return {lib_path.string()};
 }
 
+template <typename... Args>
+auto pack_args(Args&&... args) -> std::vector<msgpack::sbuffer> {
+    std::vector<msgpack::sbuffer> packed_args;
+    packed_args.reserve(sizeof...(args));
+    for (auto const& arg : {args...}) {
+        msgpack::sbuffer buffer;
+        msgpack::pack(buffer, arg);
+        packed_args.emplace_back(std::move(buffer));
+    }
+    return packed_args;
+}
+
 TEMPLATE_LIST_TEST_CASE(
         "Task execute success",
         "[worker][storage]",
@@ -83,8 +95,7 @@ TEMPLATE_LIST_TEST_CASE(
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
-            2,
-            3
+            pack_args(2, 3)
     };
     context.run();
     executor.wait();
@@ -115,7 +126,7 @@ TEMPLATE_LIST_TEST_CASE(
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
-            2
+            pack_args(2)
     };
     context.run();
     executor.wait();
@@ -145,7 +156,7 @@ TEMPLATE_LIST_TEST_CASE(
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
-            2
+            pack_args(2)
     };
     context.run();
     executor.wait();
@@ -207,7 +218,7 @@ TEMPLATE_LIST_TEST_CASE(
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
-            data.get_id()
+            pack_args(data.get_id())
     };
     context.run();
     executor.wait();
@@ -250,8 +261,7 @@ TEMPLATE_LIST_TEST_CASE(
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
-            input_1,
-            input_2
+            pack_args(input_1, input_2)
     };
     context.run();
     executor.wait();
