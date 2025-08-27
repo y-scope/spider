@@ -66,11 +66,12 @@ template <typename... Args>
 auto pack_args(Args&&... args) -> std::vector<msgpack::sbuffer> {
     std::vector<msgpack::sbuffer> packed_args;
     packed_args.reserve(sizeof...(args));
-    for (auto const& arg : {args...}) {
+    auto pack_args = [&packed_args](auto&& arg) {
         msgpack::sbuffer buffer;
-        msgpack::pack(buffer, arg);
+        msgpack::pack(buffer, std::forward<decltype(arg)>(arg));
         packed_args.emplace_back(std::move(buffer));
-    }
+    };
+    (pack_args(std::forward<Args>(args)), ...);
     return packed_args;
 }
 
