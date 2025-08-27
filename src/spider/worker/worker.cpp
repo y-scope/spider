@@ -90,6 +90,11 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             boost::program_options::value<std::vector<std::string>>(),
             "dynamic libraries that include the spider tasks"
     );
+    desc.add_options()(
+            "py-libs",
+            boost::program_options::value<std::vector<std::string>>(),
+            "Python libraries that include the spider tasks"
+    );
     desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
 
     boost::program_options::variables_map variables;
@@ -424,6 +429,7 @@ auto main(int argc, char** argv) -> int {
 
     std::string storage_url;
     std::vector<std::string> libs;
+    std::vector<std::string> py_libs;
     std::string worker_addr;
     try {
         if (!args.contains("storage_url")) {
@@ -436,11 +442,16 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         worker_addr = args["host"].as<std::string>();
-        if (!args.contains("libs") || args["libs"].empty()) {
-            spdlog::error("Missing libs");
+        if (args.contains("libs")) {
+            libs = args["libs"].as<std::vector<std::string>>();
+        }
+        if (args.contains("py-libs")) {
+            py_libs = args["py-libs"].as<std::vector<std::string>>();
+        }
+        if (libs.empty() && py_libs.empty()) {
+            spdlog::error("No libraries specified");
             return cCmdArgParseErr;
         }
-        libs = args["libs"].as<std::vector<std::string>>();
     } catch (boost::bad_any_cast const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
