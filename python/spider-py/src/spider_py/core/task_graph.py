@@ -42,8 +42,8 @@ class TaskGraph:
         Adds a task to the graph.
         :param task: The task to add.
         """
+        index = len(self.tasks)
         self.tasks.append(task)
-        index = len(self.tasks) - 1
         self.input_tasks.append(index)
         self.output_tasks.append(index)
 
@@ -102,32 +102,37 @@ class TaskGraph:
 
         size_mismatch_msg = "Parent outputs size and child inputs size do not match."
 
-        task_output_index, output_position = 0, 0
-        for index in child.input_tasks:
-            input_task_index = index + index_offset
+        parent_output_task_it = iter(parent_output_task_ids)
+        output_task_index = next(parent_output_task_it, None)
+        output_position = 0
+        for input_task_index in (i + index_offset for i in child.input_task_ids):
             input_task = graph.tasks[input_task_index]
-            for i in range(len(input_task.task_inputs)):
-                if task_output_index >= len(parent_output_tasks):
+            for input_position, task_input in enumerate(input_task.task_inputs):
+                if output_task_index is None:
                     raise TypeError(size_mismatch_msg)
-                output_task_index = parent_output_tasks[task_output_index]
 
                 if (output_task_index, input_task_index) not in graph.dependencies:
                     graph.dependencies.append((output_task_index, input_task_index))
 
-                input_type = input_task.task_inputs[i].type
-                output_type = graph.tasks[output_task_index].task_outputs[output_position].type
+                task_outputs = graph.tasks[output_task_index].task_outputs
+                if output_position >= len(task_outputs):
+                    raise TypeError(size_mismatch_msg)
+                output_type = task_outputs[output_position].type
+                input_type = task_input.type
                 if input_type != output_type:
                     msg = f"Output type {output_type} does not match input type {input_type}"
                     raise TypeError(msg)
-                graph.task_input_output_refs.append(
-                    (input_task_index, i, output_task_index, output_position)
-                )
-                output_position += 1
-                if output_position >= len(graph.tasks[output_task_index].task_outputs):
-                    output_position = 0
-                    task_output_index += 1
 
-        if task_output_index != len(parent_output_tasks) or output_position != 0:
+                graph.task_input_output_refs.append(
+                    (input_task_index, input_position, output_task_index, output_position)
+                )
+
+                output_position += 1
+                if output_position >= len(task_outputs):
+                    output_position = 0
+                    output_task_index = next(parent_output_task_it, None)
+
+        if output_task_index is not None or output_position != 0:
             raise TypeError(size_mismatch_msg)
 
         graph.task_input_output_refs.extend(
