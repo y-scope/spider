@@ -20,11 +20,11 @@
 #include <spider/core/Task.hpp>
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
+#include <spider/utils/pipe.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/message_pipe.hpp>
-#include <spider/worker/TaskExecutorMessage.hpp>
 #include <spider/worker/Process.hpp>
-#include <spider/utils/pipe.hpp>
+#include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::worker {
 TaskExecutor::TaskExecutor(
