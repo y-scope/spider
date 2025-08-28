@@ -353,6 +353,7 @@ auto task_loop(
         spider::worker::WorkerClient& client,
         std::string const& storage_url,
         std::vector<std::string> const& libs,
+        std::vector<std::string> const& py_libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
                 boost::process::v2::environment::value> const& environment
@@ -380,13 +381,29 @@ auto task_loop(
         }
         std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
 
+        auto const language = task.get_language();
+        std::vector<std::string> const* arg_libs = nullptr;
+        switch (language) {
+            case spider::core::TaskLanguage::Cpp:
+                arg_libs = &libs;
+                break;
+            case spider::core::TaskLanguage::Python:
+                arg_libs = &py_libs;
+                break;
+            default:
+                spdlog::error("Unsupported task language.");
+                fail_task_id = task.get_id();
+                continue;
+        }
+
         // Execute task
         spider::worker::TaskExecutor executor{
                 context,
                 task.get_function_name(),
                 task.get_id(),
+                language,
                 storage_url,
-                libs,
+                *arg_libs,
                 environment,
                 arg_buffers
         };
@@ -529,6 +546,7 @@ auto main(int argc, char** argv) -> int {
             std::ref(client),
             std::cref(storage_url),
             std::cref(libs),
+            std::cref(py_libs),
             std::cref(environment_variables),
     };
 
