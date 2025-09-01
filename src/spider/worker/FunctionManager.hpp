@@ -44,8 +44,8 @@ using ArgsBuffer = msgpack::sbuffer;
 
 using ResultBuffer = msgpack::sbuffer;
 
-using Function = std::function<
-        ResultBuffer(TaskContext& context, boost::uuids::uuid task_id, ArgsBuffer const&)>;
+using Function = std::
+        function<ResultBuffer(TaskContext& context, boost::uuids::uuid task_id, ArgsBuffer const&)>;
 
 using FunctionMap = std::vector<std::pair<std::string, Function>>;
 
