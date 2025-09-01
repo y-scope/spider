@@ -92,7 +92,7 @@ class TaskGraph:
             [index + index_offset for index in graph.output_task_indices]
         )
         self.task_input_output_refs.extend(
-            [ref.offset(index_offset) for ref in graph.task_input_output_refs]
+            [ref.with_offset(index_offset) for ref in graph.task_input_output_refs]
         )
 
     @staticmethod
@@ -154,7 +154,7 @@ class TaskGraph:
             raise TypeError(size_mismatch_msg)
 
         graph.task_input_output_refs.extend(
-            [ref.offset(index_offset) for ref in child.task_input_output_refs]
+            [ref.with_offset(index_offset) for ref in child.task_input_output_refs]
         )
 
         return graph
