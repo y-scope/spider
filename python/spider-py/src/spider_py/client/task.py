@@ -31,7 +31,7 @@ def _is_tuple(t: type | GenericAlias) -> bool:
     return get_origin(t) is tuple
 
 
-def _process_parameters(task: core.Task, signature: inspect.Signature) -> None:
+def _validate_and_set_params(task: core.Task, signature: inspect.Signature) -> None:
     """
     Checks the parameters validity and add them to the task.
     :param task:
@@ -53,7 +53,7 @@ def _process_parameters(task: core.Task, signature: inspect.Signature) -> None:
         task.task_inputs.append(TaskInput(tdl_type_str, None))
 
 
-def _process_return(task: core.Task, signature: inspect.Signature) -> None:
+def _validate_and_set_return(task: core.Task, signature: inspect.Signature) -> None:
     """
     Checks the return type validity and add them to the task.
     :param task:
@@ -85,7 +85,7 @@ def _process_return(task: core.Task, signature: inspect.Signature) -> None:
             task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
 
 
-def _create_task(func: TaskFunction) -> core.Task:
+def create_task(func: TaskFunction) -> core.Task:
     """
     Creates a core Task object from the task function.
     :param func:
@@ -98,6 +98,6 @@ def _create_task(func: TaskFunction) -> core.Task:
         raise TypeError(msg)
     task.function_name = func.__qualname__
     signature = inspect.signature(func)
-    _process_parameters(task, signature)
-    _process_return(task, signature)
+    _validate_and_set_params(task, signature)
+    _validate_and_set_return(task, signature)
     return task

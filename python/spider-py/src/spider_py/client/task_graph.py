@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from spider_py import core
-from spider_py.client.task import _create_task, TaskFunction
+from spider_py.client.task import create_task, TaskFunction
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -32,7 +32,7 @@ def group(tasks: Sequence[TaskFunction | TaskGraph]) -> TaskGraph:
     graph = TaskGraph()
     for task in tasks:
         if callable(task):
-            graph._impl.add_task(_create_task(task))
+            graph._impl.add_task(create_task(task))
         else:
             graph._impl.merge_graph(task._impl)
 
@@ -52,13 +52,13 @@ def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> 
 
     if callable(parent):
         parent_core_graph = core.TaskGraph()
-        parent_core_graph.add_task(_create_task(parent))
+        parent_core_graph.add_task(create_task(parent))
     else:
         parent_core_graph = parent._impl
 
     if callable(child):
         child_core_graph = core.TaskGraph()
-        child_core_graph.add_task(_create_task(child))
+        child_core_graph.add_task(create_task(child))
     else:
         child_core_graph = child._impl
 
