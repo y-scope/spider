@@ -13,8 +13,9 @@ if TYPE_CHECKING:
 
 class TaskGraph:
     """
-    Spider client TaskGraph class.
-    Wraps around the core TaskGraph class.
+    Represents a client-side task graph.
+
+    This class is a wrapper of `spider_py.core.Task`.
     """
 
     def __init__(self) -> None:
@@ -43,17 +44,24 @@ def chain(parent: TaskFunction | TaskGraph, child: TaskFunction | TaskGraph) -> 
     Chains two task functions or task graphs into a single task graph.
     :param parent:
     :param child:
-    :return:
+    :return: The new task graph.
     :raises TypeError: If the parent outputs and child inputs do not match.
     """
+    parent_core_graph: core.TaskGraph
+    child_core_graph: core.TaskGraph
+
     if callable(parent):
-        task = _create_task(parent)
-        parent = TaskGraph()
-        parent._impl.add_task(task)
+        parent_core_graph = core.TaskGraph()
+        parent_core_graph.add_task(_create_task(parent))
+    else:
+        parent_core_graph = parent._impl
+
     if callable(child):
-        task = _create_task(child)
-        child = TaskGraph()
-        child._impl.add_task(task)
+        child_core_graph = core.TaskGraph()
+        child_core_graph.add_task(_create_task(child))
+    else:
+        child_core_graph = child._impl
+
     graph = TaskGraph()
-    graph._impl = core.TaskGraph.chain_graph(parent._impl, child._impl)
+    graph._impl = core.TaskGraph.chain_graph(parent_core_graph, child_core_graph)
     return graph

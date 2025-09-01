@@ -47,7 +47,7 @@ def _process_parameters(task: core.Task, signature: inspect.Signature) -> None:
             msg = "Variadic parameters are not supported."
             raise TypeError(msg)
         if param.annotation is inspect.Parameter.empty:
-            msg = "Argument must have type annotation"
+            msg = "Parameters must have type annotation."
             raise TypeError(msg)
         tdl_type_str = to_tdl_type_str(param.annotation)
         task.task_inputs.append(TaskInput(tdl_type_str, None))
@@ -62,22 +62,24 @@ def _process_return(task: core.Task, signature: inspect.Signature) -> None:
     """
     returns = signature.return_annotation
     if returns is inspect.Parameter.empty:
-        msg = "Return type must have type annotation"
+        msg = "Return type must have type annotation."
         raise TypeError(msg)
-    if _is_tuple(returns):
-        args = get_args(returns)
-        if Ellipsis in args:
-            msg = "Variable-length tuple return types are not supported."
-            raise TypeError(msg)
-        for r in args:
-            tdl_type_str = to_tdl_type_str(r)
-            if r is Data:
-                task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
-            else:
-                task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
-    else:
+
+    if not _is_tuple(returns):
         tdl_type_str = to_tdl_type_str(returns)
         if returns is Data:
+            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+        else:
+            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+        return
+
+    args = get_args(returns)
+    if Ellipsis in args:
+        msg = "Variable-length tuple return types are not supported."
+        raise TypeError(msg)
+    for arg in args:
+        tdl_type_str = to_tdl_type_str(arg)
+        if arg is Data:
             task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
         else:
             task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))

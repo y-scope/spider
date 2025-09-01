@@ -49,11 +49,13 @@ class TaskGraph:
             self.output_task_index: int = output_task_index
             self.output_position: int = output_position
 
-        def offset(self, index_offset: int) -> TaskGraph.InputOutputRef:
+        def with_offset(self, index_offset: int) -> TaskGraph.InputOutputRef:
             """
-            Returns a new InputOutputRef with the task indices offset by the given value.
-            :param index_offset: The value to offset the task indices by.
-            :return: A new InputOutputRef with the task indices offset.
+            Creates a new `InputOutputRef` with the task indices adjusted by applying the specified
+            offset.
+
+            :param index_offset: The offset to apply to the task indices.
+            :return: A new `InputOutputRef` instance with adjusted task indices.
             """
             return TaskGraph.InputOutputRef(
                 self.input_task_index + index_offset,
