@@ -61,14 +61,16 @@ struct ConcatTaskGraphType<TaskGraph<GraphReturnType, GraphParams...>, InputType
 template <TaskIo GraphReturnType, TaskIo... GraphParams, TaskIo ReturnType, TaskIo... TaskParams>
 struct ConcatTaskGraphType<
         TaskGraph<GraphReturnType, GraphParams...>,
-        TaskFunction<ReturnType, TaskParams...>> {
+        TaskFunction<ReturnType, TaskParams...>
+> {
     using Type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
 };
 
 template <TaskIo GraphReturnType, TaskIo... GraphParams, TaskIo ReturnType, TaskIo... TaskParams>
 struct ConcatTaskGraphType<
         TaskGraph<GraphReturnType, GraphParams...>,
-        TaskGraph<ReturnType, TaskParams...>> {
+        TaskGraph<ReturnType, TaskParams...>
+> {
     using Type = TaskGraph<GraphReturnType, GraphParams..., TaskParams...>;
 };
 
@@ -85,8 +87,10 @@ struct MergeTaskGraphTypes<TaskGraph<ReturnType, GraphParams...>, InputType, Inp
     using Type = typename MergeTaskGraphTypes<
             typename ConcatTaskGraphType<
                     TaskGraph<ReturnType, GraphParams...>,
-                    std::remove_cvref_t<InputType>>::Type,
-            Inputs...>::Type;
+                    std::remove_cvref_t<InputType>
+            >::Type,
+            Inputs...
+    >::Type;
 };
 
 template <TaskIo ReturnType, RunnableOrTaskIo... Inputs>
