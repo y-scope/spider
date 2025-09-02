@@ -31,14 +31,15 @@ def _is_tuple(t: type | GenericAlias) -> bool:
     return get_origin(t) is tuple
 
 
-def _validate_and_set_params(task: core.Task, signature: inspect.Signature) -> None:
+def _validate_and_convert_params(signature: inspect.Signature) -> list[TaskInput]:
     """
-    Checks the parameters validity and add them to the task.
-    :param task:
+    Checks the parameters validity and convert them into core.TaskInput.
     :param signature:
+    :return: Converted task parameters.
     :raises TypeError: If the parameters are invalid.
     """
     params = list(signature.parameters.values())
+    inputs = []
     if not params or params[0].annotation is not TaskContext:
         msg = "First argument is not a TaskContext."
         raise TypeError(msg)
@@ -50,17 +51,19 @@ def _validate_and_set_params(task: core.Task, signature: inspect.Signature) -> N
             msg = "Parameters must have type annotation."
             raise TypeError(msg)
         tdl_type_str = to_tdl_type_str(param.annotation)
-        task.task_inputs.append(TaskInput(tdl_type_str, None))
+        inputs.append(TaskInput(tdl_type_str, None))
+    return inputs
 
 
-def _validate_and_set_return(task: core.Task, signature: inspect.Signature) -> None:
+def _validate_and_convert_return(signature: inspect.Signature) -> list[TaskOutput]:
     """
     Checks the return type validity and add them to the task.
-    :param task:
     :param signature:
+    :return: Converted task returns.
     :raises TypeError: If the return type is invalid.
     """
     returns = signature.return_annotation
+    outputs = []
     if returns is inspect.Parameter.empty:
         msg = "Return type must have type annotation."
         raise TypeError(msg)
@@ -68,10 +71,10 @@ def _validate_and_set_return(task: core.Task, signature: inspect.Signature) -> N
     if not _is_tuple(returns):
         tdl_type_str = to_tdl_type_str(returns)
         if returns is Data:
-            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
         else:
-            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
-        return
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+        return outputs
 
     args = get_args(returns)
     if Ellipsis in args:
@@ -80,9 +83,10 @@ def _validate_and_set_return(task: core.Task, signature: inspect.Signature) -> N
     for arg in args:
         tdl_type_str = to_tdl_type_str(arg)
         if arg is Data:
-            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
         else:
-            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+    return outputs
 
 
 def create_task(func: TaskFunction) -> core.Task:
@@ -92,12 +96,14 @@ def create_task(func: TaskFunction) -> core.Task:
     :return:
     :raise TypeError: If the function signature contains unsupported types.
     """
-    task = core.Task()
     if not isinstance(func, FunctionType):
         msg = "`func` is not a function."
         raise TypeError(msg)
-    task.function_name = func.__qualname__
     signature = inspect.signature(func)
-    _validate_and_set_params(task, signature)
-    _validate_and_set_return(task, signature)
-    return task
+    inputs = _validate_and_convert_params(signature)
+    outputs = _validate_and_convert_return(signature)
+    return core.Task(
+        function_name=func.__qualname__,
+        task_inputs=inputs,
+        task_outputs=outputs,
+    )
