@@ -147,8 +147,8 @@ public:
         Task task{function_name.value()};
         // Add task inputs
         for_n<sizeof...(TaskParams)>([&](auto i) {
-            using T = std::remove_cvref_t<
-                    std::tuple_element_t<i.cValue, std::tuple<TaskParams...>>>;
+            using T = std::
+                    remove_cvref_t<std::tuple_element_t<i.cValue, std::tuple<TaskParams...>>>;
             if constexpr (cIsSpecializationV<T, spider::Data>) {
                 task.add_input(TaskInput{typeid(spider::core::Data).name()});
             } else {
