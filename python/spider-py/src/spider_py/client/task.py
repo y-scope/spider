@@ -17,9 +17,10 @@ class TaskContext:
     # TODO: Implement task context for use in task executor
 
 
-# Check the TaskFunction signature at runtime.
-# Enforcing static check for first argument requires the use of Protocol. However, functions, which
-# are Callable, are not considered a Protocol without explicit cast.
+# NOTE: This type alias is for clarification purposes only. It does not enforce static type checks.
+# Instead, we rely on the runtime check to ensure the first argument is `TaskContext`. To statically
+# enforce the first argument to be `TaskContext`, `Protocol` is required, which is not compatible
+# with `Callable` without explicit type casting.
 TaskFunction = Callable[..., object]
 
 
@@ -33,9 +34,9 @@ def _is_tuple(t: type | GenericAlias) -> bool:
 
 def _validate_and_convert_params(signature: inspect.Signature) -> list[TaskInput]:
     """
-    Checks the parameters validity and convert them into core.TaskInput.
+    Validates the task parameters and converts them into a list of `core.TaskInput`.
     :param signature:
-    :return: Converted task parameters.
+    :return: The converted task parameters.
     :raises TypeError: If the parameters are invalid.
     """
     params = list(signature.parameters.values())
@@ -57,9 +58,9 @@ def _validate_and_convert_params(signature: inspect.Signature) -> list[TaskInput
 
 def _validate_and_convert_return(signature: inspect.Signature) -> list[TaskOutput]:
     """
-    Checks the return type validity and add them to the task.
+    Validates the task returns and converts them into a list of `core.TaskOutput`.
     :param signature:
-    :return: Converted task returns.
+    :return: The converted task returns.
     :raises TypeError: If the return type is invalid.
     """
     returns = signature.return_annotation
@@ -93,17 +94,15 @@ def create_task(func: TaskFunction) -> core.Task:
     """
     Creates a core Task object from the task function.
     :param func:
-    :return:
+    :return: The created core Task object.
     :raise TypeError: If the function signature contains unsupported types.
     """
     if not isinstance(func, FunctionType):
         msg = "`func` is not a function."
         raise TypeError(msg)
     signature = inspect.signature(func)
-    inputs = _validate_and_convert_params(signature)
-    outputs = _validate_and_convert_return(signature)
     return core.Task(
         function_name=func.__qualname__,
-        task_inputs=inputs,
-        task_outputs=outputs,
+        task_inputs=_validate_and_convert_params(signature),
+        task_outputs=_validate_and_convert_return(signature),
     )
