@@ -135,7 +135,7 @@ class MariaDBStorage(Storage):
                         for graph_index, (job_id, task_graph) in enumerate(
                             zip(job_ids, task_graphs, strict=True)
                         )
-                        for position, task_index in enumerate(task_graph.input_tasks)
+                        for position, task_index in enumerate(task_graph.input_task_indices)
                     ],
                 )
                 cursor.executemany(
@@ -145,7 +145,7 @@ class MariaDBStorage(Storage):
                         for graph_index, (job_id, task_graph) in enumerate(
                             zip(job_ids, task_graphs, strict=True)
                         )
-                        for position, task_index in enumerate(task_graph.output_tasks)
+                        for position, task_index in enumerate(task_graph.output_task_indices)
                     ],
                 )
                 cursor.executemany(

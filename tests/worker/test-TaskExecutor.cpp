@@ -36,7 +36,8 @@
 namespace {
 auto get_environment_variable() -> absl::flat_hash_map<
         boost::process::v2::environment::key,
-        boost::process::v2::environment::value> {
+        boost::process::v2::environment::value
+> {
     boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
     boost::filesystem::path const src_dir = executable_dir.parent_path() / "src" / "spider";
 
@@ -48,7 +49,8 @@ auto get_environment_variable() -> absl::flat_hash_map<
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value>
+            boost::process::v2::environment::value
+    >
             environment_variables;
 
     environment_variables.emplace("PATH", path_env);
@@ -69,7 +71,8 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value> const environment_variable
+            boost::process::v2::environment::value
+    > const environment_variable
             = get_environment_variable();
 
     boost::asio::io_context context;
@@ -101,7 +104,8 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value> const environment_variable
+            boost::process::v2::environment::value
+    > const environment_variable
             = get_environment_variable();
 
     boost::asio::io_context context;
@@ -131,7 +135,8 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value> const environment_variable
+            boost::process::v2::environment::value
+    > const environment_variable
             = get_environment_variable();
 
     boost::asio::io_context context;
@@ -195,7 +200,8 @@ TEMPLATE_LIST_TEST_CASE(
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value> const environment_variable
+            boost::process::v2::environment::value
+    > const environment_variable
             = get_environment_variable();
 
     boost::asio::io_context context;
@@ -233,7 +239,8 @@ TEMPLATE_LIST_TEST_CASE(
 ) {
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value> const environment_variable
+            boost::process::v2::environment::value
+    > const environment_variable
             = get_environment_variable();
 
     boost::asio::io_context context;
