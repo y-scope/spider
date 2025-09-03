@@ -74,10 +74,14 @@ typing-extensions = false  # Disable type extensions for 3.10 compatibility
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
   "INP001",  # Allow implicit namespace package for tests
+  "PLR2004",  # Allow use of magic value
   "S101",  # Allow use of `assert` (security warning)
   "S603",  # Allow use of `subprocess.Popen` (security warning)
   "T201",  # Allow use of `print` (testing)
 ]
+
+[tool.ruff.lint.flake8-self]
+ignore-names = ["_impl"]
 
 [tool.ruff.lint.pydocstyle]
 ignore-decorators = ["typing.override"]
