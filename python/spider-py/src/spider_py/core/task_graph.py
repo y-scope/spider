@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from copy import deepcopy
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from spider_py.core.task import Task
 
 JobId = UUID
