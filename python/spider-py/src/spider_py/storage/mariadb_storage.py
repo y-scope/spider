@@ -7,7 +7,6 @@ import mariadb
 from typing_extensions import override
 
 from spider_py import core
-from spider_py.core import get_state_str
 from spider_py.storage.jdbc_url import JdbcParameters
 from spider_py.storage.storage import Storage, StorageError
 
@@ -108,7 +107,7 @@ class MariaDBStorage(Storage):
                             task_ids[graph_index][task_index].bytes,
                             job_id.bytes,
                             task.function_name,
-                            get_state_str(task.state),
+                            task.state.get_state_str(),
                             task.timeout,
                             task.max_retries,
                         )
