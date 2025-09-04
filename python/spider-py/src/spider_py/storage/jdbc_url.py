@@ -29,7 +29,7 @@ def parse_jdbc_url(url: str) -> JdbcParameters:
     """
     Parses a JDBC URL.
     :param url:
-    :return:
+    :return: Parsed JDBC parameters.
     :raises ValueError: If the JDBC URL is invalid.
     """
     match = pattern.match(url)
