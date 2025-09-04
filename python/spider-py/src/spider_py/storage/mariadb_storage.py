@@ -95,8 +95,14 @@ class MariaDBStorage(Storage):
         Generates parameters for inserting tasks into the database.
         :param job_ids: The job IDs.
         :param task_ids: The task IDs. Must be the same length as `job_ids`.
-        :param task_graphs: The task graphs. Must be same length as `job_ids`.
-        :return: A list of tuples containing the parameters for each task.
+        :param task_graphs: The task graphs. Must be the same length as `job_ids`.
+        :return: A list of tuples containing the parameters for each task. Each tuple contains:
+            - Task ID.
+            - Job ID.
+            - Task function name.
+            - Task state.
+            - Task timeout.
+            - Task max retry.
         """
         task_insert_params = []
         for graph_index, (job_id, task_graph) in enumerate(zip(job_ids, task_graphs, strict=True)):
@@ -121,8 +127,11 @@ class MariaDBStorage(Storage):
         """
         Generates parameters for inserting task dependencies into the database.
         :param task_ids: The task IDs.
-        :param task_graphs: The task graphs. Must be same length as `task_ids`.
-        :return: A list of tuples containing the parameters for each task dependency.
+        :param task_graphs: The task graphs. Must be the same length as `task_ids`.
+        :return: A list of tuples containing the parameters for each task dependency. Each tuple
+            contains:
+            - Parent task ID.
+            - Child task ID.
         """
         dep_params = []
         for graph_index, task_graph in enumerate(task_graphs):
@@ -142,8 +151,12 @@ class MariaDBStorage(Storage):
         Generates parameters for inserting input tasks into the database.
         :param job_ids: The job IDs.
         :param task_ids: The task IDs. Must be the same length as `job_ids`.
-        :param task_graphs: The task graphs. Must be same length as `job_ids`.
-        :return: A list of tuples containing the parameters for each input task.
+        :param task_graphs: The task graphs. Must be the same length as `job_ids`.
+        :return: A list of tuples containing the parameters for each input task. Each tuple
+            contains:
+            - Job ID.
+            - Task ID.
+            - The positional index of the input task.
         """
         input_task_params = []
         for graph_index, (job_id, task_graph) in enumerate(zip(job_ids, task_graphs, strict=True)):
@@ -163,8 +176,12 @@ class MariaDBStorage(Storage):
         Generates parameters for inserting output tasks into the database.
         :param job_ids: The job IDs.
         :param task_ids: The task IDs. Must be the same length as `job_ids`.
-        :param task_graphs: The task graphs. Must be same length as `job_ids`.
-        :return: A list of tuples containing the parameters for each output task.
+        :param task_graphs: The task graphs. Must be the same length as `job_ids`.
+        :return: A list of tuples containing the parameters for each output task. Each tuple
+            contains:
+            - Job ID.
+            - Task ID.
+            - The positional index of the output task.
         """
         output_task_params = []
         for graph_index, (job_id, task_graph) in enumerate(zip(job_ids, task_graphs, strict=True)):
@@ -182,8 +199,12 @@ class MariaDBStorage(Storage):
         """
         Generates parameters for inserting task outputs into the database.
         :param task_ids: The task IDs.
-        :param task_graphs: The task graphs. Must be same length as `task_ids`.
-        :return: A list of tuples containing the parameters for each task output.
+        :param task_graphs: The task graphs. Must be the same length as `task_ids`.
+        :return: A list of tuples containing the parameters for each task output. Each tuple
+            contains:
+            - Task ID.
+            - Positional index of the output.
+            - Type of the output.
         """
         output_params = []
         for graph_index, task_graph in enumerate(task_graphs):
@@ -202,8 +223,13 @@ class MariaDBStorage(Storage):
         """
         Generates parameters for inserting task input data into the database.
         :param task_ids: The task IDs.
-        :param task_graphs: The task graphs. Must be same length as `task_ids`.
-        :return: A list of tuples containing the parameters for each task input data.
+        :param task_graphs: The task graphs. Must be the same length as `task_ids`.
+        :return: A list of tuples containing the parameters for each task input data. Each tuple
+            contains:
+            - Task ID.
+            - Positional index of the input.
+            - Type of the input.
+            - Input data.
         """
         input_data_params = []
         for graph_index, task_graph in enumerate(task_graphs):
@@ -228,7 +254,7 @@ class MariaDBStorage(Storage):
         """
         Generates parameters for inserting task input values into the database.
         :param task_ids: The task IDs.
-        :param task_graphs: The task graphs. Must be same length as `task_ids`.
+        :param task_graphs: The task graphs. Must be the same length as `task_ids`.
         :return: A list of tuples containing the parameters for each task input value.
         """
         input_value_params = []
@@ -254,8 +280,14 @@ class MariaDBStorage(Storage):
         """
         Generates parameters for inserting task input output refs into the database.
         :param task_ids: The task IDs.
-        :param task_graphs: The task graphs. Must be same length as `task_ids`.
-        :return: A list of tuples containing the parameters for each task input output ref.
+        :param task_graphs: The task graphs. Must be the same length as `task_ids`.
+        :return: A list of tuples containing the parameters for each task input output ref. Each
+            tuple contains:
+            - Input task ID.
+            - Positional index of the input.
+            - Type of the input.
+            - Output task ID.
+            - Positional index of the output.
         """
         input_output_params = []
         for graph_index, task_graph in enumerate(task_graphs):
@@ -292,39 +324,45 @@ class MariaDBStorage(Storage):
                 # Insert tasks table
                 cursor.executemany(
                     InsertTask,
-                    self._gen_task_insert_params(job_ids, task_ids, task_graphs),
+                    self._gen_task_insertion_params(job_ids, task_ids, task_graphs),
                 )
+
                 # Insert task dependencies table
-                dep_params = self._gen_insert_task_dependencies_params(task_ids, task_graphs)
+                dep_params = self._gen_task_dependencies_insertion_params(task_ids, task_graphs)
                 if dep_params:
                     cursor.executemany(
                         InsertTaskDependency,
                         dep_params,
                     )
+
                 # Insert input tasks table
                 cursor.executemany(
                     InsertInputTask,
-                    self._gen_insert_input_tasks_params(job_ids, task_ids, task_graphs),
+                    self._gen_input_task_insertion_params(job_ids, task_ids, task_graphs),
                 )
+
                 # Insert output tasks table
                 cursor.executemany(
                     InsertOutputTask,
-                    self._gen_insert_output_tasks_params(job_ids, task_ids, task_graphs),
+                    self._gen_output_task_insertion_params(job_ids, task_ids, task_graphs),
                 )
+
                 # Insert task outputs table
                 cursor.executemany(
                     InsertTaskOutput,
-                    self._gen_insert_task_output_params(task_ids, task_graphs),
+                    self._gen_task_output_insertion_params(task_ids, task_graphs),
                 )
+
                 # Insert task input data table
-                input_data_params = self._gen_insert_task_input_data_params(task_ids, task_graphs)
+                input_data_params = self._gen_task_input_insertion_params(task_ids, task_graphs)
                 if input_data_params:
                     cursor.executemany(
                         InsertTaskInputData,
                         input_data_params,
                     )
+
                 # Insert task input values table
-                input_value_params = self._gen_insert_task_output_value_params(
+                input_value_params = self._gen_task_output_value_insertion_params(
                     task_ids, task_graphs
                 )
                 if input_value_params:
@@ -332,8 +370,9 @@ class MariaDBStorage(Storage):
                         InsertTaskInputValue,
                         input_value_params,
                     )
+
                 # Insert task input outputs table
-                input_output_params = self._gen_insert_task_input_output_params(
+                input_output_params = self._gen_task_input_output_ref_insertion_params(
                     task_ids, task_graphs
                 )
                 if input_output_params:
@@ -341,6 +380,7 @@ class MariaDBStorage(Storage):
                         InsertTaskInputOutput,
                         input_output_params,
                     )
+
                 self._conn.commit()
                 return job_ids
         except mariadb.Error as e:
