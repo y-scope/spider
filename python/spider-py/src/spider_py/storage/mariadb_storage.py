@@ -85,8 +85,92 @@ class MariaDBStorage(Storage):
         except mariadb.Error as e:
             raise StorageError(str(e)) from e
 
+    @override
+    def submit_jobs(
+        self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
+    ) -> Sequence[core.JobId]:
+        if not task_graphs:
+            return []
+        try:
+            job_ids = [uuid4() for _ in task_graphs]
+
+            task_ids = [[uuid4() for _ in graph.tasks] for graph in task_graphs]
+
+            with self._conn.cursor() as cursor:
+                # Insert jobs table
+                cursor.executemany(
+                    InsertJob, [(job_id.bytes, driver_id.bytes) for job_id in job_ids]
+                )
+                # Insert tasks table
+                cursor.executemany(
+                    InsertTask,
+                    self._gen_task_insertion_params(job_ids, task_ids, task_graphs),
+                )
+
+                # Insert task dependencies table
+                dep_params = self._gen_task_dependency_insertion_params(task_ids, task_graphs)
+                if dep_params:
+                    cursor.executemany(
+                        InsertTaskDependency,
+                        dep_params,
+                    )
+
+                # Insert input tasks table
+                cursor.executemany(
+                    InsertInputTask,
+                    self._gen_input_task_insertion_params(job_ids, task_ids, task_graphs),
+                )
+
+                # Insert output tasks table
+                cursor.executemany(
+                    InsertOutputTask,
+                    self._gen_output_task_insertion_params(job_ids, task_ids, task_graphs),
+                )
+
+                # Insert task outputs table
+                cursor.executemany(
+                    InsertTaskOutput,
+                    self._gen_task_output_insertion_params(task_ids, task_graphs),
+                )
+
+                # Insert task input data table
+                input_data_params = self._gen_task_input_data_insertion_params(
+                    task_ids, task_graphs
+                )
+                if input_data_params:
+                    cursor.executemany(
+                        InsertTaskInputData,
+                        input_data_params,
+                    )
+
+                # Insert task input values table
+                input_value_params = self._gen_task_input_value_insertion_params(
+                    task_ids, task_graphs
+                )
+                if input_value_params:
+                    cursor.executemany(
+                        InsertTaskInputValue,
+                        input_value_params,
+                    )
+
+                # Insert task input outputs table
+                input_output_params = self._gen_task_input_output_ref_insertion_params(
+                    task_ids, task_graphs
+                )
+                if input_output_params:
+                    cursor.executemany(
+                        InsertTaskInputOutput,
+                        input_output_params,
+                    )
+
+                self._conn.commit()
+                return job_ids
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
     @staticmethod
-    def _gen_task_insert_params(
+    def _gen_task_insertion_params(
         job_ids: Sequence[core.JobId],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
@@ -120,7 +204,7 @@ class MariaDBStorage(Storage):
         return task_insert_params
 
     @staticmethod
-    def _gen_insert_task_dependencies_params(
+    def _gen_task_dependency_insertion_params(
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, bytes]]:
@@ -142,7 +226,7 @@ class MariaDBStorage(Storage):
         return dep_params
 
     @staticmethod
-    def _gen_insert_input_tasks_params(
+    def _gen_input_task_insertion_params(
         job_ids: Sequence[core.JobId],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
@@ -167,7 +251,7 @@ class MariaDBStorage(Storage):
         return input_task_params
 
     @staticmethod
-    def _gen_insert_output_tasks_params(
+    def _gen_output_task_insertion_params(
         job_ids: Sequence[core.JobId],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
@@ -192,7 +276,7 @@ class MariaDBStorage(Storage):
         return output_task_params
 
     @staticmethod
-    def _gen_insert_task_output_params(
+    def _gen_task_output_insertion_params(
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, int, str]]:
@@ -216,7 +300,7 @@ class MariaDBStorage(Storage):
         return output_params
 
     @staticmethod
-    def _gen_insert_task_input_data_params(
+    def _gen_task_input_data_insertion_params(
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, int, str, bytes]]:
@@ -247,7 +331,7 @@ class MariaDBStorage(Storage):
         return input_data_params
 
     @staticmethod
-    def _gen_insert_task_output_value_params(
+    def _gen_task_input_value_insertion_params(
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, int, str, bytes]]:
@@ -255,7 +339,12 @@ class MariaDBStorage(Storage):
         Generates parameters for inserting task input values into the database.
         :param task_ids: The task IDs.
         :param task_graphs: The task graphs. Must be the same length as `task_ids`.
-        :return: A list of tuples containing the parameters for each task input value.
+        :return: A list of tuples containing the parameters for each task input value. Each tuple
+            contains:
+            - Task ID.
+            - Positional index of the input.
+            - Type of the input.
+            - Input value.
         """
         input_value_params = []
         for graph_index, task_graph in enumerate(task_graphs):
@@ -273,7 +362,7 @@ class MariaDBStorage(Storage):
         return input_value_params
 
     @staticmethod
-    def _gen_insert_task_input_output_params(
+    def _gen_task_input_output_ref_insertion_params(
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, int, str, bytes, int]]:
@@ -304,85 +393,3 @@ class MariaDBStorage(Storage):
                     )
                 )
         return input_output_params
-
-    @override
-    def submit_jobs(
-        self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
-    ) -> Sequence[core.JobId]:
-        if not task_graphs:
-            return []
-        try:
-            job_ids = [uuid4() for _ in task_graphs]
-
-            task_ids = [[uuid4() for _ in graph.tasks] for graph in task_graphs]
-
-            with self._conn.cursor() as cursor:
-                # Insert jobs table
-                cursor.executemany(
-                    InsertJob, [(job_id.bytes, driver_id.bytes) for job_id in job_ids]
-                )
-                # Insert tasks table
-                cursor.executemany(
-                    InsertTask,
-                    self._gen_task_insertion_params(job_ids, task_ids, task_graphs),
-                )
-
-                # Insert task dependencies table
-                dep_params = self._gen_task_dependencies_insertion_params(task_ids, task_graphs)
-                if dep_params:
-                    cursor.executemany(
-                        InsertTaskDependency,
-                        dep_params,
-                    )
-
-                # Insert input tasks table
-                cursor.executemany(
-                    InsertInputTask,
-                    self._gen_input_task_insertion_params(job_ids, task_ids, task_graphs),
-                )
-
-                # Insert output tasks table
-                cursor.executemany(
-                    InsertOutputTask,
-                    self._gen_output_task_insertion_params(job_ids, task_ids, task_graphs),
-                )
-
-                # Insert task outputs table
-                cursor.executemany(
-                    InsertTaskOutput,
-                    self._gen_task_output_insertion_params(task_ids, task_graphs),
-                )
-
-                # Insert task input data table
-                input_data_params = self._gen_task_input_insertion_params(task_ids, task_graphs)
-                if input_data_params:
-                    cursor.executemany(
-                        InsertTaskInputData,
-                        input_data_params,
-                    )
-
-                # Insert task input values table
-                input_value_params = self._gen_task_output_value_insertion_params(
-                    task_ids, task_graphs
-                )
-                if input_value_params:
-                    cursor.executemany(
-                        InsertTaskInputValue,
-                        input_value_params,
-                    )
-
-                # Insert task input outputs table
-                input_output_params = self._gen_task_input_output_ref_insertion_params(
-                    task_ids, task_graphs
-                )
-                if input_output_params:
-                    cursor.executemany(
-                        InsertTaskInputOutput,
-                        input_output_params,
-                    )
-
-                self._conn.commit()
-                return job_ids
-        except mariadb.Error as e:
-            self._conn.rollback()
-            raise StorageError(str(e)) from e
