@@ -93,9 +93,12 @@ class MariaDBStorage(Storage):
         if not task_graphs:
             return []
         try:
-            job_ids = [uuid4() for _ in task_graphs]
-
-            task_ids = [[uuid4() for _ in graph.tasks] for graph in task_graphs]
+            # Create job UUIDs and task UUIDs
+            job_ids = []
+            task_ids = []
+            for task_graph in task_graphs:
+                job_ids.append(uuid4())
+                task_ids.append([uuid4() for _ in task_graph.tasks])
 
             with self._conn.cursor() as cursor:
                 # Insert jobs table
