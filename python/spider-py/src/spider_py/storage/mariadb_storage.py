@@ -192,19 +192,16 @@ class MariaDBStorage(Storage):
                     )
                 input_output_params = [
                     (
-                        task_ids[graph_index][input_task_index].bytes,
-                        input_task_position,
-                        task_graph.tasks[input_task_index].task_inputs[input_task_position].type,
-                        task_ids[graph_index][output_task_index].bytes,
-                        output_task_position,
+                        task_ids[graph_index][input_output_ref.input_task_index].bytes,
+                        input_output_ref.input_position,
+                        task_graph.tasks[input_output_ref.input_task_index]
+                        .task_inputs[input_output_ref.input_position]
+                        .type,
+                        task_ids[graph_index][input_output_ref.output_task_index].bytes,
+                        input_output_ref.output_position,
                     )
                     for graph_index, task_graph in enumerate(task_graphs)
-                    for (
-                        input_task_index,
-                        input_task_position,
-                        output_task_index,
-                        output_task_position,
-                    ) in task_graph.task_input_output_refs
+                    for input_output_ref in task_graph.task_input_output_refs
                 ]
                 if input_output_params:
                     cursor.executemany(

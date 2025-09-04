@@ -69,17 +69,6 @@ class TaskGraph:
                 self.output_position,
             )
 
-        def __iter__(self) -> Iterator[int]:
-            """
-            Allows unpacking of the InputOutputRef instance into its attributes.
-            :yield: The input task index, input position, output task index,
-                    and output position in that order.
-            """
-            yield self.input_task_index
-            yield self.input_position
-            yield self.output_task_index
-            yield self.output_position
-
     def add_task(self, task: Task) -> None:
         """
         Adds a task to the graph.
