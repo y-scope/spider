@@ -53,7 +53,7 @@ class TaskState(IntEnum):
     Failed = 4
     Cancelled = 5
 
-    def get_state_str(self) -> str:
+    def __str__(self) -> str:
         """
         Returns string representation of task state.
         :return: The string representation of task state.
@@ -61,7 +61,7 @@ class TaskState(IntEnum):
         return _StateToStrMap[self]
 
     @staticmethod
-    def get_state_from_str(state_str: str) -> TaskState:
+    def from_str(state_str: str) -> TaskState:
         """
         Returns task state from string representation.
         :param state_str: The string representation of task state.

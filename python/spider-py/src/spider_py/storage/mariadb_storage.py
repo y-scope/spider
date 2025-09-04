@@ -197,7 +197,7 @@ class MariaDBStorage(Storage):
                         task_ids[graph_index][task_index].bytes,
                         job_id.bytes,
                         task.function_name,
-                        task.state.get_state_str(),
+                        str(task.state),
                         task.timeout,
                         task.max_retries,
                     )
