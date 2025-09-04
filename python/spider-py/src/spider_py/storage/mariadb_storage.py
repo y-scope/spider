@@ -67,7 +67,8 @@ VALUES
 
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
-
+    def __del__(self):
+        self._conn.close()
     def __init__(self, params: JdbcParameters) -> None:
         """
         Connects to the MariaDB database.

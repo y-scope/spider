@@ -22,9 +22,9 @@ class Storage(ABC):
         self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
     ) -> Sequence[core.JobId]:
         """
-        Submit jobs to the storage.
+        Submits jobs to the storage.
         :param driver_id: Driver id.
         :param task_graphs: Task graphs to submit.
-        :return: List of job ids representing the submitted jobs.
+        :return: A list of job IDs representing the submitted jobs.
         :raises StorageError: If the storage operations fail.
         """
