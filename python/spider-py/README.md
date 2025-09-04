@@ -36,7 +36,7 @@ To run all non-storage unit tests:
 task test:spider-py-non-storage-unit-tests
 ```
 
-### Setup MairaDB for Storage Unit Tests
+### Setup MariaDB for Storage Unit Tests
 To run storage unit tests, we need to create an instance of MariaDB first.
 ```shell
 docker run \
