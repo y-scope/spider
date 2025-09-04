@@ -28,7 +28,7 @@ def parse_jdbc_url(url: str) -> JdbcParameters:
     """
     protocol_prefix = ""
     if url.startswith(_JdbcPrefix):
-        url = url.lstrip(_JdbcPrefix)
+        url = url.removeprefix(_JdbcPrefix)
         protocol_prefix = _JdbcPrefix
     parsed = urllib.parse.urlparse(url)
 
