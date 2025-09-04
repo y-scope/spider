@@ -35,7 +35,15 @@ pretty = true
 show_error_code_links = true
 show_error_context = true
 
+[[tool.mypy.overrides]]
+module = ["mariadb.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
+markers = [
+  "integration: Mark test as an integration test",
+  "storage: Mark unit tests as needing external storage service",
+]
 testpaths = ["tests"]
 
 [tool.ruff]

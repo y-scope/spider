@@ -1,5 +1,7 @@
 """Task module for Spider."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import IntEnum
 from uuid import UUID, uuid4
@@ -26,7 +28,7 @@ class TaskInput:
     """Represents a task input"""
 
     type: str
-    value: TaskInputData | TaskInputOutput | None
+    value: TaskInputData | TaskInputOutput | TaskInputValue | None
 
 
 TaskOutputValue = bytes
@@ -50,6 +52,39 @@ class TaskState(IntEnum):
     Succeeded = 3
     Failed = 4
     Cancelled = 5
+
+    def __str__(self) -> str:
+        """
+        Returns string representation of task state.
+        :return: The string representation of task state.
+        """
+        return _StateToStrMap[self]
+
+    @staticmethod
+    def from_str(state_str: str) -> TaskState:
+        """
+        Returns task state from string representation.
+        :param state_str: The string representation of task state.
+        :return: The task state from string representation.
+        :raises ValueError: If the state string is not recognized.
+        """
+        state = _StrToStateMap.get(state_str)
+        if state is not None:
+            return state
+        msg = f"Invalid task state string: {state_str}"
+        raise ValueError(msg)
+
+
+_StateToStrMap = {
+    TaskState.Pending: "pending",
+    TaskState.Ready: "ready",
+    TaskState.Running: "running",
+    TaskState.Succeeded: "success",
+    TaskState.Failed: "fail",
+    TaskState.Cancelled: "cancel",
+}
+
+_StrToStateMap = {value: key for key, value in _StateToStrMap.items()}
 
 
 @dataclass

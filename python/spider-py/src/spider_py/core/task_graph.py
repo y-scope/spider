@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 if TYPE_CHECKING:
     from spider_py.core.task import Task
+
+JobId = UUID
 
 
 class TaskGraph:
