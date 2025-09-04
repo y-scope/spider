@@ -52,10 +52,12 @@ docker run \
         --publish 3306:3306 mariadb:latest
 ```
 
-The database tables will be automatically created by the spawned spider scheduler.
-
-You can choose to set up the database table manually by using the SQL script
+After the docker container starts, set up the database table manually by using the SQL script
 `tools/scripts/storage/init_db.sql` from the project root.
+
+```shell
+mysql -h 127.0.0.1 -u spider -ppassword spider-storage < tools/scripts/storage/init_db.sql
+```
 
 ### Storage Unit Tests
 
