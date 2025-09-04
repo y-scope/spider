@@ -25,11 +25,11 @@ directory at the Spider project root.
 
 ## Testing
 
-Unit tests are divided into two categories: storage and non-storage tests. Non-storage tests
-do not require any external services, while storage tests require a MariaDB instance to be
-available.
+Unit tests are divided into two categories: storage and non-storage tests. Non-storage tests do not
+require any external services, while storage tests require a MariaDB instance to be available.
 
 ### Non-Storage Unit Tests
+
 To run all non-storage unit tests:
 
 ```shell
@@ -37,7 +37,9 @@ task test:spider-py-non-storage-unit-tests
 ```
 
 ### Setup MariaDB for Storage Unit Tests
-To run storage unit tests, we need to create an instance of MariaDB first.
+
+To run storage unit tests, we need to create a MariaDB instance first.
+
 ```shell
 docker run \
         --detach \
@@ -49,20 +51,26 @@ docker run \
         --env MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=true \
         --publish 3306:3306 mariadb:latest
 ```
-The database tables will be created automatically by the spawned spider scheduler.
+
+The database tables will be automatically created by the spawned spider scheduler.
 
 You can choose to set up the database table manually by using the SQL script
 `tools/scripts/storage/init_db.sql` from the project root.
 
 ### Storage Unit Tests
+
 To run all storage unit tests:
+
 ```shell
 task test:spider-py-storage-unit-tests
 ```
+
 This requires a running MariaDB instance as described above.
 
 ### All Unit Tests
+
 To run all unit tests (both storage and non-storage):
+
 ```shell
 task test:spider-py-unit-tests
 ```
