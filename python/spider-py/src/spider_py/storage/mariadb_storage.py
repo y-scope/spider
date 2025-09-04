@@ -67,8 +67,14 @@ VALUES
 
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
-    def __del__(self):
+
+    def __del__(self) -> None:
+        """
+        Closes the connection to the MariaDB database.
+        :raises StorageError: If closing the connection fails.
+        """
         self._conn.close()
+
     def __init__(self, params: JdbcParameters) -> None:
         """
         Connects to the MariaDB database.
