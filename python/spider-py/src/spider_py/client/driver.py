@@ -48,8 +48,8 @@ class Driver:
         for task_graph, task_args in zip(graphs, args, strict=True):
             graph = deepcopy(task_graph._impl)
             arg_index = 0
-            for task_id in graph.input_tasks:
-                task = graph.tasks[task_id]
+            for task_index in graph.input_task_indices:
+                task = graph.tasks[task_index]
                 for task_input in task.task_inputs:
                     if arg_index >= len(task_args):
                         raise ValueError(msg)

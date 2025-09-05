@@ -102,10 +102,13 @@ auto Function::serialize_to_str(size_t indentation_level) const
 
     if (false == serialized_params.empty()) {
         return fmt::format(
-                "{}[Function]:\n{}Name:{}\n{}Return:\n{}\n{}",
+                "{}[Function]{}:\n{}Name:\n{}\n{}Return:\n{}\n{}",
                 create_indentation(indentation_level),
+                get_source_location().serialize_to_str(),
                 create_indentation(indentation_level + 1),
-                get_name(),
+                YSTDLIB_ERROR_HANDLING_TRYX(
+                        get_child_unsafe(0)->serialize_to_str(indentation_level + 2)
+                ),
                 create_indentation(indentation_level + 1),
                 serialized_return_type,
                 fmt::join(serialized_params, "\n")
@@ -113,10 +116,13 @@ auto Function::serialize_to_str(size_t indentation_level) const
     }
 
     return fmt::format(
-            "{}[Function]:\n{}Name:{}\n{}Return:\n{}\n{}No Params",
+            "{}[Function]{}:\n{}Name:\n{}\n{}Return:\n{}\n{}No Params",
             create_indentation(indentation_level),
+            get_source_location().serialize_to_str(),
             create_indentation(indentation_level + 1),
-            get_name(),
+            YSTDLIB_ERROR_HANDLING_TRYX(
+                    get_child_unsafe(0)->serialize_to_str(indentation_level + 2)
+            ),
             create_indentation(indentation_level + 1),
             serialized_return_type,
             create_indentation(indentation_level + 1)

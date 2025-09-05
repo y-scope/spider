@@ -35,7 +35,12 @@ auto Tuple::serialize_to_str(size_t indentation_level) const
     constexpr std::string_view cTypeTag{"[Type[Container[Tuple]]]"};
 
     if (is_empty()) {
-        return fmt::format("{}{}:Empty", create_indentation(indentation_level), cTypeTag);
+        return fmt::format(
+                "{}{}{}:Empty",
+                create_indentation(indentation_level),
+                cTypeTag,
+                get_source_location().serialize_to_str()
+        );
     }
 
     std::vector<std::string> serialized_children;
@@ -55,9 +60,10 @@ auto Tuple::serialize_to_str(size_t indentation_level) const
             })
     );
     return fmt::format(
-            "{}{}:\n{}",
+            "{}{}{}:\n{}",
             create_indentation(indentation_level),
             cTypeTag,
+            get_source_location().serialize_to_str(),
             fmt::join(serialized_children, "\n")
     );
 }
