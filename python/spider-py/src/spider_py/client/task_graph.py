@@ -13,14 +13,9 @@ if TYPE_CHECKING:
 
 class TaskGraph:
     """
-    <<<<<<< HEAD
-        Spider client TaskGraph class.
-        Wraps around the core TaskGraph class.
-    =======
-        Represents a client-side task graph.
+    Represents a client-side task graph.
 
-        This class is a wrapper of `spider_py.core.Task`.
-    >>>>>>> main
+    This class is a wrapper of `spider_py.core.Task`.
     """
 
     def __init__(self) -> None:
