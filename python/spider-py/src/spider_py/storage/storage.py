@@ -25,6 +25,6 @@ class Storage(ABC):
         Submits jobs to the storage.
         :param driver_id: Driver id.
         :param task_graphs: Task graphs to submit.
-        :return: List of jobs representing the submitted jobs.
+        :return: A list of jobs representing the submitted jobs.
         :raises StorageError: If the storage operations fail.
         """
