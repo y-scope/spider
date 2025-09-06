@@ -82,8 +82,8 @@ public:
             -> ystdlib::error_handling::Result<void>;
 
     /**
-     * Creates a dependency graph of struct specs defined in this translation unit.
-     * @return The struct spec dependency graph.
+     * @return A newly constructed dependency graph of struct specs defined in this translation
+     * unit.
      */
     [[nodiscard]] auto create_struct_spec_dependency_graph() const
             -> pass::analysis::StructSpecDependencyGraph {
