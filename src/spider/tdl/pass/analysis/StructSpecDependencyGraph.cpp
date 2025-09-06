@@ -2,12 +2,12 @@
 
 #include <cstddef>
 #include <memory>
-#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/tdl/parser/ast/nodes.hpp>
@@ -28,8 +28,8 @@ StructSpecDependencyGraph::StructSpecDependencyGraph(
 
     // Build def-use chains
     m_def_use_chains.reserve(num_struct_specs);
-    for (auto const& [_, struct_spec] : struct_specs) {
-        std::set<size_t> use_ids;
+    for (auto const& def : m_struct_spec_refs) {
+        absl::flat_hash_set<size_t> use_ids;
         auto field_visitor
                 = [&](parser::ast::NamedVar const& field) -> ystdlib::error_handling::Result<void> {
             auto const* type_as_struct{dynamic_cast<parser::ast::Struct const*>(field.get_type())};
@@ -50,10 +50,8 @@ StructSpecDependencyGraph::StructSpecDependencyGraph(
             return ystdlib::error_handling::success();
         };
 
-        auto const* def{struct_spec.get()};
         std::ignore = def->visit_fields(field_visitor);
-        auto const def_id{m_struct_spec_ids.at(def)};
-        m_def_use_chains.emplace(def_id, std::vector<size_t>{use_ids.cbegin(), use_ids.cend()});
+        m_def_use_chains.emplace_back(use_ids.cbegin(), use_ids.cend());
     }
 }
 }  // namespace spider::tdl::pass::analysis

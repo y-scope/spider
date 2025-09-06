@@ -45,7 +45,7 @@ private:
     // Variables
     std::vector<std::shared_ptr<StructSpec const>> m_struct_spec_refs;
     absl::flat_hash_map<StructSpec const*, size_t> m_struct_spec_ids;
-    absl::flat_hash_map<size_t, std::vector<size_t>> m_def_use_chains;
+    std::vector<std::vector<size_t>> m_def_use_chains;
 };
 }  // namespace spider::tdl::pass::analysis
 
