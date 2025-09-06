@@ -13,34 +13,34 @@ def msgpack_encoder(obj: object) -> list[object] | object:
     :return: List of field values.
     """
     if is_dataclass(obj):
-        return {f.name: msgpack_encoder(getattr(obj, f.name)) for f in fields(obj)}
+        return {field.name: msgpack_encoder(getattr(obj, field.name)) for field in fiel
     if isinstance(obj, list):
         return [msgpack_encoder(item) for item in obj]
     if isinstance(obj, dict):
-        return {msgpack_encoder(k): msgpack_encoder(v) for k, v in obj.items()}
+        return {msgpack_encoder(key): msgpack_encoder(val) for key, val in obj.items()}
     return obj
 
 
 def _decode_class(cls: type, data: object) -> object:
     """
-    Decodes data into an instance of a `cls`.
+    Deserializes the input data as a `cls` instance.
     This function only works for non-container classes (not lists or dicts).
     :param cls: Class to deserialize into.
-    :param data: Data to decode.
-    :return: Instance of `cls`.
+    :param data: Serialized data.
+    :return: A new `cls` instance containing the deserialized data.
     :raise: TypeError if `data` is not compatible with `cls`.
     """
-    msg = f"Cannot create instance of {cls} with {data!r}"
+    msg = f"Cannot create instance of {cls} with {data!r}."
     if is_dataclass(cls):
         if not isinstance(data, dict):
             raise TypeError(msg)
         args = {}
-        parameters = {f.name: f for f in fields(cls)}
+        parameters = {field.name: field for field in fields(cls)}
         for name, value in data.items():
             if name not in parameters:
                 raise TypeError(msg)
             arg_cls = parameters[name].type
-            if not isinstance(arg_cls, type) and not isinstance(arg_cls, GenericAlias):
+            if not isinstance(expected_field_type, (type, GenericAlias)):
                 raise TypeError(msg)
             args[name] = msgpack_decoder(arg_cls, value)
         return cls(**args)
@@ -57,7 +57,7 @@ def msgpack_decoder(cls: type | GenericAlias, data: object) -> object:
     :return: Instance of `cls`.
     :raise: TypeError if `data` is not compatible with `cls`.
     """
-    msg = f"Cannot create instance of {cls} with {data!r}"
+    msg = f"Cannot create instance of {cls} with {data!r}."
 
     origin = get_origin(cls)
     if origin is None:
@@ -75,7 +75,8 @@ def msgpack_decoder(cls: type | GenericAlias, data: object) -> object:
         if not isinstance(data, dict):
             raise TypeError(msg)
         return {
-            msgpack_decoder(key_type, k): msgpack_decoder(value_type, v) for k, v in data.items()
+            msgpack_decoder(key_type, key): msgpack_decoder(value_type, value)
+            for key, value in data.items()
         }
 
     raise TypeError(msg)

@@ -21,8 +21,8 @@ class Job:
     def __init__(self, job_id: JobId) -> None:
         """
         Initializes a running job.
-        Status and results are cache for the data in storage.
-        Once a job completes, the status and results won't change.
+        The job's status and results are cached from the data in storage. Once the job completes,
+        the status and results will remain unchanged.
         :param job_id:
         """
         self.job_id = job_id
