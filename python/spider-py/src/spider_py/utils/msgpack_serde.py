@@ -13,7 +13,7 @@ def msgpack_encoder(obj: object) -> list[object] | object:
     :return: List of field values.
     """
     if is_dataclass(obj):
-        return {field.name: msgpack_encoder(getattr(obj, field.name)) for field in fiel
+        return {field.name: msgpack_encoder(getattr(obj, field.name)) for field in fields(obj)}
     if isinstance(obj, list):
         return [msgpack_encoder(item) for item in obj]
     if isinstance(obj, dict):
@@ -39,10 +39,10 @@ def _decode_class(cls: type, data: object) -> object:
         for name, value in data.items():
             if name not in parameters:
                 raise TypeError(msg)
-            arg_cls = parameters[name].type
+            expected_field_type = parameters[name].type
             if not isinstance(expected_field_type, (type, GenericAlias)):
                 raise TypeError(msg)
-            args[name] = msgpack_decoder(arg_cls, value)
+            args[name] = msgpack_decoder(expected_field_type, value)
         return cls(**args)
 
     return cls(data)
