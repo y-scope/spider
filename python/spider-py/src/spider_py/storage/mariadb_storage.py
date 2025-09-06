@@ -95,26 +95,24 @@ class MariaDBStorage(Storage):
     @override
     def submit_jobs(
         self, driver_id: core.DriverId, task_graphs: Sequence[core.TaskGraph]
-    ) -> Sequence[core.JobId]:
+    ) -> Sequence[core.Job]:
         if not task_graphs:
             return []
         try:
             # Create job UUIDs and task UUIDs
-            job_ids = []
+            jobs = []
             task_ids = []
             for task_graph in task_graphs:
-                job_ids.append(uuid4())
+                jobs.append(core.Job(uuid4()))
                 task_ids.append([uuid4() for _ in task_graph.tasks])
 
             with self._conn.cursor() as cursor:
                 # Insert jobs table
-                cursor.executemany(
-                    InsertJob, [(job_id.bytes, driver_id.bytes) for job_id in job_ids]
-                )
+                cursor.executemany(InsertJob, [(job.job_id.bytes, driver_id.bytes) for job in jobs])
                 # Insert tasks table
                 cursor.executemany(
                     InsertTask,
-                    self._gen_task_insertion_params(job_ids, task_ids, task_graphs),
+                    self._gen_task_insertion_params(jobs, task_ids, task_graphs),
                 )
 
                 # Insert task dependencies table
@@ -128,13 +126,13 @@ class MariaDBStorage(Storage):
                 # Insert input tasks table
                 cursor.executemany(
                     InsertInputTask,
-                    self._gen_input_task_insertion_params(job_ids, task_ids, task_graphs),
+                    self._gen_input_task_insertion_params(jobs, task_ids, task_graphs),
                 )
 
                 # Insert output tasks table
                 cursor.executemany(
                     InsertOutputTask,
-                    self._gen_output_task_insertion_params(job_ids, task_ids, task_graphs),
+                    self._gen_output_task_insertion_params(jobs, task_ids, task_graphs),
                 )
 
                 # Insert task outputs table
@@ -174,22 +172,22 @@ class MariaDBStorage(Storage):
                     )
 
                 self._conn.commit()
-                return job_ids
+                return jobs
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
 
     @staticmethod
     def _gen_task_insertion_params(
-        job_ids: Sequence[core.JobId],
+        jobs: Sequence[core.Job],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, bytes, str, str, float, int]]:
         """
         Generates parameters for inserting tasks into the database.
-        :param job_ids: The job IDs.
-        :param task_ids: The task IDs. Must be the same length as `job_ids`.
-        :param task_graphs: The task graphs. Must be the same length as `job_ids`.
+        :param jobs: The jobs.
+        :param task_ids: The task IDs. Must be the same length as `jobs`.
+        :param task_graphs: The task graphs. Must be the same length as `jobs`.
         :return: A list of tuples containing the parameters for each task. Each tuple contains:
             - Task ID.
             - Job ID.
@@ -199,12 +197,12 @@ class MariaDBStorage(Storage):
             - Task max retry.
         """
         task_insert_params = []
-        for graph_index, (job_id, task_graph) in enumerate(zip(job_ids, task_graphs, strict=True)):
+        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs, strict=True)):
             for task_index, task in enumerate(task_graph.tasks):
                 task_insert_params.append(
                     (
                         task_ids[graph_index][task_index].bytes,
-                        job_id.bytes,
+                        job.job_id.bytes,
                         task.function_name,
                         str(task.state),
                         task.timeout,
@@ -237,15 +235,15 @@ class MariaDBStorage(Storage):
 
     @staticmethod
     def _gen_input_task_insertion_params(
-        job_ids: Sequence[core.JobId],
+        jobs: Sequence[core.Job],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, bytes, int]]:
         """
         Generates parameters for inserting input tasks into the database.
-        :param job_ids: The job IDs.
-        :param task_ids: The task IDs. Must be the same length as `job_ids`.
-        :param task_graphs: The task graphs. Must be the same length as `job_ids`.
+        :param jobs: The jobs.
+        :param task_ids: The task IDs. Must be the same length as `jobs`.
+        :param task_graphs: The task graphs. Must be the same length as `jobs`.
         :return: A list of tuples containing the parameters for each input task. Each tuple
             contains:
             - Job ID.
@@ -253,24 +251,24 @@ class MariaDBStorage(Storage):
             - The positional index of the input task.
         """
         input_task_params = []
-        for graph_index, (job_id, task_graph) in enumerate(zip(job_ids, task_graphs, strict=True)):
+        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs, strict=True)):
             for position, task_index in enumerate(task_graph.input_task_indices):
                 input_task_params.append(
-                    (job_id.bytes, task_ids[graph_index][task_index].bytes, position)
+                    (job.job_id.bytes, task_ids[graph_index][task_index].bytes, position)
                 )
         return input_task_params
 
     @staticmethod
     def _gen_output_task_insertion_params(
-        job_ids: Sequence[core.JobId],
+        jobs: Sequence[core.Job],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
     ) -> list[tuple[bytes, bytes, int]]:
         """
         Generates parameters for inserting output tasks into the database.
-        :param job_ids: The job IDs.
-        :param task_ids: The task IDs. Must be the same length as `job_ids`.
-        :param task_graphs: The task graphs. Must be the same length as `job_ids`.
+        :param jobs: The jobs.
+        :param task_ids: The task IDs. Must be the same length as `jobs`.
+        :param task_graphs: The task graphs. Must be the same length as `jobs`.
         :return: A list of tuples containing the parameters for each output task. Each tuple
             contains:
             - Job ID.
@@ -278,10 +276,10 @@ class MariaDBStorage(Storage):
             - The positional index of the output task.
         """
         output_task_params = []
-        for graph_index, (job_id, task_graph) in enumerate(zip(job_ids, task_graphs, strict=True)):
+        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs, strict=True)):
             for position, task_index in enumerate(task_graph.output_task_indices):
                 output_task_params.append(
-                    (job_id.bytes, task_ids[graph_index][task_index].bytes, position)
+                    (job.job_id.bytes, task_ids[graph_index][task_index].bytes, position)
                 )
         return output_task_params
 

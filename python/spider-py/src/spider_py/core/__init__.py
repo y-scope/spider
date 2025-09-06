@@ -2,6 +2,7 @@
 
 from .data import Data, DataId
 from .driver import DriverId
+from .job import Job, JobId, JobStatus
 from .task import (
     Task,
     TaskId,
@@ -14,13 +15,15 @@ from .task import (
     TaskOutputValue,
     TaskState,
 )
-from .task_graph import JobId, TaskGraph
+from .task_graph import TaskGraph
 
 __all__ = [
     "Data",
     "DataId",
     "DriverId",
+    "Job",
     "JobId",
+    "JobStatus",
     "Task",
     "TaskGraph",
     "TaskId",
