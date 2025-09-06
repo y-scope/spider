@@ -46,13 +46,13 @@ class Driver:
 
         core_task_graphs = []
         for task_graph, task_args in zip(task_graphs, args, strict=True):
-            core_graph = deepcopy(task_graph._impl) # TODO
+            core_graph = deepcopy(task_graph._impl)  # TODO
             arg_index = 0
             for task in core_graph.tasks:
-                task.state = core.TaskState.Pending # TODO
+                task.set_pending()
             for task_index in core_graph.input_task_indices:
                 task = core_graph.tasks[task_index]
-                task.state = core.TaskState.Ready # TODO
+                task.set_ready()
                 for task_input in task.task_inputs:
                     if arg_index >= len(task_args):
                         raise ValueError(msg)
