@@ -11,7 +11,7 @@ from spider_py.client.job import Job
 from spider_py.client.task_graph import TaskGraph
 from spider_py.storage import MariaDBStorage, parse_jdbc_url
 from spider_py.type import to_tdl_type_str
-from spider_py.utils import msgpack_encoder
+from spider_py.utils import to_serializable
 
 
 class Driver:
@@ -62,7 +62,7 @@ class Driver:
                         task_input.value = arg.data_id
                         continue
                     task_input.type = to_tdl_type_str(type(arg))
-                    serialized_value = msgpack_encoder(arg)
+                    serialized_value = to_serializable(arg)
                     task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
             if arg_index != len(task_args):
                 raise ValueError(msg)
