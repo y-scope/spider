@@ -74,6 +74,10 @@ class TaskGraph:
         self.input_task_indices.append(index)
         self.output_task_indices.append(index)
 
+    def copy(self) -> TaskGraph:
+        """:return: A deep copy of the task graph."""
+        return deepcopy(self)
+
     def merge_graph(self, graph: TaskGraph) -> None:
         """
         Merges another task graph into this task graph.

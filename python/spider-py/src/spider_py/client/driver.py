@@ -1,7 +1,6 @@
 """Spider client driver module."""
 
 from collections.abc import Sequence
-from copy import deepcopy
 from uuid import uuid4
 
 import msgpack
@@ -46,7 +45,7 @@ class Driver:
 
         core_task_graphs = []
         for task_graph, task_args in zip(task_graphs, args, strict=True):
-            core_graph = deepcopy(task_graph._impl)  # TODO: Create copy method in `core.TaskGraph`
+            core_graph = task_graph._impl.copy()
             arg_index = 0
             for task in core_graph.tasks:
                 task.set_pending()
