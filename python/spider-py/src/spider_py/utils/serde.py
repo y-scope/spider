@@ -9,6 +9,9 @@ def to_serializable(obj: object) -> object:
     """
     Transforms an object into serializable form that comprises only built-in primitive types and
     collections (dicts and lists).
+    If `obj` is a build-in container type (list or dict), its elements are recursively transformed.
+    If `obj` is a dataclass, it is transformed into a dict mapping field names to values.
+    Otherwise, `obj` is returned as-is.
     :param obj:
     :return: A serializable representation of `obj`.
     """
