@@ -1,4 +1,4 @@
-"""Serialization and deserialization using msgpack."""
+"""Serialization and deserialization into serializable format."""
 
 from dataclasses import fields, is_dataclass
 from types import GenericAlias
