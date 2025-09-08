@@ -7,11 +7,14 @@ from typing import cast, get_args, get_origin
 
 def to_serializable(obj: object) -> object:
     """
-    Transforms an object into serializable form that comprises only built-in primitive types and
-    collections (dicts and lists).
-    If `obj` is a build-in container type (list or dict), its elements are recursively transformed.
-    If `obj` is a dataclass, it is transformed into a dict mapping field names to values.
-    Otherwise, `obj` is returned as-is.
+    Converts an object into a serializable format consisting only of built-in primitive types and
+    collections (lists and dictionaries).
+
+    - Built-in container types (lists or dictionaries) are recursively transformed.
+    - Dataclass instances are converted into dictionaries mapping field names to their serialized
+      values.
+    - All other objects are returned as-is.
+
     :param obj:
     :return: A serializable representation of `obj`.
     """
@@ -26,13 +29,14 @@ def to_serializable(obj: object) -> object:
 
 def from_serializable(cls: type | GenericAlias, data: object) -> object:
     """
-    Transforms data in serializable form back into an instance of `cls`.
-    :param cls: Class to deserialize into.
+    Deserializes data in a serializable format back into an instance of the specified `cls`.
+
+    :param cls: Class to deserialize into. Must be a concrete type, list, or dict.
     :param data: Data in serializable form.
-    :return: Transformed instance of `cls` from `data`.
+    :return: An instance of `cls` reconstructed from the serialized data..
     :raise: TypeError if `data` is not compatible with `cls`.
     """
-    msg = f"Cannot create instance of {cls} with {data!r}."
+    msg = f"Cannot create an instance of {cls} with {data!r}."
 
     origin = get_origin(cls)
     if origin is None:
@@ -60,12 +64,12 @@ def from_serializable(cls: type | GenericAlias, data: object) -> object:
 def _deserialize_as_class(cls: type, data: object) -> object:
     """
     Deserializes the input data as a `cls` instance.
-    :param cls: Class to deserialize into. Must not be a container type.
+    :param cls: Class to deserialize into. Must be a non-container type.
     :param data: Serialized data.
-    :return: Transformed instance of `cls` from `data`.
+    :return: An instance of `cls` reconstructed from the serialized data.
     :raise: TypeError if `data` is not compatible with `cls`.
     """
-    msg = f"Cannot create instance of {cls} with {data!r}."
+    msg = f"Cannot create an instance of {cls} with {data!r}."
     if not is_dataclass(cls):
         # Fall back to normal constructor if `cls` is not a dataclass.
         return cls(data)
