@@ -1,4 +1,4 @@
-"""Tests for msgpack serialization and deserialization."""
+"""Tests for serialization and deserialization."""
 
 from dataclasses import dataclass
 
