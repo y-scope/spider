@@ -87,18 +87,6 @@ _StateToStrMap = {
 _StrToStateMap = {value: key for key, value in _StateToStrMap.items()}
 
 
-_StateStrMap = {
-    TaskState.Pending: "pending",
-    TaskState.Ready: "ready",
-    TaskState.Running: "running",
-    TaskState.Succeeded: "success",
-    TaskState.Failed: "fail",
-    TaskState.Cancelled: "cancel",
-}
-
-_StrStateMap = {v: k for k, v in _StateStrMap.items()}
-
-
 @dataclass
 class Task:
     """Represents a task in Spider."""
