@@ -95,6 +95,13 @@ WHERE
 ORDER BY
   `position`"""
 
+_StrToJobStatusMap = {
+    "running": core.JobStatus.Running,
+    "success": core.JobStatus.Succeeded,
+    "fail": core.JobStatus.Failed,
+    "cancel": core.JobStatus.Cancelled,
+}
+
 
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
@@ -218,20 +225,11 @@ class MariaDBStorage(Storage):
                     msg = f"No job found with id {job.job_id}"
                     raise StorageError(msg)
                 status_str = row[0]
-                match status_str:
-                    case "running":
-                        status = core.JobStatus.Running
-                    case "success":
-                        status = core.JobStatus.Succeeded
-                    case "fail":
-                        status = core.JobStatus.Failed
-                    case "cancel":
-                        status = core.JobStatus.Cancelled
-                    case _:
-                        msg = "Unknown job status"
-                        raise StorageError(msg)
+                if status_str not in _StrToJobStatusMap:
+                    msg = f"Unknown job status: {status_str}"
+                    raise StorageError(msg)
                 self._conn.commit()
-                return status
+                return _StrToJobStatusMap[status_str]
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
