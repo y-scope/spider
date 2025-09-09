@@ -1,9 +1,13 @@
 #include "StructSpecDependencyGraph.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -14,6 +18,155 @@
 
 namespace spider::tdl::pass::analysis {
 namespace {
+class TarjanSccComputer {
+public:
+    // Types
+    using DfsIndex = size_t;
+
+    /**
+     * Represents a vertex in the Tarjan's algorithm for finding strongly connected components.
+     */
+    class Vertex {
+    public:
+        // Constructors
+        /**
+         * @param in_graph_id The ID of the vertex in the dependency graph.
+         * @param tarjan_index The index assigned to the vertex in Tarjan's algorithm.
+         */
+        Vertex(size_t in_graph_id, DfsIndex tarjan_index)
+                : m_in_graph_id{in_graph_id},
+                  m_tarjan_index{tarjan_index},
+                  m_low_link{tarjan_index} {}
+
+        // Methods
+        [[nodiscard]] auto get_in_graph_id() const noexcept -> size_t { return m_in_graph_id; }
+
+        [[nodiscard]] auto get_tarjan_index() const noexcept -> DfsIndex { return m_tarjan_index; }
+
+        /**
+         * Updates the low link value with the given candidate value.
+         */
+        auto update_low_link(DfsIndex candidate) noexcept -> void {
+            m_low_link = std::min(m_low_link, candidate);
+        }
+
+        [[nodiscard]] auto get_low_link() const noexcept -> DfsIndex { return m_low_link; }
+
+        [[nodiscard]] auto is_on_stack() const noexcept -> bool { return m_on_stack; }
+
+        auto remove_from_stack() noexcept -> void { m_on_stack = false; }
+
+    private:
+        size_t m_in_graph_id;
+        DfsIndex m_tarjan_index;
+        DfsIndex m_low_link;
+        bool m_on_stack{true};
+    };
+
+    class DfsIterator {
+    public:
+        // Types
+        using ChildIdIt = std::vector<size_t>::const_iterator;
+
+        // Constructors
+        /**
+         * @param id The ID of the vertex in the dependency graph.
+         * @param child_ids The IDs of the child vertices in the dependency graph.
+         */
+        DfsIterator(size_t id, std::vector<size_t> const& child_ids)
+                : m_id{id},
+                  m_curr_child_it{child_ids.cbegin()},
+                  m_end_child_it{child_ids.cend()} {}
+
+        // Methods
+        [[nodiscard]] auto get_id() const noexcept -> size_t { return m_id; }
+
+        /**
+         * @return A pair containing:
+         *   - The ID of the current child vertex.
+         *   - A boolean indicating whether the current child has been iterated.
+         * @return std::nullopt is all children have been iterated.
+         */
+        [[nodiscard]] auto get_curr() -> std::optional<std::pair<size_t, bool>> {
+            if (m_curr_child_it == m_end_child_it) {
+                return std::nullopt;
+            }
+            m_curr_child_iterated = true;
+            return std::make_pair(*m_curr_child_it, m_curr_child_iterated);
+        }
+
+        auto advance_to_next_child() noexcept -> void {
+            ++m_curr_child_it;
+            m_curr_child_iterated = false;
+        }
+
+    private:
+        size_t m_id;
+        bool m_curr_child_iterated{false};
+        ChildIdIt m_curr_child_it;
+        ChildIdIt m_end_child_it;
+    };
+
+    // Constructors
+    /**
+     * @param def_use_chains The dependency graph represented by the def-use chains.
+     * NOTE: This object does not take ownership of the input graph, and the input graph must remain
+     * valid and immutable for the lifetime of this object.
+     */
+    explicit TarjanSccComputer(std::vector<std::vector<size_t>> const& def_use_chains)
+            : m_def_use_chains_view{def_use_chains},
+              m_tarjan_vertices(def_use_chains.size(), std::nullopt) {
+        compute();
+    }
+
+    // Delete copy & move constructors and assignment operators
+    TarjanSccComputer(TarjanSccComputer const&) = delete;
+    TarjanSccComputer(TarjanSccComputer&&) = delete;
+    auto operator=(TarjanSccComputer const&) -> TarjanSccComputer& = delete;
+    auto operator=(TarjanSccComputer&&) -> TarjanSccComputer& = delete;
+
+    // Destructor
+    ~TarjanSccComputer() = default;
+
+    // Methods
+    /**
+     * Transfers the ownership of the computed strongly connected components to the caller.
+     * @return A vector of strongly connected components.
+     */
+    [[nodiscard]] auto release() -> std::vector<std::vector<size_t>> {
+        return std::move(m_computed_strongly_connected_components);
+    }
+
+private:
+    // Methods
+    /**
+     * Computes the strongly connected components of the dependency graph using Tarjan's algorithm.
+     * The computed SCCs will be stored in `m_computed_strongly_connected_components`. Notice that
+     * single-node components are ignored unless the node has a self-loop.
+     */
+    auto compute() -> void;
+
+    /**
+     * Visits a vertex and pushes it onto both the DFS stack and the Tarjan stack.
+     * @param id The in-graph ID of the vertex to visit.
+     */
+    auto visit_and_push_to_stack(size_t id) -> void {
+        m_dfs_stack.emplace_back(id, m_def_use_chains_view[id]);
+        m_tarjan_stack.emplace_back(id);
+        m_tarjan_vertices.at(id).emplace(id, m_tarjan_index++);
+    }
+
+    auto pop_stack_and_form_scc() -> void;
+
+    // Variables
+    std::span<std::vector<size_t> const> m_def_use_chains_view;
+    std::vector<std::optional<Vertex>> m_tarjan_vertices;
+    std::vector<DfsIterator> m_dfs_stack;
+    std::vector<size_t> m_tarjan_stack;
+    DfsIndex m_tarjan_index{0};
+    std::vector<std::vector<size_t>> m_computed_strongly_connected_components;
+};
+
 /**
  * Collects the IDs of struct specs used by the given struct spec definition.
  * @param def The struct spec definition to analyze.
@@ -27,6 +180,89 @@ namespace {
                 struct_specs,
         absl::flat_hash_map<parser::ast::StructSpec const*, size_t> const& struct_spec_ids
 ) -> std::vector<size_t>;
+
+auto TarjanSccComputer::compute() -> void {
+    // The Tarjan's algorithm ensures the following optional value access will always be valid.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    for (size_t id{0}; id < m_def_use_chains_view.size(); ++id) {
+        if (m_tarjan_vertices.at(id).has_value()) {
+            // Already visited
+            continue;
+        }
+        visit_and_push_to_stack(id);
+
+        while (false == m_dfs_stack.empty()) {
+            auto& curr_dfs_it{m_dfs_stack.back()};
+            auto const optional_next_child_id{curr_dfs_it.get_curr()};
+            if (optional_next_child_id.has_value()) {
+                auto const [child_id, is_child_iterated]{*optional_next_child_id};
+                auto const& child_tarjan_vertex{m_tarjan_vertices.at(child_id)};
+
+                if (is_child_iterated) {
+                    // This is a backtrace path of the DFS.
+                    m_tarjan_vertices.at(curr_dfs_it.get_id())
+                            ->update_low_link(child_tarjan_vertex->get_low_link());
+                    curr_dfs_it.advance_to_next_child();
+                    continue;
+                }
+
+                if (false == child_tarjan_vertex.has_value()) {
+                    // This child is not visited yet by Tarjan's DFS, push it to the DFS stack.
+                    visit_and_push_to_stack(child_id);
+                    continue;
+                }
+
+                // It's the first time to iterate on this child, but it has already been visited by
+                // Tarjan's DFS from another path. Update the low link only if it's on the Tarjan
+                // stack.
+                if (child_tarjan_vertex->is_on_stack()) {
+                    m_tarjan_vertices.at(curr_dfs_it.get_id())
+                            ->update_low_link(child_tarjan_vertex->get_tarjan_index());
+                }
+                curr_dfs_it.advance_to_next_child();
+            }
+
+            // All children have been iterated, pop from the DFS stack and form an SCC if possible.
+            pop_stack_and_form_scc();
+        }
+    }
+    // NOLINTEND(bugprone-unchecked-optional-access)
+}
+
+auto TarjanSccComputer::pop_stack_and_form_scc() -> void {
+    // The Tarjan's algorithm ensures the following optional value access will always be valid.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    auto const node_id{m_dfs_stack.back().get_id()};
+    m_dfs_stack.pop_back();
+    auto const& tarjan_vertex{m_tarjan_vertices.at(node_id).value()};
+    if (tarjan_vertex.get_low_link() != tarjan_vertex.get_tarjan_index()) {
+        // Not a root of an SCC
+        return;
+    }
+
+    std::vector<size_t> scc;
+    while (true) {
+        auto const popped_id{m_tarjan_stack.back()};
+        m_tarjan_stack.pop_back();
+        m_tarjan_vertices.at(popped_id)->remove_from_stack();
+        scc.emplace_back(popped_id);
+        if (popped_id == tarjan_vertex.get_in_graph_id()) {
+            break;
+        }
+    }
+
+    if (scc.size() > 1) {
+        m_computed_strongly_connected_components.emplace_back(std::move(scc));
+        return;
+    }
+
+    // Detect self-loop, otherwise ignore this single-node SCC
+    auto const& def_use_chain{m_def_use_chains_view[scc.front()]};
+    if (std::ranges::find(def_use_chain, scc.front()) != def_use_chain.cend()) {
+        m_computed_strongly_connected_components.emplace_back(std::move(scc));
+    }
+    // NOLINTEND(bugprone-unchecked-optional-access)
+}
 
 auto collect_use_ids(
         parser::ast::StructSpec const* def,
@@ -91,5 +327,10 @@ StructSpecDependencyGraph::StructSpecDependencyGraph(
     for (auto const& def : m_struct_spec_refs) {
         m_def_use_chains.emplace_back(collect_use_ids(def.get(), struct_specs, m_struct_spec_ids));
     }
+}
+
+auto StructSpecDependencyGraph::compute_strongly_connected_components() -> void {
+    m_strongly_connected_components.reset();
+    m_strongly_connected_components.emplace(TarjanSccComputer{m_def_use_chains}.release());
 }
 }  // namespace spider::tdl::pass::analysis

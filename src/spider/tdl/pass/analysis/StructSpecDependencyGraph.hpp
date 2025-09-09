@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,11 +42,30 @@ public:
     // Methods
     [[nodiscard]] auto get_num_struct_specs() const -> size_t { return m_struct_spec_refs.size(); }
 
+    [[nodiscard]] auto get_strongly_connected_components()
+            -> std::vector<std::vector<size_t>> const& {
+        if (false == m_strongly_connected_components.has_value()) {
+            compute_strongly_connected_components();
+        }
+        // The value is guaranteed to be present after the above check and computation.
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        return m_strongly_connected_components.value();
+    }
+
 private:
+    // Methods
+    /**
+     * Computes the strongly connected components of the dependency graph using Tarjan's algorithm.
+     * The computed results are stored in `m_strongly_connected_components`.
+     */
+    auto compute_strongly_connected_components() -> void;
+
     // Variables
     std::vector<std::shared_ptr<StructSpec const>> m_struct_spec_refs;
     absl::flat_hash_map<StructSpec const*, size_t> m_struct_spec_ids;
     std::vector<std::vector<size_t>> m_def_use_chains;
+
+    std::optional<std::vector<std::vector<size_t>>> m_strongly_connected_components;
 };
 }  // namespace spider::tdl::pass::analysis
 
