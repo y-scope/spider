@@ -271,6 +271,11 @@ TEST_CASE("Parsing `cTestInput1`", "[tdl][parser]") {
     auto const serialize_result{translation_unit->serialize_to_str(0)};
     REQUIRE_FALSE(serialize_result.has_error());
     REQUIRE(serialize_result.value() == cExpectedSerializedAst);
+
+    auto const struct_spec_dependency_graph{
+            translation_unit->create_struct_spec_dependency_graph()
+    };
+    REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 2);
 }
 
 TEST_CASE("Parser errors", "[tdl][parser]") {
