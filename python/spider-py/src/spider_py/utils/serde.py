@@ -15,7 +15,7 @@ def to_serializable(obj: object) -> object:
       values.
     - All other objects are returned as-is.
 
-    :param obj:
+    :param obj: Object to serialize. Must be of types supported by Spider TDL.
     :return: A serializable representation of `obj`.
     """
     if is_dataclass(obj):
@@ -33,7 +33,7 @@ def from_serializable(cls: type | GenericAlias, data: object) -> object:
 
     :param cls: Class to deserialize into. Must be a concrete type, list, or dict.
     :param data: Data in serializable form.
-    :return: An instance of `cls` reconstructed from the serialized data..
+    :return: An instance of `cls` reconstructed from the serialized data.
     :raise: TypeError if `data` is not compatible with `cls`.
     """
     msg = f"Cannot create an instance of {cls} with {data!r}."
