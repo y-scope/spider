@@ -33,16 +33,17 @@ class Storage(ABC):
     @abstractmethod
     def get_job_status(self, job: core.Job) -> JobStatus:
         """
-        Gets the job status. This function does not set the `status` field in jobs.
+        Gets the job status. This function does not set the `status` field in `job`.
         :param job:
-        :return:
+        :return: The job status.
         :raises StorageError: If the storage operations fail.
         """
 
     @abstractmethod
     def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
         """
-        Gets the job's results. This function does not set the `results` field in the job.
+        Gets the job results. This function does not set the `results` field in the job.
         :param job:
-        :return: List of task outputs or None if the job has no results.
+        :return: A list of task outputs or None if the job has no results yet.
+        :raises StorageError: If the storage operations fail.
         """
