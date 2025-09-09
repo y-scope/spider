@@ -98,3 +98,11 @@ class Task:
     max_retries: int = 0
     task_inputs: list[TaskInput] = field(default_factory=list)
     task_outputs: list[TaskOutput] = field(default_factory=list)
+
+    def set_pending(self) -> None:
+        """Sets the task state to Pending."""
+        self.state = TaskState.Pending
+
+    def set_ready(self) -> None:
+        """Sets the task state to Ready."""
+        self.state = TaskState.Ready

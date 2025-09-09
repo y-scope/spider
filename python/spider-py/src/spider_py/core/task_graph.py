@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 if TYPE_CHECKING:
     from spider_py.core.task import Task
-
-JobId = UUID
 
 
 class TaskGraph:
@@ -76,6 +73,10 @@ class TaskGraph:
         self.tasks.append(task)
         self.input_task_indices.append(index)
         self.output_task_indices.append(index)
+
+    def copy(self) -> TaskGraph:
+        """:return: A deep copy of the task graph."""
+        return deepcopy(self)
 
     def merge_graph(self, graph: TaskGraph) -> None:
         """
