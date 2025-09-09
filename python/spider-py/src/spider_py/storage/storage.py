@@ -42,7 +42,7 @@ class Storage(ABC):
     @abstractmethod
     def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
         """
-        Gets the job results. This function does not set the `results` field in the job.
+        Gets the job results. This function does not set the `results` field in `job`.
         :param job:
         :return: A list of task outputs or None if the job has no results yet.
         :raises StorageError: If the storage operations fail.

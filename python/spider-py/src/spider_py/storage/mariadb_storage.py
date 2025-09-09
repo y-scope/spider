@@ -222,11 +222,11 @@ class MariaDBStorage(Storage):
                 cursor.execute(GetJobStatus, (job.job_id.bytes,))
                 row = cursor.fetchone()
                 if row is None:
-                    msg = f"No job found with id {job.job_id}"
+                    msg = f"No job found with id {job.job_id}."
                     raise StorageError(msg)
                 status_str = row[0]
                 if status_str not in _StrToJobStatusMap:
-                    msg = f"Unknown job status: {status_str}"
+                    msg = f"Unknown job status: {status_str}."
                     raise StorageError(msg)
                 self._conn.commit()
                 return _StrToJobStatusMap[status_str]
