@@ -13,6 +13,66 @@
 #include <spider/tdl/parser/ast/nodes.hpp>
 
 namespace spider::tdl::pass::analysis {
+namespace {
+/**
+ * Collects the IDs of struct specs used by the given struct spec definition.
+ * @param def The struct spec definition to analyze.
+ * @param struct_specs A map from struct names to their corresponding `StructSpec` objects.
+ * @param struct_spec_ids A map from `StructSpec` pointers to their corresponding IDs.
+ * @return A vector of struct spec IDs (with no duplication) that are used by the given definition.
+ */
+[[nodiscard]] auto collect_use_ids(
+        parser::ast::StructSpec const* def,
+        absl::flat_hash_map<std::string, std::shared_ptr<parser::ast::StructSpec const>> const&
+                struct_specs,
+        absl::flat_hash_map<parser::ast::StructSpec const*, size_t> const& struct_spec_ids
+) -> std::vector<size_t>;
+
+auto collect_use_ids(
+        parser::ast::StructSpec const* def,
+        absl::flat_hash_map<std::string, std::shared_ptr<parser::ast::StructSpec const>> const&
+                struct_specs,
+        absl::flat_hash_map<parser::ast::StructSpec const*, size_t> const& struct_spec_ids
+) -> std::vector<size_t> {
+    absl::flat_hash_set<size_t> use_ids;
+    std::vector<parser::ast::Node const*> ast_dfs_stack;
+    ast_dfs_stack.emplace_back(def);
+    while (false == ast_dfs_stack.empty()) {
+        auto const* node{ast_dfs_stack.back()};
+        ast_dfs_stack.pop_back();
+
+        if (node == nullptr) {
+            // NOTE: This check is required by clang-tidy. In practice, this should never happen.
+            continue;
+        }
+
+        auto const* node_as_struct{dynamic_cast<parser::ast::Struct const*>(node)};
+        if (nullptr == node_as_struct) {
+            // Not a struct node, continue DFS by pushing all the child nodes to the stack.
+            std::ignore = node->visit_children(
+                    [&](parser::ast::Node const& child) -> ystdlib::error_handling::Result<void> {
+                        ast_dfs_stack.emplace_back(&child);
+                        return ystdlib::error_handling::success();
+                    }
+            );
+            continue;
+        }
+
+        auto const struct_name{node_as_struct->get_name()};
+        auto const it{struct_specs.find(struct_name)};
+        if (struct_specs.cend() == it) {
+            // This is a dangling reference, which will be caught in other analysis pass. In this
+            // dependency graph, we just ignore it.
+            continue;
+        }
+
+        use_ids.emplace(struct_spec_ids.at(it->second.get()));
+    }
+
+    return std::vector<size_t>{use_ids.cbegin(), use_ids.cend()};
+}
+}  // namespace
+
 StructSpecDependencyGraph::StructSpecDependencyGraph(
         absl::flat_hash_map<std::string, std::shared_ptr<StructSpec const>> const& struct_specs
 ) {
@@ -29,29 +89,7 @@ StructSpecDependencyGraph::StructSpecDependencyGraph(
     // Build def-use chains
     m_def_use_chains.reserve(num_struct_specs);
     for (auto const& def : m_struct_spec_refs) {
-        absl::flat_hash_set<size_t> use_ids;
-        auto field_visitor
-                = [&](parser::ast::NamedVar const& field) -> ystdlib::error_handling::Result<void> {
-            auto const* type_as_struct{dynamic_cast<parser::ast::Struct const*>(field.get_type())};
-            if (nullptr == type_as_struct) {
-                return ystdlib::error_handling::success();
-            }
-
-            auto const struct_name{type_as_struct->get_name()};
-            auto const it{struct_specs.find(struct_name)};
-            if (struct_specs.cend() == it) {
-                // This is a dangling reference, which will be caught in other analysis pass. In
-                // this dependency graph, we just ignore it.
-                return ystdlib::error_handling::success();
-            }
-
-            auto const use_id{m_struct_spec_ids.at(it->second.get())};
-            use_ids.emplace(use_id);
-            return ystdlib::error_handling::success();
-        };
-
-        std::ignore = def->visit_fields(field_visitor);
-        m_def_use_chains.emplace_back(use_ids.cbegin(), use_ids.cend());
+        m_def_use_chains.emplace_back(collect_use_ids(def.get(), struct_specs, m_struct_spec_ids));
     }
 }
 }  // namespace spider::tdl::pass::analysis
