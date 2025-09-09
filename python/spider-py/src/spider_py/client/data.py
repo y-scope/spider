@@ -7,6 +7,9 @@ class Data:
     """Represents a spider client data."""
 
     def __init__(self, value: bytes) -> None:
-        """Initialize the Data object with the given value."""
+        """
+        Initializes a data object by the given value.
+        :param value:
+        """
         self.data_id = core.DataId()
         self.value = value

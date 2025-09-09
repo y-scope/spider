@@ -1,6 +1,6 @@
 """JDBC URL module."""
 
-import re
+import urllib.parse
 from dataclasses import dataclass
 
 
@@ -16,49 +16,40 @@ class JdbcParameters:
     password: str | None = None
 
 
-pattern = re.compile(
-    r"^(?P<protocol>[a-zA-Z][a-zA-Z0-9+.-]*(:[a-zA-Z0-9+.-]*)?)://"
-    r"(?P<host>([a-zA-Z0-9.-]+|\d{1,3}(?:\.\d{1,3}){3}))"
-    r"(?::(?P<port>\d+))?"
-    r"/(?P<database>[a-zA-Z0-9_\-]+)"
-    r"(?:\?(?P<query>[a-zA-Z0-9_\-=&]+))?"
-)
+_JdbcPrefix = "jdbc:"
 
 
 def parse_jdbc_url(url: str) -> JdbcParameters:
     """
     Parses a JDBC URL.
     :param url:
-    :return:
+    :return: The parsed JDBC parameters.
     :raises ValueError: If the JDBC URL is invalid.
     """
-    match = pattern.match(url)
-    if not match:
-        msg = f"Invalid JDBC URL: {url}"
-        raise ValueError(msg)
+    protocol_prefix = ""
+    if url.startswith(_JdbcPrefix):
+        url = url.removeprefix(_JdbcPrefix)
+        protocol_prefix = _JdbcPrefix
+    parsed = urllib.parse.urlparse(url)
 
-    groups = match.groupdict()
-    query = groups.get("query") or ""
-    query_params = dict(param.split("=", 1) for param in query.split("&") if "=" in param)
+    msg = "Invalid JDBC URL: {}. Missing {}."
+    if not parsed.scheme:
+        raise ValueError(msg.format(url, "protocol"))
+    if not parsed.hostname:
+        raise ValueError(msg.format(url, "host"))
+    if not parsed.path or not parsed.path.lstrip("/"):
+        raise ValueError(msg.format(url, "database"))
 
-    protocol = groups.get("protocol")
-    if not protocol:
-        msg = f"Protocol is required in JDBC URL: {url}"
-        raise ValueError(msg)
-    host = groups.get("host")
-    if not host:
-        msg = f"Host is required in JDBC URL: {url}"
-        raise ValueError(msg)
-    database = groups.get("database")
-    if not database:
-        msg = f"Database is required in JDBC URL: {url}"
-        raise ValueError(msg)
+    database = parsed.path.lstrip("/")
+    query_params = urllib.parse.parse_qs(parsed.query)
+    user = query_params.get("user", [None])[0]
+    password = query_params.get("password", [None])[0]
 
     return JdbcParameters(
-        protocol=protocol,
-        host=host,
-        port=int(groups["port"]) if groups.get("port") else None,
+        protocol=protocol_prefix + parsed.scheme,
+        host=parsed.hostname,
+        port=parsed.port,
         database=database,
-        user=query_params.get("user"),
-        password=query_params.get("password"),
+        user=user,
+        password=password,
     )

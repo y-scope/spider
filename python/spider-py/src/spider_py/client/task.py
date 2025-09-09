@@ -17,9 +17,10 @@ class TaskContext:
     # TODO: Implement task context for use in task executor
 
 
-# Check the TaskFunction signature at runtime.
-# Enforcing static check for first argument requires the use of Protocol. However, functions, which
-# are Callable, are not considered a Protocol without explicit cast.
+# NOTE: This type alias is for clarification purposes only. It does not enforce static type checks.
+# Instead, we rely on the runtime check to ensure the first argument is `TaskContext`. To statically
+# enforce the first argument to be `TaskContext`, `Protocol` is required, which is not compatible
+# with `Callable` without explicit type casting.
 TaskFunction = Callable[..., object]
 
 
@@ -31,14 +32,15 @@ def _is_tuple(t: type | GenericAlias) -> bool:
     return get_origin(t) is tuple
 
 
-def _process_parameters(task: core.Task, signature: inspect.Signature) -> None:
+def _validate_and_convert_params(signature: inspect.Signature) -> list[TaskInput]:
     """
-    Checks the parameters validity and add them to the task.
-    :param task:
+    Validates the task parameters and converts them into a list of `core.TaskInput`.
     :param signature:
+    :return: The converted task parameters.
     :raises TypeError: If the parameters are invalid.
     """
     params = list(signature.parameters.values())
+    inputs = []
     if not params or params[0].annotation is not TaskContext:
         msg = "First argument is not a TaskContext."
         raise TypeError(msg)
@@ -47,55 +49,60 @@ def _process_parameters(task: core.Task, signature: inspect.Signature) -> None:
             msg = "Variadic parameters are not supported."
             raise TypeError(msg)
         if param.annotation is inspect.Parameter.empty:
-            msg = "Argument must have type annotation"
+            msg = "Parameters must have type annotation."
             raise TypeError(msg)
         tdl_type_str = to_tdl_type_str(param.annotation)
-        task.task_inputs.append(TaskInput(tdl_type_str, None))
+        inputs.append(TaskInput(tdl_type_str, None))
+    return inputs
 
 
-def _process_return(task: core.Task, signature: inspect.Signature) -> None:
+def _validate_and_convert_return(signature: inspect.Signature) -> list[TaskOutput]:
     """
-    Checks the return type validity and add them to the task.
-    :param task:
+    Validates the task returns and converts them into a list of `core.TaskOutput`.
     :param signature:
+    :return: The converted task returns.
     :raises TypeError: If the return type is invalid.
     """
     returns = signature.return_annotation
+    outputs = []
     if returns is inspect.Parameter.empty:
-        msg = "Return type must have type annotation"
+        msg = "Return type must have type annotation."
         raise TypeError(msg)
-    if _is_tuple(returns):
-        args = get_args(returns)
-        if Ellipsis in args:
-            msg = "Variable-length tuple return types are not supported."
-            raise TypeError(msg)
-        for r in args:
-            tdl_type_str = to_tdl_type_str(r)
-            if r is Data:
-                task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
-            else:
-                task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
-    else:
+
+    if not _is_tuple(returns):
         tdl_type_str = to_tdl_type_str(returns)
         if returns is Data:
-            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
         else:
-            task.task_outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+        return outputs
+
+    args = get_args(returns)
+    if Ellipsis in args:
+        msg = "Variable-length tuple return types are not supported."
+        raise TypeError(msg)
+    for arg in args:
+        tdl_type_str = to_tdl_type_str(arg)
+        if arg is Data:
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+        else:
+            outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
+    return outputs
 
 
-def _create_task(func: TaskFunction) -> core.Task:
+def create_task(func: TaskFunction) -> core.Task:
     """
     Creates a core Task object from the task function.
     :param func:
-    :return:
+    :return: The created core Task object.
     :raise TypeError: If the function signature contains unsupported types.
     """
-    task = core.Task()
     if not isinstance(func, FunctionType):
         msg = "`func` is not a function."
         raise TypeError(msg)
-    task.function_name = func.__qualname__
     signature = inspect.signature(func)
-    _process_parameters(task, signature)
-    _process_return(task, signature)
-    return task
+    return core.Task(
+        function_name=func.__qualname__,
+        task_inputs=_validate_and_convert_params(signature),
+        task_outputs=_validate_and_convert_return(signature),
+    )

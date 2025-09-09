@@ -34,8 +34,8 @@ def submit_job(mariadb_storage: MariaDBStorage) -> Job:
     """Submits a simple job."""
     graph = chain(group([double, double]), group([swap]))._impl
     # Fill input data
-    for i, task_id in enumerate(graph.input_tasks):
-        task = graph.tasks[task_id]
+    for i, task_index in enumerate(graph.input_task_indices):
+        task = graph.tasks[task_index]
         task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
 
     driver_id = uuid4()
@@ -48,11 +48,11 @@ class TestMariaDBStorage:
 
     @pytest.mark.storage
     def test_job_submission(self, mariadb_storage: MariaDBStorage) -> None:
-        """Tests job submission to the MariaDB storage backend."""
+        """Test job submission to the MariaDB storage backend."""
         graph = chain(group([double, double, double, double]), group([swap, swap]))._impl
         # Fill input data
-        for i, task_id in enumerate(graph.input_tasks):
-            task = graph.tasks[task_id]
+        for i, task_index in enumerate(graph.input_task_indices):
+            task = graph.tasks[task_index]
             task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
 
         driver_id = uuid4()
