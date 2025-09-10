@@ -219,25 +219,24 @@ class MariaDBStorage(Storage):
     def get_job_status(self, job: core.Job) -> core.JobStatus:
         try:
             with self._conn.cursor() as cursor:
-                cursor.execute(GetJobStatus, (job.job_id.bytes,))
-                row = cursor.fetchone()
-                if row is None:
-                    msg = f"No job found with id {job.job_id}."
-                    raise StorageError(msg)
-                status_str = row[0]
-                if status_str not in _StrToJobStatusMap:
-                    msg = f"Unknown job status: {status_str}."
-                    raise StorageError(msg)
+                status = self._get_job_status(cursor, job)
                 self._conn.commit()
-                return _StrToJobStatusMap[status_str]
+                return status
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
+        except StorageError:
+            self._conn.rollback()
+            raise
 
     @override
     def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
         try:
             with self._conn.cursor() as cursor:
+                status = self._get_job_status(cursor, job)
+                if status != core.JobStatus.Succeeded:
+                    return None
+
                 cursor.execute(GetOutputTasks, (job.job_id.bytes,))
                 task_ids = [task_id for (task_id,) in cursor.fetchall()]
 
@@ -260,14 +259,16 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         else:
-                            # Output is not ready. Drop all collected results and return None.
-                            self._conn.commit()
-                            return None
+                            msg = "Invalid task output"
+                            raise StorageError(msg)
                 self._conn.commit()
                 return results
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
+        except StorageError:
+            self._conn.rollback()
+            raise
 
     @staticmethod
     def _gen_task_insertion_params(
@@ -493,3 +494,24 @@ class MariaDBStorage(Storage):
                     )
                 )
         return input_output_params
+
+    @staticmethod
+    def _get_job_status(cursor: mariadb.Cursor, job: core.Job) -> core.JobStatus:
+        """
+        Gets the status of `job` from the database using the `cursor`.
+        This method does not commit or rollback the transaction.
+        :param cursor:
+        :param job:
+        :return: The job status.
+        :raises StorageError: If the job is not found or if the job status is unknown.
+        """
+        cursor.execute(GetJobStatus, (job.job_id.bytes,))
+        row = cursor.fetchone()
+        if row is None:
+            msg = f"No job found with id {job.job_id}."
+            raise StorageError(msg)
+        status_str = row[0]
+        if status_str not in _StrToJobStatusMap:
+            msg = f"Unknown job status: {status_str}."
+            raise StorageError(msg)
+        return _StrToJobStatusMap[status_str]
