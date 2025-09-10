@@ -30,17 +30,13 @@ public:
     public:
         // Constructors
         /**
-         * @param in_graph_id The ID of the vertex in the dependency graph.
          * @param tarjan_index The index assigned to the vertex in Tarjan's algorithm.
          */
-        Vertex(size_t in_graph_id, DfsIndex tarjan_index)
-                : m_in_graph_id{in_graph_id},
-                  m_tarjan_index{tarjan_index},
+        explicit Vertex(DfsIndex tarjan_index)
+                : m_tarjan_index{tarjan_index},
                   m_low_link{tarjan_index} {}
 
         // Methods
-        [[nodiscard]] auto get_in_graph_id() const noexcept -> size_t { return m_in_graph_id; }
-
         [[nodiscard]] auto get_tarjan_index() const noexcept -> DfsIndex { return m_tarjan_index; }
 
         /**
@@ -57,7 +53,6 @@ public:
         auto remove_from_stack() noexcept -> void { m_on_stack = false; }
 
     private:
-        size_t m_in_graph_id;
         DfsIndex m_tarjan_index;
         DfsIndex m_low_link;
         bool m_on_stack{true};
@@ -82,40 +77,42 @@ public:
         [[nodiscard]] auto get_id() const noexcept -> size_t { return m_id; }
 
         /**
-         * @return A pair containing:
+         * Retrieves the current child vertex to visit during the DFS traversal.
+         * @return An optional pair containing:
          *   - The ID of the current child vertex.
-         *   - A boolean indicating whether the current child has been iterated.
-         * @return std::nullopt is all children have been iterated.
+         *   - A boolean indicating if this is a backtrace visit.
+         * @return std::nullopt if all children have been visited.
          */
         [[nodiscard]] auto get_curr() -> std::optional<std::pair<size_t, bool>> {
             if (m_curr_child_it == m_end_child_it) {
                 return std::nullopt;
             }
-            m_curr_child_iterated = true;
-            return std::make_pair(*m_curr_child_it, m_curr_child_iterated);
+            auto const result{std::make_pair(*m_curr_child_it, m_is_backtrace)};
+            m_is_backtrace = true;
+            return result;
         }
 
         auto advance_to_next_child() noexcept -> void {
             ++m_curr_child_it;
-            m_curr_child_iterated = false;
+            m_is_backtrace = false;
         }
 
     private:
         size_t m_id;
-        bool m_curr_child_iterated{false};
+        bool m_is_backtrace{false};
         ChildIdIt m_curr_child_it;
         ChildIdIt m_end_child_it;
     };
 
     // Constructors
     /**
-     * @param def_use_chains The dependency graph represented by the def-use chains.
+     * @param struct_spec_dep_graph The struct spec dependency graph to compute.
      * NOTE: This object does not take ownership of the input graph, and the input graph must remain
      * valid and immutable for the lifetime of this object.
      */
-    explicit TarjanSccComputer(std::vector<std::vector<size_t>> const& def_use_chains)
-            : m_def_use_chains_view{def_use_chains},
-              m_tarjan_vertices(def_use_chains.size(), std::nullopt) {
+    explicit TarjanSccComputer(StructSpecDependencyGraph const& struct_spec_dep_graph)
+            : m_def_use_chains_view{struct_spec_dep_graph.get_def_use_chains()},
+              m_tarjan_vertices(struct_spec_dep_graph.get_def_use_chains().size(), std::nullopt) {
         compute();
     }
 
@@ -153,7 +150,7 @@ private:
     auto visit_and_push_to_stack(size_t id) -> void {
         m_dfs_stack.emplace_back(id, m_def_use_chains_view[id]);
         m_tarjan_stack.emplace_back(id);
-        m_tarjan_vertices.at(id).emplace(id, m_tarjan_index++);
+        m_tarjan_vertices.at(id).emplace(m_tarjan_index++);
     }
 
     auto pop_stack_and_form_scc() -> void;
@@ -193,12 +190,12 @@ auto TarjanSccComputer::compute() -> void {
 
         while (false == m_dfs_stack.empty()) {
             auto& curr_dfs_it{m_dfs_stack.back()};
-            auto const optional_next_child_id{curr_dfs_it.get_curr()};
-            if (optional_next_child_id.has_value()) {
-                auto const [child_id, is_child_iterated]{*optional_next_child_id};
+            auto const optional_curr_child{curr_dfs_it.get_curr()};
+            if (optional_curr_child.has_value()) {
+                auto const [child_id, is_backtrace]{*optional_curr_child};
                 auto const& child_tarjan_vertex{m_tarjan_vertices.at(child_id)};
 
-                if (is_child_iterated) {
+                if (is_backtrace) {
                     // This is a backtrace path of the DFS.
                     m_tarjan_vertices.at(curr_dfs_it.get_id())
                             ->update_low_link(child_tarjan_vertex->get_low_link());
@@ -219,7 +216,9 @@ auto TarjanSccComputer::compute() -> void {
                     m_tarjan_vertices.at(curr_dfs_it.get_id())
                             ->update_low_link(child_tarjan_vertex->get_tarjan_index());
                 }
+
                 curr_dfs_it.advance_to_next_child();
+                continue;
             }
 
             // All children have been iterated, pop from the DFS stack and form an SCC if possible.
@@ -246,7 +245,7 @@ auto TarjanSccComputer::pop_stack_and_form_scc() -> void {
         m_tarjan_stack.pop_back();
         m_tarjan_vertices.at(popped_id)->remove_from_stack();
         scc.emplace_back(popped_id);
-        if (popped_id == tarjan_vertex.get_in_graph_id()) {
+        if (popped_id == node_id) {
             break;
         }
     }
@@ -331,6 +330,6 @@ StructSpecDependencyGraph::StructSpecDependencyGraph(
 
 auto StructSpecDependencyGraph::compute_strongly_connected_components() -> void {
     m_strongly_connected_components.reset();
-    m_strongly_connected_components.emplace(TarjanSccComputer{m_def_use_chains}.release());
+    m_strongly_connected_components.emplace(TarjanSccComputer{*this}.release());
 }
 }  // namespace spider::tdl::pass::analysis

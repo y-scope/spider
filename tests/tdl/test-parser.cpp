@@ -13,7 +13,7 @@ namespace {
 using spider::tdl::parser::parse_translation_unit_from_istream;
 using spider::tdl::parser::SourceLocation;
 
-constexpr std::string_view cTestInput1{R"(// Start of a TDL file. This is line#1.
+constexpr std::string_view cTestCase1{R"(// Start of a TDL file. This is line#1.
 namespace test1 {
     // Function with no parameters and no return type
     fn empty_func();
@@ -55,7 +55,7 @@ namespace test2 {
 )"};
 
 TEST_CASE("Parsing `cTestInput1`", "[tdl][parser]") {
-    std::istringstream input_stream{std::string{cTestInput1}};
+    std::istringstream input_stream{std::string{cTestCase1}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
     auto const& translation_unit{parse_result.value()};
@@ -272,9 +272,7 @@ TEST_CASE("Parsing `cTestInput1`", "[tdl][parser]") {
     REQUIRE_FALSE(serialize_result.has_error());
     REQUIRE(serialize_result.value() == cExpectedSerializedAst);
 
-    auto struct_spec_dependency_graph{
-            translation_unit->create_struct_spec_dependency_graph()
-    };
+    auto struct_spec_dependency_graph{translation_unit->create_struct_spec_dependency_graph()};
     REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 2);
     REQUIRE(struct_spec_dependency_graph.get_strongly_connected_components().empty());
 }

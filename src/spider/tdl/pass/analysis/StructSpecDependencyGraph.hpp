@@ -52,6 +52,23 @@ public:
         return m_strongly_connected_components.value();
     }
 
+    [[nodiscard]] auto get_def_use_chains() const -> std::vector<std::vector<size_t>> const& {
+        return m_def_use_chains;
+    }
+
+    /**
+     * @param id
+     * @return A shared pointer to the `StructSpec` with the given ID if it exists, otherwise
+     * nullptr.
+     */
+    [[nodiscard]] auto get_struct_spec_from_id(size_t id) const
+            -> std::shared_ptr<StructSpec const> {
+        if (id >= m_struct_spec_refs.size()) {
+            return nullptr;
+        }
+        return m_struct_spec_refs.at(id);
+    }
+
 private:
     // Methods
     /**
