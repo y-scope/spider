@@ -31,11 +31,16 @@ def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
 
 @pytest.fixture
 def submit_job(mariadb_storage: MariaDBStorage) -> Job:
-    """Submits a simple job."""
+    """
+    Fixture to submit a simple job to the MariaDB storage backend.
+    The job composes of two parent tasks of `double` and a child task of `swap`.
+    :param mariadb_storage:
+    :return: The submitted job.
+    """
     graph = chain(group([double, double]), group([swap]))._impl
     # Fill input data
-    for i, task_id in enumerate(graph.input_tasks):
-        task = graph.tasks[task_id]
+    for i, task_index in enumerate(graph.input_task_indices):
+        task = graph.tasks[task_index]
         task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
 
     driver_id = uuid4()
@@ -59,8 +64,8 @@ class TestMariaDBStorage:
         """Tests job submission to the MariaDB storage backend."""
         graph = chain(group([double, double, double, double]), group([swap, swap]))._impl
         # Fill input data
-        for i, task_id in enumerate(graph.input_tasks):
-            task = graph.tasks[task_id]
+        for i, task_index in enumerate(graph.input_task_indices):
+            task = graph.tasks[task_index]
             task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
 
         driver_id = uuid4()

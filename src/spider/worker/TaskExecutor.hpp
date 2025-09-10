@@ -46,7 +46,8 @@ public:
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
-                    boost::process::v2::environment::value> const& environment,
+                    boost::process::v2::environment::value
+            > const& environment,
             Args&&... args
     )
             : m_read_pipe(context),
@@ -104,7 +105,8 @@ public:
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
-                    boost::process::v2::environment::value> const& environment,
+                    boost::process::v2::environment::value
+            > const& environment,
             std::vector<msgpack::sbuffer> const& args_buffers
     )
             : m_read_pipe(context),

@@ -10,7 +10,7 @@ class Job:
     def __init__(self, job: core.Job, storage: Storage) -> None:
         """
         Creates a new Spider job.
-        :param job: Core job object.
+        :param job:
         :param storage: The storage backend.
         """
         self._impl = job
