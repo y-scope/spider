@@ -294,7 +294,7 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         elif data_id is not None:
-                            data = self.get_data(core.DataId(data_id))
+                            data = self._get_data(cursor, core.DataId(data_id))
                             results.append(
                                 core.TaskOutput(
                                     type=output_type,
@@ -339,16 +339,7 @@ class MariaDBStorage(Storage):
     def get_data(self, data_id: core.DataId) -> core.Data:
         try:
             with self._conn.cursor() as cursor:
-                cursor.execute(GetData, (data_id.bytes,))
-                row = cursor.fetchone()
-                if row is None:
-                    msg = f"No data found with id {data_id}"
-                    raise StorageError(msg)
-                value, hard_locality = row
-                data = core.Data(id=data_id, value=value, hard_locality=hard_locality)
-                cursor.execute(GetDataLocality, (data_id.bytes,))
-                for (address,) in cursor.fetchall():
-                    data.localities.append(core.DataLocality(address))
+                data = self._get_data(cursor, data_id)
                 self._conn.commit()
                 return data
         except mariadb.Error as e:
@@ -620,6 +611,28 @@ class MariaDBStorage(Storage):
             msg = f"Unknown job status: {status_str}."
             raise StorageError(msg)
         return _StrToJobStatusMap[status_str]
+
+    @staticmethod
+    def _get_data(cursor: mariadb.Cursor, data_id: core.DataId) -> core.Data:
+        """
+        Gets the data with `data_id` from the database using the `cursor`.
+        This method does not commit or rollback the transaction.
+        :param cursor:
+        :param data_id:
+        :return: The data.
+        :raises StorageError: If the data is not found.
+        """
+        cursor.execute(GetData, (data_id.bytes,))
+        row = cursor.fetchone()
+        if row is None:
+            msg = f"No data found with id {data_id}"
+            raise StorageError(msg)
+        value, hard_locality = row
+        data = core.Data(id=data_id, value=value, hard_locality=hard_locality)
+        cursor.execute(GetDataLocality, (data_id.bytes,))
+        for (address,) in cursor.fetchall():
+            data.localities.append(core.DataLocality(address))
+        return data
 
 
 def _raise_storage_error(message: str) -> None:
