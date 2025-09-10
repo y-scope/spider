@@ -52,9 +52,9 @@ class Storage(ABC):
     @abstractmethod
     def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
         """
-        Creates data from a driver in the storage.
-        :param driver_id: The driver id.
-        :param data: Data to create.
+        Inserts `data` from a driver into the storage.
+        :param driver_id: Driver id.
+        :param data:
         :raises StorageError: If the storage operations fail.
         """
 
@@ -62,7 +62,7 @@ class Storage(ABC):
     def get_data(self, data_id: core.DataId) -> core.Data:
         """
         Gets data from the storage.
-        :param data_id:
+        :param data_id: Data id.
         :return: The Data object associated with `data_id`.
         :raises StorageError: If the storage operations fail.
         """
