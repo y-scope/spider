@@ -61,9 +61,9 @@ class Storage(ABC):
     @abstractmethod
     def get_data(self, data_id: core.DataId) -> core.Data:
         """
-        Gets data from the storage.
-        :param data_id: Data id.
-        :return: The Data object associated with `data_id`.
+        Gets the data object associated with the specified data ID from the storage.
+        :param data_id:
+        :return: The data object associated with `data_id`.
         :raises StorageError: If the storage operations fail.
         """
 
