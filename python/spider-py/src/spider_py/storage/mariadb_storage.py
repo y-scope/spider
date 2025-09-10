@@ -314,7 +314,7 @@ class MariaDBStorage(Storage):
             raise
 
     @override
-    def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
+    def create_data_with_driver_ref(self, driver_id: core.DriverId, data: core.Data) -> None:
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(

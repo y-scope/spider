@@ -89,7 +89,7 @@ class TestMariaDBStorage:
         """Tests data storage and retrieval."""
         value = b"test data"
         data = Data(id=uuid4(), value=value, localities=["localhost"])
-        mariadb_storage.create_driver_data(driver, data)
+        mariadb_storage.create_data_with_driver_ref(driver, data)
         retrieved_data = mariadb_storage.get_data(data.id)
         assert retrieved_data is not None
         assert retrieved_data.id == data.id
@@ -103,4 +103,4 @@ class TestMariaDBStorage:
         value = b"test data"
         data = Data(id=uuid4(), value=value, localities=["localhost"])
         with pytest.raises(StorageError):
-            mariadb_storage.create_driver_data(uuid4(), data)
+            mariadb_storage.create_data_with_driver_ref(uuid4(), data)
