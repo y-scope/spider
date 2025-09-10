@@ -235,6 +235,7 @@ class MariaDBStorage(Storage):
             with self._conn.cursor() as cursor:
                 status = self._get_job_status(cursor, job)
                 if status != core.JobStatus.Succeeded:
+                    self._conn.commit()
                     return None
 
                 cursor.execute(GetOutputTasks, (job.job_id.bytes,))
