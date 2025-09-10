@@ -324,7 +324,7 @@ class MariaDBStorage(Storage):
                 if data.localities:
                     cursor.executemany(
                         InsertDataLocality,
-                        [(data.id.bytes, locality.address) for locality in data.localities],
+                        [(data.id.bytes, addr) for addr in data.localities],
                     )
                 cursor.execute(
                     InsertDataRefDriver,
@@ -631,7 +631,7 @@ class MariaDBStorage(Storage):
         data = core.Data(id=data_id, value=value, hard_locality=hard_locality)
         cursor.execute(GetDataLocality, (data_id.bytes,))
         for (address,) in cursor.fetchall():
-            data.localities.append(core.DataLocality(address))
+            data.localities.append(core.DataAddr(address))
         return data
 
 

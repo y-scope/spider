@@ -6,7 +6,7 @@ import msgpack
 import pytest
 
 from spider_py import chain, group, Int8, TaskContext
-from spider_py.core import Data, DataLocality, DriverId, Job, JobStatus, TaskInputValue
+from spider_py.core import Data, DriverId, Job, JobStatus, TaskInputValue
 from spider_py.storage import MariaDBStorage, parse_jdbc_url, StorageError
 
 MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
@@ -88,7 +88,7 @@ class TestMariaDBStorage:
     def test_data(self, mariadb_storage: MariaDBStorage, driver: DriverId) -> None:
         """Tests data storage and retrieval."""
         value = b"test data"
-        data = Data(id=uuid4(), value=value, localities=[DataLocality("localhost")])
+        data = Data(id=uuid4(), value=value, localities=["localhost"])
         mariadb_storage.create_driver_data(driver, data)
         retrieved_data = mariadb_storage.get_data(data.id)
         assert retrieved_data is not None
@@ -101,6 +101,6 @@ class TestMariaDBStorage:
     def test_create_data_fail(self, mariadb_storage: MariaDBStorage) -> None:
         """Tests creating data without a driver fails."""
         value = b"test data"
-        data = Data(id=uuid4(), value=value, localities=[DataLocality("localhost")])
+        data = Data(id=uuid4(), value=value, localities=["localhost"])
         with pytest.raises(StorageError):
             mariadb_storage.create_driver_data(uuid4(), data)
