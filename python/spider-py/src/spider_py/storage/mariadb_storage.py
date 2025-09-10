@@ -260,6 +260,7 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         else:
+                            # Output is not ready. Drop all collected results and return None.
                             self._conn.commit()
                             return None
                 self._conn.commit()

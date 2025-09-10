@@ -44,6 +44,7 @@ class Storage(ABC):
         """
         Gets the job results. This function does not set the `results` field in `job`.
         :param job:
-        :return: A list of task outputs or None if the job has no results yet.
+        :return: A list of task outputs if all tasks are finished.
+        :return: None if any task output is not ready.
         :raises StorageError: If the storage operations fail.
         """
