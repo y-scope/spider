@@ -260,7 +260,7 @@ class MariaDBStorage(Storage):
                             )
                         else:
                             msg = "Invalid task output"
-                            raise StorageError(msg)
+                            _raise_storage_error(msg)
                 self._conn.commit()
                 return results
         except mariadb.Error as e:
@@ -515,3 +515,13 @@ class MariaDBStorage(Storage):
             msg = f"Unknown job status: {status_str}."
             raise StorageError(msg)
         return _StrToJobStatusMap[status_str]
+
+
+def _raise_storage_error(message: str) -> None:
+    """
+    Raises a StorageError with the `message`.
+    Workaround for ruff TRY301. See https://docs.astral.sh/ruff/rules/raise-within-try/.
+    :param message:
+    :raises StorageError: Always.
+    """
+    raise StorageError(message)
