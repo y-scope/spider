@@ -294,7 +294,7 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         elif data_id is not None:
-                            data = self._get_data(cursor, core.DataId(data_id))
+                            data = self._get_data(cursor, core.DataId(bytes=data_id))
                             results.append(
                                 core.TaskOutput(
                                     type=output_type,
