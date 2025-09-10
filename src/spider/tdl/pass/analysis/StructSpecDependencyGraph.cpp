@@ -18,6 +18,12 @@
 
 namespace spider::tdl::pass::analysis {
 namespace {
+/**
+ * Implements an iterative version of Tarjan's algorithm to compute the strongly connected
+ * components (SCCs) in a `StructSpecDependencyGraph`.
+ * For more details, refer to:
+ * https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm
+ */
 class TarjanSccComputer {
 public:
     // Types
