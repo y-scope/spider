@@ -9,5 +9,5 @@ class Data:
     """Represents a spider client data."""
 
     def __init__(self, value: bytes) -> None:
-        """Initialize the Data object with the given value."""
+        """Initializes a Data object by the given value."""
         self._impl = core.Data(uuid4(), value)

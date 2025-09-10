@@ -4,8 +4,6 @@ from .data import Data, DataId, DataLocality
 from .driver import DriverId
 from .job import Job, JobId, JobStatus
 from .task import (
-    get_state_from_str,
-    get_state_str,
     Task,
     TaskId,
     TaskInput,
@@ -38,6 +36,4 @@ __all__ = [
     "TaskOutputData",
     "TaskOutputValue",
     "TaskState",
-    "get_state_from_str",
-    "get_state_str",
 ]
