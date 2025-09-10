@@ -6,7 +6,7 @@ import msgpack
 import pytest
 
 from spider_py import chain, group, Int8, TaskContext
-from spider_py.core import TaskInputValue
+from spider_py.core import Job, JobStatus, TaskInputValue
 from spider_py.storage import MariaDBStorage, parse_jdbc_url
 
 MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
@@ -29,12 +29,31 @@ def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
     return y, x
 
 
+@pytest.fixture
+def submit_job(mariadb_storage: MariaDBStorage) -> Job:
+    """
+    Fixture to submit a simple job to the MariaDB storage backend.
+    The job composes of two parent tasks of `double` and a child task of `swap`.
+    :param mariadb_storage:
+    :return: The submitted job.
+    """
+    graph = chain(group([double, double]), group([swap]))._impl
+    # Fill input data
+    for i, task_index in enumerate(graph.input_task_indices):
+        task = graph.tasks[task_index]
+        task.task_inputs[0].value = TaskInputValue(msgpack.packb(i))
+
+    driver_id = uuid4()
+    jobs = mariadb_storage.submit_jobs(driver_id, [graph])
+    return jobs[0]
+
+
 class TestMariaDBStorage:
     """Test class for the MariaDB storage backend."""
 
     @pytest.mark.storage
     def test_job_submission(self, mariadb_storage: MariaDBStorage) -> None:
-        """Test job submission to the MariaDB storage backend."""
+        """Tests job submission to the MariaDB storage backend."""
         graph = chain(group([double, double, double, double]), group([swap, swap]))._impl
         # Fill input data
         for i, task_index in enumerate(graph.input_task_indices):
@@ -44,3 +63,15 @@ class TestMariaDBStorage:
         driver_id = uuid4()
         jobs = mariadb_storage.submit_jobs(driver_id, [graph])
         assert len(jobs) == 1
+
+    @pytest.mark.storage
+    def test_running_job_status(self, mariadb_storage: MariaDBStorage, submit_job: Job) -> None:
+        """Tests getting status of a running job."""
+        status = mariadb_storage.get_job_status(submit_job)
+        assert status == JobStatus.Running
+
+    @pytest.mark.storage
+    def test_running_job_result(self, mariadb_storage: MariaDBStorage, submit_job: Job) -> None:
+        """Tests getting results of a running job."""
+        results = mariadb_storage.get_job_results(submit_job)
+        assert results is None

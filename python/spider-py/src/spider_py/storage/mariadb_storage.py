@@ -65,6 +65,44 @@ VALUES
   (?, ?, ?)"""
 
 
+GetJobStatus = """
+SELECT
+  `state`
+FROM
+  `jobs`
+WHERE
+  `id` = ?"""
+
+GetOutputTasks = """
+SELECT
+  `task_id`
+FROM
+  `output_tasks`
+WHERE
+  `job_id` = ?
+ORDER BY
+  `position`"""
+
+GetTaskOutputs = """
+SELECT
+  `type`,
+  `value`,
+  `data_id`
+FROM
+  `task_outputs`
+WHERE
+  `task_id` = ?
+ORDER BY
+  `position`"""
+
+_StrToJobStatusMap = {
+    "running": core.JobStatus.Running,
+    "success": core.JobStatus.Succeeded,
+    "fail": core.JobStatus.Failed,
+    "cancel": core.JobStatus.Cancelled,
+}
+
+
 class MariaDBStorage(Storage):
     """MariaDB Storage class."""
 
@@ -176,6 +214,62 @@ class MariaDBStorage(Storage):
         except mariadb.Error as e:
             self._conn.rollback()
             raise StorageError(str(e)) from e
+
+    @override
+    def get_job_status(self, job: core.Job) -> core.JobStatus:
+        try:
+            with self._conn.cursor() as cursor:
+                status = self._get_job_status(cursor, job)
+                self._conn.commit()
+                return status
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+        except StorageError:
+            self._conn.rollback()
+            raise
+
+    @override
+    def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
+        try:
+            with self._conn.cursor() as cursor:
+                status = self._get_job_status(cursor, job)
+                if status != core.JobStatus.Succeeded:
+                    self._conn.commit()
+                    return None
+
+                cursor.execute(GetOutputTasks, (job.job_id.bytes,))
+                task_ids = [task_id for (task_id,) in cursor.fetchall()]
+
+                results = []
+                for task_id in task_ids:
+                    cursor.execute(GetTaskOutputs, (task_id,))
+                    for output_type, value, data_id in cursor.fetchall():
+                        if value is not None:
+                            results.append(
+                                core.TaskOutput(
+                                    type=output_type,
+                                    value=core.TaskOutputValue(value),
+                                )
+                            )
+                        elif data_id is not None:
+                            results.append(
+                                core.TaskOutput(
+                                    type=output_type,
+                                    value=core.TaskOutputData(data_id),
+                                )
+                            )
+                        else:
+                            msg = "Invalid task output"
+                            _raise_storage_error(msg)
+                self._conn.commit()
+                return results
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+        except StorageError:
+            self._conn.rollback()
+            raise
 
     @staticmethod
     def _gen_task_insertion_params(
@@ -401,3 +495,34 @@ class MariaDBStorage(Storage):
                     )
                 )
         return input_output_params
+
+    @staticmethod
+    def _get_job_status(cursor: mariadb.Cursor, job: core.Job) -> core.JobStatus:
+        """
+        Gets the status of `job` from the database using the `cursor`.
+        This method does not commit or rollback the transaction.
+        :param cursor:
+        :param job:
+        :return: The job status.
+        :raises StorageError: If the job is not found or if the job status is unknown.
+        """
+        cursor.execute(GetJobStatus, (job.job_id.bytes,))
+        row = cursor.fetchone()
+        if row is None:
+            msg = f"No job found with id {job.job_id}."
+            raise StorageError(msg)
+        status_str = row[0]
+        if status_str not in _StrToJobStatusMap:
+            msg = f"Unknown job status: {status_str}."
+            raise StorageError(msg)
+        return _StrToJobStatusMap[status_str]
+
+
+def _raise_storage_error(message: str) -> None:
+    """
+    Raises a StorageError with the `message`.
+    Workaround for ruff TRY301. See https://docs.astral.sh/ruff/rules/raise-within-try/.
+    :param message:
+    :raises StorageError: Always.
+    """
+    raise StorageError(message)

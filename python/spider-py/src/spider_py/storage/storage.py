@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
 from spider_py import core
+from spider_py.core import JobStatus
 
 
 class StorageError(Exception):
@@ -26,5 +27,24 @@ class Storage(ABC):
         :param driver_id: Driver id.
         :param task_graphs: Task graphs to submit.
         :return: A list of submitted jobs.
+        :raises StorageError: If the storage operations fail.
+        """
+
+    @abstractmethod
+    def get_job_status(self, job: core.Job) -> JobStatus:
+        """
+        Gets the job status. This function does not set the `status` field in `job`.
+        :param job:
+        :return: The job status.
+        :raises StorageError: If the storage operations fail.
+        """
+
+    @abstractmethod
+    def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
+        """
+        Gets the job results. This function does not set the `results` field in `job`.
+        :param job:
+        :return: A list of task outputs if all tasks are finished.
+        :return: None if any task output is not ready.
         :raises StorageError: If the storage operations fail.
         """
