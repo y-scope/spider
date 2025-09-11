@@ -9,31 +9,6 @@ from spider_py.type import parse_tdl_type
 from spider_py.utils import from_serializable
 
 
-def _deserialize_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] | object:
-    """
-    Deserializes a list of `core.TaskOutput` objects to their Python values.
-    :param outputs:
-    :return: A tuple containing the deserialized values of `outputs`, or a single value if
-     `outputs` contains only one element.
-    :raises msgpack.exceptions.UnpackException: If there was an error deserializing the TaskOutput
-     values.
-    """
-    results = []
-    for output in outputs:
-        if isinstance(output.value, core.TaskOutputValue):
-            cls = parse_tdl_type(output.type).native_type()
-            unpacked = msgpack.unpackb(output.value, raw=False, strict_map_key=False)
-            results.append(from_serializable(cls, unpacked))
-        elif isinstance(output.value, core.Data):
-            results.append(Data._from_impl(output.value))
-        else:
-            msg = "Fail to get data from storage."
-            raise StorageError(msg)
-    if len(results) == 1:
-        return results[0]
-    return tuple(results)
-
-
 class Job:
     """Represents Spider job."""
 
@@ -66,3 +41,28 @@ class Job:
             return None
 
         return _deserialize_outputs(self._impl.results)
+
+
+def _deserialize_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] | object:
+    """
+    Deserializes a list of `core.TaskOutput` objects to their Python values.
+    :param outputs:
+    :return: A tuple containing the deserialized values of `outputs`, or a single value if
+     `outputs` contains only one element.
+    :raises msgpack.exceptions.UnpackException: If there was an error deserializing the TaskOutput
+     values.
+    """
+    results = []
+    for output in outputs:
+        if isinstance(output.value, core.TaskOutputValue):
+            cls = parse_tdl_type(output.type).native_type()
+            unpacked = msgpack.unpackb(output.value, raw=False, strict_map_key=False)
+            results.append(from_serializable(cls, unpacked))
+        elif isinstance(output.value, core.Data):
+            results.append(Data._from_impl(output.value))
+        else:
+            msg = "Fail to get data from storage."
+            raise StorageError(msg)
+    if len(results) == 1:
+        return results[0]
+    return tuple(results)
