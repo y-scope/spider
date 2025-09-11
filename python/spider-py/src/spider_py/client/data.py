@@ -24,9 +24,8 @@ class Data:
     @staticmethod
     def from_value(value: bytes) -> Data:
         """
-        Creates a Data instance from the given value.
         :param value: The data value.
-        :return: A Data instance.
+        :return: A newly created data object with a random UUID and the given value.
         """
         return Data(core.Data(uuid4(), value))
 
