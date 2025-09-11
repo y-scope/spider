@@ -10,13 +10,6 @@ DataAddr = str
 
 
 @dataclass
-class DataLocality:
-    """Represents the locality of a data object."""
-
-    address: str
-
-
-@dataclass
 class Data:
     """Represents a data object."""
 
