@@ -47,12 +47,12 @@ class Job:
         self._storage = storage
 
     def get_status(self) -> core.JobStatus:
-        """
-        :return: The current job status.
-        """
-        if self._impl.is_running():
-            self._impl.update_job_status(self._storage)
-        return self._impl.status
+        """:return: The current job status."""
+        if self._impl.status != core.JobStatus.Running:
+            return self._impl.status
+        status = self._storage.get_job_status(self._impl)
+        self._impl.status = status
+        return status
 
     def get_results(self) -> object | None:
         """
