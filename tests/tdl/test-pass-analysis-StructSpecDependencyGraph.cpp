@@ -106,6 +106,56 @@ struct class5 {
 };
 )"};
 
+constexpr std::string_view cTestCase3{R"(// Start of a TDL file. This is line#1.
+// Each struct is identified by a number, and form the following dependency graph (the edges
+// indicate def-use chains):
+//               ┌───── 6
+//               │
+//               ▼
+//        0 ───► 2 ───► 3
+//               │      ▲
+//               ▼      │
+//               4 ─────┘
+//               │
+//               ▼
+//               5
+//               ▲
+//               │
+//               1
+//
+// Expected topological ordering: 0, 1, 6, 2, 4, 3, 5
+
+struct class0 {
+    use_0: class2,
+};
+
+struct class1 {
+    use_0: class5,
+};
+
+struct class2 {
+    use_0: List<class3>,
+    use_1: List<class4>,
+};
+
+struct class3 {
+    no_use: int64,
+};
+
+struct class4 {
+    use_0: class5,
+    use_1: class3,
+};
+
+struct class5 {
+    no_use: int64,
+};
+
+struct class6 {
+    use_0: class2,
+};
+)"};
+
 /**
  * Serializes the strongly connected components into human-readable strings
  * @param graph The struct spec dependency graph containing the struct specs.
@@ -135,7 +185,7 @@ auto serialize_strongly_connected_components(StructSpecDependencyGraph& graph)
     return serialized_strongly_connected_components;
 }
 
-TEST_CASE("SCC Detection Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase1}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
@@ -156,9 +206,13 @@ TEST_CASE("SCC Detection Case 1", "[tdl][pass][analytics][StructSpecDependencyGr
     };
     REQUIRE(serialized_strongly_connected_components
             == expected_serialized_strongly_connected_components);
+
+    REQUIRE_FALSE(
+            struct_spec_dependency_graph.get_struct_specs_in_topological_ordering().has_value()
+    );
 }
 
-TEST_CASE("SCC Detection Case 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("Case 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase2}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
@@ -176,6 +230,49 @@ TEST_CASE("SCC Detection Case 2", "[tdl][pass][analytics][StructSpecDependencyGr
     };
     REQUIRE(serialized_strongly_connected_components
             == expected_serialized_strongly_connected_components);
+
+    REQUIRE_FALSE(
+            struct_spec_dependency_graph.get_struct_specs_in_topological_ordering().has_value()
+    );
+}
+
+TEST_CASE("Case 3", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+    std::istringstream input_stream{std::string{cTestCase3}};
+    auto const parse_result{parse_translation_unit_from_istream(input_stream)};
+    REQUIRE_FALSE(parse_result.has_error());
+    auto const& translation_unit{parse_result.value()};
+
+    auto struct_spec_dependency_graph{translation_unit->create_struct_spec_dependency_graph()};
+    REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 7);
+
+    auto const serialized_strongly_connected_components{
+            serialize_strongly_connected_components(struct_spec_dependency_graph)
+    };
+    REQUIRE(serialized_strongly_connected_components.empty());
+
+    auto const optional_topological_ordering{
+            struct_spec_dependency_graph.get_struct_specs_in_topological_ordering()
+    };
+    REQUIRE(optional_topological_ordering.has_value());
+    std::vector<std::string_view> topological_ordering_struct_spec_names;
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    topological_ordering_struct_spec_names.reserve(optional_topological_ordering->size());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    for (auto const id : *optional_topological_ordering) {
+        auto const struct_spec{struct_spec_dependency_graph.get_struct_spec_from_id(id)};
+        REQUIRE(nullptr != struct_spec);
+        topological_ordering_struct_spec_names.emplace_back(struct_spec->get_name());
+    }
+    std::vector<std::string_view> const expected_topological_ordering{
+            "class0",
+            "class1",
+            "class6",
+            "class2",
+            "class4",
+            "class3",
+            "class5"
+    };
+    REQUIRE(topological_ordering_struct_spec_names == expected_topological_ordering);
 }
 }  // namespace
 

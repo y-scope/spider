@@ -52,6 +52,15 @@ public:
         return m_strongly_connected_components.value();
     }
 
+    /**
+     * @return A topological ordering of the struct specifications if the dependency graph is a DAG.
+     * The returned ordering also maintains lexicographical precedence among all valid topological
+     * orderings.
+     * @return std::nullopt if the dependency graph is not a DAG.
+     */
+    [[nodiscard]] auto get_struct_specs_in_topological_ordering()
+            -> std::optional<std::vector<size_t>>;
+
     [[nodiscard]] auto get_def_use_chains() const -> std::vector<std::vector<size_t>> const& {
         return m_def_use_chains;
     }

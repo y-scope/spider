@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <queue>
 #include <span>
 #include <string>
 #include <tuple>
@@ -337,5 +338,50 @@ StructSpecDependencyGraph::StructSpecDependencyGraph(
 auto StructSpecDependencyGraph::compute_strongly_connected_components() -> void {
     m_strongly_connected_components.reset();
     m_strongly_connected_components.emplace(TarjanSccComputer{*this}.release());
+}
+
+auto StructSpecDependencyGraph::get_struct_specs_in_topological_ordering()
+        -> std::optional<std::vector<size_t>> {
+    std::optional<std::vector<size_t>> topological_ordering;
+    if (false == get_strongly_connected_components().empty()) {
+        return topological_ordering;
+    }
+
+    // Initialize in-degrees
+    std::vector<size_t> in_degrees(m_def_use_chains.size(), 0);
+    for (auto const& def_use_chain : m_def_use_chains) {
+        for (auto const use_id : def_use_chain) {
+            ++in_degrees.at(use_id);
+        }
+    }
+
+    auto lexical_comparator = [&](size_t lhs, size_t rhs) -> bool {
+        return m_struct_spec_refs.at(lhs)->get_name() > m_struct_spec_refs.at(rhs)->get_name();
+    };
+    std::priority_queue<size_t, std::vector<size_t>, decltype(lexical_comparator)>
+            zero_in_degree_queue{lexical_comparator};
+
+    for (size_t id{0}; id < in_degrees.size(); ++id) {
+        if (in_degrees.at(id) == 0) {
+            zero_in_degree_queue.push(id);
+        }
+    }
+
+    topological_ordering.emplace();
+    topological_ordering->reserve(m_def_use_chains.size());
+    while (false == zero_in_degree_queue.empty()) {
+        auto const curr_id{zero_in_degree_queue.top()};
+        zero_in_degree_queue.pop();
+        topological_ordering->emplace_back(curr_id);
+
+        for (auto const use_id : m_def_use_chains.at(curr_id)) {
+            --in_degrees.at(use_id);
+            if (in_degrees.at(use_id) == 0) {
+                zero_in_degree_queue.push(use_id);
+            }
+        }
+    }
+
+    return topological_ordering;
 }
 }  // namespace spider::tdl::pass::analysis
