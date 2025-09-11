@@ -5,6 +5,7 @@ import msgpack
 from spider_py import core
 from spider_py.client.data import Data
 from spider_py.storage import Storage, StorageError
+from spider_py.storage.job_utils import fetch_and_update_job_results, fetch_and_update_job_status
 from spider_py.type import parse_tdl_type
 from spider_py.utils import from_serializable
 
@@ -23,19 +24,16 @@ class Job:
 
     def get_status(self) -> core.JobStatus:
         """:return: The current job status."""
-        if self._impl.status != core.JobStatus.Running:
-            return self._impl.status
-        status = self._storage.get_job_status(self._impl)
-        self._impl.status = status
-        return status
+        if self._impl.is_running():
+            fetch_and_update_job_status(self._storage, self._impl)
+        return self._impl.status
 
     def get_results(self) -> object | None:
         """
         :return: The job results if the job ended successfully.
         :return: None if the job is still running or ended unsuccessfully.
         """
-        if self._impl.results is None:
-            self._impl.results = self._storage.get_job_results(self._impl)
+        fetch_and_update_job_results(self._storage, self._impl)
 
         if self._impl.results is None:
             return None

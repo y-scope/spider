@@ -32,3 +32,7 @@ class Job:
         self.job_id = job_id
         self.status = JobStatus.Running
         self.results: list[TaskOutput] | None = None
+
+    def is_running(self) -> bool:
+        """:return: Whether the job is in `Running` status."""
+        return self.status == JobStatus.Running
