@@ -1,5 +1,7 @@
 """Spider client Data module."""
 
+from __future__ import annotations
+
 from uuid import uuid4
 
 from spider_py import core
@@ -8,19 +10,25 @@ from spider_py import core
 class Data:
     """Represents a spider client data."""
 
-    def __init__(self, value: bytes) -> None:
+    def __init__(self, core_data: core.Data) -> None:
         """
-        Initializes a data object by the given value.
-        :param value:
+        Initializes a data object by the given `core.Data` implementation.
+
+        NOTE: This method is a low-level constructor. Please use `Data.from_value` to create a data
+        object from a value.
+
+        :param core_data:
         """
-        self._impl = core.Data(uuid4(), value)
+        self._impl = core_data
 
     @staticmethod
-    def _from_impl(impl: core.Data) -> "Data":
-        """Creates a Data instance from an existing core.Data implementation."""
-        data = Data(impl.value)
-        data._impl = impl
-        return data
+    def from_value(value: bytes) -> Data:
+        """
+        Creates a Data instance from the given value.
+        :param value: The data value.
+        :return: A Data instance.
+        """
+        return Data(core.Data(uuid4(), value))
 
     @property
     def id(self) -> core.DataId:

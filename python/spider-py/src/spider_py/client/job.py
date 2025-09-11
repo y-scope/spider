@@ -59,7 +59,7 @@ def _deserialize_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] |
             unpacked = msgpack.unpackb(output.value, raw=False, strict_map_key=False)
             results.append(from_serializable(cls, unpacked))
         elif isinstance(output.value, core.Data):
-            results.append(Data._from_impl(output.value))
+            results.append(Data(output.value))
         else:
             msg = "Fail to get data from storage."
             raise StorageError(msg)
