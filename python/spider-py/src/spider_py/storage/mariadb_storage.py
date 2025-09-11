@@ -506,25 +506,18 @@ class MariaDBStorage(Storage):
         for graph_index, task_graph in enumerate(task_graphs):
             for task_index, task in enumerate(task_graph.tasks):
                 for position, task_input in enumerate(task.task_inputs):
-                    if isinstance(task_input.value, core.TaskInputData):
-                        if isinstance(task_input.value, core.Data):
-                            input_data_params.append(
-                                (
-                                    task_ids[graph_index][task_index].bytes,
-                                    position,
-                                    task_input.type,
-                                    task_input.value.id.bytes,
-                                )
-                            )
-                        else:
-                            input_data_params.append(
-                                (
-                                    task_ids[graph_index][task_index].bytes,
-                                    position,
-                                    task_input.type,
-                                    task_input.value.bytes,
-                                )
-                            )
+                    if not isinstance(task_input.value, core.TaskInputData):
+                        continue
+                    value = task_input.value
+                    data = value.id.bytes if isinstance(value, core.Data) else value.bytes
+                    input_data_params.append(
+                        (
+                            task_ids[graph_index][task_index].bytes,
+                            position,
+                            task_input.type,
+                            data,
+                        )
+                    )
         return input_data_params
 
     @staticmethod
