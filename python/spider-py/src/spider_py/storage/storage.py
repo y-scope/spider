@@ -52,8 +52,8 @@ class Storage(ABC):
     @abstractmethod
     def create_data_with_driver_ref(self, driver_id: core.DriverId, data: core.Data) -> None:
         """
-        Inserts `data` from a driver into the storage with reference form a driver.
-        :param driver_id: The id of the driver referencing the data.
+        Creates a data object in the storage with a reference to the given driver.
+        :param driver_id: The driver ID to associate with the data.
         :param data:
         :raises StorageError: If the storage operations fail.
         """

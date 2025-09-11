@@ -625,7 +625,7 @@ class MariaDBStorage(Storage):
         cursor.execute(GetData, (data_id.bytes,))
         row = cursor.fetchone()
         if row is None:
-            msg = f"No data found with id {data_id}"
+            msg = f"No data found with id {data_id}."
             raise StorageError(msg)
         value, hard_locality = row
         data = core.Data(id=data_id, value=value, hard_locality=hard_locality)
