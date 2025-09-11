@@ -9,7 +9,7 @@ from spider_py.type import parse_tdl_type
 from spider_py.utils import from_serializable
 
 
-def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
+def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] | object:
     """
     Converts a list of TaskOutput objects to a tuple of their values.
     :param outputs: The list of TaskOutput objects.
@@ -29,6 +29,8 @@ def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
         else:
             msg = "Fail to get data from storage."
             raise StorageError(msg)
+    if len(results) == 1:
+        return results[0]
     return tuple(results)
 
 
@@ -69,4 +71,5 @@ class Job:
         results = self._storage.get_job_results(self._impl)
         if results is None:
             return None
+        self._impl.results = results
         return _convert_outputs(results)
