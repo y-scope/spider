@@ -59,7 +59,7 @@ class Driver:
                     arg_index += 1
                     if isinstance(arg, Data):
                         task_input.type = to_tdl_type_str(Data)
-                        task_input.value = arg.data_id
+                        task_input.value = arg.id
                         continue
                     task_input.type = to_tdl_type_str(type(arg))
                     serialized_value = to_serializable(arg)

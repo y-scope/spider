@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from uuid import UUID, uuid4
 
-from spider_py.core.data import DataId
+from spider_py.core.data import Data, DataId
 
 TaskId = UUID
 
@@ -20,7 +20,7 @@ class TaskInputOutput:
 
 
 TaskInputValue = bytes
-TaskInputData = DataId
+TaskInputData = Data | DataId
 
 
 @dataclass
@@ -32,7 +32,7 @@ class TaskInput:
 
 
 TaskOutputValue = bytes
-TaskOutputData = DataId
+TaskOutputData = Data | DataId
 
 
 @dataclass

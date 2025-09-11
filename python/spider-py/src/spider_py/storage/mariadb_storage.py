@@ -95,6 +95,47 @@ WHERE
 ORDER BY
   `position`"""
 
+InsertData = """
+INSERT INTO
+  `data` (`id`, `value`, `hard_locality`)
+VALUES
+  (?, ?, ?)"""
+
+InsertDataLocality = """
+INSERT INTO
+  `data_locality` (`id`, `address`)
+VALUES
+  (?, ?)"""
+
+InsertDataRefDriver = """
+INSERT INTO
+  `data_ref_driver` (`id`, `driver_id`)
+VALUES
+  (?, ?)"""
+
+GetData = """
+SELECT
+  `value`,
+  `hard_locality`
+FROM
+  `data`
+WHERE
+  `id` = ?"""
+
+GetDataLocality = """
+SELECT
+  `address`
+FROM
+  `data_locality`
+WHERE
+  `id` = ?"""
+
+InsertDriver = """
+INSERT INTO
+  `drivers` (`id`)
+VALUES
+  (?)"""
+
 _StrToJobStatusMap = {
     "running": core.JobStatus.Running,
     "success": core.JobStatus.Succeeded,
@@ -253,10 +294,11 @@ class MariaDBStorage(Storage):
                                 )
                             )
                         elif data_id is not None:
+                            data = self._get_data(cursor, core.DataId(bytes=data_id))
                             results.append(
                                 core.TaskOutput(
                                     type=output_type,
-                                    value=core.TaskOutputData(data_id),
+                                    value=data,
                                 )
                             )
                         else:
@@ -270,6 +312,49 @@ class MariaDBStorage(Storage):
         except StorageError:
             self._conn.rollback()
             raise
+
+    @override
+    def create_data_with_driver_ref(self, driver_id: core.DriverId, data: core.Data) -> None:
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(
+                    InsertData,
+                    (data.id.bytes, data.value, data.hard_locality),
+                )
+                if data.localities:
+                    cursor.executemany(
+                        InsertDataLocality,
+                        [(data.id.bytes, addr) for addr in data.localities],
+                    )
+                cursor.execute(
+                    InsertDataRefDriver,
+                    (data.id.bytes, driver_id.bytes),
+                )
+                self._conn.commit()
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
+    @override
+    def get_data(self, data_id: core.DataId) -> core.Data:
+        try:
+            with self._conn.cursor() as cursor:
+                data = self._get_data(cursor, data_id)
+                self._conn.commit()
+                return data
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
+    @override
+    def create_driver(self, driver_id: core.DriverId) -> None:
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(InsertDriver, (driver_id.bytes,))
+                self._conn.commit()
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
 
     @staticmethod
     def _gen_task_insertion_params(
@@ -421,15 +506,18 @@ class MariaDBStorage(Storage):
         for graph_index, task_graph in enumerate(task_graphs):
             for task_index, task in enumerate(task_graph.tasks):
                 for position, task_input in enumerate(task.task_inputs):
-                    if isinstance(task_input.value, core.TaskInputData):
-                        input_data_params.append(
-                            (
-                                task_ids[graph_index][task_index].bytes,
-                                position,
-                                task_input.type,
-                                task_input.value.bytes,
-                            )
+                    if not isinstance(task_input.value, core.TaskInputData):
+                        continue
+                    value = task_input.value
+                    data = value.id.bytes if isinstance(value, core.Data) else value.bytes
+                    input_data_params.append(
+                        (
+                            task_ids[graph_index][task_index].bytes,
+                            position,
+                            task_input.type,
+                            data,
                         )
+                    )
         return input_data_params
 
     @staticmethod
@@ -516,6 +604,28 @@ class MariaDBStorage(Storage):
             msg = f"Unknown job status: {status_str}."
             raise StorageError(msg)
         return _StrToJobStatusMap[status_str]
+
+    @staticmethod
+    def _get_data(cursor: mariadb.Cursor, data_id: core.DataId) -> core.Data:
+        """
+        Gets the data with `data_id` from the database using the `cursor`.
+        This method does not commit or rollback the transaction.
+        :param cursor:
+        :param data_id:
+        :return: The data.
+        :raises StorageError: If the data is not found.
+        """
+        cursor.execute(GetData, (data_id.bytes,))
+        row = cursor.fetchone()
+        if row is None:
+            msg = f"No data found with id {data_id}."
+            raise StorageError(msg)
+        value, hard_locality = row
+        data = core.Data(id=data_id, value=value, hard_locality=hard_locality)
+        cursor.execute(GetDataLocality, (data_id.bytes,))
+        for (address,) in cursor.fetchall():
+            data.localities.append(core.DataAddr(address))
+        return data
 
 
 def _raise_storage_error(message: str) -> None:

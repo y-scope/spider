@@ -7,7 +7,7 @@ from typing import get_args, get_origin
 
 from spider_py import core
 from spider_py.client.data import Data
-from spider_py.core import TaskInput, TaskOutput, TaskOutputData, TaskOutputValue
+from spider_py.core import DataId, TaskInput, TaskOutput, TaskOutputValue
 from spider_py.type import to_tdl_type_str
 
 
@@ -72,7 +72,7 @@ def _validate_and_convert_return(signature: inspect.Signature) -> list[TaskOutpu
     if not _is_tuple(returns):
         tdl_type_str = to_tdl_type_str(returns)
         if returns is Data:
-            outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+            outputs.append(TaskOutput(tdl_type_str, DataId(int=0)))
         else:
             outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
         return outputs
@@ -84,7 +84,7 @@ def _validate_and_convert_return(signature: inspect.Signature) -> list[TaskOutpu
     for arg in args:
         tdl_type_str = to_tdl_type_str(arg)
         if arg is Data:
-            outputs.append(TaskOutput(tdl_type_str, TaskOutputData()))
+            outputs.append(TaskOutput(tdl_type_str, DataId(int=0)))
         else:
             outputs.append(TaskOutput(tdl_type_str, TaskOutputValue()))
     return outputs

@@ -6,8 +6,8 @@ import msgpack
 import pytest
 
 from spider_py import chain, group, Int8, TaskContext
-from spider_py.core import Job, JobStatus, TaskInputValue
-from spider_py.storage import MariaDBStorage, parse_jdbc_url
+from spider_py.core import Data, DriverId, Job, JobStatus, TaskInputValue
+from spider_py.storage import MariaDBStorage, parse_jdbc_url, StorageError
 
 MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
 
@@ -48,6 +48,14 @@ def submit_job(mariadb_storage: MariaDBStorage) -> Job:
     return jobs[0]
 
 
+@pytest.fixture
+def driver(mariadb_storage: MariaDBStorage) -> DriverId:
+    """Fixture to create a driver."""
+    driver_id = uuid4()
+    mariadb_storage.create_driver(driver_id)
+    return driver_id
+
+
 class TestMariaDBStorage:
     """Test class for the MariaDB storage backend."""
 
@@ -75,3 +83,24 @@ class TestMariaDBStorage:
         """Tests getting results of a running job."""
         results = mariadb_storage.get_job_results(submit_job)
         assert results is None
+
+    @pytest.mark.storage
+    def test_data(self, mariadb_storage: MariaDBStorage, driver: DriverId) -> None:
+        """Tests data storage and retrieval."""
+        value = b"test data"
+        data = Data(id=uuid4(), value=value, localities=["localhost"])
+        mariadb_storage.create_data_with_driver_ref(driver, data)
+        retrieved_data = mariadb_storage.get_data(data.id)
+        assert retrieved_data is not None
+        assert retrieved_data.id == data.id
+        assert retrieved_data.value == value
+        assert retrieved_data.hard_locality == data.hard_locality
+        assert retrieved_data.localities == data.localities
+
+    @pytest.mark.storage
+    def test_create_data_fail(self, mariadb_storage: MariaDBStorage) -> None:
+        """Tests creating data without a driver fails."""
+        value = b"test data"
+        data = Data(id=uuid4(), value=value, localities=["localhost"])
+        with pytest.raises(StorageError):
+            mariadb_storage.create_data_with_driver_ref(uuid4(), data)
