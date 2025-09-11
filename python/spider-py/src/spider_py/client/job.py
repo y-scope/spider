@@ -9,14 +9,14 @@ from spider_py.type import parse_tdl_type
 from spider_py.utils import from_serializable
 
 
-def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] | object:
+def _deserialize_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] | object:
     """
-    Converts a list of TaskOutput objects to a tuple of their values.
-    :param outputs: The list of TaskOutput objects.
-    :return: A tuple containing the values of the TaskOutput objects.
+    Deserializes a list of `core.TaskOutput` objects to their Python values.
+    :param outputs:
+    :return: A tuple containing the deserialized values of `outputs`, or a single value if
+     `outputs` contains only one element.
     :raises msgpack.exceptions.UnpackException: If there was an error deserializing the TaskOutput
      values.
-    :raises StorageError: If there was an error in the TaskOutput values.
     """
     results = []
     for output in outputs:
@@ -49,7 +49,7 @@ class Job:
     def get_status(self) -> core.JobStatus:
         """
         :return: The current job status.
-        :raises StorageError: If there was an error retrieving the job status from storage.
+        :raises StorageError: If there is an error retrieving the job status from storage.
         """
         if self._impl.status != core.JobStatus.Running:
             return self._impl.status
@@ -60,16 +60,16 @@ class Job:
 
     def get_results(self) -> object | None:
         """
-        :return: The job results or None if the status is not Running.
-        :raises StorageError: If there was an error retrieving the job results from storage.
-        :raises msgpack.exceptions.UnpackException: If there was an error deserializing the job
+        :return: The job results or None if the status has not Succeeded.
+        :raises StorageError: If there is an error retrieving the job results from storage.
+        :raises msgpack.exceptions.UnpackException: If there is an error deserializing the job
          results.
         """
         if self._impl.results is not None:
-            return _convert_outputs(self._impl.results)
+            return _deserialize_outputs(self._impl.results)
 
         results = self._storage.get_job_results(self._impl)
         if results is None:
             return None
         self._impl.results = results
-        return _convert_outputs(results)
+        return _deserialize_outputs(results)
