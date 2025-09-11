@@ -74,8 +74,8 @@ class Driver:
 
     def create_data(self, data: Data) -> None:
         """
-        Registers a Data object in the storage.
-        :param data: The Data object to register.
-        :raises StorageError: If the Data object cannot be registered in the storage.
+        Creates a data in the storage.
+        :param data:
+        :raises StorageError: If the storage operation fails.
         """
         self._storage.create_data_with_driver_ref(self._driver_id, data._impl)
