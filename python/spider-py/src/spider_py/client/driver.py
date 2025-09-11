@@ -76,6 +76,5 @@ class Driver:
         """
         Creates a data in the storage.
         :param data:
-        :raises StorageError: If the storage operation fails.
         """
         self._storage.create_data_with_driver_ref(self._driver_id, data._impl)

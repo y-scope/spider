@@ -49,27 +49,20 @@ class Job:
     def get_status(self) -> core.JobStatus:
         """
         :return: The current job status.
-        :raises StorageError: If there is an error retrieving the job status from storage.
         """
-        if self._impl.status != core.JobStatus.Running:
-            return self._impl.status
-
-        status = self._storage.get_job_status(self._impl)
-        self._impl.status = status
-        return status
+        if self._impl.is_running():
+            self._impl.update_job_status(self._storage)
+        return self._impl.status
 
     def get_results(self) -> object | None:
         """
-        :return: The job results or None if the status has not Succeeded.
-        :raises StorageError: If there is an error retrieving the job results from storage.
-        :raises msgpack.exceptions.UnpackException: If there is an error deserializing the job
-         results.
+        :return: The job results if the job ended successfully.
+        :return: None if the job is still running or ended unsuccessfully.
         """
-        if self._impl.results is not None:
-            return _deserialize_outputs(self._impl.results)
+        if self._impl.results is None:
+            self._impl.results = self._storage.get_job_results(self._impl)
 
-        results = self._storage.get_job_results(self._impl)
-        if results is None:
+        if self._impl.results is None:
             return None
-        self._impl.results = results
-        return _deserialize_outputs(results)
+
+        return _deserialize_outputs(self._impl.results)
