@@ -433,9 +433,10 @@ auto MySqlMetadataStorage::add_job(
             add_task(static_cast<MySqlConnection&>(conn), job_id_bytes, *task, TaskState::Ready);
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
-                if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
-                        return heads.contains(parent);
-                    }))
+                if (std::ranges::all_of(
+                            parents,
+                            [&](boost::uuids::uuid const& parent) { return heads.contains(parent); }
+                    ))
                 {
                     queue.push_back(id);
                 }
@@ -456,9 +457,12 @@ auto MySqlMetadataStorage::add_job(
                 add_task(static_cast<MySqlConnection&>(conn), job_id_bytes, *task, std::nullopt);
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
-                    if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
-                            return heads.contains(parent);
-                        }))
+                    if (std::ranges::all_of(
+                                parents,
+                                [&](boost::uuids::uuid const& parent) {
+                                    return heads.contains(parent);
+                                }
+                        ))
                     {
                         queue.push_back(id);
                     }
@@ -561,9 +565,10 @@ auto MySqlMetadataStorage::add_job_batch(
             );
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
-                if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
-                        return heads.contains(parent);
-                    }))
+                if (std::ranges::all_of(
+                            parents,
+                            [&](boost::uuids::uuid const& parent) { return heads.contains(parent); }
+                    ))
                 {
                     queue.push_back(id);
                 }
@@ -589,9 +594,12 @@ auto MySqlMetadataStorage::add_job_batch(
                 );
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
-                    if (std::ranges::all_of(parents, [&](boost::uuids::uuid const& parent) {
-                            return heads.contains(parent);
-                        }))
+                    if (std::ranges::all_of(
+                                parents,
+                                [&](boost::uuids::uuid const& parent) {
+                                    return heads.contains(parent);
+                                }
+                        ))
                     {
                         queue.push_back(id);
                     }

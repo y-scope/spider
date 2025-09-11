@@ -1,11 +1,11 @@
-"""Tests for msgpack serialization and deserialization."""
+"""Tests for serialization and deserialization."""
 
 from dataclasses import dataclass
 
 import msgpack
 
 import spider_py
-from spider_py.utils.msgpack_serde import msgpack_decoder, msgpack_encoder
+from spider_py.utils.serde import from_serializable, to_serializable
 
 
 def compare_serde(obj: object) -> None:
@@ -13,9 +13,9 @@ def compare_serde(obj: object) -> None:
     Serializes and then deserializes an object, and checks if the result matches the original
     object.
     """
-    serialized = msgpack.packb(obj, default=msgpack_encoder)
+    serialized = msgpack.packb(obj, default=to_serializable)
     unpacked_data = msgpack.unpackb(serialized, raw=False, strict_map_key=False)
-    deserialized = msgpack_decoder(type(obj), unpacked_data)
+    deserialized = from_serializable(type(obj), unpacked_data)
     assert obj == deserialized
 
 

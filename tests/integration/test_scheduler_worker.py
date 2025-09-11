@@ -282,7 +282,7 @@ class TestSchedulerWorker:
         :param storage:
         :param success_job:
         """
-        graph, parent_1, parent_2, child = success_job
+        _, parent_1, parent_2, child = success_job
         # Wait for 2 seconds and check task state and output
         time.sleep(2)
         state = get_task_state(storage, parent_1.id)

@@ -18,6 +18,6 @@ class TestData:
 
         assert data.value == b"test_data"
         assert data.hard_locality is True
-        assert data.get_localities() == ["localhost"]
+        assert data.localities == ["localhost"]
 
         driver.create_data(data)

@@ -6,7 +6,7 @@ from spider_py import core
 from spider_py.client.data import Data
 from spider_py.storage import Storage, StorageError
 from spider_py.type import parse_tdl_type
-from spider_py.utils import msgpack_decoder
+from spider_py.utils import from_serializable
 
 
 def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
@@ -23,7 +23,7 @@ def _convert_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...]:
         if isinstance(output.value, core.TaskOutputValue):
             cls = parse_tdl_type(output.type).native_type()
             unpacked = msgpack.unpackb(output.value, raw=False, strict_map_key=False)
-            results.append(msgpack_decoder(cls, unpacked))
+            results.append(from_serializable(cls, unpacked))
         elif isinstance(output.value, core.Data):
             results.append(Data._from_impl(output.value))
         else:
@@ -38,7 +38,7 @@ class Job:
     def __init__(self, job: core.Job, storage: Storage) -> None:
         """
         Creates a new Spider job.
-        :param job: Core job object.
+        :param job:
         :param storage: The storage backend.
         """
         self._impl = job
