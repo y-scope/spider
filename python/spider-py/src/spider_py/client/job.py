@@ -57,7 +57,7 @@ def _deserialize_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] |
         elif isinstance(output.value, core.Data):
             results.append(Data(output.value))
         else:
-            msg = "Fail to get data from storage."
+            msg = "Unsupported output type."
             raise StorageError(msg)
     if len(results) == 1:
         return results[0]
