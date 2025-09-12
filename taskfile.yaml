@@ -30,7 +30,7 @@ vars:
   G_DEPS_DIR: "{{.G_BUILD_DIR}}/deps"
   # These should be kept in-sync with its usage in CMakeLists.txt
   G_DEPS_CMAKE_SETTINGS_DIR: "{{.G_DEPS_DIR}}/cmake-settings"
-  G_DEPS_CMAKE_SETTINGS_FILE: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/settings.cmake"
+  G_DEPS_CMAKE_SETTINGS_FILE: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/all.cmake"
 
 tasks:
   clean:
@@ -49,7 +49,10 @@ tasks:
       - "{{.G_EXAMPLES_CMAKE_CACHE}}"
       - "{{.G_EXAMPLES_COMPILE_COMMANDS_DB}}"
     cmds:
-      - "cmake -S '{{.ROOT_DIR}}' -B '{{.G_BUILD_SPIDER_DIR}}'"
+      - >-
+       cmake -S '{{.ROOT_DIR}}'
+       -DCMAKE_DEPENDENCY_FILE='{{.G_DEPS_CMAKE_SETTINGS_FILE}}'
+       -B '{{.G_BUILD_SPIDER_DIR}}'
       - "cmake -S '{{.ROOT_DIR}}/examples/quick-start' -B '{{.G_BUILD_EXAMPLES_DIR}}'"
 
   init:
