@@ -43,12 +43,10 @@ class Job:
 
 def _deserialize_outputs(outputs: list[core.TaskOutput]) -> tuple[object, ...] | object:
     """
-    Deserializes a list of `core.TaskOutput` objects to their Python values.
+    Deserializes a list of `core.TaskOutput` objects into their corresponding Python values.
     :param outputs:
-    :return: A tuple containing the deserialized values of `outputs`, or a single value if
-     `outputs` contains only one element.
-    :raises msgpack.exceptions.UnpackException: If there was an error deserializing the TaskOutput
-     values.
+    :return: A tuple of deserialized values if `outputs` contains more than one element.
+    :return: A single value if `outputs` contains only one element.
     """
     results = []
     for output in outputs:
