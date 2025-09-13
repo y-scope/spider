@@ -19,8 +19,7 @@ class TaskContext:
 
     def create_data(self, data: Data) -> None:
         """
-        Creates a new data object in the storage associated with the task.
-        :param data: The data object to be created.
-        :raises StorageError: If there is an error during storage operation.
+        Creates a data in the storage.
+        :param data:
         """
         self._storage.create_data_with_task_ref(self._task_id, data._impl)
