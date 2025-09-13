@@ -91,10 +91,13 @@ auto StructSpec::serialize_to_str(size_t indentation_level) const
             })
     );
     return fmt::format(
-            "{}[StructSpec]:\n{}Name:{}\n{}",
+            "{}[StructSpec]{}:\n{}Name:\n{}\n{}",
             create_indentation(indentation_level),
+            get_source_location().serialize_to_str(),
             create_indentation(indentation_level + 1),
-            get_name(),
+            YSTDLIB_ERROR_HANDLING_TRYX(
+                    get_child_unsafe(0)->serialize_to_str(indentation_level + 2)
+            ),
             fmt::join(serialized_fields, "\n")
     );
 }

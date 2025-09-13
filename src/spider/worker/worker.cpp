@@ -104,7 +104,8 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
 
 auto get_environment_variable() -> absl::flat_hash_map<
         boost::process::v2::environment::key,
-        boost::process::v2::environment::value> {
+        boost::process::v2::environment::value
+> {
     boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
 
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
@@ -115,7 +116,8 @@ auto get_environment_variable() -> absl::flat_hash_map<
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value>
+            boost::process::v2::environment::value
+    >
             environment_variables;
 
     environment_variables.emplace("PATH", path_env);
@@ -350,7 +352,8 @@ auto task_loop(
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
-                boost::process::v2::environment::value> const& environment
+                boost::process::v2::environment::value
+        > const& environment
 ) -> void {
     std::optional<boost::uuids::uuid> fail_task_id = std::nullopt;
     while (!spider::core::StopFlag::is_stop_requested()) {
@@ -499,7 +502,8 @@ auto main(int argc, char** argv) -> int {
 
     absl::flat_hash_map<
             boost::process::v2::environment::key,
-            boost::process::v2::environment::value> const environment_variables
+            boost::process::v2::environment::value
+    > const environment_variables
             = get_environment_variable();
 
     // Start a thread that periodically updates the scheduler's heartbeat

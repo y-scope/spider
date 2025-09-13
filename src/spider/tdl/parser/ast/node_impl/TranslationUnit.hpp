@@ -14,6 +14,7 @@
 #include <spider/tdl/parser/ast/Node.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
 #include <spider/tdl/parser/SourceLocation.hpp>
+#include <spider/tdl/pass/analysis/StructSpecDependencyGraph.hpp>
 
 namespace spider::tdl::parser::ast::node_impl {
 /**
@@ -79,6 +80,15 @@ public:
      */
     [[nodiscard]] auto add_namespace(std::unique_ptr<Node> namespace_node)
             -> ystdlib::error_handling::Result<void>;
+
+    /**
+     * @return A newly constructed dependency graph of struct specs defined in this translation
+     * unit.
+     */
+    [[nodiscard]] auto create_struct_spec_dependency_graph() const
+            -> pass::analysis::StructSpecDependencyGraph {
+        return pass::analysis::StructSpecDependencyGraph{m_struct_spec_table};
+    }
 
 private:
     // Constructor

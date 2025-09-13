@@ -39,8 +39,8 @@ class TestTaskGraph:
         graph = group([graph, graph])
         assert len(graph._impl.tasks) == 4
         assert len(graph._impl.dependencies) == 0
-        assert len(graph._impl.input_tasks) == 4
-        assert len(graph._impl.output_tasks) == 4
+        assert len(graph._impl.input_task_indices) == 4
+        assert len(graph._impl.output_task_indices) == 4
         assert len(graph._impl.task_input_output_refs) == 0
 
     def test_task_fail(self) -> None:
@@ -56,20 +56,21 @@ class TestTaskGraph:
         graph = chain(graph, swap)
         assert len(graph._impl.tasks) == 3
         assert len(graph._impl.dependencies) == 2
-        assert len(graph._impl.input_tasks) == 2
-        assert len(graph._impl.output_tasks) == 1
+
+        assert len(graph._impl.input_task_indices) == 2
+        assert len(graph._impl.output_task_indices) == 1
         assert len(graph._impl.task_input_output_refs) == 2
         graph = chain(graph, add)
         assert len(graph._impl.tasks) == 4
         assert len(graph._impl.dependencies) == 3
-        assert len(graph._impl.input_tasks) == 2
-        assert len(graph._impl.output_tasks) == 1
+        assert len(graph._impl.input_task_indices) == 2
+        assert len(graph._impl.output_task_indices) == 1
         assert len(graph._impl.task_input_output_refs) == 4
         graph = chain(swap, group([double, double]))
         assert len(graph._impl.tasks) == 3
         assert len(graph._impl.dependencies) == 2
-        assert len(graph._impl.input_tasks) == 1
-        assert len(graph._impl.output_tasks) == 2
+        assert len(graph._impl.input_task_indices) == 1
+        assert len(graph._impl.output_task_indices) == 2
         assert len(graph._impl.task_input_output_refs) == 2
 
     def test_chain_fail(self) -> None:

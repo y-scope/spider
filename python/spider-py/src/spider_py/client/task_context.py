@@ -23,4 +23,4 @@ class TaskContext:
         :param data: The data object to be created.
         :raises StorageError: If there is an error during storage operation.
         """
-        self._storage.create_task_data(self._task_id, data._impl)
+        self._storage.create_data_with_task_ref(self._task_id, data._impl)
