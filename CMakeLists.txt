@@ -41,7 +41,7 @@ set(CMAKE_MODULE_PATH
 
 # Set the project dependency file path
 set(CMAKE_DEPENDENCY_FILE "" CACHE STRING "The cmake dependency file to include.")
-if(DEFINED CMAKE_DEPENDENCY_FILE AND NOT CMAKE_DEPENDENCY_FILE STREQUAL "")
+if(NOT CMAKE_DEPENDENCY_FILE STREQUAL "")
     include("${CMAKE_DEPENDENCY_FILE}")
 endif()
 
