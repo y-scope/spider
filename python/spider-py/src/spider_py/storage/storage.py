@@ -60,6 +60,17 @@ class Storage(ABC):
         """
 
     @abstractmethod
+    def create_data_with_task_ref(self, task_id: core.TaskId, data: core.Data) -> None:
+        """
+        Creates a data object in the storage with the given task references to the data. This
+        reference is used for garbage collection purposes.
+        :param task_id: The task ID to associate with the data.
+        :param data:
+        :raises StorageError: If the storage operations fail.
+
+        """
+
+    @abstractmethod
     def get_data(self, data_id: core.DataId) -> core.Data:
         """
         Gets the data object associated with the specified data ID from the storage.

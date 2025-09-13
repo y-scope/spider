@@ -7,15 +7,9 @@ from typing import get_args, get_origin
 
 from spider_py import core
 from spider_py.client.data import Data
+from spider_py.client.task_context import TaskContext
 from spider_py.core import DataId, TaskInput, TaskOutput, TaskOutputValue
 from spider_py.type import to_tdl_type_str
-
-
-class TaskContext:
-    """Spider task context."""
-
-    # TODO: Implement task context for use in task executor
-
 
 # NOTE: This type alias is for clarification purposes only. It does not enforce static type checks.
 # Instead, we rely on the runtime check to ensure the first argument is `TaskContext`. To statically
