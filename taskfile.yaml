@@ -51,7 +51,7 @@ tasks:
     cmds:
       - >-
        cmake -S '{{.ROOT_DIR}}'
-       -DCMAKE_DEPENDENCY_FILE='{{.G_CMAKE_DEPENDENCY_FILE}}'
+       -DSPIDER_CMAKE_DEPENDENCY_FILE='{{.G_CMAKE_DEPENDENCY_FILE}}'
        -B '{{.G_BUILD_SPIDER_DIR}}'
       - "cmake -S '{{.ROOT_DIR}}/examples/quick-start' -B '{{.G_BUILD_EXAMPLES_DIR}}'"
 
