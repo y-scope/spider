@@ -56,7 +56,6 @@ class TestTaskGraph:
         graph = chain(graph, swap)
         assert len(graph._impl.tasks) == 3
         assert len(graph._impl.dependencies) == 2
-
         assert len(graph._impl.input_task_indices) == 2
         assert len(graph._impl.output_task_indices) == 1
         assert len(graph._impl.task_input_output_refs) == 2
