@@ -116,8 +116,8 @@ def main() -> None:
     task_id = UUID(task_id)
     libs = args.libs
     storage_url = args.storage_url
-    input_pipe = args.input_pipe
-    output_pipe = args.output_pipe
+    input_pipe_fd = args.input_pipe
+    output_pipe_fd = args.output_pipe
 
     logger.debug("Function to run: %s", func)
 
@@ -125,45 +125,43 @@ def main() -> None:
     storage_params = storage.parse_jdbc_url(storage_url)
     store = storage.MariaDBStorage(storage_params)
 
-    input_pipe = fdopen(input_pipe, "rb")
-    output_pipe = fdopen(output_pipe, "wb")
-    input_message = receive_message(input_pipe)
-    arguments = get_request_body(input_message)
-    logger.debug("Args buffer parsed")
+    with fdopen(input_pipe_fd, "rb") as input_pipe, fdopen(output_pipe_fd, "wb") as output_pipe:
+        input_message = receive_message(input_pipe)
+        arguments = get_request_body(input_message)
+        logger.debug("Args buffer parsed")
 
-    # Get the function to run
-    function_name = func.replace(".")[-1] if "." in func else func
-    function = None
-    for lib in libs:
-        module = importlib.import_module(lib)
-        if hasattr(module, function_name):
-            function = getattr(module, function_name)
-            break
-    if function is None:
-        msg = f"Function {function_name} not found in provided libraries."
-        raise ValueError(msg)
+        # Get the function to run
+        function_name = func.replace(".")[-1] if "." in func else func
+        function = None
+        for lib in libs:
+            module = importlib.import_module(lib)
+            if hasattr(module, function_name):
+                function = getattr(module, function_name)
+                break
+        if function is None:
+            msg = f"Function {function_name} not found in provided libraries."
+            raise ValueError(msg)
 
-    signature = inspect.signature(function)
-    if len(signature.parameters) != len(arguments) + 1:
-        msg = (
-            f"Function {function_name} expects {len(signature.parameters) - 1} "
-            f"arguments, but {len(arguments)} were provided."
-        )
-        raise ValueError(msg)
-    task_context = client.TaskContext(task_id, store)
-    arguments = [
-        task_context,
-        *parse_arguments(store, list(signature.parameters.values())[1:], arguments),
-    ]
-    results = function(*arguments)
-    logger.debug("Function %s executed", function_name)
+        signature = inspect.signature(function)
+        if len(signature.parameters) != len(arguments) + 1:
+            msg = (
+                f"Function {function_name} expects {len(signature.parameters) - 1} "
+                f"arguments, but {len(arguments)} were provided."
+            )
+            raise ValueError(msg)
+        task_context = client.TaskContext(task_id, store)
+        arguments = [
+            task_context,
+            *parse_arguments(store, list(signature.parameters.values())[1:], arguments),
+        ]
+        results = function(*arguments)
+        logger.debug("Function %s executed", function_name)
 
-    responses = parse_results(results)
-    packed_responses = msgpack.packb(responses)
-    output_pipe.write(f"{len(packed_responses):0{HeaderSize}d}".encode())
-    output_pipe.write(packed_responses)
-    output_pipe.flush()
-    output_pipe.close()
+        responses = parse_results(results)
+        packed_responses = msgpack.packb(responses)
+        output_pipe.write(f"{len(packed_responses):0{HeaderSize}d}".encode())
+        output_pipe.write(packed_responses)
+        output_pipe.flush()
 
 
 if __name__ == "__main__":
