@@ -94,11 +94,11 @@ def parse_results(results: object) -> list[object]:
     if isinstance(results, tuple):
         for result in results:
             if isinstance(result, client.Data):
-                response_messages.append(result._impl.id)
+                response_messages.append(result.id.bytes)
             else:
                 response_messages.append(to_serializable(result))
-    if isinstance(results, client.Data):
-        response_messages.append(results._impl.id)
+    elif isinstance(results, client.Data):
+        response_messages.append(results.id.bytes)
     else:
         response_messages.append(to_serializable(results))
     return response_messages
