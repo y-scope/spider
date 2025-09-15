@@ -112,8 +112,7 @@ def main() -> None:
     # Parses arguments
     args = parse_args()
     func = args.func
-    task_id = args.task_id
-    task_id = UUID(task_id)
+    task_id = UUID(args.task_id)
     storage_url = args.storage_url
     input_pipe = args.input_pipe
     output_pipe = args.output_pipe
