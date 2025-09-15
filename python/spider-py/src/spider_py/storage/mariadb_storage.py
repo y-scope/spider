@@ -368,7 +368,7 @@ class MariaDBStorage(Storage):
                         [(data.id.bytes, addr) for addr in data.localities],
                     )
                 cursor.execute(
-                    insert_ref,
+                    insert_stmt,
                     (data.id.bytes, ref_id.bytes),
                 )
                 self._conn.commit()
