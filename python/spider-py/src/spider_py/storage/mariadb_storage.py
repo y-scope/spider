@@ -113,6 +113,12 @@ INSERT INTO
 VALUES
   (?, ?)"""
 
+InsertDataRefTask = """
+INSERT INTO
+  `data_ref_task` (`id`, `task_id`)
+VALUES
+  (?, ?)"""
+
 GetData = """
 SELECT
   `value`,
@@ -315,25 +321,11 @@ class MariaDBStorage(Storage):
 
     @override
     def create_data_with_driver_ref(self, driver_id: core.DriverId, data: core.Data) -> None:
-        try:
-            with self._conn.cursor() as cursor:
-                cursor.execute(
-                    InsertData,
-                    (data.id.bytes, data.value, data.hard_locality),
-                )
-                if data.localities:
-                    cursor.executemany(
-                        InsertDataLocality,
-                        [(data.id.bytes, addr) for addr in data.localities],
-                    )
-                cursor.execute(
-                    InsertDataRefDriver,
-                    (data.id.bytes, driver_id.bytes),
-                )
-                self._conn.commit()
-        except mariadb.Error as e:
-            self._conn.rollback()
-            raise StorageError(str(e)) from e
+        self._create_data_with_ref(data, InsertDataRefDriver, driver_id)
+
+    @override
+    def create_data_with_task_ref(self, task_id: core.TaskId, data: core.Data) -> None:
+        self._create_data_with_ref(data, InsertDataRefTask, task_id)
 
     @override
     def get_data(self, data_id: core.DataId) -> core.Data:
@@ -351,6 +343,36 @@ class MariaDBStorage(Storage):
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(InsertDriver, (driver_id.bytes,))
+                self._conn.commit()
+        except mariadb.Error as e:
+            self._conn.rollback()
+            raise StorageError(str(e)) from e
+
+    def _create_data_with_ref(
+        self, data: core.Data, insert_stmt: str, ref_id: core.DriverId | core.TaskId
+    ) -> None:
+        """
+        Creates a data object in the storage with the given `ref_id` references to the data.
+        :param data: The data object to create.
+        :param insert_stmt: The SQL statement to insert the reference.
+        :param ref_id: The reference ID.
+        :raises StorageError: If the storage operations fail.
+        """
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(
+                    InsertData,
+                    (data.id.bytes, data.value, data.hard_locality),
+                )
+                if data.localities:
+                    cursor.executemany(
+                        InsertDataLocality,
+                        [(data.id.bytes, addr) for addr in data.localities],
+                    )
+                cursor.execute(
+                    insert_stmt,
+                    (data.id.bytes, ref_id.bytes),
+                )
                 self._conn.commit()
         except mariadb.Error as e:
             self._conn.rollback()
