@@ -154,10 +154,14 @@ def main() -> None:
             task_context,
             *parse_arguments(store, list(signature.parameters.values())[1:], arguments),
         ]
-        results = function(*arguments)
-        logger.debug("Function %s executed", function_name)
+        try:
+            results = function(*arguments)
+            logger.debug("Function %s executed", function_name)
+            responses = parse_results(results)
+        except Exception as e:
+            logger.exception("Function %s failed", function_name)
+            responses = [TaskExecutorResponseType.Error, {"type": e.__class__.__name__, "message": str(e)}]
 
-        responses = parse_results(results)
         packed_responses = msgpack.packb(responses)
         output_pipe.write(f"{len(packed_responses):0{HeaderSize}d}".encode())
         output_pipe.write(packed_responses)
