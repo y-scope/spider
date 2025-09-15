@@ -131,7 +131,7 @@ def main() -> None:
         logger.debug("Args buffer parsed")
 
         # Get the function to run
-        function_name = func.replace(".")[-1] if "." in func else func
+        function_name = func.split(".")[-1] if "." in func else func
         function = None
         for lib in libs:
             module = importlib.import_module(lib)
