@@ -1,7 +1,8 @@
 """Spider client task context module."""
 
-from spider_py import core, storage
+from spider_py import core
 from spider_py.client.data import Data
+from spider_py.storage import Storage
 
 
 class TaskContext:
@@ -11,7 +12,7 @@ class TaskContext:
     - Task-referenced Data creation.
     """
 
-    def __init__(self, task_id: core.TaskId, storage: storage.Storage) -> None:
+    def __init__(self, task_id: core.TaskId, storage: Storage) -> None:
         """
         Initializes the task context.
         :param task_id:
