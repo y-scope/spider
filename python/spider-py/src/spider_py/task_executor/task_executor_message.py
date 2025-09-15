@@ -41,9 +41,10 @@ def get_request_body(message: bytes) -> list[object]:
     Gets the request body from the request message.
     :param message: The msgpack serialized request message.
     :return: The request body as a list of objects.
-    :raises msgpack.exceptions.UnpackException: If the data is not a valid msgpack serialized list.
-    :raises TypeError: If the data is not a msgpack list or the list is too short.
-    :raises InvalidRequestTypeError: If the message header is not an `Arguments`.
+    :raises TypeError: If the serialized message is not a msgpack list or the list length is
+        incorrect.
+    :raises InvalidRequestTypeError: If the message header is not
+        `TaskExecutorRequestType.Arguments`.
     """
     data = msgpack.unpackb(message)
     if not isinstance(data, list):
@@ -57,7 +58,7 @@ def get_request_body(message: bytes) -> list[object]:
         msg = "Message header is not an int."
         raise TypeError(msg)
     if TaskExecutorRequestType.Arguments != header:
-        msg = f"Message header is not an `Arguments`: {header}"
+        msg = f"Message header is not an `Arguments`: {header}."
         raise InvalidRequestTypeError(msg)
     body = data[1]
     if not isinstance(body, list):

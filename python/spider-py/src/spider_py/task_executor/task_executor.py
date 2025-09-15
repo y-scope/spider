@@ -21,15 +21,46 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     """
     Parses task executor arguments.
-    :return: Parsed arguments.
+    :return: The parsed arguments.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--func", type=str, required=True)
-    parser.add_argument("--libs", nargs="+", type=str, required=True)
-    parser.add_argument("--storage_url", type=str, required=True)
-    parser.add_argument("--task_id", type=str, required=True)
-    parser.add_argument("--input-pipe", type=int, required=True)
-    parser.add_argument("--output-pipe", type=int, required=True)
+    parser.add_argument(
+        "--func",
+        type=str,
+        required=True,
+        help="Name of the function to execute."
+    )
+    parser.add_argument(
+        "--libs",
+        nargs="+",
+        type=str,
+        required=True,
+        help="List of libraries to load."
+    )
+    parser.add_argument(
+        "--storage_url",
+        type=str,
+        required=True,
+        help="JDBC URL for the storage backend."
+    )
+    parser.add_argument(
+        "--task_id",
+        type=str,
+        required=True,
+        help="Task UUID."
+    )
+    parser.add_argument(
+        "--input-pipe",
+        type=int,
+        required=True,
+        help="File descriptor for the input pipe."
+    )
+    parser.add_argument(
+        "--output-pipe",
+        type=int,
+        required=True,
+        help="File descriptor for the output pipe."
+    )
     return parser.parse_args()
 
 
@@ -41,15 +72,13 @@ def receive_message(pipe: BufferedReader) -> bytes:
     Receives message from the pipe with a size header.
     :param pipe: Pipe to receive message from.
     :return: Received message body.
-    :raises IOError: If read from pipe fails.
-    :raises UnicodeDecodeError: If parsing header fails.
     :raises EOFError: If the message body size does not match header size.
     """
     body_size_str = pipe.read(HeaderSize).decode()
     body_size = int(body_size_str, base=10)
     body = pipe.read(body_size)
     if len(body) != body_size:
-        msg = "Received message body size does not match header size."
+        msg = "Received message body size does not match the header size."
         raise EOFError(msg)
     return body
 
@@ -62,7 +91,7 @@ def parse_arguments(
     :param store: Storage instance to use to get Data.
     :param params: List of parameters in the function signature.
     :param arguments: List of arguments to parse.
-    :return: Parsed arguments.
+    :return: The parsed arguments.
     :raises TypeError: If a parameter has no type annotation or if an argument cannot be parsed.
     """
     parsed_args: list[object] = []
@@ -70,16 +99,16 @@ def parse_arguments(
         arg = arguments[i]
         cls = param.annotation
         if param.annotation is inspect.Parameter.empty:
-            msg = f"Parameter {param.name} has no type annotation."
+            msg = f"Parameter `{param.name}` has no type annotation."
             raise TypeError(msg)
-        if cls is client.Data:
-            if not isinstance(arg, bytes):
-                msg = f"Argument {i} for spider.Data is not bytes."
-                raise TypeError(msg)
-            core_data = store.get_data(UUID(bytes=arg))
-            parsed_args.append(client.Data(core_data))
-        else:
+        if cls is not client.Data:
             parsed_args.append(from_serializable(cls, arg))
+            continue
+        if not isinstance(arg, bytes):
+            msg = f"Argument {i}: Expected `spider.Data` (bytes), but got {type(arg).__name__}."
+            raise TypeError(msg)
+        core_data = store.get_data(UUID(bytes=arg))
+        parsed_args.append(client.Data(core_data))
     return parsed_args
 
 
@@ -87,8 +116,7 @@ def parse_results(results: object) -> list[object]:
     """
     Parses results from the function execution.
     :param results: Results to parse.
-    :return: Parsed results.
-    :raises TypeError: If a result cannot be parsed.
+    :return: The parsed results.
     """
     response_messages: list[object] = [TaskExecutorResponseType.Result]
     if isinstance(results, tuple):
@@ -131,7 +159,7 @@ def main() -> None:
         logger.debug("Args buffer parsed")
 
         # Get the function to run
-        function_name = func.split(".")[-1] if "." in func else func
+        function_name = func.rsplit(".", 1)[-1]
         function = None
         for lib in libs:
             module = importlib.import_module(lib)
@@ -145,8 +173,8 @@ def main() -> None:
         signature = inspect.signature(function)
         if len(signature.parameters) != len(arguments) + 1:
             msg = (
-                f"Function {function_name} expects {len(signature.parameters) - 1} "
-                f"arguments, but {len(arguments)} were provided."
+                f"Function {function_name} expects {len(signature.parameters) - 1} arguments, but"
+                f" {len(arguments)} were provided."
             )
             raise ValueError(msg)
         task_context = client.TaskContext(task_id, store)
