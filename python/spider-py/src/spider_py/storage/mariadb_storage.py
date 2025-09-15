@@ -348,12 +348,14 @@ class MariaDBStorage(Storage):
             self._conn.rollback()
             raise StorageError(str(e)) from e
 
-    def _create_data_with_ref(self, data: core.Data, insert_stmt: str, ref_id: UUID) -> None:
+    def _create_data_with_ref(
+        self, data: core.Data, insert_stmt: str, ref_id: core.DriverId | core.TaskId
+    ) -> None:
         """
         Creates a data object in the storage with the given `ref_id` references to the data.
         :param data: The data object to create.
         :param insert_stmt: The SQL statement to insert the reference.
-        :param ref_id: The reference ID (DriverId or TaskId).
+        :param ref_id: The reference ID.
         :raises StorageError: If the storage operations fail.
         """
         try:
