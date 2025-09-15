@@ -5,10 +5,18 @@ from spider_py.client.data import Data
 
 
 class TaskContext:
-    """Spider task context provides access to the task id and data creation for tasks."""
+    """
+    Represents the task context, providing:
+    - Access to the task ID.
+    - Task-referenced Data creation.
+    """
 
     def __init__(self, task_id: core.TaskId, storage: storage.Storage) -> None:
-        """Initializes the task context."""
+        """
+        Initializes the task context.
+        :param task_id:
+        :param storage:
+        """
         self._task_id = task_id
         self._storage = storage
 
@@ -19,7 +27,7 @@ class TaskContext:
 
     def create_data(self, data: Data) -> None:
         """
-        Creates a data in the storage.
+        Creates a task-ID referenced data object in the storage.
         :param data:
         """
         self._storage.create_data_with_task_ref(self._task_id, data._impl)
