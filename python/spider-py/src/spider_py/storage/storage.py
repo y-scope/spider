@@ -26,52 +26,56 @@ class Storage(ABC):
         Submits jobs to the storage.
         :param driver_id: Driver id.
         :param task_graphs: Task graphs to submit.
-        :return: List of jobs representing the submitted jobs.
+        :return: A list of submitted jobs.
         :raises StorageError: If the storage operations fail.
         """
 
     @abstractmethod
     def get_job_status(self, job: core.Job) -> JobStatus:
         """
-        Gets the job status. This function does not set the `status` field in jobs.
+        Gets the job status. This function does not set the `status` field in `job`.
         :param job:
-        :return:
+        :return: The job status.
         :raises StorageError: If the storage operations fail.
         """
 
     @abstractmethod
     def get_job_results(self, job: core.Job) -> list[core.TaskOutput] | None:
         """
-        Gets the job's results. This function does not set the `results` field in the job.
+        Gets the job results. This function does not set the `results` field in `job`.
         :param job:
-        :return: List of task outputs or None if the job has no results.
+        :return: A list of task outputs if all tasks are finished.
+        :return: None if any task output is not ready.
         :raises StorageError: If the storage operations fail.
         """
 
     @abstractmethod
-    def create_driver_data(self, driver_id: core.DriverId, data: core.Data) -> None:
+    def create_data_with_driver_ref(self, driver_id: core.DriverId, data: core.Data) -> None:
         """
-        Creates data from a driver in the storage.
-        :param driver_id: The driver id.
-        :param data: Data to create.
+        Creates a data object in the storage with the given driver references to the data. This
+        reference is used for garbage collection purposes.
+        :param driver_id: The driver ID to associate with the data.
+        :param data:
         :raises StorageError: If the storage operations fail.
         """
 
     @abstractmethod
-    def create_task_data(self, task_id: core.TaskId, data: core.Data) -> None:
+    def create_data_with_task_ref(self, task_id: core.TaskId, data: core.Data) -> None:
         """
-        Creates data from a task in the storage.
-        :param task_id: The task id.
-        :param data: Data to create.
+        Creates a data object in the storage with the given task references to the data. This
+        reference is used for garbage collection purposes.
+        :param task_id: The task ID to associate with the data.
+        :param data:
         :raises StorageError: If the storage operations fail.
+
         """
 
     @abstractmethod
     def get_data(self, data_id: core.DataId) -> core.Data:
         """
-        Gets data from the storage.
+        Gets the data object associated with the specified data ID from the storage.
         :param data_id:
-        :return: The Data object associated with `data_id`.
+        :return: The data object associated with `data_id`.
         :raises StorageError: If the storage operations fail.
         """
 

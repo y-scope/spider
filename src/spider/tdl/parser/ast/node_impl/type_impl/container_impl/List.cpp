@@ -26,8 +26,9 @@ auto List::create(std::unique_ptr<Node> element_type, SourceLocation source_loca
 auto List::serialize_to_str(size_t indentation_level) const
         -> ystdlib::error_handling::Result<std::string> {
     return fmt::format(
-            "{}[Type[Container[List]]]:\n{}ElementType:\n{}",
+            "{}[Type[Container[List]]]{}:\n{}ElementType:\n{}",
             create_indentation(indentation_level),
+            get_source_location().serialize_to_str(),
             create_indentation(indentation_level + 1),
             YSTDLIB_ERROR_HANDLING_TRYX(get_element_type()->serialize_to_str(indentation_level + 2))
     );

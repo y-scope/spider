@@ -12,7 +12,7 @@ import msgpack
 
 from spider_py import client, storage
 from spider_py.task_executor.task_executor_message import get_request_body, TaskExecutorResponseType
-from spider_py.utils import msgpack_decoder, msgpack_encoder
+from spider_py.utils import from_serializable, to_serializable
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -77,9 +77,9 @@ def parse_arguments(
                 msg = f"Argument {i} for spider.Data is not bytes."
                 raise TypeError(msg)
             core_data = store.get_data(UUID(bytes=arg))
-            parsed_args.append(client.Data._from_impl(core_data))
+            parsed_args.append(client.Data(core_data))
         else:
-            parsed_args.append(msgpack_decoder(cls, arg))
+            parsed_args.append(from_serializable(cls, arg))
     return parsed_args
 
 
@@ -96,11 +96,11 @@ def parse_results(results: object) -> list[object]:
             if isinstance(result, client.Data):
                 response_messages.append(result._impl.id)
             else:
-                response_messages.append(msgpack_encoder(result))
+                response_messages.append(to_serializable(result))
     if isinstance(results, client.Data):
         response_messages.append(results._impl.id)
     else:
-        response_messages.append(msgpack_encoder(results))
+        response_messages.append(to_serializable(results))
     return response_messages
 
 

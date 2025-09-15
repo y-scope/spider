@@ -1,8 +1,8 @@
 """Spider utils package."""
 
-from .msgpack_serde import msgpack_decoder, msgpack_encoder
+from .serde import from_serializable, to_serializable
 
 __all__ = [
-    "msgpack_decoder",
-    "msgpack_encoder",
+    "from_serializable",
+    "to_serializable",
 ]

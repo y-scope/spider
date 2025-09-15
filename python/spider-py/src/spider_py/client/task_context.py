@@ -1,14 +1,23 @@
 """Spider client task context module."""
 
-from spider_py import core, storage
+from spider_py import core
 from spider_py.client.data import Data
+from spider_py.storage import Storage
 
 
 class TaskContext:
-    """Spider task context provides access to the task id and data creation for tasks."""
+    """
+    Represents the task context, providing:
+    - Access to the task ID.
+    - Task-referenced Data creation.
+    """
 
-    def __init__(self, task_id: core.TaskId, storage: storage.Storage) -> None:
-        """Initializes the task context."""
+    def __init__(self, task_id: core.TaskId, storage: Storage) -> None:
+        """
+        Initializes the task context.
+        :param task_id:
+        :param storage:
+        """
         self._task_id = task_id
         self._storage = storage
 
@@ -19,8 +28,7 @@ class TaskContext:
 
     def create_data(self, data: Data) -> None:
         """
-        Creates a new data object in the storage associated with the task.
-        :param data: The data object to be created.
-        :raises StorageError: If there is an error during storage operation.
+        Creates a task-ID referenced data object in the storage.
+        :param data:
         """
-        self._storage.create_task_data(self._task_id, data._impl)
+        self._storage.create_data_with_task_ref(self._task_id, data._impl)
