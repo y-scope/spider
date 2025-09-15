@@ -112,7 +112,9 @@ def main() -> None:
     # Parses arguments
     args = parse_args()
     func = args.func
-    task_id = UUID(args.task_id)
+    task_id = args.task_id
+    task_id = UUID(task_id)
+    libs = args.libs
     storage_url = args.storage_url
     input_pipe = args.input_pipe
     output_pipe = args.output_pipe
@@ -120,7 +122,8 @@ def main() -> None:
     logger.debug("Function to run: %s", func)
 
     # Sets up storage
-    store = storage.MariaDBStorage(storage_url)
+    storage_params = storage.parse_jdbc_url(storage_url)
+    store = storage.MariaDBStorage(storage_params)
 
     input_pipe = fdopen(input_pipe, "rb")
     output_pipe = fdopen(output_pipe, "wb")
@@ -129,10 +132,16 @@ def main() -> None:
     logger.debug("Args buffer parsed")
 
     # Get the function to run
-    module_name, function_name = func.rsplit(".", 1)
-    module = importlib.import_module(module_name)
-    function = getattr(module, function_name)
-    logger.debug("Function %s imported from module %s", function_name, module_name)
+    function_name = func.replace(".")[-1] if "." in func else func
+    function = None
+    for lib in libs:
+        module = importlib.import_module(lib)
+        if hasattr(module, function_name):
+            function = getattr(module, function_name)
+            break
+    if function is None:
+        msg = f"Function {function_name} not found in provided libraries."
+        raise ValueError(msg)
 
     signature = inspect.signature(function)
     if len(signature.parameters) != len(arguments) + 1:
@@ -150,7 +159,9 @@ def main() -> None:
     logger.debug("Function %s executed", function_name)
 
     responses = parse_results(results)
-    output_pipe.write(msgpack.packb(responses))
+    packed_responses = msgpack.packb(responses)
+    output_pipe.write(f"{len(packed_responses):0{HeaderSize}d}".encode())
+    output_pipe.write(packed_responses)
     output_pipe.flush()
     output_pipe.close()
 

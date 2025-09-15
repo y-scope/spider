@@ -1,6 +1,7 @@
 """Task executor message module."""
 
 from enum import IntEnum
+from typing import cast
 
 import msgpack
 
@@ -32,7 +33,7 @@ class InvalidRequestTypeError(Exception):
         super().__init__(message)
 
 
-MinArgRequestLength = 2
+ArgRequestLength = 2
 
 
 def get_request_body(message: bytes) -> list[object]:
@@ -48,11 +49,11 @@ def get_request_body(message: bytes) -> list[object]:
     if not isinstance(data, list):
         msg = "Message is not a list."
         raise TypeError(msg)
-    if len(data) < MinArgRequestLength:
+    if len(data) != ArgRequestLength:
         msg = "Message is too short."
         raise TypeError(msg)
     message_header = int(data[0])
     if TaskExecutorRequestType.Arguments != message_header:
         msg = f"Message header is not an `Arguments`: {message_header}"
         raise InvalidRequestTypeError(msg)
-    return data[1:]
+    return cast("list[object]", data[1])
