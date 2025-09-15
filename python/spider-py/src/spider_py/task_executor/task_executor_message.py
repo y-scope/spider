@@ -50,10 +50,17 @@ def get_request_body(message: bytes) -> list[object]:
         msg = "Message is not a list."
         raise TypeError(msg)
     if len(data) != ArgRequestLength:
-        msg = "Message is too short."
+        msg = f"Message is not a list with {ArgRequestLength} elements, got {len(data)}."
         raise TypeError(msg)
-    message_header = int(data[0])
-    if TaskExecutorRequestType.Arguments != message_header:
-        msg = f"Message header is not an `Arguments`: {message_header}"
+    header = data[0]
+    if not isinstance(header, int):
+        msg = "Message header is not an int."
+        raise TypeError(msg)
+    if TaskExecutorRequestType.Arguments != header:
+        msg = f"Message header is not an `Arguments`: {header}"
         raise InvalidRequestTypeError(msg)
-    return cast("list[object]", data[1])
+    body = data[1]
+    if not isinstance(body, list):
+        msg = "Message body is not a list."
+        raise TypeError(msg)
+    return cast("list[object]", body)
