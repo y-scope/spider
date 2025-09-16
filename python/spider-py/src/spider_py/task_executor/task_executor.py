@@ -90,6 +90,17 @@ def parse_task_arguments(
     return parsed_args
 
 
+def parse_single_output_to_serializable(output: object) -> object:
+    """
+    Parses a single output from the function execution to a serializable form.
+    :param output: Output to parse.
+    :return: The parsed output.
+    """
+    if isinstance(output, client.Data):
+        return output.id.bytes
+    return to_serializable(output)
+
+
 def parse_task_execution_results(results: object) -> list[object]:
     """
     Parses results from the function execution.
@@ -97,16 +108,12 @@ def parse_task_execution_results(results: object) -> list[object]:
     :return: The parsed results.
     """
     response_messages: list[object] = [TaskExecutorResponseType.Result]
-    if isinstance(results, tuple):
-        for result in results:
-            if isinstance(result, client.Data):
-                response_messages.append(result.id.bytes)
-            else:
-                response_messages.append(to_serializable(result))
-    elif isinstance(results, client.Data):
-        response_messages.append(results.id.bytes)
-    else:
-        response_messages.append(to_serializable(results))
+    if not isinstance(results, tuple):
+        response_messages.append(parse_single_output_to_serializable(results))
+        return response_messages
+    # Parse as a tuple
+    for result in results:
+        response_messages.append(parse_single_output_to_serializable(result))
     return response_messages
 
 
