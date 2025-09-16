@@ -1,12 +1,11 @@
 """Executes a Spider Python task."""
 
 import argparse
-import importlib
 import inspect
 import logging
-from collections.abc import Callable
 from io import BufferedReader
 from os import fdopen
+from pydoc import locate
 from uuid import UUID
 
 import msgpack
@@ -123,31 +122,6 @@ def parse_task_execution_results(results: object) -> list[object]:
 FunctionNameSize = 2
 
 
-def get_function(function_name: str) -> Callable[..., object] | None:
-    """
-    Gets a function by its full name
-    :param function_name: module-qualname of the function.
-    :return: The function found.
-    :return: None if the `function_name` does not exist in `module`.
-    :return: None if the attribute matching the `function_name` is not a function.
-    """
-    names = function_name.split("-")
-    if len(names) != FunctionNameSize:
-        return None
-    module_name = names[0]
-    try:
-        obj = importlib.import_module(module_name)
-    except ModuleNotFoundError:
-        return None
-    for attr in names[1].split("."):
-        if not hasattr(obj, attr):
-            return None
-        obj = getattr(obj, attr)
-    if not inspect.isfunction(obj):
-        return None
-    return obj
-
-
 def main() -> None:
     """Main function to execute the task."""
     # Parses arguments
@@ -171,8 +145,8 @@ def main() -> None:
         logger.debug("Args buffer parsed")
 
         # Get the function to run
-        function = get_function(function_name)
-        if function is None:
+        function = locate(function_name)
+        if function is None or not inspect.isfunction(function):
             msg = f"Function {function_name} not found in provided libraries."
             raise ValueError(msg)
 
