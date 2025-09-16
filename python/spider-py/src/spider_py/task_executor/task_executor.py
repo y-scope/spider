@@ -30,7 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--func", type=str, required=True, help="Name of the function to execute.")
     parser.add_argument(
-        "--libs", nargs="+", type=str, required=True, help="List of libraries to load."
+        "--libs",
+        nargs="+",
+        type=str,
+        required=True,
+        help="List of libraries to load. NOTE: This argument is not used in the current executor.",
     )
     parser.add_argument(
         "--storage_url", type=str, required=True, help="JDBC URL for the storage backend."
@@ -148,7 +152,7 @@ def main() -> None:
         # Get the function to run
         function = locate(function_name)
         if function is None or not inspect.isfunction(function):
-            msg = f"Function {function_name} not found in provided libraries."
+            msg = f"{function_name} cannot be found in the current Python execution environment."
             raise ValueError(msg)
 
         signature = inspect.signature(function)
