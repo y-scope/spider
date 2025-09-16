@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-spider_task_executor = "spider_py.task_executor.task_executor:main"
+spider-py-task-executor = "spider_py.task_executor.task_executor:main"
 
 [dependency-groups]
 dev = [
