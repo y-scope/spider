@@ -118,10 +118,7 @@ def parse_task_execution_results(results: object) -> list[object]:
 
 
 def main() -> None:
-    """
-    Main function to execute the task.
-    :raises StorageError: If a storage operation fails.
-    """
+    """Main function to execute the task."""
     # Parses arguments
     args = parse_args()
     func = args.func
