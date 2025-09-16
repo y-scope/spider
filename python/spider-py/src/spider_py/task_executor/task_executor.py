@@ -90,7 +90,7 @@ def parse_task_arguments(
     return parsed_args
 
 
-def parse_results(results: object) -> list[object]:
+def parse_task_execution_results(results: object) -> list[object]:
     """
     Parses results from the function execution.
     :param results: Results to parse.
@@ -163,7 +163,7 @@ def main() -> None:
         try:
             results = function(*arguments)
             logger.debug("Function %s executed", function_name)
-            responses = parse_results(results)
+            responses = parse_task_execution_results(results)
         except Exception as e:
             logger.exception("Function %s failed", function_name)
             responses = [
