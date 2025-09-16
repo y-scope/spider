@@ -10,7 +10,8 @@ from uuid import UUID
 
 import msgpack
 
-from spider_py import client, storage
+from spider_py import client
+from spider_py.storage import MariaDBStorage, parse_jdbc_url, Storage
 from spider_py.task_executor.task_executor_message import get_request_body, TaskExecutorResponseType
 from spider_py.utils import from_serializable, to_serializable
 
@@ -61,11 +62,11 @@ def receive_message(pipe: BufferedReader) -> bytes:
 
 
 def parse_task_arguments(
-    store: storage.Storage, params: list[inspect.Parameter], arguments: list[object]
+    storage: Storage, params: list[inspect.Parameter], arguments: list[object]
 ) -> list[object]:
     """
     Parses arguments for the function to be executed.
-    :param store: Storage instance to use to get Data.
+    :param storage: Storage instance to use to get Data.
     :param params: List of parameters in the function signature.
     :param arguments: List of arguments to parse.
     :return: The parsed arguments.
@@ -84,7 +85,7 @@ def parse_task_arguments(
         if not isinstance(arg, bytes):
             msg = f"Argument {i}: Expected `spider.Data` (bytes), but got {type(arg).__name__}."
             raise TypeError(msg)
-        core_data = store.get_data(UUID(bytes=arg))
+        core_data = storage.get_data(UUID(bytes=arg))
         parsed_args.append(client.Data(core_data))
     return parsed_args
 
@@ -127,8 +128,8 @@ def main() -> None:
     logger.debug("Function to run: %s", func)
 
     # Sets up storage
-    storage_params = storage.parse_jdbc_url(storage_url)
-    store = storage.MariaDBStorage(storage_params)
+    storage_params = parse_jdbc_url(storage_url)
+    store = MariaDBStorage(storage_params)
 
     with fdopen(input_pipe_fd, "rb") as input_pipe, fdopen(output_pipe_fd, "wb") as output_pipe:
         input_message = receive_message(input_pipe)
