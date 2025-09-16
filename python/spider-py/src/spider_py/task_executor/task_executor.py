@@ -4,8 +4,10 @@ import argparse
 import importlib
 import inspect
 import logging
+from collections.abc import Callable
 from io import BufferedReader
 from os import fdopen
+from types import ModuleType
 from uuid import UUID
 
 import msgpack
@@ -117,19 +119,40 @@ def parse_task_execution_results(results: object) -> list[object]:
     return response_messages
 
 
+def get_function_from_module(
+    module: ModuleType, function_name: str
+) -> Callable[..., object] | None:
+    """
+    Gets a function from a module by name.
+    :param module:
+    :param function_name: qualname of the function.
+    :return: The function found.
+    :return: None if the `function_name` does not exist in `module`.
+    :return: None if the attribute matching the `function_name` is not a function.
+    """
+    obj = module
+    for attr in function_name.split("."):
+        if not hasattr(obj, attr):
+            return None
+        obj = getattr(obj, attr)
+    if not inspect.isfunction(obj):
+        return None
+    return obj
+
+
 def main() -> None:
     """Main function to execute the task."""
     # Parses arguments
     args = parse_args()
-    func = args.func
+    function_name = args.func
     task_id = args.task_id
     task_id = UUID(task_id)
-    libs = args.libs
+    mods = args.libs
     storage_url = args.storage_url
     input_pipe_fd = args.input_pipe
     output_pipe_fd = args.output_pipe
 
-    logger.debug("Function to run: %s", func)
+    logger.debug("Function to run: %s", function_name)
 
     # Sets up storage
     storage_params = parse_jdbc_url(storage_url)
@@ -141,12 +164,11 @@ def main() -> None:
         logger.debug("Args buffer parsed")
 
         # Get the function to run
-        function_name = func.rsplit(".", 1)[-1]
         function = None
-        for lib in libs:
-            module = importlib.import_module(lib)
-            if hasattr(module, function_name):
-                function = getattr(module, function_name)
+        for mod in mods:
+            module = importlib.import_module(mod)
+            function = get_function_from_module(module, function_name)
+            if function is not None:
                 break
         if function is None:
             msg = f"Function {function_name} not found in provided libraries."
