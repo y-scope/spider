@@ -124,9 +124,6 @@ def parse_task_execution_results(results: object) -> list[object]:
     return response_messages
 
 
-FunctionNameSize = 2
-
-
 def main() -> None:
     """Main function to execute the task."""
     # Parses arguments
