@@ -68,7 +68,7 @@ def parse_task_arguments(
     Parses arguments for the function to be executed.
     :param storage: Storage instance to use to get Data.
     :param params: List of parameters in the function signature.
-    :param arguments: List of arguments to parse.
+    :param arguments: List of arguments to parse. Must be the same length as params.
     :return: The parsed arguments.
     :raises TypeError: If a parameter has no type annotation or if an argument cannot be parsed.
     """
