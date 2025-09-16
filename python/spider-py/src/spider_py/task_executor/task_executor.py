@@ -18,53 +18,30 @@ from spider_py.utils import from_serializable, to_serializable
 logger = logging.getLogger(__name__)
 
 
+HeaderSize = 16
+
+
 def parse_args() -> argparse.Namespace:
     """
     Parses task executor arguments.
     :return: The parsed arguments.
     """
     parser = argparse.ArgumentParser()
+    parser.add_argument("--func", type=str, required=True, help="Name of the function to execute.")
     parser.add_argument(
-        "--func",
-        type=str,
-        required=True,
-        help="Name of the function to execute."
+        "--libs", nargs="+", type=str, required=True, help="List of libraries to load."
     )
     parser.add_argument(
-        "--libs",
-        nargs="+",
-        type=str,
-        required=True,
-        help="List of libraries to load."
+        "--storage_url", type=str, required=True, help="JDBC URL for the storage backend."
+    )
+    parser.add_argument("--task_id", type=str, required=True, help="Task UUID.")
+    parser.add_argument(
+        "--input-pipe", type=int, required=True, help="File descriptor for the input pipe."
     )
     parser.add_argument(
-        "--storage_url",
-        type=str,
-        required=True,
-        help="JDBC URL for the storage backend."
-    )
-    parser.add_argument(
-        "--task_id",
-        type=str,
-        required=True,
-        help="Task UUID."
-    )
-    parser.add_argument(
-        "--input-pipe",
-        type=int,
-        required=True,
-        help="File descriptor for the input pipe."
-    )
-    parser.add_argument(
-        "--output-pipe",
-        type=int,
-        required=True,
-        help="File descriptor for the output pipe."
+        "--output-pipe", type=int, required=True, help="File descriptor for the output pipe."
     )
     return parser.parse_args()
-
-
-HeaderSize = 16
 
 
 def receive_message(pipe: BufferedReader) -> bytes:
@@ -83,7 +60,7 @@ def receive_message(pipe: BufferedReader) -> bytes:
     return body
 
 
-def parse_arguments(
+def parse_task_arguments(
     store: storage.Storage, params: list[inspect.Parameter], arguments: list[object]
 ) -> list[object]:
     """
@@ -180,7 +157,7 @@ def main() -> None:
         task_context = client.TaskContext(task_id, store)
         arguments = [
             task_context,
-            *parse_arguments(store, list(signature.parameters.values())[1:], arguments),
+            *parse_task_arguments(store, list(signature.parameters.values())[1:], arguments),
         ]
         try:
             results = function(*arguments)
@@ -188,7 +165,10 @@ def main() -> None:
             responses = parse_results(results)
         except Exception as e:
             logger.exception("Function %s failed", function_name)
-            responses = [TaskExecutorResponseType.Error, {"type": e.__class__.__name__, "message": str(e)}]
+            responses = [
+                TaskExecutorResponseType.Error,
+                {"type": e.__class__.__name__, "message": str(e)},
+            ]
 
         packed_responses = msgpack.packb(responses)
         output_pipe.write(f"{len(packed_responses):0{HeaderSize}d}".encode())
