@@ -96,7 +96,7 @@ def create_task(func: TaskFunction) -> core.Task:
         raise TypeError(msg)
     signature = inspect.signature(func)
     return core.Task(
-        function_name=func.__qualname__,
+        function_name=f"{func.__module__}-{func.__qualname__}",
         task_inputs=_validate_and_convert_params(signature),
         task_outputs=_validate_and_convert_return(signature),
     )

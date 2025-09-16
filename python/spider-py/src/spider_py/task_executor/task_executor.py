@@ -7,7 +7,6 @@ import logging
 from collections.abc import Callable
 from io import BufferedReader
 from os import fdopen
-from types import ModuleType
 from uuid import UUID
 
 import msgpack
@@ -121,19 +120,26 @@ def parse_task_execution_results(results: object) -> list[object]:
     return response_messages
 
 
-def get_function_from_module(
-    module: ModuleType, function_name: str
-) -> Callable[..., object] | None:
+FunctionNameSize = 2
+
+
+def get_function(function_name: str) -> Callable[..., object] | None:
     """
-    Gets a function from a module by name.
-    :param module:
-    :param function_name: qualname of the function.
+    Gets a function by its full name
+    :param function_name: module-qualname of the function.
     :return: The function found.
     :return: None if the `function_name` does not exist in `module`.
     :return: None if the attribute matching the `function_name` is not a function.
     """
-    obj = module
-    for attr in function_name.split("."):
+    names = function_name.split("-")
+    if len(names) != FunctionNameSize:
+        return None
+    module_name = names[0]
+    try:
+        obj = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        return None
+    for attr in names[1].split("."):
         if not hasattr(obj, attr):
             return None
         obj = getattr(obj, attr)
@@ -149,7 +155,6 @@ def main() -> None:
     function_name = args.func
     task_id = args.task_id
     task_id = UUID(task_id)
-    mods = args.libs
     storage_url = args.storage_url
     input_pipe_fd = args.input_pipe
     output_pipe_fd = args.output_pipe
@@ -166,12 +171,7 @@ def main() -> None:
         logger.debug("Args buffer parsed")
 
         # Get the function to run
-        function = None
-        for mod in mods:
-            module = importlib.import_module(mod)
-            function = get_function_from_module(module, function_name)
-            if function is not None:
-                break
+        function = get_function(function_name)
         if function is None:
             msg = f"Function {function_name} not found in provided libraries."
             raise ValueError(msg)
