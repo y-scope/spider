@@ -129,7 +129,7 @@ def main() -> None:
 
     # Sets up storage
     storage_params = parse_jdbc_url(storage_url)
-    store = MariaDBStorage(storage_params)
+    storage = MariaDBStorage(storage_params)
 
     with fdopen(input_pipe_fd, "rb") as input_pipe, fdopen(output_pipe_fd, "wb") as output_pipe:
         input_message = receive_message(input_pipe)
@@ -155,10 +155,10 @@ def main() -> None:
                 f" {len(arguments)} were provided."
             )
             raise ValueError(msg)
-        task_context = client.TaskContext(task_id, store)
+        task_context = client.TaskContext(task_id, storage)
         arguments = [
             task_context,
-            *parse_task_arguments(store, list(signature.parameters.values())[1:], arguments),
+            *parse_task_arguments(storage, list(signature.parameters.values())[1:], arguments),
         ]
         try:
             results = function(*arguments)
