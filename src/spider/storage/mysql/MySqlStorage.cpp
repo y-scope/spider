@@ -1246,41 +1246,6 @@ auto MySqlMetadataStorage::reset_job(StorageConnection& conn, boost::uuids::uuid
     return StorageErr{};
 }
 
-auto MySqlMetadataStorage::add_child(
-        StorageConnection& conn,
-        boost::uuids::uuid parent_id,
-        Task const& child
-) -> StorageErr {
-    try {
-        sql::bytes const job_id = uuid_get_bytes(child.get_id());
-        auto res = add_task(static_cast<MySqlConnection&>(conn), job_id, child, std::nullopt);
-        if (res.has_error()) {
-            static_cast<MySqlConnection&>(conn)->rollback();
-            return StorageErr{res.error().get_error(), "Cannot add task"};
-        }
-
-        // Add dependencies
-        std::unique_ptr<sql::PreparedStatement> statement(
-                static_cast<MySqlConnection&>(conn)->prepareStatement(
-                        "INSERT INTO `task_dependencies` (`parent`, `child`) VALUES (?, ?)"
-                )
-        );
-        sql::bytes parent_id_bytes = uuid_get_bytes(parent_id);
-        sql::bytes child_id_bytes = uuid_get_bytes(child.get_id());
-        statement->setBytes(1, &parent_id_bytes);
-        statement->setBytes(2, &child_id_bytes);
-        statement->executeUpdate();
-    } catch (sql::SQLException& e) {
-        static_cast<MySqlConnection&>(conn)->rollback();
-        if (e.getErrorCode() == ErDupKey || e.getErrorCode() == ErDupEntry) {
-            return StorageErr{StorageErrType::DuplicateKeyErr, e.what()};
-        }
-        return StorageErr{StorageErrType::OtherErr, e.what()};
-    }
-    static_cast<MySqlConnection&>(conn)->commit();
-    return StorageErr{};
-}
-
 auto MySqlMetadataStorage::get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task)
         -> StorageErr {
     try {
