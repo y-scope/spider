@@ -10,6 +10,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -80,7 +81,7 @@ auto get_sql_string(sql::SQLString const& str) -> std::string {
 
 // NOLINTEND
 
-auto task_language_to_string(spider::core::TaskLanguage language) -> std::string {
+[[nodiscard]] auto task_language_to_string(spider::core::TaskLanguage language) -> std::string {
     switch (language) {
         case spider::core::TaskLanguage::Python:
             return "python";
@@ -91,7 +92,8 @@ auto task_language_to_string(spider::core::TaskLanguage language) -> std::string
     }
 }
 
-auto string_to_task_language(std::string const& language) -> spider::core::TaskLanguage {
+[[nodiscard]] auto string_to_task_language(std::string_view const language)
+        -> spider::core::TaskLanguage {
     if (language == "python") {
         return spider::core::TaskLanguage::Python;
     }
