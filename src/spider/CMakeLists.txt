@@ -217,6 +217,7 @@ set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/node_impl/NamedVar.cpp
     tdl/parser/ast/node_impl/Namespace.cpp
     tdl/parser/ast/node_impl/StructSpec.cpp
+    tdl/parser/ast/node_impl/TranslationUnit.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/List.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/Map.cpp
     tdl/parser/ast/node_impl/type_impl/container_impl/Tuple.cpp
@@ -226,6 +227,7 @@ set(SPIDER_TDL_SHARED_SOURCES
     tdl/parser/ast/node_impl/type_impl/Struct.cpp
     tdl/parser/ast/utils.cpp
     tdl/parser/parse.cpp
+    tdl/pass/analysis/StructSpecDependencyGraph.cpp
     CACHE INTERNAL
     "spider task definition language shared source files"
 )
@@ -240,6 +242,7 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/node_impl/NamedVar.hpp
     tdl/parser/ast/node_impl/Namespace.hpp
     tdl/parser/ast/node_impl/StructSpec.hpp
+    tdl/parser/ast/node_impl/TranslationUnit.hpp
     tdl/parser/ast/node_impl/Type.hpp
     tdl/parser/ast/node_impl/type_impl/Container.hpp
     tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp
@@ -253,8 +256,10 @@ set(SPIDER_TDL_SHARED_HEADERS
     tdl/parser/ast/nodes.hpp
     tdl/parser/ast/utils.hpp
     tdl/parser/ErrorListener.hpp
+    tdl/parser/Exception.hpp
     tdl/parser/parse.hpp
     tdl/parser/SourceLocation.hpp
+    tdl/pass/analysis/StructSpecDependencyGraph.hpp
     CACHE INTERNAL
     "spider task definition language shared header files"
 )

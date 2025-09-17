@@ -84,3 +84,19 @@ tasks:
       PYTHONDONTWRITEBYTECODE: "1"
     cmds:
       - "uv run pytest"
+
+  spider-py-non-storage-unit-tests:
+    dir: "{{.G_SRC_PYTHON_DIR}}"
+    env:
+      # Don't create __pycache__ directories in the source tree.
+      PYTHONDONTWRITEBYTECODE: "1"
+    cmds:
+      - "uv run pytest -m \"not storage\""
+
+  spider-py-storage-unit-tests:
+    dir: "{{.G_SRC_PYTHON_DIR}}"
+    env:
+      # Don't create __pycache__ directories in the source tree.
+      PYTHONDONTWRITEBYTECODE: "1"
+    cmds:
+      - "uv run pytest -m \"storage\""

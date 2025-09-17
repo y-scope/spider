@@ -18,6 +18,7 @@
 #include <spider/tdl/parser/ast/node_impl/NamedVar.hpp>
 #include <spider/tdl/parser/ast/node_impl/Namespace.hpp>
 #include <spider/tdl/parser/ast/node_impl/StructSpec.hpp>
+#include <spider/tdl/parser/ast/node_impl/TranslationUnit.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/List.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Map.hpp>
 #include <spider/tdl/parser/ast/node_impl/type_impl/container_impl/Tuple.hpp>
@@ -50,6 +51,22 @@ create_named_var(std::string_view name, std::unique_ptr<spider::tdl::parser::ast
  * tuple.
  */
 [[nodiscard]] auto create_func(std::string_view name)
+        -> std::unique_ptr<spider::tdl::parser::ast::Node>;
+
+/**
+ * @param name
+ * @return A struct specification with the given name. The returned struct spec has one `int32`
+ * field named `member_0`.
+ */
+[[nodiscard]] auto create_struct_spec(std::string_view name)
+        -> std::shared_ptr<spider::tdl::parser::ast::node_impl::StructSpec>;
+
+/**
+ * @param name
+ * @return A namespace with the given name. The returned namespace one function named `func_0`
+ * created by `create_func`.
+ */
+[[nodiscard]] auto create_namespace(std::string_view name)
         -> std::unique_ptr<spider::tdl::parser::ast::Node>;
 
 /**
@@ -101,6 +118,44 @@ auto create_func(std::string_view name) -> std::unique_ptr<spider::tdl::parser::
     return std::move(func_result.value());
 }
 
+auto create_struct_spec(std::string_view name)
+        -> std::shared_ptr<spider::tdl::parser::ast::node_impl::StructSpec> {
+    using spider::tdl::parser::ast::IntSpec;
+    using spider::tdl::parser::ast::Node;
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::type_impl::primitive_impl::Int;
+
+    std::vector<std::unique_ptr<Node>> members;
+    members.emplace_back(
+            create_named_var("member_0", Int::create(IntSpec::Int32, create_source_location()))
+    );
+
+    auto struct_spec_result{spider::tdl::parser::ast::node_impl::StructSpec::create(
+            Identifier::create(std::string{name}, create_source_location()),
+            std::move(members),
+            create_source_location()
+    )};
+    REQUIRE_FALSE(struct_spec_result.has_error());
+    return struct_spec_result.value();
+}
+
+auto create_namespace(std::string_view name) -> std::unique_ptr<spider::tdl::parser::ast::Node> {
+    using spider::tdl::parser::ast::Node;
+    using spider::tdl::parser::ast::node_impl::Identifier;
+    using spider::tdl::parser::ast::node_impl::Namespace;
+
+    std::vector<std::unique_ptr<Node>> functions;
+    functions.emplace_back(create_func("func_0"));
+
+    auto namespace_result{Namespace::create(
+            Identifier::create(std::string{name}, create_source_location()),
+            std::move(functions),
+            create_source_location()
+    )};
+    REQUIRE_FALSE(namespace_result.has_error());
+    return std::move(namespace_result.value());
+}
+
 auto create_source_location() -> spider::tdl::parser::SourceLocation {
     return {0, 0};
 }
@@ -114,6 +169,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
     using spider::tdl::parser::ast::node_impl::NamedVar;
     using spider::tdl::parser::ast::node_impl::Namespace;
     using spider::tdl::parser::ast::node_impl::StructSpec;
+    using spider::tdl::parser::ast::node_impl::TranslationUnit;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::List;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Map;
     using spider::tdl::parser::ast::node_impl::type_impl::container_impl::Tuple;
@@ -125,7 +181,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
     SECTION("Identifier") {
         constexpr std::string_view cTestName{"test_name"};
-        constexpr std::string_view cSerializedIdentifier{"[Identifier]:test_name"};
+        constexpr std::string_view cSerializedIdentifier{"[Identifier](0:0):test_name"};
 
         auto const node{Identifier::create(std::string{cTestName}, create_source_location())};
         auto const* identifier{dynamic_cast<Identifier const*>(node.get())};
@@ -141,10 +197,19 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
     SECTION("Type Int") {
         auto const [int_spec, expected_serialized_result] = GENERATE(
-                std::make_pair(IntSpec::Int8, std::string_view{"[Type[Primitive[Int]]]:int8"}),
-                std::make_pair(IntSpec::Int16, std::string_view{"[Type[Primitive[Int]]]:int16"}),
-                std::make_pair(IntSpec::Int32, std::string_view{"[Type[Primitive[Int]]]:int32"}),
-                std::make_pair(IntSpec::Int64, std::string_view{"[Type[Primitive[Int]]]:int64"})
+                std::make_pair(IntSpec::Int8, std::string_view{"[Type[Primitive[Int]]](0:0):int8"}),
+                std::make_pair(
+                        IntSpec::Int16,
+                        std::string_view{"[Type[Primitive[Int]]](0:0):int16"}
+                ),
+                std::make_pair(
+                        IntSpec::Int32,
+                        std::string_view{"[Type[Primitive[Int]]](0:0):int32"}
+                ),
+                std::make_pair(
+                        IntSpec::Int64,
+                        std::string_view{"[Type[Primitive[Int]]](0:0):int64"}
+                )
         );
 
         auto const node{Int::create(int_spec, create_source_location())};
@@ -163,11 +228,11 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         auto const [float_spec, expected_serialized_result] = GENERATE(
                 std::make_pair(
                         FloatSpec::Float,
-                        std::string_view{"[Type[Primitive[Float]]]:float"}
+                        std::string_view{"[Type[Primitive[Float]]](0:0):float"}
                 ),
                 std::make_pair(
                         FloatSpec::Double,
-                        std::string_view{"[Type[Primitive[Float]]]:double"}
+                        std::string_view{"[Type[Primitive[Float]]](0:0):double"}
                 )
         );
 
@@ -190,7 +255,7 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
         REQUIRE(bool_node->get_num_children() == 0);
 
-        constexpr std::string_view cExpectedSerializedResult{"[Type[Primitive[Bool]]]"};
+        constexpr std::string_view cExpectedSerializedResult{"[Type[Primitive[Bool]]](0:0)"};
         auto const serialized_result{bool_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
         REQUIRE(serialized_result.value() == cExpectedSerializedResult);
@@ -211,13 +276,13 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         REQUIRE(list_node->get_num_children() == 1);
 
         constexpr std::string_view cExpectedSerializedResult{
-                "[Type[Container[List]]]:\n"
+                "[Type[Container[List]]](0:0):\n"
                 "  ElementType:\n"
-                "    [Type[Container[Map]]]:\n"
+                "    [Type[Container[Map]]](0:0):\n"
                 "      KeyType:\n"
-                "        [Type[Primitive[Int]]]:int64\n"
+                "        [Type[Primitive[Int]]](0:0):int64\n"
                 "      ValueType:\n"
-                "        [Type[Primitive[Float]]]:double"
+                "        [Type[Primitive[Float]]](0:0):double"
         };
         auto const serialized_result{list_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
@@ -247,15 +312,15 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         REQUIRE(map_node->get_num_children() == 2);
 
         constexpr std::string_view cExpectedSerializedResult{
-                "[Type[Container[Map]]]:\n"
+                "[Type[Container[Map]]](0:0):\n"
                 "  KeyType:\n"
-                "    [Type[Container[List]]]:\n"
+                "    [Type[Container[List]]](0:0):\n"
                 "      ElementType:\n"
-                "        [Type[Primitive[Int]]]:int8\n"
+                "        [Type[Primitive[Int]]](0:0):int8\n"
                 "  ValueType:\n"
-                "    [Type[Container[List]]]:\n"
+                "    [Type[Container[List]]](0:0):\n"
                 "      ElementType:\n"
-                "        [Type[Primitive[Float]]]:float"
+                "        [Type[Primitive[Float]]](0:0):float"
         };
         auto const serialized_result{map_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
@@ -338,15 +403,15 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
         REQUIRE(named_var_node->get_num_children() == 2);
 
         constexpr std::string_view cExpectedSerializedResult{
-                "[NamedVar]:\n"
+                "[NamedVar](0:0):\n"
                 "  Id:\n"
-                "    [Identifier]:TestId\n"
+                "    [Identifier](0:0):TestId\n"
                 "  Type:\n"
-                "    [Type[Container[Map]]]:\n"
+                "    [Type[Container[Map]]](0:0):\n"
                 "      KeyType:\n"
-                "        [Type[Primitive[Int]]]:int64\n"
+                "        [Type[Primitive[Int]]](0:0):int64\n"
                 "      ValueType:\n"
-                "        [Type[Primitive[Float]]]:double"
+                "        [Type[Primitive[Float]]](0:0):double"
         };
         auto const serialized_result{named_var_node->serialize_to_str(0)};
         REQUIRE_FALSE(serialized_result.has_error());
@@ -362,7 +427,9 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
 
             REQUIRE(tuple_node->get_num_children() == 0);
 
-            constexpr std::string_view cExpectedSerializedResult{"[Type[Container[Tuple]]]:Empty"};
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Type[Container[Tuple]]](0:0):Empty"
+            };
             auto const serialized_result{tuple_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
             REQUIRE(serialized_result.value() == cExpectedSerializedResult);
@@ -389,17 +456,17 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(tuple_node->get_num_children() == 3);
 
             constexpr std::string_view cExpectedSerializedResult{
-                    "[Type[Container[Tuple]]]:\n"
+                    "[Type[Container[Tuple]]](0:0):\n"
                     "  Element[0]:\n"
-                    "    [Type[Primitive[Int]]]:int64\n"
+                    "    [Type[Primitive[Int]]](0:0):int64\n"
                     "  Element[1]:\n"
-                    "    [Type[Primitive[Float]]]:double\n"
+                    "    [Type[Primitive[Float]]](0:0):double\n"
                     "  Element[2]:\n"
-                    "    [Type[Container[Map]]]:\n"
+                    "    [Type[Container[Map]]](0:0):\n"
                     "      KeyType:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
+                    "        [Type[Primitive[Int]]](0:0):int64\n"
                     "      ValueType:\n"
-                    "        [Type[Primitive[Float]]]:double"
+                    "        [Type[Primitive[Float]]](0:0):double"
             };
             auto const serialized_result{tuple_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
@@ -455,30 +522,31 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(struct_spec_node->get_name() == cTestStructName);
 
             constexpr std::string_view cExpectedSerializedResult{
-                    "[StructSpec]:\n"
-                    "  Name:TestStruct\n"
+                    "[StructSpec](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):TestStruct\n"
                     "  Fields[0]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:m_int\n"
+                    "        [Identifier](0:0):m_int\n"
                     "      Type:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
+                    "        [Type[Primitive[Int]]](0:0):int64\n"
                     "  Fields[1]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:m_float\n"
+                    "        [Identifier](0:0):m_float\n"
                     "      Type:\n"
-                    "        [Type[Primitive[Float]]]:double\n"
+                    "        [Type[Primitive[Float]]](0:0):double\n"
                     "  Fields[2]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:m_map\n"
+                    "        [Identifier](0:0):m_map\n"
                     "      Type:\n"
-                    "        [Type[Container[Map]]]:\n"
+                    "        [Type[Container[Map]]](0:0):\n"
                     "          KeyType:\n"
-                    "            [Type[Primitive[Int]]]:int64\n"
+                    "            [Type[Primitive[Int]]](0:0):int64\n"
                     "          ValueType:\n"
-                    "            [Type[Primitive[Float]]]:double"
+                    "            [Type[Primitive[Float]]](0:0):double"
             };
             auto const serialized_result{struct_spec_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
@@ -553,9 +621,11 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(cTestStructName == struct_node->get_name());
             REQUIRE(nullptr == struct_node->get_spec());
 
-            constexpr std::string_view cExpectedSerializedResult{"[Type[Struct]]:\n"
-                                                                 "  Name:\n"
-                                                                 "    [Identifier]:TestStruct"};
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Type[Struct]](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):TestStruct"
+            };
             auto const serialized_result{struct_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
             REQUIRE(serialized_result.value() == cExpectedSerializedResult);
@@ -634,32 +704,33 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(nullptr != func_node->get_return_type());
 
             constexpr std::string_view cExpectedSerializedResult{
-                    "[Function]:\n"
-                    "  Name:test_function\n"
+                    "[Function](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):test_function\n"
                     "  Return:\n"
-                    "    [Type[Container[Tuple]]]:\n"
+                    "    [Type[Container[Tuple]]](0:0):\n"
                     "      Element[0]:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
+                    "        [Type[Primitive[Int]]](0:0):int64\n"
                     "      Element[1]:\n"
-                    "        [Type[Struct]]:\n"
+                    "        [Type[Struct]](0:0):\n"
                     "          Name:\n"
-                    "            [Identifier]:TestStruct\n"
+                    "            [Identifier](0:0):TestStruct\n"
                     "      Element[2]:\n"
-                    "        [Type[Primitive[Bool]]]\n"
+                    "        [Type[Primitive[Bool]]](0:0)\n"
                     "  Params[0]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:param_0\n"
+                    "        [Identifier](0:0):param_0\n"
                     "      Type:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
+                    "        [Type[Primitive[Int]]](0:0):int64\n"
                     "  Params[1]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:param_1\n"
+                    "        [Identifier](0:0):param_1\n"
                     "      Type:\n"
-                    "        [Type[Struct]]:\n"
+                    "        [Type[Struct]](0:0):\n"
                     "          Name:\n"
-                    "            [Identifier]:TestStruct"
+                    "            [Identifier](0:0):TestStruct"
             };
             auto const serialized_result{func_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
@@ -689,24 +760,25 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(nullptr == func_node->get_return_type());
 
             constexpr std::string_view cExpectedSerializedResult{
-                    "[Function]:\n"
-                    "  Name:test_function\n"
+                    "[Function](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):test_function\n"
                     "  Return:\n"
                     "    void\n"
                     "  Params[0]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:param_0\n"
+                    "        [Identifier](0:0):param_0\n"
                     "      Type:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
+                    "        [Type[Primitive[Int]]](0:0):int64\n"
                     "  Params[1]:\n"
-                    "    [NamedVar]:\n"
+                    "    [NamedVar](0:0):\n"
                     "      Id:\n"
-                    "        [Identifier]:param_1\n"
+                    "        [Identifier](0:0):param_1\n"
                     "      Type:\n"
-                    "        [Type[Struct]]:\n"
+                    "        [Type[Struct]](0:0):\n"
                     "          Name:\n"
-                    "            [Identifier]:TestStruct"
+                    "            [Identifier](0:0):TestStruct"
             };
             auto const serialized_result{func_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
@@ -735,18 +807,19 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(nullptr != func_node->get_return_type());
 
             constexpr std::string_view cExpectedSerializedResult{
-                    "[Function]:\n"
-                    "  Name:test_function\n"
+                    "[Function](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):test_function\n"
                     "  Return:\n"
-                    "    [Type[Container[Tuple]]]:\n"
+                    "    [Type[Container[Tuple]]](0:0):\n"
                     "      Element[0]:\n"
-                    "        [Type[Primitive[Int]]]:int64\n"
+                    "        [Type[Primitive[Int]]](0:0):int64\n"
                     "      Element[1]:\n"
-                    "        [Type[Struct]]:\n"
+                    "        [Type[Struct]](0:0):\n"
                     "          Name:\n"
-                    "            [Identifier]:TestStruct\n"
+                    "            [Identifier](0:0):TestStruct\n"
                     "      Element[2]:\n"
-                    "        [Type[Primitive[Bool]]]\n"
+                    "        [Type[Primitive[Bool]]](0:0)\n"
                     "  No Params"
             };
             auto const serialized_result{func_node->serialize_to_str(0)};
@@ -771,11 +844,14 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(func_node->get_name() == cTestFuncName);
             REQUIRE(nullptr == func_node->get_return_type());
 
-            constexpr std::string_view cExpectedSerializedResult{"[Function]:\n"
-                                                                 "  Name:test_function\n"
-                                                                 "  Return:\n"
-                                                                 "    void\n"
-                                                                 "  No Params"};
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[Function](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):test_function\n"
+                    "  Return:\n"
+                    "    void\n"
+                    "  No Params"
+            };
             auto const serialized_result{func_node->serialize_to_str(0)};
             REQUIRE_FALSE(serialized_result.has_error());
             REQUIRE(serialized_result.value() == cExpectedSerializedResult);
@@ -825,19 +901,22 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(namespace_node->get_num_children() == 3);
 
             constexpr std::string_view cExpectedSerializedResult{
-                    "[Namespace]:\n"
-                    "  Name:TestNamespace\n"
+                    "[Namespace](0:0):\n"
+                    "  Name:\n"
+                    "    [Identifier](0:0):TestNamespace\n"
                     "  Func[0]:\n"
-                    "    [Function]:\n"
-                    "      Name:func_0\n"
+                    "    [Function](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):func_0\n"
                     "      Return:\n"
-                    "        [Type[Container[Tuple]]]:Empty\n"
+                    "        [Type[Container[Tuple]]](0:0):Empty\n"
                     "      No Params\n"
                     "  Func[1]:\n"
-                    "    [Function]:\n"
-                    "      Name:func_1\n"
+                    "    [Function](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):func_1\n"
                     "      Return:\n"
-                    "        [Type[Container[Tuple]]]:Empty\n"
+                    "        [Type[Container[Tuple]]](0:0):Empty\n"
                     "      No Params"
             };
             auto const serialized_result{namespace_node->serialize_to_str(0)};
@@ -871,6 +950,92 @@ TEST_CASE("test-ast-node", "[tdl][ast][Node]") {
             REQUIRE(namespace_result.has_error());
             REQUIRE(namespace_result.error()
                     == Namespace::ErrorCode{Namespace::ErrorCodeEnum::DuplicatedFunctionName});
+        }
+    }
+
+    SECTION("TranslationUnit") {
+        auto translation_unit{TranslationUnit::create(create_source_location())};
+
+        REQUIRE_FALSE(translation_unit->add_struct_spec(create_struct_spec("Struct2")).has_error());
+        REQUIRE_FALSE(translation_unit->add_struct_spec(create_struct_spec("Struct1")).has_error());
+        REQUIRE_FALSE(translation_unit->add_struct_spec(create_struct_spec("Struct0")).has_error());
+        REQUIRE_FALSE(translation_unit->add_namespace(create_namespace("ns0")).has_error());
+        REQUIRE_FALSE(translation_unit->add_namespace(create_namespace("ns1")).has_error());
+
+        SECTION("Serialization") {
+            constexpr std::string_view cExpectedSerializedResult{
+                    "[TranslationUnit](0:0):\n"
+                    "  StructSpecs:\n"
+                    "    [StructSpec](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):Struct0\n"
+                    "      Fields[0]:\n"
+                    "        [NamedVar](0:0):\n"
+                    "          Id:\n"
+                    "            [Identifier](0:0):member_0\n"
+                    "          Type:\n"
+                    "            [Type[Primitive[Int]]](0:0):int32\n"
+                    "    [StructSpec](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):Struct1\n"
+                    "      Fields[0]:\n"
+                    "        [NamedVar](0:0):\n"
+                    "          Id:\n"
+                    "            [Identifier](0:0):member_0\n"
+                    "          Type:\n"
+                    "            [Type[Primitive[Int]]](0:0):int32\n"
+                    "    [StructSpec](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):Struct2\n"
+                    "      Fields[0]:\n"
+                    "        [NamedVar](0:0):\n"
+                    "          Id:\n"
+                    "            [Identifier](0:0):member_0\n"
+                    "          Type:\n"
+                    "            [Type[Primitive[Int]]](0:0):int32\n"
+                    "  Namespaces:\n"
+                    "    [Namespace](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):ns0\n"
+                    "      Func[0]:\n"
+                    "        [Function](0:0):\n"
+                    "          Name:\n"
+                    "            [Identifier](0:0):func_0\n"
+                    "          Return:\n"
+                    "            [Type[Container[Tuple]]](0:0):Empty\n"
+                    "          No Params\n"
+                    "    [Namespace](0:0):\n"
+                    "      Name:\n"
+                    "        [Identifier](0:0):ns1\n"
+                    "      Func[0]:\n"
+                    "        [Function](0:0):\n"
+                    "          Name:\n"
+                    "            [Identifier](0:0):func_0\n"
+                    "          Return:\n"
+                    "            [Type[Container[Tuple]]](0:0):Empty\n"
+                    "          No Params"
+            };
+            auto const serialized_result{translation_unit->serialize_to_str(0)};
+            REQUIRE_FALSE(serialized_result.has_error());
+            REQUIRE(serialized_result.value() == cExpectedSerializedResult);
+        }
+
+        SECTION("Duplicated StructSpec names") {
+            auto result{translation_unit->add_struct_spec(create_struct_spec("Struct0"))};
+            REQUIRE(result.has_error());
+            REQUIRE(result.error()
+                    == TranslationUnit::ErrorCode{
+                            TranslationUnit::ErrorCodeEnum::DuplicatedStructSpecName
+                    });
+        }
+
+        SECTION("Duplicated Namespace names") {
+            auto result{translation_unit->add_namespace(create_namespace("ns0"))};
+            REQUIRE(result.has_error());
+            REQUIRE(result.error()
+                    == TranslationUnit::ErrorCode{
+                            TranslationUnit::ErrorCodeEnum::DuplicatedNamespaceName
+                    });
         }
     }
 }

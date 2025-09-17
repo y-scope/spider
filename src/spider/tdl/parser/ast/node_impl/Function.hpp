@@ -86,7 +86,8 @@ public:
     requires(std::is_invocable_r_v<
              ystdlib::error_handling::Result<void>,
              ParamVisitor,
-             NamedVar const&>)
+             NamedVar const&
+    >)
     [[nodiscard]] auto visit_params(ParamVisitor visitor) const
             -> ystdlib::error_handling::Result<void> {
         for (size_t child_idx{get_num_non_param_children()}; child_idx < get_num_children();

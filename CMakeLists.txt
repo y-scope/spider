@@ -39,6 +39,12 @@ set(CMAKE_MODULE_PATH
     "${PROJECT_SOURCE_DIR}/cmake/Modules/"
 )
 
+# Set the project dependency file path
+set(SPIDER_CMAKE_DEPENDENCY_FILE "" CACHE STRING "The cmake dependency file to include.")
+if(NOT SPIDER_CMAKE_DEPENDENCY_FILE STREQUAL "")
+    include("${SPIDER_CMAKE_DEPENDENCY_FILE}")
+endif()
+
 # Profiling options
 add_definitions(-DPROF_ENABLED=0)
 
@@ -79,15 +85,8 @@ else()
 endif()
 message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 
-if(PROJECT_IS_TOP_LEVEL)
-    # Include dependency settings if the project isn't being included as a subproject.
-    include("build/deps/cmake-settings/all.cmake")
-
-    # If previously undefined, `BUILD_TESTING` will be set to ON.
+if(SPIDER_BUILD_TESTING)
     include(CTest)
-endif()
-
-if(BUILD_TESTING AND SPIDER_BUILD_TESTING)
     set(SPIDER_ENABLE_TESTS ON)
 endif()
 
