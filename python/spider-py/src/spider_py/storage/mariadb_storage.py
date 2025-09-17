@@ -18,9 +18,9 @@ VALUES
 
 InsertTask = """
 INSERT INTO
-  `tasks` (`id`, `job_id`, `func_name`, `state`, `timeout`, `max_retry`)
+  `tasks` (`id`, `job_id`, `func_name`, `language`, `state`, `timeout`, `max_retry`)
 VALUES
-  (?, ?, ?, ?, ?, ?)"""
+  (?, ?, ?, ?, ?, ?, ?)"""
 
 InsertTaskInputOutput = """
 INSERT INTO
@@ -383,7 +383,7 @@ class MariaDBStorage(Storage):
         jobs: Sequence[core.Job],
         task_ids: Sequence[Sequence[UUID]],
         task_graphs: Sequence[core.TaskGraph],
-    ) -> list[tuple[bytes, bytes, str, str, float, int]]:
+    ) -> list[tuple[bytes, bytes, str, str, str, float, int]]:
         """
         Generates parameters for inserting tasks into the database.
         :param jobs: The jobs.
@@ -393,6 +393,7 @@ class MariaDBStorage(Storage):
             - Task ID.
             - Job ID.
             - Task function name.
+            - Task language (always "python").
             - Task state.
             - Task timeout.
             - Task max retry.
@@ -405,6 +406,7 @@ class MariaDBStorage(Storage):
                         task_ids[graph_index][task_index].bytes,
                         job.job_id.bytes,
                         task.function_name,
+                        "python",
                         str(task.state),
                         task.timeout,
                         task.max_retries,
