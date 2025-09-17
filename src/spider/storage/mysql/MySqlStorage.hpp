@@ -9,6 +9,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
+#include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/core/Data.hpp>
 #include <spider/core/Driver.hpp>
@@ -118,20 +119,20 @@ public:
 private:
     MySqlMetadataStorage() = default;
 
-    static void add_task(
+    static auto add_task(
             MySqlConnection& conn,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
-    );
-    static void add_task_batch(
+    ) -> ystdlib::error_handling::Result<void, StorageErrorCode>;
+    static auto add_task_batch(
             MySqlJobSubmissionBatch& batch,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
-    );
+    ) -> ystdlib::error_handling::Result<void, StorageErrorCode>;
     static auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
-            -> Task;
+            -> ystdlib::error_handling::Result<Task, StorageErrorCode>;
 
     friend class MySqlStorageFactory;
 };

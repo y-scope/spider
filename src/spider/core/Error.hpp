@@ -5,6 +5,8 @@
 #include <string>
 #include <utility>
 
+#include <ystdlib/error_handling/ErrorCode.hpp>
+
 namespace spider::core {
 enum class StorageErrType : std::uint8_t {
     Success = 0,
@@ -14,8 +16,11 @@ enum class StorageErrType : std::uint8_t {
     DuplicateKeyErr,
     ConstraintViolationErr,
     DeadLockErr,
+    TaskLanguageErr,
     OtherErr
 };
+
+using StorageErrorCode = ystdlib::error_handling::ErrorCode<StorageErrType>;
 
 struct StorageErr {
     StorageErrType type;
