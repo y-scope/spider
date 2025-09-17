@@ -36,4 +36,6 @@ struct StorageErr {
 };
 }  // namespace spider::core
 
+YSTDLIB_ERROR_HANDLING_MARK_AS_ERROR_CODE_ENUM(spider::core::StorageErrType);
+
 #endif  // SPIDER_CORE_ERROR_HPP
