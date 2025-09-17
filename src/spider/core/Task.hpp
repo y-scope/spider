@@ -107,7 +107,6 @@ struct TaskInstance {
 enum class TaskLanguage : std::uint8_t {
     Cpp,
     Python,
-    Java,
 };
 
 enum class TaskState : std::uint8_t {

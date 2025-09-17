@@ -86,8 +86,6 @@ auto task_language_to_string(spider::core::TaskLanguage language) -> std::string
             return "python";
         case spider::core::TaskLanguage::Cpp:
             return "cpp";
-        case spider::core::TaskLanguage::Java:
-            return "java";
         default:
             return "";
     }
@@ -99,9 +97,6 @@ auto string_to_task_language(std::string const& language) -> spider::core::TaskL
     }
     if (language == "cpp") {
         return spider::core::TaskLanguage::Cpp;
-    }
-    if (language == "java") {
-        return spider::core::TaskLanguage::Java;
     }
     return spider::core::TaskLanguage::Cpp;
 }
