@@ -117,19 +117,20 @@ public:
 private:
     MySqlMetadataStorage() = default;
 
-    static auto add_task(
+    [[nodiscard]] static auto add_task(
             MySqlConnection& conn,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
     ) -> ystdlib::error_handling::Result<void, StorageErrorCode>;
-    static auto add_task_batch(
+    [[nodiscard]] static auto add_task_batch(
             MySqlJobSubmissionBatch& batch,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
     ) -> ystdlib::error_handling::Result<void, StorageErrorCode>;
-    static auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
+    [[nodiscard]] static auto
+    fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
             -> ystdlib::error_handling::Result<Task, StorageErrorCode>;
 
     friend class MySqlStorageFactory;
