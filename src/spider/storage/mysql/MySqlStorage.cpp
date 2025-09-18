@@ -883,7 +883,7 @@ auto MySqlMetadataStorage::get_task_graph(
                 static_cast<MySqlConnection&>(conn)->rollback();
                 return StorageErr{fetch_task_result.error(), "Cannot fetch task"};
             }
-            task_graph->add_task(fetch_task_result.assume_value());
+            task_graph->add_task(fetch_task_result.value());
         }
 
         // Get inputs
@@ -1929,8 +1929,7 @@ auto MySqlMetadataStorage::get_child_tasks(
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
         while (res->next()) {
-            auto const fetch_task_result
-                    = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
+            auto fetch_task_result = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
             if (fetch_task_result.has_error()) {
                 static_cast<MySqlConnection&>(conn)->rollback();
                 return StorageErr{
