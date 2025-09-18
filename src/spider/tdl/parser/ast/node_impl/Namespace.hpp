@@ -73,7 +73,8 @@ public:
     requires(std::is_invocable_r_v<
              ystdlib::error_handling::Result<void>,
              FuncVisitor,
-             Function const&>)
+             Function const&
+    >)
     [[nodiscard]] auto visit_functions(FuncVisitor visitor) const
             -> ystdlib::error_handling::Result<void> {
         for (size_t child_idx{1}; child_idx < get_num_children(); ++child_idx) {

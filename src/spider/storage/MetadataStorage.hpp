@@ -78,9 +78,6 @@ public:
     virtual auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr
             = 0;
     virtual auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr = 0;
-    virtual auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
-            -> StorageErr
-            = 0;
     virtual auto get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task) -> StorageErr
             = 0;
     virtual auto
