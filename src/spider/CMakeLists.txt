@@ -2,7 +2,6 @@
 set(SPIDER_CORE_SOURCES
     core/DataCleaner.cpp
     core/DriverCleaner.cpp
-    core/Error.cpp
     core/JobCleaner.cpp
     core/Task.cpp
     storage/mysql/MySqlConnection.cpp

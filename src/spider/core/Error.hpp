@@ -20,8 +20,6 @@ enum class StorageErrType : std::uint8_t {
     OtherErr
 };
 
-using StorageErrorCode = ystdlib::error_handling::ErrorCode<StorageErrType>;
-
 struct StorageErr {
     StorageErrType type;
     std::string description;
@@ -35,7 +33,5 @@ struct StorageErr {
     [[nodiscard]] auto success() const -> bool { return StorageErrType::Success == type; }
 };
 }  // namespace spider::core
-
-YSTDLIB_ERROR_HANDLING_MARK_AS_ERROR_CODE_ENUM(spider::core::StorageErrType);
 
 #endif  // SPIDER_CORE_ERROR_HPP

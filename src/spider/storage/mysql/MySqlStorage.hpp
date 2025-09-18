@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include <boost/outcome/std_result.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
@@ -122,16 +123,16 @@ private:
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
-    ) -> ystdlib::error_handling::Result<void, StorageErrorCode>;
+    ) -> boost::outcome_v2::std_checked<void, StorageErrType>;
     [[nodiscard]] static auto add_task_batch(
             MySqlJobSubmissionBatch& batch,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
-    ) -> ystdlib::error_handling::Result<void, StorageErrorCode>;
+    ) -> boost::outcome_v2::std_checked<void, StorageErrType>;
     [[nodiscard]] static auto
     fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
-            -> ystdlib::error_handling::Result<Task, StorageErrorCode>;
+            -> boost::outcome_v2::std_checked<Task, StorageErrType>;
 
     friend class MySqlStorageFactory;
 };
