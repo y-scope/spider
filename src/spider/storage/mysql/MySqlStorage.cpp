@@ -465,13 +465,14 @@ auto MySqlMetadataStorage::add_job(
                 };
             }
             Task const* task = task_option.value();
-            auto const result = add_task(
-                    static_cast<MySqlConnection&>(conn),
-                    job_id_bytes,
-                    *task,
-                    TaskState::Ready
-            );
-            if (result.has_error()) {
+            if (auto const result = add_task(
+                        static_cast<MySqlConnection&>(conn),
+                        job_id_bytes,
+                        *task,
+                        TaskState::Ready
+                );
+                result.has_error())
+            {
                 static_cast<MySqlConnection&>(conn)->rollback();
                 return StorageErr{result.error(), "Cannot add task"};
             }
@@ -498,13 +499,14 @@ auto MySqlMetadataStorage::add_job(
                     return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
                 }
                 Task const* task = task_option.value();
-                auto const result = add_task(
-                        static_cast<MySqlConnection&>(conn),
-                        job_id_bytes,
-                        *task,
-                        std::nullopt
-                );
-                if (result.has_error()) {
+                if (auto const result = add_task(
+                            static_cast<MySqlConnection&>(conn),
+                            job_id_bytes,
+                            *task,
+                            std::nullopt
+                    );
+                    result.has_error())
+                {
                     static_cast<MySqlConnection&>(conn)->rollback();
                     return StorageErr{result.error(), "Cannot add task"};
                 }
@@ -610,13 +612,15 @@ auto MySqlMetadataStorage::add_job_batch(
                 };
             }
             Task const* task = task_option.value();
-            auto result = add_task_batch(
-                    static_cast<MySqlJobSubmissionBatch&>(batch),
-                    job_id_bytes,
-                    *task,
-                    TaskState::Ready
-            );
-            if (result.has_error()) {
+
+            if (auto result = add_task_batch(
+                        static_cast<MySqlJobSubmissionBatch&>(batch),
+                        job_id_bytes,
+                        *task,
+                        TaskState::Ready
+                );
+                result.has_error())
+            {
                 static_cast<MySqlConnection&>(conn)->rollback();
                 return StorageErr{result.error(), "Cannot add task"};
             }
@@ -643,13 +647,15 @@ auto MySqlMetadataStorage::add_job_batch(
                     return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
                 }
                 Task const* task = task_option.value();
-                auto const result = add_task_batch(
-                        static_cast<MySqlJobSubmissionBatch&>(batch),
-                        job_id_bytes,
-                        *task,
-                        std::nullopt
-                );
-                if (result.has_error()) {
+
+                if (auto const result = add_task_batch(
+                            static_cast<MySqlJobSubmissionBatch&>(batch),
+                            job_id_bytes,
+                            *task,
+                            std::nullopt
+                    );
+                    result.has_error())
+                {
                     static_cast<MySqlConnection&>(conn)->rollback();
                     return StorageErr{result.error(), "Cannot add task"};
                 }
