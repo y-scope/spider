@@ -12,12 +12,12 @@ class TestData:
     @pytest.mark.storage
     def test_data(self, driver: Driver) -> None:  # noqa: F811
         """Tests data creation."""
-        data = Data(b"test_data")
+        data = Data.from_value(b"test_data")
         data.hard_locality = True
         data.add_locality("localhost")
 
         assert data.value == b"test_data"
         assert data.hard_locality is True
-        assert data.get_localities() == ["localhost"]
+        assert data.localities == ["localhost"]
 
         driver.create_data(data)

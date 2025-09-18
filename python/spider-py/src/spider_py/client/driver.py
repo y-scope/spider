@@ -1,7 +1,6 @@
 """Spider client driver module."""
 
 from collections.abc import Sequence
-from copy import deepcopy
 from uuid import uuid4
 
 import msgpack
@@ -12,6 +11,7 @@ from spider_py.client.job import Job
 from spider_py.client.task_graph import TaskGraph
 from spider_py.storage import MariaDBStorage, parse_jdbc_url
 from spider_py.type import to_tdl_type_str
+from spider_py.utils import to_serializable
 
 
 class Driver:
@@ -28,51 +28,53 @@ class Driver:
         self._storage.create_driver(self._driver_id)
 
     def submit_jobs(
-        self, graphs: Sequence[TaskGraph], args: Sequence[Sequence[object]]
+        self, task_graphs: Sequence[TaskGraph], args: Sequence[Sequence[object]]
     ) -> Sequence[Job]:
         """
         Submits a list of jobs to the storage.
-        :param graphs: The list of task graphs to submit.
+        :param task_graphs: The list of task graphs to submit. Each task graph represents a job.
         :param args: The arguments for each job.
-        :return: A sequence of Job objects representing the submitted jobs.
-        :raises StorageError: If the jobs cannot be submitted to the storage.
+        :return: A sequence of `Job` objects representing the submitted jobs.
         :raises ValueError: If the number of job inputs does not match the number of arguments.
-        :raises TypeError: If the arguments are not of the expected type.
         """
         msg = "Number of job inputs does not match number of arguments"
-        if len(graphs) != len(args):
+        if len(task_graphs) != len(args):
             raise ValueError(msg)
 
-        if not graphs:
+        if not task_graphs:
             return []
-        task_graphs = []
-        for task_graph, task_args in zip(graphs, args, strict=True):
-            graph = deepcopy(task_graph._impl)
+
+        core_task_graphs = []
+        for task_graph, task_args in zip(task_graphs, args, strict=True):
+            core_graph = task_graph._impl.copy()
             arg_index = 0
-            for task_id in graph.input_tasks:
-                task = graph.tasks[task_id]
+            for task in core_graph.tasks:
+                task.set_pending()
+            for task_index in core_graph.input_task_indices:
+                task = core_graph.tasks[task_index]
+                task.set_ready()
                 for task_input in task.task_inputs:
                     if arg_index >= len(task_args):
                         raise ValueError(msg)
                     arg = task_args[arg_index]
+                    arg_index += 1
                     if isinstance(arg, Data):
                         task_input.type = to_tdl_type_str(Data)
-                        task_input.value = arg._impl.id
-                    else:
-                        task_input.type = to_tdl_type_str(type(arg))
-                        task_input.value = core.TaskInputValue(msgpack.packb(arg))
-                    arg_index += 1
+                        task_input.value = arg.id
+                        continue
+                    task_input.type = to_tdl_type_str(type(arg))
+                    serialized_value = to_serializable(arg)
+                    task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
             if arg_index != len(task_args):
                 raise ValueError(msg)
-            task_graphs.append(graph)
+            core_task_graphs.append(core_graph)
 
-        jobs = self._storage.submit_jobs(self._driver_id, [graph._impl for graph in graphs])
-        return [Job(job, self._storage) for job in jobs]
+        core_jobs = self._storage.submit_jobs(self._driver_id, core_task_graphs)
+        return [Job(core_job, self._storage) for core_job in core_jobs]
 
     def create_data(self, data: Data) -> None:
         """
-        Registers a Data object in the storage.
-        :param data: The Data object to register.
-        :raises StorageError: If the Data object cannot be registered in the storage.
+        Creates a data in the storage.
+        :param data:
         """
-        self._storage.create_driver_data(self._driver_id, data._impl)
+        self._storage.create_data_with_driver_ref(self._driver_id, data._impl)

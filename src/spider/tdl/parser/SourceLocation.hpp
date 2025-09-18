@@ -2,6 +2,9 @@
 #define SPIDER_TDL_PARSER_SOURCELOCATION_HPP
 
 #include <cstddef>
+#include <string>
+
+#include <fmt/format.h>
 
 namespace spider::tdl::parser {
 class SourceLocation {
@@ -13,6 +16,10 @@ public:
     [[nodiscard]] auto get_line() const noexcept -> size_t { return m_line; }
 
     [[nodiscard]] auto get_column() const noexcept -> size_t { return m_column; }
+
+    [[nodiscard]] auto serialize_to_str() const -> std::string {
+        return fmt::format("({}:{})", m_line, m_column);
+    }
 
     [[nodiscard]] auto operator==(SourceLocation const& other) const noexcept -> bool {
         return m_line == other.m_line && m_column == other.m_column;

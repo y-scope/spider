@@ -6,9 +6,11 @@
 #include <string>
 #include <vector>
 
+#include <boost/outcome/std_result.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <mariadb/conncpp/CArray.hpp>
 #include <mariadb/conncpp/ResultSet.hpp>
+#include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/core/Data.hpp>
 #include <spider/core/Driver.hpp>
@@ -75,8 +77,6 @@ public:
     ) -> StorageErr override;
     auto remove_job(StorageConnection& conn, boost::uuids::uuid id) noexcept -> StorageErr override;
     auto reset_job(StorageConnection& conn, boost::uuids::uuid id) -> StorageErr override;
-    auto add_child(StorageConnection& conn, boost::uuids::uuid parent_id, Task const& child)
-            -> StorageErr override;
     auto get_task(StorageConnection& conn, boost::uuids::uuid id, Task* task)
             -> StorageErr override;
     auto get_task_job_id(StorageConnection& conn, boost::uuids::uuid id, boost::uuids::uuid* job_id)
@@ -118,20 +118,23 @@ public:
 private:
     MySqlMetadataStorage() = default;
 
-    static void add_task(
+    [[nodiscard]] static auto add_task(
             MySqlConnection& conn,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
-    );
-    static void add_task_batch(
+    ) -> boost::outcome_v2::std_checked<void, StorageErrType>;
+
+    [[nodiscard]] static auto add_task_batch(
             MySqlJobSubmissionBatch& batch,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
-    );
-    static auto fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
-            -> Task;
+    ) -> boost::outcome_v2::std_checked<void, StorageErrType>;
+
+    [[nodiscard]] static auto
+    fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
+            -> boost::outcome_v2::std_checked<Task, StorageErrType>;
 
     friend class MySqlStorageFactory;
 };

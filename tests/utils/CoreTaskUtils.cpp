@@ -99,12 +99,15 @@ auto hash_map_equal(
         return false;
     }
 
-    if (std::ranges::any_of(map_1, [&map_2, &value_equal](auto const& pair_1) -> bool {
-            if (auto const& iter_2 = map_2.find(pair_1.first); iter_2 != map_2.cend()) {
-                return !value_equal(pair_1.second, iter_2->second);
-            }
-            return true;
-        }))
+    if (std::ranges::any_of(
+                map_1,
+                [&map_2, &value_equal](auto const& pair_1) -> bool {
+                    if (auto const& iter_2 = map_2.find(pair_1.first); iter_2 != map_2.cend()) {
+                        return !value_equal(pair_1.second, iter_2->second);
+                    }
+                    return true;
+                }
+        ))
     {
         return false;
     }
