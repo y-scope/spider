@@ -90,7 +90,7 @@ auto get_sql_string(sql::SQLString const& str) -> std::string {
         case spider::core::TaskLanguage::Cpp:
             return "cpp";
         default:
-            return StorageErrType{StorageErrType::TaskLanguageErr};
+            return StorageErrType::TaskLanguageErr;
     }
 }
 
@@ -102,7 +102,7 @@ auto get_sql_string(sql::SQLString const& str) -> std::string {
     if (language == "cpp") {
         return spider::core::TaskLanguage::Cpp;
     }
-    return StorageErrType{StorageErrType::TaskLanguageErr};
+    return StorageErrType::TaskLanguageErr;
 }
 
 auto task_state_to_string(spider::core::TaskState state) -> std::string {
@@ -281,9 +281,10 @@ auto MySqlMetadataStorage::add_task(
     task_statement->setBytes(1, &task_id_bytes);
     task_statement->setBytes(2, &job_id);
     task_statement->setString(3, task.get_function_name());
-    auto const task_language
-            = YSTDLIB_ERROR_HANDLING_TRYX(task_language_to_string(task.get_language()));
-    task_statement->setString(4, task_language);
+    task_statement->setString(
+            4,
+            YSTDLIB_ERROR_HANDLING_TRYX(task_language_to_string(task.get_language()))
+    );
     if (state.has_value()) {
         task_statement->setString(5, task_state_to_string(state.value()));
     } else {
@@ -365,9 +366,10 @@ auto MySqlMetadataStorage::add_task_batch(
     task_statement.setBytes(1, &task_id_bytes);
     task_statement.setBytes(2, &job_id);
     task_statement.setString(3, task.get_function_name());
-    auto const task_language
-            = YSTDLIB_ERROR_HANDLING_TRYX(task_language_to_string(task.get_language()));
-    task_statement.setString(4, task_language);
+    task_statement.setString(
+            4,
+            YSTDLIB_ERROR_HANDLING_TRYX(task_language_to_string(task.get_language()))
+    );
     if (state.has_value()) {
         task_statement.setString(5, task_state_to_string(state.value()));
     } else {
@@ -613,7 +615,7 @@ auto MySqlMetadataStorage::add_job_batch(
             }
             Task const* task = task_option.value();
 
-            if (auto result = add_task_batch(
+            if (auto const result = add_task_batch(
                         static_cast<MySqlJobSubmissionBatch&>(batch),
                         job_id_bytes,
                         *task,
@@ -727,7 +729,7 @@ auto fetch_task(std::unique_ptr<sql::ResultSet> const& res)
         -> boost::outcome_v2::std_checked<Task, StorageErrType> {
     boost::uuids::uuid const id = read_id(res->getBinaryStream("id"));
     std::string const function_name = get_sql_string(res->getString("func_name"));
-    TaskLanguage const language = YSTDLIB_ERROR_HANDLING_TRYX(
+    auto const language = YSTDLIB_ERROR_HANDLING_TRYX(
             string_to_task_language(get_sql_string(res->getString("language")))
     );
     TaskState const state = string_to_task_state(get_sql_string(res->getString("state")));
@@ -822,7 +824,7 @@ auto MySqlMetadataStorage::fetch_full_task(
         MySqlConnection& conn,
         std::unique_ptr<sql::ResultSet> const& res
 ) -> boost::outcome_v2::std_checked<Task, StorageErrType> {
-    Task task = YSTDLIB_ERROR_HANDLING_TRYX(fetch_task(res));
+    auto task = YSTDLIB_ERROR_HANDLING_TRYX(fetch_task(res));
     boost::uuids::uuid const id = task.get_id();
     sql::bytes id_bytes = uuid_get_bytes(id);
 
@@ -1276,7 +1278,7 @@ auto MySqlMetadataStorage::get_task(StorageConnection& conn, boost::uuids::uuid 
             static_cast<MySqlConnection&>(conn)->rollback();
             return StorageErr{fetch_task_result.error(), "Failed to fetch full task"};
         }
-        *task = fetch_task_result.assume_value();
+        *task = std::move(fetch_task_result.value());
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -1936,7 +1938,7 @@ auto MySqlMetadataStorage::get_child_tasks(
                         fmt::format("Failed to fetch task {}", boost::uuids::to_string(id))
                 };
             }
-            children->emplace_back(fetch_task_result.assume_value());
+            children->emplace_back(std::move(fetch_task_result.value()));
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
@@ -1972,7 +1974,7 @@ auto MySqlMetadataStorage::get_parent_tasks(
                         fmt::format("Failed to fetch task {}", boost::uuids::to_string(id))
                 };
             }
-            tasks->emplace_back(fetch_task_result.assume_value());
+            tasks->emplace_back(std::move(fetch_task_result.value()));
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();

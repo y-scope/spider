@@ -124,12 +124,14 @@ private:
             Task const& task,
             std::optional<TaskState> const& state
     ) -> boost::outcome_v2::std_checked<void, StorageErrType>;
+
     [[nodiscard]] static auto add_task_batch(
             MySqlJobSubmissionBatch& batch,
             sql::bytes job_id,
             Task const& task,
             std::optional<TaskState> const& state
     ) -> boost::outcome_v2::std_checked<void, StorageErrType>;
+
     [[nodiscard]] static auto
     fetch_full_task(MySqlConnection& conn, std::unique_ptr<sql::ResultSet> const& res)
             -> boost::outcome_v2::std_checked<Task, StorageErrType>;
