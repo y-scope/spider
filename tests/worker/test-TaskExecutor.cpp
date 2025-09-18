@@ -65,10 +65,10 @@ auto get_libraries() -> std::vector<std::string> {
 }
 
 template <typename... Args>
-auto pack_args(Args&&... args) -> std::vector<msgpack::sbuffer> {
+[[nodiscard]] auto pack_args(Args&&... args) -> std::vector<msgpack::sbuffer> {
     std::vector<msgpack::sbuffer> packed_args;
     packed_args.reserve(sizeof...(args));
-    auto pack_args = [&packed_args](auto&& arg) {
+    auto pack_args = [&](auto&& arg) {
         msgpack::sbuffer buffer;
         msgpack::pack(buffer, std::forward<decltype(arg)>(arg));
         packed_args.emplace_back(std::move(buffer));

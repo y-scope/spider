@@ -36,13 +36,14 @@ public:
     TaskExecutor(
             boost::asio::io_context& context,
             std::string const& func_name,
-            boost::uuids::uuid task_id,
+            boost::uuids::uuid const task_id,
             core::TaskLanguage language,
             std::string const& storage_url,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
                     boost::process::v2::environment::key,
-                    boost::process::v2::environment::value> const& environment,
+                    boost::process::v2::environment::value
+            > const& environment,
             std::vector<msgpack::sbuffer> const& args_buffers
     );
 
