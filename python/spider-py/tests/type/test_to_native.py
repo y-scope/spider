@@ -1,12 +1,17 @@
 """Test converting TDL type to native type."""
 
-from types import GenericAlias
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import pytest
 
 import spider_py
 from spider_py.type.tdl_parse import parse_tdl_type
 from spider_py.type.utils import get_class_name
+
+if TYPE_CHECKING:
+    from types import GenericAlias
 
 
 def _string_to_native(s: str) -> type | GenericAlias:

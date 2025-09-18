@@ -1,14 +1,20 @@
 """MariaDB Storage module."""
 
-from collections.abc import Sequence
+from __future__ import annotations
+
+from typing import get_args, TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import mariadb
 from typing_extensions import override
 
 from spider_py import core
-from spider_py.storage.jdbc_url import JdbcParameters
 from spider_py.storage.storage import Storage, StorageError
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from spider_py.storage.jdbc_url import JdbcParameters
 
 InsertJob = """
 INSERT INTO
@@ -399,7 +405,7 @@ class MariaDBStorage(Storage):
             - Task max retry.
         """
         task_insert_params = []
-        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs, strict=True)):
+        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs)):
             for task_index, task in enumerate(task_graph.tasks):
                 task_insert_params.append(
                     (
@@ -421,7 +427,7 @@ class MariaDBStorage(Storage):
     ) -> list[tuple[bytes, bytes]]:
         """
         Generates parameters for inserting task dependencies into the database.
-        :param task_ids: The task IDs.
+        :param task_ids: The task IDse
         :param task_graphs: The task graphs. Must be the same length as `task_ids`.
         :return: A list of tuples containing the parameters for each task dependency. Each tuple
             contains:
@@ -454,7 +460,7 @@ class MariaDBStorage(Storage):
             - The positional index of the input task.
         """
         input_task_params = []
-        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs, strict=True)):
+        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs)):
             for position, task_index in enumerate(task_graph.input_task_indices):
                 input_task_params.append(
                     (job.job_id.bytes, task_ids[graph_index][task_index].bytes, position)
@@ -479,7 +485,7 @@ class MariaDBStorage(Storage):
             - The positional index of the output task.
         """
         output_task_params = []
-        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs, strict=True)):
+        for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs)):
             for position, task_index in enumerate(task_graph.output_task_indices):
                 output_task_params.append(
                     (job.job_id.bytes, task_ids[graph_index][task_index].bytes, position)
@@ -530,7 +536,7 @@ class MariaDBStorage(Storage):
         for graph_index, task_graph in enumerate(task_graphs):
             for task_index, task in enumerate(task_graph.tasks):
                 for position, task_input in enumerate(task.task_inputs):
-                    if not isinstance(task_input.value, core.TaskInputData):
+                    if not isinstance(task_input.value, get_args(core.TaskInputData)):
                         continue
                     value = task_input.value
                     data = value.id.bytes if isinstance(value, core.Data) else value.bytes

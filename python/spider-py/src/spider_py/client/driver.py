@@ -45,7 +45,7 @@ class Driver:
             return []
 
         core_task_graphs = []
-        for task_graph, task_args in zip(task_graphs, args, strict=True):
+        for task_graph, task_args in zip(task_graphs, args):
             core_graph = task_graph._impl.copy()
             arg_index = 0
             for task in core_graph.tasks:
