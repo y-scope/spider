@@ -465,15 +465,15 @@ auto MySqlMetadataStorage::add_job(
                 };
             }
             Task const* task = task_option.value();
-            auto const res = add_task(
+            auto const result = add_task(
                     static_cast<MySqlConnection&>(conn),
                     job_id_bytes,
                     *task,
                     TaskState::Ready
             );
-            if (res.has_error()) {
+            if (result.has_error()) {
                 static_cast<MySqlConnection&>(conn)->rollback();
-                return StorageErr{res.error(), "Cannot add task"};
+                return StorageErr{result.error(), "Cannot add task"};
             }
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
@@ -498,15 +498,15 @@ auto MySqlMetadataStorage::add_job(
                     return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
                 }
                 Task const* task = task_option.value();
-                auto const res = add_task(
+                auto const result = add_task(
                         static_cast<MySqlConnection&>(conn),
                         job_id_bytes,
                         *task,
                         std::nullopt
                 );
-                if (res.has_error()) {
+                if (result.has_error()) {
                     static_cast<MySqlConnection&>(conn)->rollback();
-                    return StorageErr{res.error(), "Cannot add task"};
+                    return StorageErr{result.error(), "Cannot add task"};
                 }
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
@@ -610,15 +610,15 @@ auto MySqlMetadataStorage::add_job_batch(
                 };
             }
             Task const* task = task_option.value();
-            auto res = add_task_batch(
+            auto result = add_task_batch(
                     static_cast<MySqlJobSubmissionBatch&>(batch),
                     job_id_bytes,
                     *task,
                     TaskState::Ready
             );
-            if (res.has_error()) {
+            if (result.has_error()) {
                 static_cast<MySqlConnection&>(conn)->rollback();
-                return StorageErr{res.error(), "Cannot add task"};
+                return StorageErr{result.error(), "Cannot add task"};
             }
             for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                 std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
@@ -643,15 +643,15 @@ auto MySqlMetadataStorage::add_job_batch(
                     return StorageErr{StorageErrType::KeyNotFoundErr, "Task graph inconsistent"};
                 }
                 Task const* task = task_option.value();
-                auto const res = add_task_batch(
+                auto const result = add_task_batch(
                         static_cast<MySqlJobSubmissionBatch&>(batch),
                         job_id_bytes,
                         *task,
                         std::nullopt
                 );
-                if (res.has_error()) {
+                if (result.has_error()) {
                     static_cast<MySqlConnection&>(conn)->rollback();
-                    return StorageErr{res.error(), "Cannot add task"};
+                    return StorageErr{result.error(), "Cannot add task"};
                 }
                 for (boost::uuids::uuid const id : task_graph.get_child_tasks(task_id)) {
                     std::vector<boost::uuids::uuid> const parents = task_graph.get_parent_tasks(id);
@@ -870,12 +870,12 @@ auto MySqlMetadataStorage::get_task_graph(
         }
         while (task_res->next()) {
             // get_task_graph has special optimization to get inputs and outputs in batch
-            auto const fetch_task_res = fetch_task(task_res);
-            if (fetch_task_res.has_error()) {
+            auto const fetch_task_result = fetch_task(task_res);
+            if (fetch_task_result.has_error()) {
                 static_cast<MySqlConnection&>(conn)->rollback();
-                return StorageErr{fetch_task_res.error(), "Cannot fetch task"};
+                return StorageErr{fetch_task_result.error(), "Cannot fetch task"};
             }
-            task_graph->add_task(fetch_task_res.assume_value());
+            task_graph->add_task(fetch_task_result.assume_value());
         }
 
         // Get inputs
@@ -1265,12 +1265,12 @@ auto MySqlMetadataStorage::get_task(StorageConnection& conn, boost::uuids::uuid 
             };
         }
         res->next();
-        auto fetch_task_res = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
-        if (fetch_task_res.has_error()) {
+        auto fetch_task_result = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
+        if (fetch_task_result.has_error()) {
             static_cast<MySqlConnection&>(conn)->rollback();
-            return StorageErr{fetch_task_res.error(), "Failed to fetch full task"};
+            return StorageErr{fetch_task_result.error(), "Failed to fetch full task"};
         }
-        *task = fetch_task_res.assume_value();
+        *task = fetch_task_result.assume_value();
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
         return StorageErr{StorageErrType::OtherErr, e.what()};
@@ -1921,15 +1921,16 @@ auto MySqlMetadataStorage::get_child_tasks(
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> res(statement->executeQuery());
         while (res->next()) {
-            auto const fetch_task_res = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
-            if (fetch_task_res.has_error()) {
+            auto const fetch_task_result
+                    = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
+            if (fetch_task_result.has_error()) {
                 static_cast<MySqlConnection&>(conn)->rollback();
                 return StorageErr{
-                        fetch_task_res.error(),
+                        fetch_task_result.error(),
                         fmt::format("Failed to fetch task {}", boost::uuids::to_string(id))
                 };
             }
-            children->emplace_back(fetch_task_res.assume_value());
+            children->emplace_back(fetch_task_result.assume_value());
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
@@ -1957,15 +1958,15 @@ auto MySqlMetadataStorage::get_parent_tasks(
         statement->setBytes(1, &id_bytes);
         std::unique_ptr<sql::ResultSet> const res(statement->executeQuery());
         while (res->next()) {
-            auto fetch_task_res = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
-            if (fetch_task_res.has_error()) {
+            auto fetch_task_result = fetch_full_task(static_cast<MySqlConnection&>(conn), res);
+            if (fetch_task_result.has_error()) {
                 static_cast<MySqlConnection&>(conn)->rollback();
                 return StorageErr{
-                        fetch_task_res.error(),
+                        fetch_task_result.error(),
                         fmt::format("Failed to fetch task {}", boost::uuids::to_string(id))
                 };
             }
-            tasks->emplace_back(fetch_task_res.assume_value());
+            tasks->emplace_back(fetch_task_result.assume_value());
         }
     } catch (sql::SQLException& e) {
         static_cast<MySqlConnection&>(conn)->rollback();
