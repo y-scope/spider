@@ -58,9 +58,11 @@ TaskExecutor::TaskExecutor(
             std::to_string(output_pipe_write_end),
             "--storage_url",
             storage_url,
-            "--libs"
     };
-    process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
+    if (false == libs.empty()) {
+        process_args.emplace_back("--libs");
+        process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
+    }
     boost::filesystem::path exe;
     switch (language) {
         case core::TaskLanguage::Cpp: {

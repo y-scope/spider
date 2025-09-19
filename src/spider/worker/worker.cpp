@@ -90,11 +90,6 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
             boost::program_options::value<std::vector<std::string>>(),
             "dynamic libraries that include the spider tasks"
     );
-    desc.add_options()(
-            "py-libs",
-            boost::program_options::value<std::vector<std::string>>(),
-            "Python libraries that include the spider tasks"
-    );
     desc.add_options()("host", boost::program_options::value<std::string>(), "worker host address");
 
     boost::program_options::variables_map variables;
@@ -355,7 +350,6 @@ auto task_loop(
         spider::worker::WorkerClient& client,
         std::string const& storage_url,
         std::vector<std::string> const& libs,
-        std::vector<std::string> const& py_libs,
         absl::flat_hash_map<
                 boost::process::v2::environment::key,
                 boost::process::v2::environment::value
@@ -385,13 +379,13 @@ auto task_loop(
         std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
 
         auto const language = task.get_language();
-        std::vector<std::string> const* arg_libs = nullptr;
+        constexpr std::vector<std::string> cEmptyVec{};
+        std::vector<std::string> const* arg_libs = &cEmptyVec;
         switch (language) {
             case spider::core::TaskLanguage::Cpp:
                 arg_libs = &libs;
                 break;
             case spider::core::TaskLanguage::Python:
-                arg_libs = &py_libs;
                 break;
             default:
                 spdlog::error("Unsupported task language.");
@@ -449,7 +443,6 @@ auto main(int argc, char** argv) -> int {
 
     std::string storage_url;
     std::vector<std::string> libs;
-    std::vector<std::string> py_libs;
     std::string worker_addr;
     try {
         if (!args.contains("storage_url")) {
@@ -465,10 +458,7 @@ auto main(int argc, char** argv) -> int {
         if (args.contains("libs")) {
             libs = args["libs"].as<std::vector<std::string>>();
         }
-        if (args.contains("py-libs")) {
-            py_libs = args["py-libs"].as<std::vector<std::string>>();
-        }
-        if (libs.empty() && py_libs.empty()) {
+        if (libs.empty()) {
             spdlog::error("No libraries specified");
             return cCmdArgParseErr;
         }
@@ -550,7 +540,6 @@ auto main(int argc, char** argv) -> int {
             std::ref(client),
             std::cref(storage_url),
             std::cref(libs),
-            std::cref(py_libs),
             std::cref(environment_variables),
     };
 
