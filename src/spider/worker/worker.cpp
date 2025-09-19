@@ -379,7 +379,7 @@ auto task_loop(
         std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
 
         auto const language = task.get_language();
-        static constexpr std::vector<std::string> cEmptyVec{};
+        static std::vector<std::string> const cEmptyVec{};
         std::vector<std::string> const* arg_libs = &cEmptyVec;
         switch (language) {
             case spider::core::TaskLanguage::Cpp:
