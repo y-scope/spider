@@ -76,7 +76,7 @@ TaskExecutor::TaskExecutor(
             exe = boost::process::v2::environment::find_executable("python3", environment);
             constexpr std::array<std::string_view, 2> cExtraArgs{
                     "-m",
-                    "spider_py.task_executor.task_executor"
+                    "spider-py-task-executor",
             };
             process_args.insert(process_args.begin(), cExtraArgs.cbegin(), cExtraArgs.cend());
             break;
