@@ -378,13 +378,10 @@ auto task_loop(
         }
         std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
 
+        // Validate task language
         auto const language = task.get_language();
-        static std::vector<std::string> const cEmptyVec{};
-        std::vector<std::string> const* arg_libs = &cEmptyVec;
         switch (language) {
             case spider::core::TaskLanguage::Cpp:
-                arg_libs = &libs;
-                break;
             case spider::core::TaskLanguage::Python:
                 break;
             default:
@@ -400,7 +397,7 @@ auto task_loop(
                 task.get_id(),
                 language,
                 storage_url,
-                *arg_libs,
+                spider::core::TaskLanguage::Cpp == language ? libs : std::vector<std::string>{},
                 environment,
                 arg_buffers
         };
