@@ -458,10 +458,6 @@ auto main(int argc, char** argv) -> int {
         if (args.contains("libs")) {
             libs = args["libs"].as<std::vector<std::string>>();
         }
-        if (libs.empty()) {
-            spdlog::error("No libraries specified");
-            return cCmdArgParseErr;
-        }
     } catch (boost::bad_any_cast const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
