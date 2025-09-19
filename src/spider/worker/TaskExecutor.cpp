@@ -58,7 +58,7 @@ TaskExecutor::TaskExecutor(
             storage_url,
             "--libs"
     };
-    process_args.insert(process_args.end(), libs.begin(), libs.end());
+    process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
     boost::filesystem::path exe;
     switch (language) {
         case core::TaskLanguage::Cpp: {
@@ -69,13 +69,16 @@ TaskExecutor::TaskExecutor(
             break;
         }
         case core::TaskLanguage::Python: {
-            exe = boost::process::v2::environment::find_executable("python", environment);
-            std::vector extra_args{"-m", "spider_py.task_executor.task_executor"};
-            process_args.insert(process_args.begin(), extra_args.begin(), extra_args.end());
+            exe = boost::process::v2::environment::find_executable("python3", environment);
+            constexpr std::array<std::string_view, 2> cExtraArgs{
+                    "-m",
+                    "spider_py.task_executor.task_executor"
+            };
+            process_args.insert(process_args.begin(), cExtraArgs.cbegin(), cExtraArgs.cend());
             break;
         }
         default: {
-            spdlog::error("Unsupported language");
+            spdlog::error("Unsupported task language.");
             return;
         }
     }
@@ -98,7 +101,7 @@ TaskExecutor::TaskExecutor(
     boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
 
     // Send args
-    msgpack::sbuffer const args_request = core::create_args_request(args_buffers);
+    auto const args_request = core::create_args_request(args_buffers);
     send_message(m_write_pipe, args_request);
 }
 

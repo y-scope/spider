@@ -36,7 +36,7 @@ public:
     TaskExecutor(
             boost::asio::io_context& context,
             std::string const& func_name,
-            boost::uuids::uuid const task_id,
+            boost::uuids::uuid task_id,
             core::TaskLanguage language,
             std::string const& storage_url,
             std::vector<std::string> const& libs,
