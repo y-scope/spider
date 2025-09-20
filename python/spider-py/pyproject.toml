@@ -55,7 +55,6 @@ markers = [
   "integration: Mark test as an integration test",
   "storage: Mark unit tests as needing external storage service",
 ]
-pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
