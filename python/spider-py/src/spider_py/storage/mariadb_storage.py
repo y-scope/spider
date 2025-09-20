@@ -427,7 +427,7 @@ class MariaDBStorage(Storage):
     ) -> list[tuple[bytes, bytes]]:
         """
         Generates parameters for inserting task dependencies into the database.
-        :param task_ids: The task IDse
+        :param task_ids: The task IDs.
         :param task_graphs: The task graphs. Must be the same length as `task_ids`.
         :return: A list of tuples containing the parameters for each task dependency. Each tuple
             contains:

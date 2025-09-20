@@ -10,7 +10,7 @@ authors = [
 ]
 dependencies = [
   "lark>=1.2.2",
-  # mariadb version must be compatible with libmariadev installed in runtime env.
+  # MariaDB version must be compatible with libmariadev installed in the runtime environment.
   # See https://mariadb.com/docs/connectors/mariadb-connector-python/install#build-prerequisites
   "mariadb~=1.0.11",
   "msgpack-types>=0.5.0",
