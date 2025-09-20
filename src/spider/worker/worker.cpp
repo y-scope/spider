@@ -378,13 +378,26 @@ auto task_loop(
         }
         std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
 
+        // Validate task language
+        auto const language = task.get_language();
+        switch (language) {
+            case spider::core::TaskLanguage::Cpp:
+            case spider::core::TaskLanguage::Python:
+                break;
+            default:
+                spdlog::error("Unsupported task language.");
+                fail_task_id = task.get_id();
+                continue;
+        }
+
         // Execute task
         spider::worker::TaskExecutor executor{
                 context,
                 task.get_function_name(),
                 task.get_id(),
+                language,
                 storage_url,
-                libs,
+                spider::core::TaskLanguage::Cpp == language ? libs : std::vector<std::string>{},
                 environment,
                 arg_buffers
         };
@@ -439,11 +452,9 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         worker_addr = args["host"].as<std::string>();
-        if (!args.contains("libs") || args["libs"].empty()) {
-            spdlog::error("Missing libs");
-            return cCmdArgParseErr;
+        if (args.contains("libs")) {
+            libs = args["libs"].as<std::vector<std::string>>();
         }
-        libs = args["libs"].as<std::vector<std::string>>();
     } catch (boost::bad_any_cast const& e) {
         spdlog::error("Error: {}", e.what());
         return cCmdArgParseErr;
