@@ -403,8 +403,12 @@ class MariaDBStorage(Storage):
             - Task state.
             - Task timeout.
             - Task max retry.
+        :raises ValueError: If the lengths of `jobs` and `task_graphs` do not match.
         """
         task_insert_params = []
+        if len(jobs) != len(task_graphs):
+            msg = "The lengths of `jobs` and `task_graphs` must match."
+            raise ValueError(msg)
         for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs)):
             for task_index, task in enumerate(task_graph.tasks):
                 task_insert_params.append(
@@ -458,8 +462,12 @@ class MariaDBStorage(Storage):
             - Job ID.
             - Task ID.
             - The positional index of the input task.
+        :raises ValueError: If the lengths of `jobs` and `task_graphs` do not match.
         """
         input_task_params = []
+        if len(jobs) != len(task_graphs):
+            msg = "The lengths of `jobs` and `task_graphs` must match."
+            raise ValueError(msg)
         for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs)):
             for position, task_index in enumerate(task_graph.input_task_indices):
                 input_task_params.append(
@@ -483,8 +491,12 @@ class MariaDBStorage(Storage):
             - Job ID.
             - Task ID.
             - The positional index of the output task.
+        :raises ValueError: If the lengths of `jobs` and `task_graphs` do not match.
         """
         output_task_params = []
+        if len(jobs) != len(task_graphs):
+            msg = "The lengths of `jobs` and `task_graphs` must match."
+            raise ValueError(msg)
         for graph_index, (job, task_graph) in enumerate(zip(jobs, task_graphs)):
             for position, task_index in enumerate(task_graph.output_task_indices):
                 output_task_params.append(
