@@ -30,13 +30,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--func", type=str, required=True, help="Name of the function to execute.")
     parser.add_argument(
-        "--libs",
-        nargs="+",
-        type=str,
-        required=True,
-        help="List of libraries to load. NOTE: This argument is not used in the current executor.",
-    )
-    parser.add_argument(
         "--storage_url", type=str, required=True, help="JDBC URL for the storage backend."
     )
     parser.add_argument("--task_id", type=str, required=True, help="Task UUID.")
