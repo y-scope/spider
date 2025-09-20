@@ -1,5 +1,7 @@
 """Serialization and deserialization into serializable format."""
 
+from __future__ import annotations
+
 from dataclasses import fields, is_dataclass
 from types import GenericAlias
 from typing import cast, get_args, get_origin

@@ -1,12 +1,17 @@
 """Spider TDL types."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from types import GenericAlias
+from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
 from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
 from spider_py.type.utils import get_class_by_name
+
+if TYPE_CHECKING:
+    from types import GenericAlias
 
 
 class TdlType(ABC):
