@@ -11,6 +11,7 @@ To manually build a package for distribution, follow the steps below.
 
 * [Task] >= 3.40.0
 * [uv] >= 0.7.0
+* [mariadb connector c] >= 3.1.5 < 3.3.1
 
 ### Build Commands
 
@@ -95,3 +96,4 @@ task lint:spider-py-fix
 
 [Task]: https://taskfile.dev
 [uv]: https://docs.astral.sh/uv/
+[mariadb connector c]: https://mariadb.com/docs/connectors/mariadb-connector-c

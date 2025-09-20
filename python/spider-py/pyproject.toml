@@ -10,7 +10,8 @@ authors = [
 ]
 dependencies = [
   "lark>=1.2.2",
-  # MariaDB version must be compatible with libmaria-dev installed in the runtime environment.
+  # MariaDB version must be compatible with libmariadb-dev <3.3.1 installed in the runtime
+  # environment. The default version of libmariadb-dev in Ubuntu 22.04 is 3.2.6.
   # See https://mariadb.com/docs/connectors/mariadb-connector-python/install#build-prerequisites
   "mariadb~=1.0.11",
   "msgpack-types>=0.5.0",
