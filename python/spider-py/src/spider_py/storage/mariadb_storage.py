@@ -645,8 +645,8 @@ class MariaDBStorage(Storage):
         if status_str not in _StrToJobStatusMap:
             msg = f"Unknown job status: {status_str}."
             raise StorageError(msg)
-        # Old version of mariadb requires a fetchall after a fetchone to drain the result set even
-        # if it is already empty.
+        # Old version of mariadb (1.0.11) requires a fetchall after a fetchone to drain the result
+        # set even if it is already empty.
         cursor.fetchall()
         return _StrToJobStatusMap[status_str]
 
