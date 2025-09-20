@@ -73,12 +73,10 @@ TaskExecutor::TaskExecutor(
             break;
         }
         case core::TaskLanguage::Python: {
-            exe = boost::process::v2::environment::find_executable("python3", environment);
-            constexpr std::array<std::string_view, 2> cExtraArgs{
-                    "-m",
+            exe = boost::process::v2::environment::find_executable(
                     "spider-py-task-executor",
-            };
-            process_args.insert(process_args.begin(), cExtraArgs.cbegin(), cExtraArgs.cend());
+                    environment
+            );
             break;
         }
         default: {
