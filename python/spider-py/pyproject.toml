@@ -37,6 +37,13 @@ dev = [
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+exclude = [
+  ".python-version",
+  "tests",
+  "uv.lock",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/spider_py"]
 
