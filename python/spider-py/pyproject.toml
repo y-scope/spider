@@ -1,12 +1,18 @@
 [project]
-name = "spider-py"
-version = "0.0.1"
+name = "yscope-spider-py"
+version = "0.0.1.dev0"
 description = "A distributed task execution framework."
 readme = "README.md"
 requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
   { name = "Sitao Wang", email = "sitao.wang@yscope.com" },
   { name = "Zhihao Lin", email = "lin.zhihao@yscope.com" },
+]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Typing :: Typed",
 ]
 dependencies = [
   "lark>=1.2.2",
@@ -30,6 +36,16 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+exclude = [
+  ".python-version",
+  "tests",
+  "uv.lock",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spider_py"]
 
 [tool.mypy]
 strict = true
