@@ -4,6 +4,7 @@ set(SPIDER_TEST_SOURCES
     storage/StorageTestHelper.hpp
     tdl/test-parser.cpp
     tdl/test-parser-ast.cpp
+    tdl/test-pass-analysis-DetectUndefinedStruct.cpp
     tdl/test-pass-analysis-StructSpecDependencyGraph.cpp
     utils/CoreDataUtils.hpp
     utils/CoreTaskUtils.hpp
