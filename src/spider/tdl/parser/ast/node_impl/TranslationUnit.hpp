@@ -105,12 +105,12 @@ public:
             -> ystdlib::error_handling::Result<void>;
 
     /**
-     * @return A newly constructed dependency graph of struct specs defined in this translation
-     * unit.
+     * @return A shared pointer pointing to a newly constructed dependency graph of struct specs
+     * defined in this translation unit.
      */
     [[nodiscard]] auto create_struct_spec_dependency_graph() const
-            -> pass::analysis::StructSpecDependencyGraph {
-        return pass::analysis::StructSpecDependencyGraph{m_struct_spec_table};
+            -> std::shared_ptr<pass::analysis::StructSpecDependencyGraph> {
+        return std::make_shared<pass::analysis::StructSpecDependencyGraph>(m_struct_spec_table);
     }
 
 private:
