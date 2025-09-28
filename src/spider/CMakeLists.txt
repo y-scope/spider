@@ -211,6 +211,7 @@ set(SPIDER_TDL_ANTLR_GENERATED_SOURCES
 )
 
 set(SPIDER_TDL_SHARED_SOURCES
+    tdl/code_gen/python/PyGenerator.cpp
     tdl/parser/ast/Node.cpp
     tdl/parser/ast/node_impl/Function.cpp
     tdl/parser/ast/node_impl/Identifier.cpp
@@ -235,6 +236,8 @@ set(SPIDER_TDL_SHARED_SOURCES
 )
 
 set(SPIDER_TDL_SHARED_HEADERS
+    tdl/code_gen/python/PyGenerator.hpp
+    tdl/code_gen/Generator.hpp
     tdl/Error.hpp
     tdl/parser/ast/Node.hpp
     tdl/parser/ast/FloatSpec.hpp
