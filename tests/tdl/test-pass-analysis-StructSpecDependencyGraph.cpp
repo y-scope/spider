@@ -185,7 +185,7 @@ auto serialize_strongly_connected_components(StructSpecDependencyGraph& graph)
     return serialized_strongly_connected_components;
 }
 
-TEST_CASE("Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("StructSpecDependencyGraph Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase1}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
@@ -212,7 +212,7 @@ TEST_CASE("Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     );
 }
 
-TEST_CASE("Case 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("StructSpecDependencyGraphCase 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase2}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
@@ -236,7 +236,7 @@ TEST_CASE("Case 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     );
 }
 
-TEST_CASE("Case 3", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("StructSpecDependencyGraph Case 3", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase3}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
