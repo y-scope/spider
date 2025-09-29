@@ -1,6 +1,7 @@
 #ifndef SPIDER_TDL_PARSER_SOURCELOCATION_HPP
 #define SPIDER_TDL_PARSER_SOURCELOCATION_HPP
 
+#include <compare>
 #include <cstddef>
 #include <string>
 
@@ -23,6 +24,16 @@ public:
 
     [[nodiscard]] auto operator==(SourceLocation const& other) const noexcept -> bool {
         return m_line == other.m_line && m_column == other.m_column;
+    }
+
+    [[nodiscard]] auto operator<=>(SourceLocation const& other) const noexcept
+            -> std::strong_ordering {
+        if (auto const lint_comparison{m_line <=> other.m_line};
+            std::strong_ordering::equal != lint_comparison)
+        {
+            return lint_comparison;
+        }
+        return m_column <=> other.m_column;
     }
 
 private:

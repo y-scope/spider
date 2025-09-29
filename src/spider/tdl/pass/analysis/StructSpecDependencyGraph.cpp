@@ -16,6 +16,7 @@
 #include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/tdl/parser/ast/nodes.hpp>
+#include <spider/tdl/pass/utils.hpp>
 
 namespace spider::tdl::pass::analysis {
 namespace {
@@ -277,40 +278,22 @@ auto collect_use_ids(
         absl::flat_hash_map<parser::ast::StructSpec const*, size_t> const& struct_spec_ids
 ) -> std::vector<size_t> {
     absl::flat_hash_set<size_t> use_ids;
-    std::vector<parser::ast::Node const*> ast_dfs_stack;
-    ast_dfs_stack.emplace_back(def);
-    while (false == ast_dfs_stack.empty()) {
-        auto const* node{ast_dfs_stack.back()};
-        ast_dfs_stack.pop_back();
 
-        if (node == nullptr) {
-            // NOTE: This check is required by clang-tidy. In practice, this should never happen.
-            continue;
-        }
+    std::ignore = visit_struct_node_using_dfs(
+            def,
+            [&](parser::ast::Struct const* struct_node) -> ystdlib::error_handling::Result<void> {
+                auto const struct_name{struct_node->get_name()};
+                auto const it{struct_specs.find(struct_name)};
+                if (struct_specs.cend() == it) {
+                    // This is a dangling reference, which will be caught in other analysis pass. In
+                    // this dependency graph, we just ignore it.
+                    return ystdlib::error_handling::success();
+                }
 
-        auto const* node_as_struct{dynamic_cast<parser::ast::Struct const*>(node)};
-        if (nullptr == node_as_struct) {
-            // Not a struct node, continue DFS by pushing all the child nodes to the stack.
-            std::ignore = node->visit_children(
-                    [&](parser::ast::Node const& child) -> ystdlib::error_handling::Result<void> {
-                        ast_dfs_stack.emplace_back(&child);
-                        return ystdlib::error_handling::success();
-                    }
-            );
-            continue;
-        }
-
-        auto const struct_name{node_as_struct->get_name()};
-        auto const it{struct_specs.find(struct_name)};
-        if (struct_specs.cend() == it) {
-            // This is a dangling reference, which will be caught in other analysis pass. In this
-            // dependency graph, we just ignore it.
-            continue;
-        }
-
-        use_ids.emplace(struct_spec_ids.at(it->second.get()));
-    }
-
+                use_ids.emplace(struct_spec_ids.at(it->second.get()));
+                return ystdlib::error_handling::success();
+            }
+    );
     return std::vector<size_t>{use_ids.cbegin(), use_ids.cend()};
 }
 }  // namespace

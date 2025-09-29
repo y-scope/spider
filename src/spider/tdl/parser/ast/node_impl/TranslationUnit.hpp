@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include <absl/container/flat_hash_map.h>
 #include <ystdlib/error_handling/ErrorCode.hpp>
@@ -48,6 +49,28 @@ public:
 
     // Methods
     /**
+     * Visits all struct specs in the struct spec table in an unspecified order, invoking the given
+     * `visitor` for each struct spec.
+     * @tparam StructSpecVisitor
+     * @param visitor
+     * @return A void result on success, or an error code indicating the failure:
+     * - Forwards `visitor`'s return values.
+     */
+    template <typename StructSpecVisitor>
+    requires(std::is_invocable_r_v<
+             ystdlib::error_handling::Result<void>,
+             StructSpecVisitor,
+             StructSpec const*
+    >)
+    [[nodiscard]] auto visit_struct_specs(StructSpecVisitor visitor) const
+            -> ystdlib::error_handling::Result<void> {
+        for (auto const& [_, struct_spec] : m_struct_spec_table) {
+            YSTDLIB_ERROR_HANDLING_TRYV(visitor(struct_spec.get()));
+        }
+        return ystdlib::error_handling::success();
+    }
+
+    /**
      * @param name
      * @return A shared pointer to the `StructSpec` with the given name if it exists in the struct
      * spec table, nullptr otherwise.
@@ -82,12 +105,12 @@ public:
             -> ystdlib::error_handling::Result<void>;
 
     /**
-     * @return A newly constructed dependency graph of struct specs defined in this translation
-     * unit.
+     * @return A shared pointer pointing to a newly constructed dependency graph of struct specs
+     * defined in this translation unit.
      */
     [[nodiscard]] auto create_struct_spec_dependency_graph() const
-            -> pass::analysis::StructSpecDependencyGraph {
-        return pass::analysis::StructSpecDependencyGraph{m_struct_spec_table};
+            -> std::shared_ptr<pass::analysis::StructSpecDependencyGraph> {
+        return std::make_shared<pass::analysis::StructSpecDependencyGraph>(m_struct_spec_table);
     }
 
 private:

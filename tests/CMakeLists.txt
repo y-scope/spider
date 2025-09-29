@@ -2,8 +2,10 @@ set(SPIDER_TEST_SOURCES
     storage/test-DataStorage.cpp
     storage/test-MetadataStorage.cpp
     storage/StorageTestHelper.hpp
+    tdl/test-codegen-py.cpp
     tdl/test-parser.cpp
     tdl/test-parser-ast.cpp
+    tdl/test-pass-analysis-DetectUndefinedStruct.cpp
     tdl/test-pass-analysis-StructSpecDependencyGraph.cpp
     utils/CoreDataUtils.hpp
     utils/CoreTaskUtils.hpp

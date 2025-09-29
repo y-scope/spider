@@ -12,10 +12,12 @@
 #include <fmt/ranges.h>
 
 #include <spider/tdl/parser/parse.hpp>
+#include <spider/tdl/pass/analysis/DetectStructCircularDependency.hpp>
 #include <spider/tdl/pass/analysis/StructSpecDependencyGraph.hpp>
 
 namespace {
 using spider::tdl::parser::parse_translation_unit_from_istream;
+using spider::tdl::pass::analysis::DetectStructCircularDependency;
 using spider::tdl::pass::analysis::StructSpecDependencyGraph;
 
 constexpr std::string_view cTestCase1{R"(// Start of a TDL file. This is line#1.
@@ -185,17 +187,17 @@ auto serialize_strongly_connected_components(StructSpecDependencyGraph& graph)
     return serialized_strongly_connected_components;
 }
 
-TEST_CASE("Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("StructSpecDependencyGraph Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase1}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
     auto const& translation_unit{parse_result.value()};
 
     auto struct_spec_dependency_graph{translation_unit->create_struct_spec_dependency_graph()};
-    REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 7);
+    REQUIRE(struct_spec_dependency_graph->get_num_struct_specs() == 7);
 
     auto const serialized_strongly_connected_components{
-            serialize_strongly_connected_components(struct_spec_dependency_graph)
+            serialize_strongly_connected_components(*struct_spec_dependency_graph)
     };
     REQUIRE(serialized_strongly_connected_components.size() == 4);
     std::set<std::string> const expected_serialized_strongly_connected_components{
@@ -208,21 +210,44 @@ TEST_CASE("Case 1", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
             == expected_serialized_strongly_connected_components);
 
     REQUIRE_FALSE(
-            struct_spec_dependency_graph.get_struct_specs_in_topological_ordering().has_value()
+            struct_spec_dependency_graph->get_struct_specs_in_topological_ordering().has_value()
     );
+
+    DetectStructCircularDependency detect_circular_dependency_pass{struct_spec_dependency_graph};
+    auto const run_result{detect_circular_dependency_pass.run()};
+    REQUIRE(run_result.has_error());
+    auto const* error{
+            dynamic_cast<DetectStructCircularDependency::Error const*>(run_result.error().get())
+    };
+    REQUIRE(nullptr != error);
+    constexpr std::string_view cExpectedErrorMessage{
+            "Found 4 circular dependency group(s):\n"
+            "Found a circular dependency group of 3 struct spec(s):\n"
+            "  `class0` at (20:0)\n"
+            "  `class1` at (25:0)\n"
+            "  `class3` at (34:0)\n"
+            "Found a circular dependency group of 2 struct spec(s):\n"
+            "  `class2` at (29:0)\n"
+            "  `class4` at (38:0)\n"
+            "Found a circular dependency group of 1 struct spec(s):\n"
+            "  `class5` at (42:0)\n"
+            "Found a circular dependency group of 1 struct spec(s):\n"
+            "  `class6` at (46:0)"
+    };
+    REQUIRE(cExpectedErrorMessage == error->to_string());
 }
 
-TEST_CASE("Case 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("StructSpecDependencyGraphCase 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase2}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
     auto const& translation_unit{parse_result.value()};
 
     auto struct_spec_dependency_graph{translation_unit->create_struct_spec_dependency_graph()};
-    REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 6);
+    REQUIRE(struct_spec_dependency_graph->get_num_struct_specs() == 6);
 
     auto const serialized_strongly_connected_components{
-            serialize_strongly_connected_components(struct_spec_dependency_graph)
+            serialize_strongly_connected_components(*struct_spec_dependency_graph)
     };
     REQUIRE(serialized_strongly_connected_components.size() == 1);
     std::set<std::string> const expected_serialized_strongly_connected_components{
@@ -232,26 +257,48 @@ TEST_CASE("Case 2", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
             == expected_serialized_strongly_connected_components);
 
     REQUIRE_FALSE(
-            struct_spec_dependency_graph.get_struct_specs_in_topological_ordering().has_value()
+            struct_spec_dependency_graph->get_struct_specs_in_topological_ordering().has_value()
     );
+
+    DetectStructCircularDependency detect_circular_dependency_pass{struct_spec_dependency_graph};
+    auto const run_result{detect_circular_dependency_pass.run()};
+    REQUIRE(run_result.has_error());
+    auto const* error{
+            dynamic_cast<DetectStructCircularDependency::Error const*>(run_result.error().get())
+    };
+    REQUIRE(nullptr != error);
+    constexpr std::string_view cExpectedErrorMessage{
+            "Found 1 circular dependency group(s):\n"
+            "Found a circular dependency group of 5 struct spec(s):\n"
+            "  `class0` at (12:0)\n"
+            "  `class1` at (16:0)\n"
+            "  `class2` at (20:0)\n"
+            "  `class3` at (25:0)\n"
+            "  `class4` at (29:0)"
+    };
+    REQUIRE(cExpectedErrorMessage == error->to_string());
 }
 
-TEST_CASE("Case 3", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
+TEST_CASE("StructSpecDependencyGraph Case 3", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     std::istringstream input_stream{std::string{cTestCase3}};
     auto const parse_result{parse_translation_unit_from_istream(input_stream)};
     REQUIRE_FALSE(parse_result.has_error());
     auto const& translation_unit{parse_result.value()};
 
     auto struct_spec_dependency_graph{translation_unit->create_struct_spec_dependency_graph()};
-    REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 7);
+    REQUIRE(struct_spec_dependency_graph->get_num_struct_specs() == 7);
 
     auto const serialized_strongly_connected_components{
-            serialize_strongly_connected_components(struct_spec_dependency_graph)
+            serialize_strongly_connected_components(*struct_spec_dependency_graph)
     };
     REQUIRE(serialized_strongly_connected_components.empty());
 
+    DetectStructCircularDependency detect_circular_dependency_pass{struct_spec_dependency_graph};
+    auto const run_result{detect_circular_dependency_pass.run()};
+    REQUIRE_FALSE(run_result.has_error());
+
     auto const optional_topological_ordering{
-            struct_spec_dependency_graph.get_struct_specs_in_topological_ordering()
+            struct_spec_dependency_graph->get_struct_specs_in_topological_ordering()
     };
     REQUIRE(optional_topological_ordering.has_value());
     std::vector<std::string_view> topological_ordering_struct_spec_names;
@@ -259,7 +306,7 @@ TEST_CASE("Case 3", "[tdl][pass][analytics][StructSpecDependencyGraph]") {
     topological_ordering_struct_spec_names.reserve(optional_topological_ordering->size());
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     for (auto const id : *optional_topological_ordering) {
-        auto const struct_spec{struct_spec_dependency_graph.get_struct_spec_from_id(id)};
+        auto const struct_spec{struct_spec_dependency_graph->get_struct_spec_from_id(id)};
         REQUIRE(nullptr != struct_spec);
         topological_ordering_struct_spec_names.emplace_back(struct_spec->get_name());
     }
