@@ -54,6 +54,40 @@ namespace test2 {
 }
 )"};
 
+constexpr std::string_view cTestCompress{R"(
+namespace Compress {
+    fn compress(
+        job_id: int64,
+        task_id: int64,
+        tag_ids: List<int64>,
+        clp_io_config_json: List<int8>,
+        paths_to_compress_json: List<int8>,
+        clp_metadata_db_connection_config_json: List<int8>
+    ) -> List<int8>;
+}
+)"};
+
+constexpr std::string_view cExpectedCompress{R"(# Auto-generated Python code from TDL
+
+from dataclasses import dataclass
+import spider_py
+
+
+class Compress:
+    @staticmethod
+    def compress(
+        job_id: spider_py.Int64,
+        task_id: spider_py.Int64,
+        tag_ids: list[spider_py.Int64],
+        clp_io_config_json: list[spider_py.Int8],
+        paths_to_compress_json: list[spider_py.Int8],
+        clp_metadata_db_connection_config_json: list[spider_py.Int8],
+    ) -> list[spider_py.Int8]:
+        pass
+
+
+)"};
+
 TEST_CASE("Python Codegen `cTestInput1`", "[tdl][codegen][python]") {
     std::istringstream input_stream{std::string{cTestCase1}};
     auto parse_result{parse_translation_unit_from_istream(input_stream)};
@@ -139,6 +173,22 @@ TEST_CASE("Python Codegen `cTestInput1`", "[tdl][codegen][python]") {
             "\n"
     };
     REQUIRE(output_stream.str() == cExpectedGeneratedCode);
+}
+
+TEST_CASE("Python Codegen `cTestCompress`", "[tdl][codegen][python]") {
+    std::istringstream input_stream{std::string{cTestCompress}};
+    auto parse_result{parse_translation_unit_from_istream(input_stream)};
+    REQUIRE_FALSE(parse_result.has_error());
+
+    std::ostringstream output_stream;
+    auto struct_spec_dependency_graph{parse_result.value()->create_struct_spec_dependency_graph()};
+    PyGenerator code_generator{
+            std::move(parse_result.value()),
+            std::move(struct_spec_dependency_graph)
+    };
+    auto const codegen_result{code_generator.generate(output_stream)};
+    REQUIRE_FALSE(codegen_result.has_error());
+    REQUIRE(output_stream.str() == cExpectedCompress);
 }
 }  // namespace
 
