@@ -29,6 +29,7 @@ public:
     // Destructor
     ~Visitor() = default;
 
+    // Methods
     /**
      * Visits a translation unit node and generates code for it.
      * @param tu The translation unit node to visit.
@@ -37,7 +38,7 @@ public:
      * - TODO
      */
     [[nodiscard]] auto visit_translation_unit(parser::ast::TranslationUnit const* tu)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
 private:
     // Methods
@@ -49,7 +50,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_node(parser::ast::Node const* node)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a namespace node and generates code for it.
@@ -59,7 +60,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_namespace(parser::ast::Namespace const* ns)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a function node and generates code for it.
@@ -69,7 +70,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_function(parser::ast::Function const* func)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a named variable node and generates code for it.
@@ -79,7 +80,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_struct_spec(parser::ast::StructSpec const* struct_spec)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a named variable node and generates code for it.
@@ -89,17 +90,19 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_named_var(parser::ast::NamedVar const* named_var)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits an identifier node and generates code for it.
      * @param identifier The identifier node to visit.
      * @param out_stream The output stream to write the generated code.
-     * @return A void result on success, or an error code indicating the failure:
-     * - TODO
+     * @return A void result on success. This function always succeeds.
      */
     [[nodiscard]] auto visit_identifier(parser::ast::Identifier const* identifier)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error> {
+        *m_out_stream << identifier->get_name();
+        return ystdlib::error_handling::success();
+    }
 
     /**
      * Visits a type node and generates code for it.
@@ -109,7 +112,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_type(parser::ast::Type const* type)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a primitive type node and generates code for it.
@@ -119,7 +122,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_primitive_type(parser::ast::Primitive const* primitive_type)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a struct type node and generates code for it.
@@ -129,7 +132,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_struct_type(parser::ast::Struct const* struct_type)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a list type node and generates code for it.
@@ -139,7 +142,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_list_type(parser::ast::List const* list_type)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * visits a map type node and generates code for it.
@@ -149,7 +152,7 @@ private:
      * - todo
      */
     [[nodiscard]] auto visit_map_type(parser::ast::Map const* map_type)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     /**
      * Visits a tuple type node and generates code for it.
@@ -159,7 +162,7 @@ private:
      * - TODO
      */
     [[nodiscard]] auto visit_tuple_type(parser::ast::Tuple const* tuple_type)
-            -> ystdlib::error_handling::Result<void>;
+            -> boost::outcome_v2::std_checked<void, Error>;
 
     // Variables
     std::shared_ptr<pass::analysis::StructSpecDependencyGraph> m_struct_spec_dependency_graph;

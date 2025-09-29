@@ -9,15 +9,15 @@
 #include <ystdlib/error_handling/Result.hpp>
 
 using spider::tdl::parser::ast::Node;
-using NodeErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Node::ErrorCodeEnum>;
+using PyGeneratorErrorCodeCategory = ystdlib::error_handling::ErrorCategory<Node::ErrorCodeEnum>;
 
 template <>
-auto NodeErrorCodeCategory::name() const noexcept -> char const* {
+auto PyGeneratorErrorCodeCategory::name() const noexcept -> char const* {
     return "spider::tdl::parser::ast::Node";
 }
 
 template <>
-auto NodeErrorCodeCategory ::message(Node::ErrorCodeEnum error_enum) const -> std::string {
+auto PyGeneratorErrorCodeCategory ::message(Node::ErrorCodeEnum error_enum) const -> std::string {
     switch (error_enum) {
         case Node::ErrorCodeEnum::ChildIndexOutOfBounds:
             return "The child index is out of bounds.";
