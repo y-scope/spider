@@ -49,7 +49,7 @@ public:
 
     // Methods
     /**
-     * Visits all struct specs in the struct spec table in an unspecified order, invoking the given
+     * Visits all struct specs in the struct spec table in an arbitrary order, invoking the given
      * `visitor` for each struct spec.
      * @tparam StructSpecVisitor
      * @param visitor
