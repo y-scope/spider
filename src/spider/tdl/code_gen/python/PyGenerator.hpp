@@ -5,6 +5,8 @@
 #include <ostream>
 #include <utility>
 
+#include <boost/outcome/std_result.hpp>
+
 #include <spider/tdl/code_gen/Generator.hpp>
 #include <spider/tdl/Error.hpp>
 #include <spider/tdl/parser/ast/nodes.hpp>
