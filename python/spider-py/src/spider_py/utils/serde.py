@@ -38,7 +38,7 @@ def to_serializable_type(obj: object, cls: type | GenericAlias) -> object:
     :param cls: Class to ensure the object is of. Must be a concrete type or GenericAlias supported
     by Spider TDL.
     :return: A serializable representation of `obj` if it matches `cls`.
-    :raise: TypeError if `obj` does not match `cls` or `cls` is not a TDL supported type.
+    :raise: TypeError if `obj` type does not match `cls` or `cls` is not a TDL supported type.
     """
     origin = get_origin(cls)
     if origin is None:
@@ -121,8 +121,8 @@ def _to_serializable_type(obj: object, cls: type) -> object:
 
     :param obj: Object to serialize. Must be of types supported by Spider TDL.
     :param cls: Class to ensure the object is of. Must be a concrete type.
-    :return: A serializable representation of `obj` if it matches `cls`, otherwise None.
-    :raise: TypeError if type mismatch.
+    :return: A serializable representation of `obj`.
+    :raise: TypeError if `obj` type does not match `cls`.
     """
     if not isinstance(obj, cls):
         msg = f"Object {obj!r} is not of type {cls!r}"
@@ -150,8 +150,8 @@ def _to_serializable_list(obj: object, cls: GenericAlias) -> object:
 
     :param obj: List object to serialize.
     :param cls: GenericAlias representing the list type.
-    :return: Serializable list.
-    :raise: TypeError if type mismatch.
+    :return: A serializable representation of list.
+    :raise: TypeError if `obj` is not a list.
     """
     (key_type,) = get_args(cls)
     if not isinstance(obj, list):
@@ -170,8 +170,8 @@ def _to_serializable_dict(obj: object, cls: GenericAlias) -> object:
 
     :param obj: Dictionary object to serialize.
     :param cls: GenericAlias representing the dict type.
-    :return: Serializable dictionary.
-    :raise: TypeError if type mismatch.
+    :return: A serializable representation of dictionary.
+    :raise: TypeError if `obj` is not a dictionary.
     """
     key_type, value_type = get_args(cls)
     if not isinstance(obj, dict):
