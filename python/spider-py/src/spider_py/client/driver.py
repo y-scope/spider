@@ -43,7 +43,7 @@ def _prepare_graph_for_submission(
             native_type = parse_tdl_type(task_input.type).native_type()
             serialized_value = to_serializable_type(arg, native_type)
             if serialized_value is None:
-                msg = f"Input type mismatch: Expected {task_input.type}, got {type(arg)}"
+                msg = f"Input type mismatch: Expected {task_input.type}, got {type(arg)}."
                 raise TypeError(msg)
             task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
     if arg_index != len(task_args):
