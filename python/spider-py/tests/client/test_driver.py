@@ -2,7 +2,7 @@
 
 import pytest
 
-from spider_py import chain, Driver, group, Int8, TaskContext
+from spider_py import chain, Driver, group, Int8, Int64, TaskContext
 
 MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&password=password"
 
@@ -21,6 +21,11 @@ def double(_: TaskContext, x: Int8) -> Int8:
 def swap(_: TaskContext, x: Int8, y: Int8) -> tuple[Int8, Int8]:
     """Swaps two numbers."""
     return y, x
+
+
+def count(_: TaskContext, arr: list[Int8]) -> Int64:
+    """Counts the number of elements in an array."""
+    return Int64(len(arr))
 
 
 @pytest.mark.storage
@@ -55,6 +60,17 @@ class TestDriver:
                 (Int8(1),),
                 (Int8(1),),
             ],
+        )
+        assert len(jobs) == 2
+
+    def test_submit_list(self, driver: Driver) -> None:
+        """Tests successful job submission for list input."""
+        jobs = driver.submit_jobs(
+            [
+                group([count]),
+                group([count]),
+            ],
+            [([Int8(1), Int8(2), Int8(3)],), ([],)],
         )
         assert len(jobs) == 2
 
