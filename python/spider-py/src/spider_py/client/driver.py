@@ -16,41 +16,6 @@ from spider_py.utils.serde import to_serializable_type
 _argument_number_mismatch_msg = "Number of job inputs does not match number of arguments."
 
 
-def _prepare_graph_for_submission(
-    task_graph: TaskGraph, task_args: Sequence[object]
-) -> core.TaskGraph:
-    """
-    Prepares a task graph for submission by setting task states and assigning input values.
-    :param task_graph: The task graph to prepare.
-    :param task_args: The arguments to assign to the input tasks.
-    :return: The prepared core task graph.
-    """
-    core_graph = task_graph._impl.copy()
-    arg_index = 0
-    for task in core_graph.tasks:
-        task.set_pending()
-    for task_index in core_graph.input_task_indices:
-        task = core_graph.tasks[task_index]
-        task.set_ready()
-        for task_input in task.task_inputs:
-            if arg_index >= len(task_args):
-                raise ValueError(_argument_number_mismatch_msg)
-            arg = task_args[arg_index]
-            arg_index += 1
-            if isinstance(arg, Data):
-                task_input.value = arg.id
-                continue
-            native_type = parse_tdl_type(task_input.type).native_type()
-            serialized_value = to_serializable_type(arg, native_type)
-            if serialized_value is None:
-                msg = f"Input type mismatch: Expected {task_input.type}, got {type(arg)}."
-                raise TypeError(msg)
-            task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
-    if arg_index != len(task_args):
-        raise ValueError(_argument_number_mismatch_msg)
-    return core_graph
-
-
 class Driver:
     """Spider client driver class."""
 
@@ -82,7 +47,7 @@ class Driver:
 
         core_task_graphs = []
         for task_graph, task_args in zip(task_graphs, args):
-            core_task_graphs.append(_prepare_graph_for_submission(task_graph, task_args))
+            core_task_graphs.append(_copy_graph_for_submission(task_graph, task_args))
 
         core_jobs = self._storage.submit_jobs(self._driver_id, core_task_graphs)
         return [Job(core_job, self._storage) for core_job in core_jobs]
@@ -93,3 +58,39 @@ class Driver:
         :param data:
         """
         self._storage.create_data_with_driver_ref(self._driver_id, data._impl)
+
+
+def _copy_graph_for_submission(
+    task_graph: TaskGraph, task_args: Sequence[object]
+) -> core.TaskGraph:
+    """
+    Copies a task graph and prepare for submission by setting task states and assigning input
+    values.
+    :param task_graph: The task graph to copy.
+    :param task_args: The arguments to assign to the input tasks.
+    :return: The prepared core task graph.
+    """
+    core_graph = task_graph._impl.copy()
+    arg_index = 0
+    for task in core_graph.tasks:
+        task.set_pending()
+    for task_index in core_graph.input_task_indices:
+        task = core_graph.tasks[task_index]
+        task.set_ready()
+        for task_input in task.task_inputs:
+            if arg_index >= len(task_args):
+                raise ValueError(_argument_number_mismatch_msg)
+            arg = task_args[arg_index]
+            arg_index += 1
+            if isinstance(arg, Data):
+                task_input.value = arg.id
+                continue
+            native_type = parse_tdl_type(task_input.type).native_type()
+            serialized_value = to_serializable_type(arg, native_type)
+            if serialized_value is None:
+                msg = f"Input type mismatch: Expected {task_input.type}, got {type(arg)}."
+                raise TypeError(msg)
+            task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
+    if arg_index != len(task_args):
+        raise ValueError(_argument_number_mismatch_msg)
+    return core_graph
