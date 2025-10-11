@@ -13,7 +13,7 @@ from spider_py.storage import MariaDBStorage, parse_jdbc_url
 from spider_py.type import parse_tdl_type
 from spider_py.utils.serde import to_serializable_type
 
-_number_mismatch_msg = "Number of job inputs does not match number of arguments"
+_argument_number_mismatch_msg = "Number of job inputs does not match number of arguments."
 
 
 def _prepare_graph_for_submission(
@@ -34,7 +34,7 @@ def _prepare_graph_for_submission(
         task.set_ready()
         for task_input in task.task_inputs:
             if arg_index >= len(task_args):
-                raise ValueError(_number_mismatch_msg)
+                raise ValueError(_argument_number_mismatch_msg)
             arg = task_args[arg_index]
             arg_index += 1
             if isinstance(arg, Data):
@@ -47,7 +47,7 @@ def _prepare_graph_for_submission(
                 raise TypeError(msg)
             task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
     if arg_index != len(task_args):
-        raise ValueError(_number_mismatch_msg)
+        raise ValueError(_argument_number_mismatch_msg)
     return core_graph
 
 
@@ -75,7 +75,7 @@ class Driver:
         :raises ValueError: If the number of job inputs does not match the number of arguments.
         """
         if len(task_graphs) != len(args):
-            raise ValueError(_number_mismatch_msg)
+            raise ValueError(_argument_number_mismatch_msg)
 
         if not task_graphs:
             return []
