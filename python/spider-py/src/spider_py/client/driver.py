@@ -64,7 +64,7 @@ def _copy_graph_for_submission(
     task_graph: TaskGraph, task_args: Sequence[object]
 ) -> core.TaskGraph:
     """
-    Copies a task graph and prepare for submission by setting task states and assigning input
+    Copies a task graph and prepares for submission by setting task states and assigning input
     values.
     :param task_graph: The task graph to copy.
     :param task_args: The arguments to assign to the input tasks.
