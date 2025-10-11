@@ -29,19 +29,16 @@ def to_serializable(obj: object) -> object:
     return obj
 
 
-def to_serializable_type(obj: object, cls: type | GenericAlias) -> object | None:
+def to_serializable_type(obj: object, cls: type | GenericAlias) -> object:
     """
     Converts an object into a serializable format consisting only of built-in primitive types and
     collections (lists and dictionaries), ensuring that the `obj` is of the specified `cls` type.
 
-    - Built-in container types (lists or dictionaries) are recursively transformed.
-    - Dataclass instances are converted into dictionaries mapping field names to their serialized
-      values.
-    - All other objects are returned as-is.
-
     :param obj: Object to serialize. Must be of types supported by Spider TDL.
-    :param cls: Class to ensure the object is of. Must be a concrete type or GenericAlias.
-    :return: A serializable representation of `obj` if it matches `cls`, otherwise None.
+    :param cls: Class to ensure the object is of. Must be a concrete type or GenericAlias supported
+    by Spider TDL.
+    :return: A serializable representation of `obj` if it matches `cls`.
+    :raise: TypeError if `obj` does not match `cls` or `cls` is not a TDL supported type.
     """
     origin = get_origin(cls)
     if origin is None:
@@ -53,7 +50,8 @@ def to_serializable_type(obj: object, cls: type | GenericAlias) -> object | None
     if origin is dict:
         return _to_serializable_dict(obj, cast("GenericAlias", cls))
 
-    return None
+    msg = f"Unsupported type: {cls!r}"
+    raise TypeError(msg)
 
 
 def from_serializable(cls: type | GenericAlias, data: object) -> object:
@@ -117,70 +115,71 @@ def _deserialize_as_class(cls: type, data: object) -> object:
     return cls(**args)
 
 
-def _to_serializable_type(obj: object, cls: type) -> object | None:
+def _to_serializable_type(obj: object, cls: type) -> object:
     """
-    Converts an object into a serializable format consisting only of built-in primitive types and
-    collections (lists and dictionaries), ensuring that the `obj` is of the specified `cls` type.
+    Converts an object to a serializable format if it matches the specified concrete type.
 
     :param obj: Object to serialize. Must be of types supported by Spider TDL.
     :param cls: Class to ensure the object is of. Must be a concrete type.
     :return: A serializable representation of `obj` if it matches `cls`, otherwise None.
+    :raise: TypeError if type mismatch.
     """
     if not isinstance(obj, cls):
-        return None
+        msg = f"Object {obj!r} is not of type {cls!r}"
+        raise TypeError(msg)
     if is_dataclass(obj):
         serialized_dict = {}
         for field in fields(obj):
             field_value = getattr(obj, field.name)
             field_type = cls.__annotations__.get(field.name)
             if field_type is None or not isinstance(field_type, (type, GenericAlias)):
-                return None
+                msg = f"Invalid field type for {field.name} in {cls!r}"
+                raise TypeError(msg)
             serialized_value = to_serializable_type(field_value, field_type)
-            if serialized_value is None:
-                return None
             serialized_dict[field.name] = serialized_value
         return serialized_dict
+    if not isinstance(obj, cls):
+        msg = f"Object {obj!r} is not of type {cls!r}"
+        raise TypeError(msg)
     return obj
 
 
-def _to_serializable_list(obj: object, cls: GenericAlias) -> object | None:
+def _to_serializable_list(obj: object, cls: GenericAlias) -> object:
     """
-    Converts an object into a serializable format consisting only of built-in primitive types and
-    collections (lists and dictionaries), ensuring that the `obj` is of the specified `cls` type.
+    Converts a list to a serializable format if it matches the specified generic list type.
 
-    :param obj: Object to serialize. Must be of types supported by Spider TDL.
-    :param cls: Class to ensure the object is of. Must be a GenericAlias of list.
-    :return: A serializable representation of `obj` if it matches `cls`, otherwise None.
+    :param obj: List object to serialize.
+    :param cls: GenericAlias representing the list type.
+    :return: Serializable list.
+    :raise: TypeError if type mismatch.
     """
     (key_type,) = get_args(cls)
     if not isinstance(obj, list):
-        return None
+        msg = f"Object {obj!r} is not of type {cls!r}"
+        raise TypeError(msg)
     serialized_list = []
     for item in obj:
         serialized_item = to_serializable_type(item, key_type)
-        if serialized_item is None:
-            return None
         serialized_list.append(serialized_item)
     return serialized_list
 
 
-def _to_serializable_dict(obj: object, cls: GenericAlias) -> object | None:
+def _to_serializable_dict(obj: object, cls: GenericAlias) -> object:
     """
-    Converts an object into a serializable format consisting only of built-in primitive types and
-    collections (lists and dictionaries), ensuring that the `obj` is of the specified `cls` type.
+    Converts a dictionary to a serializable format if it matches the specified generic dict type.
 
-    :param obj: Object to serialize. Must be of types supported by Spider TDL.
-    :param cls: Class to ensure the object is of. Must be a GenericAlias of dict.
-    :return: A serializable representation of `obj` if it matches `cls`, otherwise None.
+    :param obj: Dictionary object to serialize.
+    :param cls: GenericAlias representing the dict type.
+    :return: Serializable dictionary.
+    :raise: TypeError if type mismatch.
     """
     key_type, value_type = get_args(cls)
     if not isinstance(obj, dict):
-        return None
+        msg = f"Object {obj!r} is not of type {cls!r}"
+        raise TypeError(msg)
     serialized_dict = {}
     for key, value in obj.items():
         serialized_key = to_serializable_type(key, key_type)
         serialized_value = to_serializable_type(value, value_type)
-        if serialized_key is None or serialized_value is None:
-            return None
         serialized_dict[serialized_key] = serialized_value
     return serialized_dict
