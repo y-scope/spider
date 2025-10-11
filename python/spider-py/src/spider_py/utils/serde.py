@@ -126,22 +126,20 @@ def _to_serializable_type(obj: object, cls: type) -> object | None:
     :param cls: Class to ensure the object is of. Must be a concrete type.
     :return: A serializable representation of `obj` if it matches `cls`, otherwise None.
     """
-    if is_dataclass(cls):
-        if not isinstance(obj, cls):
-            return None
+    if not isinstance(obj, cls):
+        return None
+    if is_dataclass(obj):
         serialized_dict = {}
         for field in fields(obj):
             field_value = getattr(obj, field.name)
-            field_type = field.type
-            if not isinstance(field_type, GenericAlias) and not isinstance(field_type, type):
+            field_type = cls.__annotations__.get(field.name)
+            if field_type is None or not isinstance(field_type, (type, GenericAlias)):
                 return None
             serialized_value = to_serializable_type(field_value, field_type)
             if serialized_value is None:
                 return None
             serialized_dict[field.name] = serialized_value
         return serialized_dict
-    if not isinstance(obj, cls):
-        return None
     return obj
 
 
