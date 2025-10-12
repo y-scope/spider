@@ -115,7 +115,7 @@ def parse_task_execution_results(
     """
     Parses results from the function execution.
     :param results: Results to parse.
-    :param: types: Expected output types. Must be a single type if `results` is not a tuple. Must
+    :param types: Expected output types. Must be a single type if `results` is not a tuple. Must
     be the same length as `results` if `results` is a tuple.
     :return: The parsed results.
     :raises TypeError: If the number of output types does not match the number of results.
