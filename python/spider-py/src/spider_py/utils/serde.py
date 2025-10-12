@@ -19,7 +19,7 @@ def to_serializable(obj: object, cls: type | GenericAlias) -> object:
 
     :param obj: Object to serialize. Must be of types supported by Spider TDL.
     :param cls: Class to ensure the object is of. Must be a concrete type or GenericAlias supported
-    by Spider TDL.
+        by Spider TDL.
     :return: A serializable representation of `obj` if it matches `cls`.
     :raise: TypeError if `obj` type does not match `cls` or `cls` is not a TDL supported type.
     """
@@ -116,7 +116,7 @@ def _to_serializable_type(obj: object, cls: type) -> object:
             field_value = getattr(obj, field.name)
             field_type = get_type_hints(cls).get(field.name, None)
             if field_type is None or not isinstance(field_type, (type, GenericAlias)):
-                msg = f"Invalid field type for {field.name} in {cls!r}"
+                msg = f"Invalid field type for {field.name} in {cls!r}."
                 raise TypeError(msg)
             serialized_value = to_serializable(field_value, field_type)
             serialized_dict[field.name] = serialized_value
