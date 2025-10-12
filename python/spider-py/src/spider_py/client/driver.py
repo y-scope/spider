@@ -67,7 +67,7 @@ def _copy_graph_for_submission(
     Copies the given task graph for submission by setting task states and assigning input values.
     :param task_graph: The task graph to copy.
     :param task_args: The arguments to assign to the input tasks.
-    :return: The copied core task graph ready for submission.
+    :return: A copied core task graph ready for submission.
     """
     core_graph = task_graph._impl.copy()
     task_args_it = iter(task_args)

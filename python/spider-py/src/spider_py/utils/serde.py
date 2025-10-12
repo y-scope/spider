@@ -108,22 +108,19 @@ def _to_serializable_type(obj: object, cls: type) -> object:
     :raise: TypeError if `obj` type does not match `cls`.
     """
     if not isinstance(obj, cls):
-        msg = f"Object {obj!r} is not of type {cls!r}"
+        msg = f"Object {obj!r} is not of type {cls!r}."
         raise TypeError(msg)
     if is_dataclass(obj):
         serialized_dict = {}
         for field in fields(obj):
             field_value = getattr(obj, field.name)
-            field_type = get_type_hints(cls).get(field.name)
+            field_type = get_type_hints(cls).get(field.name, None)
             if field_type is None or not isinstance(field_type, (type, GenericAlias)):
                 msg = f"Invalid field type for {field.name} in {cls!r}"
                 raise TypeError(msg)
             serialized_value = to_serializable(field_value, field_type)
             serialized_dict[field.name] = serialized_value
         return serialized_dict
-    if not isinstance(obj, cls):
-        msg = f"Object {obj!r} is not of type {cls!r}"
-        raise TypeError(msg)
     return obj
 
 
@@ -138,7 +135,7 @@ def _to_serializable_list(obj: object, cls: GenericAlias) -> object:
     """
     (key_type,) = get_args(cls)
     if not isinstance(obj, list):
-        msg = f"Object {obj!r} is not of type {cls!r}"
+        msg = f"Object {obj!r} is not of type {cls!r}."
         raise TypeError(msg)
     serialized_list = []
     for item in obj:
@@ -158,7 +155,7 @@ def _to_serializable_dict(obj: object, cls: GenericAlias) -> object:
     """
     key_type, value_type = get_args(cls)
     if not isinstance(obj, dict):
-        msg = f"Object {obj!r} is not of type {cls!r}"
+        msg = f"Object {obj!r} is not of type {cls!r}."
         raise TypeError(msg)
     serialized_dict = {}
     for key, value in obj.items():
