@@ -12,6 +12,11 @@ def to_serializable(obj: object, cls: type | GenericAlias) -> object:
     Converts an object into a serializable format consisting only of built-in primitive types and
     collections (lists and dictionaries), ensuring that the `obj` is of the specified `cls` type.
 
+    - Built-in container types (lists or dictionaries) are recursively transformed.
+    - Dataclass instances are converted into dictionaries mapping field names to their serialized
+      values.
+    - All other objects are returned as-is.
+
     :param obj: Object to serialize. Must be of types supported by Spider TDL.
     :param cls: Class to ensure the object is of. Must be a concrete type or GenericAlias supported
     by Spider TDL.
