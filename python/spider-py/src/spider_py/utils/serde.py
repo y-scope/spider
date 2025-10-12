@@ -25,7 +25,9 @@ def to_serializable(obj: object, cls: type | GenericAlias) -> object:
     """
     origin = get_origin(cls)
     if origin is None:
-        return _to_serializable_type(obj, cast("type", cls))
+        if is_dataclass(cls):
+            return _to_serializable_dataclass(obj, cast("type", cls))
+        return _to_serializable_primitive(obj, cast("type", cls))
 
     if origin is list:
         return _to_serializable_list(obj, cast("GenericAlias", cls))
@@ -98,11 +100,11 @@ def _deserialize_as_class(cls: type, data: object) -> object:
     return cls(**args)
 
 
-def _to_serializable_type(obj: object, cls: type) -> object:
+def _to_serializable_primitive(obj: object, cls: type) -> object:
     """
-    Converts an object to a serializable format if it matches the specified concrete type.
+    Converts a primitive object to a serializable format if it matches the specified concrete type.
 
-    :param obj: Object to serialize. Must be of types supported by Spider TDL.
+    :param obj: Primitive object to serialize. Must be of types supported by Spider TDL.
     :param cls: Class to ensure the object is of. Must be a concrete type.
     :return: A serializable representation of `obj`.
     :raise: TypeError if `obj` type does not match `cls`.
@@ -110,18 +112,36 @@ def _to_serializable_type(obj: object, cls: type) -> object:
     if not isinstance(obj, cls):
         msg = f"Object {obj!r} is not of type {cls!r}."
         raise TypeError(msg)
-    if is_dataclass(obj):
-        serialized_dict = {}
-        for field in fields(obj):
-            field_value = getattr(obj, field.name)
-            field_type = get_type_hints(cls).get(field.name, None)
-            if field_type is None or not isinstance(field_type, (type, GenericAlias)):
-                msg = f"Invalid field type for {field.name} in {cls!r}."
-                raise TypeError(msg)
-            serialized_value = to_serializable(field_value, field_type)
-            serialized_dict[field.name] = serialized_value
-        return serialized_dict
     return obj
+
+
+def _to_serializable_dataclass(obj: object, cls: type) -> object:
+    """
+    Converts a dataclass to a serializable format if it matches the specified type.
+
+    :param obj: Dataclass object to serialize.
+    :param cls: Class to ensure the object is of.
+    :return: A serializable representation of `obj`.
+    :raise: TypeError if
+        1. `cls` is not a dataclass type.
+        2. `obj` does not match `cls`.
+    """
+    if not isinstance(obj, cls):
+        msg = f"Object {obj!r} is not of type {cls!r}."
+        raise TypeError(msg)
+    if not is_dataclass(obj):
+        msg = f"Type {cls!r} is not a dataclass."
+        raise TypeError(msg)
+    serialized_dict = {}
+    for field in fields(obj):
+        field_value = getattr(obj, field.name)
+        field_type = get_type_hints(cls).get(field.name, None)
+        if field_type is None or not isinstance(field_type, (type, GenericAlias)):
+            msg = f"Invalid field type for {field.name} in {cls!r}."
+            raise TypeError(msg)
+        serialized_value = to_serializable(field_value, field_type)
+        serialized_dict[field.name] = serialized_value
+    return serialized_dict
 
 
 def _to_serializable_list(obj: object, list_type: GenericAlias) -> object:
@@ -131,7 +151,9 @@ def _to_serializable_list(obj: object, list_type: GenericAlias) -> object:
     :param obj: List object to serialize.
     :param list_type: GenericAlias representing the list type.
     :return: A serializable representation of list.
-    :raise: TypeError if `obj` is not a list.
+    :raise: TypeError if
+        1. `cls` is not a list type.
+        2. `obj` is not a list.
     """
     origin = get_origin(list_type)
     if origin is not list:
@@ -155,7 +177,9 @@ def _to_serializable_dict(obj: object, dict_type: GenericAlias) -> object:
     :param obj: Dictionary object to serialize.
     :param dict_type: GenericAlias representing the dict type.
     :return: A serializable representation of dictionary.
-    :raise: TypeError if `obj` is not a dictionary.
+    :raise: TypeError if
+        1. `cls` is not a dict type.
+        2. `obj` is not a dictionary.
     """
     origin = get_origin(dict_type)
     if origin is not dict:
