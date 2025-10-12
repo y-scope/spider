@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from os import fdopen
 from pydoc import locate
 from types import GenericAlias
-from typing import TYPE_CHECKING
+from typing import get_args, get_origin, TYPE_CHECKING
 from uuid import UUID
 
 import msgpack
@@ -136,15 +136,25 @@ def parse_task_execution_results(
     return response_messages
 
 
-def throw_if_no_annotation(annotation: object) -> None:
+def convert_tuple_annotation(
+    annotation: object,
+) -> type | GenericAlias | Sequence[type | GenericAlias]:
     """
-    Throws a TypeError if the `annotation` is empty. This is a workaround for TRY301.
+    Converts a tuple annotation to a sequence of types. If the annotation is not a tuple, it is
+    returned as is.
     :param annotation: The annotation to check.
-    :raises TypeError: If the annotation is empty.
+    :raises TypeError: If the annotation is empty or non-tuple annotation is not a type or generic
+    alias.
     """
     if annotation is inspect.Signature.empty:
         msg = "Function has no return type annotation."
         raise TypeError(msg)
+    origin = get_origin(annotation)
+    if origin is not tuple:
+        if not isinstance(annotation, (type, GenericAlias)):
+            msg = "Function return type annotation is not a type or a generic alias."
+            raise TypeError(msg)
+    return get_args(annotation)
 
 
 def main() -> None:
@@ -190,8 +200,7 @@ def main() -> None:
         try:
             results = function(*arguments)
             logger.debug("Function %s executed", function_name)
-            return_types = signature.return_annotation
-            throw_if_no_annotation(return_types)
+            return_types = convert_tuple_annotation(signature.return_annotation)
             responses = parse_task_execution_results(results, return_types)
         except Exception as e:
             logger.exception("Function %s failed", function_name)
