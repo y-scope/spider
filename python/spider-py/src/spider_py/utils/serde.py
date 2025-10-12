@@ -124,18 +124,22 @@ def _to_serializable_type(obj: object, cls: type) -> object:
     return obj
 
 
-def _to_serializable_list(obj: object, cls: GenericAlias) -> object:
+def _to_serializable_list(obj: object, list_type: GenericAlias) -> object:
     """
     Converts a list to a serializable format if it matches the specified generic list type.
 
     :param obj: List object to serialize.
-    :param cls: GenericAlias representing the list type.
+    :param list_type: GenericAlias representing the list type.
     :return: A serializable representation of list.
     :raise: TypeError if `obj` is not a list.
     """
-    (key_type,) = get_args(cls)
+    origin = get_origin(list_type)
+    if origin is not list:
+        msg = f"Type {list_type!r} is not a list type."
+        raise TypeError(msg)
+    (key_type,) = get_args(list_type)
     if not isinstance(obj, list):
-        msg = f"Object {obj!r} is not of type {cls!r}."
+        msg = f"Object {obj!r} is not of type {list_type!r}."
         raise TypeError(msg)
     serialized_list = []
     for item in obj:
@@ -144,18 +148,22 @@ def _to_serializable_list(obj: object, cls: GenericAlias) -> object:
     return serialized_list
 
 
-def _to_serializable_dict(obj: object, cls: GenericAlias) -> object:
+def _to_serializable_dict(obj: object, dict_type: GenericAlias) -> object:
     """
     Converts a dictionary to a serializable format if it matches the specified generic dict type.
 
     :param obj: Dictionary object to serialize.
-    :param cls: GenericAlias representing the dict type.
+    :param dict_type: GenericAlias representing the dict type.
     :return: A serializable representation of dictionary.
     :raise: TypeError if `obj` is not a dictionary.
     """
-    key_type, value_type = get_args(cls)
+    origin = get_origin(dict_type)
+    if origin is not dict:
+        msg = f"Type {dict_type!r} is not a dict type."
+        raise TypeError(msg)
+    key_type, value_type = get_args(dict_type)
     if not isinstance(obj, dict):
-        msg = f"Object {obj!r} is not of type {cls!r}."
+        msg = f"Object {obj!r} is not of type {dict_type!r}."
         raise TypeError(msg)
     serialized_dict = {}
     for key, value in obj.items():
