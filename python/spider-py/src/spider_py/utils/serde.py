@@ -33,7 +33,7 @@ def to_serializable(obj: object, cls: type | GenericAlias) -> object:
     if origin is dict:
         return _to_serializable_dict(obj, cast("GenericAlias", cls))
 
-    msg = f"Unsupported type: {cls!r}"
+    msg = f"Unsupported type: {cls!r}."
     raise TypeError(msg)
 
 
