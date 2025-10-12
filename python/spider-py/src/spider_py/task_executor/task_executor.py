@@ -116,7 +116,7 @@ def parse_task_execution_results(
     Parses results from the function execution.
     :param results: Results to parse.
     :param types: Expected output types. Must be a single type if `results` is not a tuple. Must
-    be the same length as `results` if `results` is a tuple.
+        be the same length as `results` if `results` is a tuple.
     :return: The parsed results.
     :raises TypeError: If the number of output types does not match the number of results.
     """
@@ -143,8 +143,8 @@ def get_return_types(
     Gets the return types of a function.
     :param func: Function to get return types from.
     :return: Return types of the function. If the function returns a single value, the return type
-    is a type or a generic alias. If the function returns multiple values, the return type is a
-    sequence of types or generic aliases.
+        is a type or a generic alias. If the function returns multiple values, the return type is a
+        sequence of types or generic aliases.
     :raises TypeError: If the function has no return type annotation or if the return type
     annotation is not a type or a generic alias.
     """
