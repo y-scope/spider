@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import inspect
 import logging
-from io import BufferedReader
+from collections.abc import Sequence
 from os import fdopen
 from pydoc import locate
 from types import GenericAlias
-from typing import Sequence
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import msgpack
@@ -18,6 +18,9 @@ from spider_py import client
 from spider_py.storage import MariaDBStorage, parse_jdbc_url, Storage
 from spider_py.task_executor.task_executor_message import get_request_body, TaskExecutorResponseType
 from spider_py.utils import from_serializable, to_serializable
+
+if TYPE_CHECKING:
+    from io import BufferedReader
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -115,22 +118,33 @@ def parse_task_execution_results(
     :param: types: Expected output types. Must be a single type if `results` is not a tuple. Must
     be the same length as `results` if `results` is a tuple.
     :return: The parsed results.
-    :raises ValueError: If the number of output types does not match the number of results.
+    :raises TypeError: If the number of output types does not match the number of results.
     """
     response_messages: list[object] = [TaskExecutorResponseType.Result]
     if not isinstance(results, tuple):
         if not isinstance(types, (type, GenericAlias)):
             msg = "Expected a single output type for non-tuple results."
-            raise ValueError(msg)
-        response_messages.append(parse_single_output_to_serializable(results, types[0]))
+            raise TypeError(msg)
+        response_messages.append(parse_single_output_to_serializable(results, types))
         return response_messages
     # Parse as a tuple
-    if len(results) != len(types):
+    if not isinstance(types, Sequence) or len(results) != len(types):
         msg = "The number of output types does not match the number of results."
-        raise ValueError(msg)
+        raise TypeError(msg)
     for result, ret_type in zip(results, types):
         response_messages.append(parse_single_output_to_serializable(result, ret_type))
     return response_messages
+
+
+def throw_if_no_annotation(annotation: object) -> None:
+    """
+    Throws a TypeError if the `annotation` is empty. This is a workaround for TRY301.
+    :param annotation: The annotation to check.
+    :raises TypeError: If the annotation is empty.
+    """
+    if annotation is inspect.Signature.empty:
+        msg = "Function has no return type annotation."
+        raise TypeError(msg)
 
 
 def main() -> None:
@@ -177,9 +191,7 @@ def main() -> None:
             results = function(*arguments)
             logger.debug("Function %s executed", function_name)
             return_types = signature.return_annotation
-            if return_types is inspect.Signature.empty:
-                msg = f"Function {function_name} has no return type annotation."
-                raise TypeError(msg)
+            throw_if_no_annotation(return_types)
             responses = parse_task_execution_results(results, return_types)
         except Exception as e:
             logger.exception("Function %s failed", function_name)

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import GenericAlias
+from typing import TYPE_CHECKING
 
 import msgpack
 
 import spider_py
 from spider_py.utils.serde import from_serializable, to_serializable
+
+if TYPE_CHECKING:
+    from types import GenericAlias
 
 
 def compare_serde(obj: object, cls: type | GenericAlias) -> None:
@@ -58,7 +61,7 @@ class TestMsgpackSerde:
         """Tests serialization and deserialization of a custom class."""
         user = User(
             id=spider_py.Int8(1),
-            name=[spider_py.Int8(byte) for byte in "Alice".encode()],
+            name=[spider_py.Int8(byte) for byte in b"Alice"],
             address=Address(city="Wonderland", zipcode="12345"),
         )
         compare_serde(user, User)
