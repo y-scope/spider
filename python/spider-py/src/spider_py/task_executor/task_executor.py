@@ -8,8 +8,8 @@ import logging
 from collections.abc import Sequence
 from os import fdopen
 from pydoc import locate
-from types import GenericAlias
-from typing import get_args, get_origin, TYPE_CHECKING
+from types import FunctionType, GenericAlias
+from typing import get_args, get_origin, get_type_hints, TYPE_CHECKING
 from uuid import UUID
 
 import msgpack
@@ -136,23 +136,38 @@ def parse_task_execution_results(
     return response_messages
 
 
-def convert_tuple_annotation(
-    annotation: object,
+def get_return_types(
+    func: FunctionType,
 ) -> type | GenericAlias | Sequence[type | GenericAlias]:
     """
-    Converts a tuple annotation to a sequence of types. If the annotation is not a tuple, it is
-    returned as is.
-    :param annotation: The annotation to check.
-    :raises TypeError: If the annotation is empty or non-tuple annotation is not a type or generic
-    alias.
+    Gets the return types of a function.
+    :param func: Function to get return types from.
+    :return: Return types of the function. If the function returns a single value, the return type
+    is a type or a generic alias. If the function returns multiple values, the return type is a
+    sequence of types or generic aliases.
+    :raises TypeError: If the function has no return type annotation or if the return type
+    annotation is not a type or a generic alias.
     """
+    signature = inspect.signature(func)
+    annotation = signature.return_annotation
+
     if annotation is inspect.Signature.empty:
-        msg = "Function has no return type annotation."
+        msg = f"Function {func.__name__} has no return type annotation."
         raise TypeError(msg)
+
+    # Resolve forward-referenced type annotations
+    if isinstance(annotation, str):
+        try:
+            hints = get_type_hints(func)
+            annotation = hints.get("return", annotation)
+        except Exception as e:
+            msg = f"Failed to get type hints for function {func.__name__}."
+            raise TypeError(msg) from e
+
     origin = get_origin(annotation)
     if origin is not tuple:
         if not isinstance(annotation, (type, GenericAlias)):
-            msg = "Function return type annotation is not a type or a generic alias."
+            msg = f"Function return type annotation is not a type or a generic alias: {annotation}"
             raise TypeError(msg)
         return annotation
     return get_args(annotation)
@@ -201,7 +216,7 @@ def main() -> None:
         try:
             results = function(*arguments)
             logger.debug("Function %s executed", function_name)
-            return_types = convert_tuple_annotation(signature.return_annotation)
+            return_types = get_return_types(function)
             responses = parse_task_execution_results(results, return_types)
         except Exception as e:
             logger.exception("Function %s failed", function_name)
