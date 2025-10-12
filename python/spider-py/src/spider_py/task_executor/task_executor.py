@@ -154,6 +154,7 @@ def convert_tuple_annotation(
         if not isinstance(annotation, (type, GenericAlias)):
             msg = "Function return type annotation is not a type or a generic alias."
             raise TypeError(msg)
+        return annotation
     return get_args(annotation)
 
 
