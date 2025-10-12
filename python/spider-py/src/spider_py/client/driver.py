@@ -64,30 +64,30 @@ def _copy_graph_for_submission(
     task_graph: TaskGraph, task_args: Sequence[object]
 ) -> core.TaskGraph:
     """
-    Copies a task graph and prepares for submission by setting task states and assigning input
-    values.
+    Copies the given task graph for submission by setting task states and assigning input values.
     :param task_graph: The task graph to copy.
     :param task_args: The arguments to assign to the input tasks.
-    :return: The prepared core task graph.
+    :return: The copied core task graph ready for submission.
     """
     core_graph = task_graph._impl.copy()
-    arg_index = 0
+    task_args_it = iter(task_args)
+    next_arg = next(task_args_it, None)
     for task in core_graph.tasks:
         task.set_pending()
     for task_index in core_graph.input_task_indices:
         task = core_graph.tasks[task_index]
         task.set_ready()
         for task_input in task.task_inputs:
-            if arg_index >= len(task_args):
+            if next_arg is None:
                 raise ValueError(_argument_number_mismatch_msg)
-            arg = task_args[arg_index]
-            arg_index += 1
+            arg = next_arg
+            next_arg = next(task_args_it, None)
             if isinstance(arg, Data):
                 task_input.value = arg.id
                 continue
             native_type = parse_tdl_type(task_input.type).native_type()
             serialized_value = to_serializable_type(arg, native_type)
             task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
-    if arg_index != len(task_args):
+    if next_arg is not None:
         raise ValueError(_argument_number_mismatch_msg)
     return core_graph
