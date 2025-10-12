@@ -1,11 +1,15 @@
 """Executes a Spider Python task."""
 
+from __future__ import annotations
+
 import argparse
 import inspect
 import logging
 from io import BufferedReader
 from os import fdopen
 from pydoc import locate
+from types import GenericAlias
+from typing import Sequence
 from uuid import UUID
 
 import msgpack
@@ -90,30 +94,42 @@ def parse_task_arguments(
     return parsed_args
 
 
-def parse_single_output_to_serializable(output: object) -> object:
+def parse_single_output_to_serializable(output: object, cls: type | GenericAlias) -> object:
     """
     Parses a single output from the function execution to a serializable form.
     :param output: Output to parse.
+    :param cls: Expected output type.
     :return: The parsed output.
     """
     if isinstance(output, client.Data):
         return output.id.bytes
-    return to_serializable(output)
+    return to_serializable(output, cls)
 
 
-def parse_task_execution_results(results: object) -> list[object]:
+def parse_task_execution_results(
+    results: object, types: type | GenericAlias | Sequence[type | GenericAlias]
+) -> list[object]:
     """
     Parses results from the function execution.
     :param results: Results to parse.
+    :param: types: Expected output types. Must be a single type if `results` is not a tuple. Must
+    be the same length as `results` if `results` is a tuple.
     :return: The parsed results.
+    :raises ValueError: If the number of output types does not match the number of results.
     """
     response_messages: list[object] = [TaskExecutorResponseType.Result]
     if not isinstance(results, tuple):
-        response_messages.append(parse_single_output_to_serializable(results))
+        if not isinstance(types, (type, GenericAlias)):
+            msg = "Expected a single output type for non-tuple results."
+            raise ValueError(msg)
+        response_messages.append(parse_single_output_to_serializable(results, types[0]))
         return response_messages
     # Parse as a tuple
-    for result in results:
-        response_messages.append(parse_single_output_to_serializable(result))
+    if len(results) != len(types):
+        msg = "The number of output types does not match the number of results."
+        raise ValueError(msg)
+    for result, ret_type in zip(results, types):
+        response_messages.append(parse_single_output_to_serializable(result, ret_type))
     return response_messages
 
 
@@ -160,7 +176,11 @@ def main() -> None:
         try:
             results = function(*arguments)
             logger.debug("Function %s executed", function_name)
-            responses = parse_task_execution_results(results)
+            return_types = signature.return_annotation
+            if return_types is inspect.Signature.empty:
+                msg = f"Function {function_name} has no return type annotation."
+                raise TypeError(msg)
+            responses = parse_task_execution_results(results, return_types)
         except Exception as e:
             logger.exception("Function %s failed", function_name)
             responses = [

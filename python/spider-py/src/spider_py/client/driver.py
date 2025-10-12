@@ -11,7 +11,7 @@ from spider_py.client.job import Job
 from spider_py.client.task_graph import TaskGraph
 from spider_py.storage import MariaDBStorage, parse_jdbc_url
 from spider_py.type import parse_tdl_type
-from spider_py.utils.serde import to_serializable_type
+from spider_py.utils.serde import to_serializable
 
 _argument_number_mismatch_msg = "Number of job inputs does not match number of arguments."
 
@@ -86,7 +86,7 @@ def _copy_graph_for_submission(
                 task_input.value = arg.id
                 continue
             native_type = parse_tdl_type(task_input.type).native_type()
-            serialized_value = to_serializable_type(arg, native_type)
+            serialized_value = to_serializable(arg, native_type)
             task_input.value = core.TaskInputValue(msgpack.packb(serialized_value))
     if next_arg is not None:
         raise ValueError(_argument_number_mismatch_msg)
