@@ -123,7 +123,7 @@ def parse_task_execution_results(
     response_messages: list[object] = [TaskExecutorResponseType.Result]
     if not isinstance(results, tuple):
         if not isinstance(types, (type, GenericAlias)):
-            msg = "Expected a single output type for non-tuple results."
+            msg = "Invalid single output type."
             raise TypeError(msg)
         response_messages.append(parse_single_output_to_serializable(results, types))
         return response_messages
