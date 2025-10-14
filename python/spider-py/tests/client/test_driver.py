@@ -133,6 +133,7 @@ class TestDriver:
                 ],
             )
         with pytest.raises(TypeError):
+            # Input type unsupported (non TDL type)
             driver.submit_jobs(
                 [
                     group([double]),
@@ -142,6 +143,7 @@ class TestDriver:
                 ],
             )
         with pytest.raises(TypeError):
+            # Input type mismatch
             driver.submit_jobs(
                 [
                     group([count_users]),
