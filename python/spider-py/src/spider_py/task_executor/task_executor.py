@@ -115,8 +115,8 @@ def parse_task_execution_results(
     """
     Parses results from the function execution.
     :param results: Results to parse.
-    :param types: Expected output types. Must be a single type if `results` is not a tuple. Must
-        be the same length as `results` if `results` is a tuple.
+    :param types: Expected output types. Must be a single type for non-tuple results, or a sequence
+        of types matching the length of tuple results.
     :return: The parsed results.
     :raises TypeError: If the number of output types does not match the number of results.
     """
@@ -145,8 +145,8 @@ def get_return_types(
     :return: Return types of the function. If the function returns a single value, the return type
         is a type or a generic alias. If the function returns multiple values, the return type is a
         sequence of types or generic aliases.
-    :raises TypeError: If the function has no return type annotation or if the return type
-    annotation is not a type or a generic alias.
+    :raises TypeError: If the function doesn't have return type annotation, or if the return type
+        annotation is neither a type nor a generic alias.
     """
     signature = inspect.signature(func)
     annotation = signature.return_annotation
@@ -167,7 +167,10 @@ def get_return_types(
     origin = get_origin(annotation)
     if origin is not tuple:
         if not isinstance(annotation, (type, GenericAlias)):
-            msg = f"Function return type annotation is not a type or a generic alias: {annotation}"
+            msg = (
+                "Function return type annotation is neither a type nor a generic alias:"
+                f" {annotation}."
+            )
             raise TypeError(msg)
         return annotation
     return get_args(annotation)
