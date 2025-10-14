@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
 from types import GenericAlias
-from typing import cast, get_args, get_origin, get_type_hints
+from typing import Any, cast, get_args, get_origin, get_type_hints
 
 
 def to_serializable(obj: object, cls: type | GenericAlias) -> object:
     """
     Converts an object into a serializable format consisting only of built-in primitive types and
-    collections (lists and dictionaries), ensuring that the `obj` is of the specified `cls` type.
+    collections (lists and dictionaries).
 
     - Built-in container types (lists or dictionaries) are recursively transformed.
     - Dataclass instances are converted into dictionaries mapping field names to their serialized
@@ -18,22 +18,33 @@ def to_serializable(obj: object, cls: type | GenericAlias) -> object:
     - All other objects are returned as-is.
 
     :param obj: Object to serialize. Must be of types supported by Spider TDL.
-    :param cls: Class to ensure the object is of. Must be a concrete type or GenericAlias supported
-        by Spider TDL.
-    :return: A serializable representation of `obj` if it matches `cls`.
-    :raise: TypeError if `obj` type does not match `cls` or `cls` is not a TDL supported type.
+    :param cls: The expected type of `obj`. Must be a concrete type or GenericAlias supported by
+        Spider TDL.
+    :return: A serializable representation of `obj`.
+    :raise: TypeError if `obj`'s type does not match `cls`.
+    :raise: TypeError if `cls` is not a TDL supported type.
     """
     origin = get_origin(cls)
     if origin is None:
-        if is_dataclass(cls):
-            return _to_serializable_dataclass(obj, cast("type", cls))
-        return _to_serializable_primitive(obj, cast("type", cls))
+        expected_type = cast("type", cls)
+        if not isinstance(obj, expected_type):
+            msg = f"Object {obj!r} is not of type {expected_type!r}."
+            raise TypeError(msg)
+        if is_dataclass(expected_type):
+            return _to_serializable_dataclass(obj, expected_type)
+        return obj
+
+    if not isinstance(obj, origin):
+        msg = f"Object {obj!r} is not of type {cls!r}."
+        raise TypeError(msg)
 
     if origin is list:
-        return _to_serializable_list(obj, cast("GenericAlias", cls))
+        (element_type,) = get_args(cast("GenericAlias", cls))
+        return _to_serializable_list(obj, element_type)
 
     if origin is dict:
-        return _to_serializable_dict(obj, cast("GenericAlias", cls))
+        (key_type, value_type) = get_args(cast("GenericAlias", cls))
+        return _to_serializable_dict(obj, key_type, value_type)
 
     msg = f"Unsupported type: {cls!r}."
     raise TypeError(msg)
@@ -100,37 +111,18 @@ def _deserialize_as_class(cls: type, data: object) -> object:
     return cls(**args)
 
 
-def _to_serializable_primitive(obj: object, cls: type) -> object:
-    """
-    Converts a primitive object to a serializable format if it matches the specified concrete type.
-
-    :param obj: Primitive object to serialize. Must be of types supported by Spider TDL.
-    :param cls: Class to ensure the object is of. Must be a concrete type.
-    :return: A serializable representation of `obj`.
-    :raise: TypeError if `obj` type does not match `cls`.
-    """
-    if not isinstance(obj, cls):
-        msg = f"Object {obj!r} is not of type {cls!r}."
-        raise TypeError(msg)
-    return obj
-
-
 def _to_serializable_dataclass(obj: object, cls: type) -> object:
     """
-    Converts a dataclass to a serializable format if it matches the specified type.
+    Converts a dataclass to a serializable format.
 
     :param obj: Dataclass object to serialize.
-    :param cls: Class to ensure the object is of.
+    :param cls: The expected type of `obj`.
     :return: A serializable representation of `obj`.
-    :raise: TypeError if
-        1. `cls` is not a dataclass type.
-        2. `obj` does not match `cls`.
+    :raise: TypeError if any field in `cls` is of an unsupported type.
     """
-    if not isinstance(obj, cls):
-        msg = f"Object {obj!r} is not of type {cls!r}."
-        raise TypeError(msg)
     if not is_dataclass(obj):
-        msg = f"Type {cls!r} is not a dataclass."
+        # Control flow should not reach here. However, this check is required to silence ruff.
+        msg = f"Object {obj!r} is not a dataclass instance."
         raise TypeError(msg)
     serialized_dict = {}
     for field in fields(obj):
@@ -144,51 +136,32 @@ def _to_serializable_dataclass(obj: object, cls: type) -> object:
     return serialized_dict
 
 
-def _to_serializable_list(obj: object, list_type: GenericAlias) -> object:
+def _to_serializable_list(obj: list[Any], element_type: type | GenericAlias) -> object:
     """
-    Converts a list to a serializable format if it matches the specified generic list type.
+    Converts a list to a serializable format.
 
     :param obj: List object to serialize.
-    :param list_type: GenericAlias representing the list type.
-    :return: A serializable representation of list.
-    :raise: TypeError if
-        1. `cls` is not a list type.
-        2. `obj` is not a list.
+    :param element_type: Type of elements in the list.
+    :return: A serializable representation of the list.
     """
-    origin = get_origin(list_type)
-    if origin is not list:
-        msg = f"Type {list_type!r} is not a list type."
-        raise TypeError(msg)
-    (key_type,) = get_args(list_type)
-    if not isinstance(obj, list):
-        msg = f"Object {obj!r} is not of type {list_type!r}."
-        raise TypeError(msg)
     serialized_list = []
     for item in obj:
-        serialized_item = to_serializable(item, key_type)
+        serialized_item = to_serializable(item, element_type)
         serialized_list.append(serialized_item)
     return serialized_list
 
 
-def _to_serializable_dict(obj: object, dict_type: GenericAlias) -> object:
+def _to_serializable_dict(
+    obj: dict[Any, Any], key_type: type | GenericAlias, value_type: type | GenericAlias
+) -> object:
     """
-    Converts a dictionary to a serializable format if it matches the specified generic dict type.
+    Converts a dictionary to a serializable format.
 
     :param obj: Dictionary object to serialize.
-    :param dict_type: GenericAlias representing the dict type.
-    :return: A serializable representation of dictionary.
-    :raise: TypeError if
-        1. `cls` is not a dict type.
-        2. `obj` is not a dictionary.
+    :param key_type: Type of keys in the dictionary.
+    :param value_type: Type of values in the dictionary.
+    :return: A serializable representation of the dictionary.
     """
-    origin = get_origin(dict_type)
-    if origin is not dict:
-        msg = f"Type {dict_type!r} is not a dict type."
-        raise TypeError(msg)
-    key_type, value_type = get_args(dict_type)
-    if not isinstance(obj, dict):
-        msg = f"Object {obj!r} is not of type {dict_type!r}."
-        raise TypeError(msg)
     serialized_dict = {}
     for key, value in obj.items():
         serialized_key = to_serializable(key, key_type)
