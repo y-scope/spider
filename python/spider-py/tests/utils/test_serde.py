@@ -18,6 +18,8 @@ def compare_serde(obj: object, cls: type | GenericAlias) -> None:
     """
     Serializes and then deserializes an object, and checks if the result matches the original
     object.
+    :param obj: The object to serialize and deserialize.
+    :param cls: The expected type of `obj`.
     """
     serialized = msgpack.packb(to_serializable(obj, cls))
     unpacked_data = msgpack.unpackb(serialized, raw=False, strict_map_key=False)
