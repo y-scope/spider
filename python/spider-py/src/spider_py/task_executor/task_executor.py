@@ -1,11 +1,15 @@
 """Executes a Spider Python task."""
 
+from __future__ import annotations
+
 import argparse
 import inspect
 import logging
-from io import BufferedReader
+from collections.abc import Sequence
 from os import fdopen
 from pydoc import locate
+from types import FunctionType, GenericAlias
+from typing import get_args, get_origin, get_type_hints, TYPE_CHECKING
 from uuid import UUID
 
 import msgpack
@@ -14,6 +18,9 @@ from spider_py import client
 from spider_py.storage import MariaDBStorage, parse_jdbc_url, Storage
 from spider_py.task_executor.task_executor_message import get_request_body, TaskExecutorResponseType
 from spider_py.utils import from_serializable, to_serializable
+
+if TYPE_CHECKING:
+    from io import BufferedReader
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -90,31 +97,83 @@ def parse_task_arguments(
     return parsed_args
 
 
-def parse_single_output_to_serializable(output: object) -> object:
+def parse_single_output_to_serializable(output: object, cls: type | GenericAlias) -> object:
     """
     Parses a single output from the function execution to a serializable form.
     :param output: Output to parse.
+    :param cls: Expected output type.
     :return: The parsed output.
     """
     if isinstance(output, client.Data):
         return output.id.bytes
-    return to_serializable(output)
+    return to_serializable(output, cls)
 
 
-def parse_task_execution_results(results: object) -> list[object]:
+def parse_task_execution_results(
+    results: object, types: type | GenericAlias | Sequence[type | GenericAlias]
+) -> list[object]:
     """
     Parses results from the function execution.
     :param results: Results to parse.
+    :param types: Expected output types. Must be a single type for non-tuple results, or a sequence
+        of types matching the length of tuple results.
     :return: The parsed results.
+    :raises TypeError: If the number of output types does not match the number of results.
     """
     response_messages: list[object] = [TaskExecutorResponseType.Result]
     if not isinstance(results, tuple):
-        response_messages.append(parse_single_output_to_serializable(results))
+        if not isinstance(types, (type, GenericAlias)):
+            msg = "Invalid single output type."
+            raise TypeError(msg)
+        response_messages.append(parse_single_output_to_serializable(results, types))
         return response_messages
     # Parse as a tuple
-    for result in results:
-        response_messages.append(parse_single_output_to_serializable(result))
+    if not isinstance(types, Sequence) or len(results) != len(types):
+        msg = "The number of output types does not match the number of results."
+        raise TypeError(msg)
+    for result, ret_type in zip(results, types):
+        response_messages.append(parse_single_output_to_serializable(result, ret_type))
     return response_messages
+
+
+def get_return_types(
+    func: FunctionType,
+) -> type | GenericAlias | Sequence[type | GenericAlias]:
+    """
+    Gets the return types of a function.
+    :param func: Function to get return types from.
+    :return: Return types of the function. If the function returns a single value, the return type
+        is a type or a generic alias. If the function returns multiple values, the return type is a
+        sequence of types or generic aliases.
+    :raises TypeError: If the function doesn't have return type annotation, or if the return type
+        annotation is neither a type nor a generic alias.
+    """
+    signature = inspect.signature(func)
+    annotation = signature.return_annotation
+
+    if annotation is inspect.Signature.empty:
+        msg = f"Function {func.__name__} has no return type annotation."
+        raise TypeError(msg)
+
+    # Resolve forward-referenced type annotations
+    if isinstance(annotation, str):
+        try:
+            hints = get_type_hints(func)
+            annotation = hints.get("return", annotation)
+        except Exception as e:
+            msg = f"Failed to get type hints for function {func.__name__}."
+            raise TypeError(msg) from e
+
+    origin = get_origin(annotation)
+    if origin is not tuple:
+        if not isinstance(annotation, (type, GenericAlias)):
+            msg = (
+                "Function return type annotation is neither a type nor a generic alias:"
+                f" {annotation}."
+            )
+            raise TypeError(msg)
+        return annotation
+    return get_args(annotation)
 
 
 def main() -> None:
@@ -160,7 +219,8 @@ def main() -> None:
         try:
             results = function(*arguments)
             logger.debug("Function %s executed", function_name)
-            responses = parse_task_execution_results(results)
+            return_types = get_return_types(function)
+            responses = parse_task_execution_results(results, return_types)
         except Exception as e:
             logger.exception("Function %s failed", function_name)
             responses = [
