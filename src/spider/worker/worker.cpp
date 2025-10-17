@@ -475,7 +475,6 @@ auto main(int argc, char** argv) -> int {
     boost::uuids::uuid const worker_id = gen();
 
     setup_logger(worker_id);
-    spdlog::error("Starting worker");
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
