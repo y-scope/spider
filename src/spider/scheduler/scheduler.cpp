@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <string>
@@ -17,7 +18,9 @@
 #include <boost/program_options/variables_map.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Driver.hpp>
@@ -145,17 +148,44 @@ auto cleanup_loop(
     }
 }
 
-constexpr int cSignalExitBase = 128;
-}  // namespace
+/**
+ * Sets up the logger for the scheduler.
+ * Writes logs to `SPIDER_LOG_FILE` if the environment variable is set.
+ * Writes logs to console otherwise.
+ */
+auto setup_logger() -> void {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    char const* const log_file_path = std::getenv("SPIDER_LOG_FILE");
+    if (nullptr == log_file_path) {
+        // NOLINTNEXTLINE(misc-include-cleaner)
+        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
+#ifndef NDEBUG
+        spdlog::set_level(spdlog::level::trace);
+#endif
+        return;
+    }
 
-// NOLINTNEXTLINE(bugprone-exception-escape)
-auto main(int argc, char** argv) -> int {
-    // Set up spdlog to write to stderr
+    try {
+        auto const file_logger = spdlog::basic_logger_mt("spider_scheduler", log_file_path);
+        spdlog::set_default_logger(file_logger);
+    } catch (spdlog::spdlog_ex& ex) {
+        auto const console_logger = spdlog::stdout_color_mt("spider_scheduler_console");
+        spdlog::set_default_logger(console_logger);
+    }
+
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
 #ifndef NDEBUG
     spdlog::set_level(spdlog::level::trace);
 #endif
+}
+
+constexpr int cSignalExitBase = 128;
+}  // namespace
+
+// NOLINTNEXTLINE(bugprone-exception-escape)
+auto main(int argc, char** argv) -> int {
+    setup_logger();
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
