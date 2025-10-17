@@ -433,7 +433,7 @@ auto task_loop(
  * Writes logs to the `SPIDER_LOG_DIR` directory if the environment variable is set.
  * Writes logs to console otherwise.
  *
- * @param uuid worker UUID for log file identification.
+ * @param uuid worker id for log file identification.
  */
 auto setup_logger(boost::uuids::uuid const uuid) -> void {
     // NOLINTNEXTLINE(concurrency-mt-unsafe)

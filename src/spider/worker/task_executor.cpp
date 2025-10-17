@@ -81,7 +81,7 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
  * Writes logs to the `SPIDER_LOG_DIR` directory if the environment variable is set.
  * Writes logs to console otherwise.
  *
- * @param uuid task executor UUID for log file identification.
+ * @param uuid task id for log file identification.
  */
 auto setup_logger(boost::uuids::uuid const uuid) -> void {
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
@@ -95,8 +95,8 @@ auto setup_logger(boost::uuids::uuid const uuid) -> void {
         return;
     }
 
-    auto const log_file_path = std::filesystem::path{log_file_dir}
-                               / fmt::format("task_executor_{}.log", to_string(uuid));
+    auto const log_file_path
+            = std::filesystem::path{log_file_dir} / fmt::format("task_{}.log", to_string(uuid));
 
     try {
         auto const file_logger
