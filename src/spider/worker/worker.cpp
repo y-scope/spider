@@ -30,7 +30,9 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Data.hpp>
@@ -425,16 +427,52 @@ auto task_loop(
 
 // NOLINTEND(clang-analyzer-unix.BlockInCriticalSection)
 
+/**
+ * Sets up the logger for the worker.
+ * Writes logs to the `SPIDER_LOG_DIR` directory if the environment variable is set.
+ * Writes logs to console otherwise.
+ *
+ * @param uuid worker UUID for log file identification.
+ */
+auto setup_logger(boost::uuids::uuid const uuid) -> void {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    char const* const log_file_dir = std::getenv("SPIDER_LOG_DIR");
+    if (nullptr == log_file_dir) {
+        // NOLINTNEXTLINE(misc-include-cleaner)
+        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
+#ifndef NDEBUG
+        spdlog::set_level(spdlog::level::trace);
+#endif
+        return;
+    }
+
+    auto const log_file_path
+            = std::filesystem::path{log_file_dir} / fmt::format("worker_{}.log", to_string(uuid));
+
+    try {
+        auto const file_logger
+                = spdlog::basic_logger_mt("spider_scheduler", log_file_path.string());
+        spdlog::set_default_logger(file_logger);
+    } catch (spdlog::spdlog_ex& ex) {
+        auto const console_logger = spdlog::stdout_color_mt("spider_scheduler_console");
+        spdlog::set_default_logger(console_logger);
+    }
+
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
+#ifndef NDEBUG
+    spdlog::set_level(spdlog::level::trace);
+#endif
+}
+
 constexpr int cSignalExitBase = 128;
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
-    // Set up spdlog to write to stderr
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
+    boost::uuids::random_generator gen;
+    boost::uuids::uuid const worker_id = gen();
+
+    setup_logger(worker_id);
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
@@ -482,8 +520,6 @@ auto main(int argc, char** argv) -> int {
     std::shared_ptr<spider::core::DataStorage> const data_store
             = storage_factory->provide_data_storage();
 
-    boost::uuids::random_generator gen;
-    boost::uuids::uuid const worker_id = gen();
     spider::core::Driver driver{worker_id};
 
     {  // Keep the scope of RAII storage connection
