@@ -168,9 +168,11 @@ auto setup_logger() -> void {
     try {
         auto const file_logger = spdlog::basic_logger_mt("spider_scheduler", log_file_path);
         spdlog::set_default_logger(file_logger);
+        spdlog::flush_on(spdlog::level::info);
     } catch (spdlog::spdlog_ex& ex) {
         auto const console_logger = spdlog::stdout_color_mt("spider_scheduler_console");
         spdlog::set_default_logger(console_logger);
+        spdlog::flush_on(spdlog::level::info);
     }
 
     // NOLINTNEXTLINE(misc-include-cleaner)
@@ -186,6 +188,7 @@ constexpr int cSignalExitBase = 128;
 // NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
     setup_logger();
+    spdlog::error("Starting spider scheduler");
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 

@@ -439,7 +439,7 @@ auto setup_logger(boost::uuids::uuid const uuid) -> void {
     char const* const log_file_dir = std::getenv("SPIDER_LOG_DIR");
     if (nullptr == log_file_dir) {
         // NOLINTNEXTLINE(misc-include-cleaner)
-        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
+        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
 #ifndef NDEBUG
         spdlog::set_level(spdlog::level::trace);
 #endif
@@ -453,13 +453,15 @@ auto setup_logger(boost::uuids::uuid const uuid) -> void {
         auto const file_logger
                 = spdlog::basic_logger_mt("spider_scheduler", log_file_path.string());
         spdlog::set_default_logger(file_logger);
+        spdlog::flush_on(spdlog::level::info);
     } catch (spdlog::spdlog_ex& ex) {
         auto const console_logger = spdlog::stdout_color_mt("spider_scheduler_console");
         spdlog::set_default_logger(console_logger);
+        spdlog::flush_on(spdlog::level::info);
     }
 
     // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
 #ifndef NDEBUG
     spdlog::set_level(spdlog::level::trace);
 #endif
@@ -473,6 +475,7 @@ auto main(int argc, char** argv) -> int {
     boost::uuids::uuid const worker_id = gen();
 
     setup_logger(worker_id);
+    spdlog::error("Starting worker");
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
