@@ -1,6 +1,8 @@
 #include <cerrno>
 #include <csignal>
+#include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -14,8 +16,11 @@
 #include <boost/program_options/variables_map.hpp>
 #include <boost/uuid/string_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/client/TaskContext.hpp>
@@ -70,6 +75,46 @@ auto parse_arg(int const argc, char** const& argv) -> boost::program_options::va
     boost::program_options::notify(variables);
     return variables;
 }
+
+/**
+ * Sets up the logger for the task executor.
+ * Writes logs to the `SPIDER_LOG_DIR` directory if the environment variable is set.
+ * Writes logs to console otherwise.
+ *
+ * @param uuid task executor UUID for log file identification.
+ */
+auto setup_logger(boost::uuids::uuid const uuid) -> void {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    char const* const log_file_dir = std::getenv("SPIDER_LOG_DIR");
+    if (nullptr == log_file_dir) {
+        // NOLINTNEXTLINE(misc-include-cleaner)
+        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.task_executor] %v");
+#ifndef NDEBUG
+        spdlog::set_level(spdlog::level::trace);
+#endif
+        return;
+    }
+
+    auto const log_file_path = std::filesystem::path{log_file_dir}
+                               / fmt::format("task_executor_{}.log", to_string(uuid));
+
+    try {
+        auto const file_logger
+                = spdlog::basic_logger_mt("spider_task_executor", log_file_path.string());
+        spdlog::set_default_logger(file_logger);
+        spdlog::flush_on(spdlog::level::info);
+    } catch (spdlog::spdlog_ex& ex) {
+        auto const console_logger = spdlog::stdout_color_mt("spider_task_executor_console");
+        spdlog::set_default_logger(console_logger);
+        spdlog::flush_on(spdlog::level::info);
+    }
+
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.task_executor] %v");
+#ifndef NDEBUG
+    spdlog::set_level(spdlog::level::trace);
+#endif
+}
 }  // namespace
 
 constexpr int cCmdArgParseErr = 1;
@@ -81,12 +126,6 @@ constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.executor] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
-
     boost::program_options::variables_map const args = parse_arg(argc, argv);
 
     std::string func_name;
@@ -94,6 +133,7 @@ auto main(int const argc, char** argv) -> int {
     std::string task_id_string;
     int input_pipe_fd{-1};
     int output_pipe_fd{-1};
+    boost::uuids::uuid task_id;
     try {
         if (!args.contains("func")) {
             return cCmdArgParseErr;
@@ -106,6 +146,11 @@ auto main(int const argc, char** argv) -> int {
         if (false == args.contains("input-pipe")) {
             return cCmdArgParseErr;
         }
+        boost::uuids::string_generator const gen;
+        task_id = gen(task_id_string);
+
+        setup_logger(task_id);
+
         input_pipe_fd = args["input-pipe"].as<int>();
         if (input_pipe_fd < 0) {
             spdlog::error("Invalid input pipe file descriptor: {}", input_pipe_fd);
@@ -143,8 +188,6 @@ auto main(int const argc, char** argv) -> int {
 
     try {
         // Parse task id
-        boost::uuids::string_generator const gen;
-        boost::uuids::uuid const task_id = gen(task_id_string);
 
         // Set up storage
         std::shared_ptr<spider::core::StorageFactory> const storage_factory

@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -450,12 +451,11 @@ auto setup_logger(boost::uuids::uuid const uuid) -> void {
             = std::filesystem::path{log_file_dir} / fmt::format("worker_{}.log", to_string(uuid));
 
     try {
-        auto const file_logger
-                = spdlog::basic_logger_mt("spider_scheduler", log_file_path.string());
+        auto const file_logger = spdlog::basic_logger_mt("spider_worker", log_file_path.string());
         spdlog::set_default_logger(file_logger);
         spdlog::flush_on(spdlog::level::info);
     } catch (spdlog::spdlog_ex& ex) {
-        auto const console_logger = spdlog::stdout_color_mt("spider_scheduler_console");
+        auto const console_logger = spdlog::stdout_color_mt("spider_worker_console");
         spdlog::set_default_logger(console_logger);
         spdlog::flush_on(spdlog::level::info);
     }
