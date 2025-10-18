@@ -391,18 +391,33 @@ auto task_loop(
         }
 
         // Execute task
-        spider::worker::TaskExecutor executor{
-                context,
-                task.get_function_name(),
-                task.get_id(),
-                language,
-                storage_url,
-                spider::core::TaskLanguage::Cpp == language ? libs : std::vector<std::string>{},
-                environment,
-                arg_buffers
-        };
+        std::unique_ptr<spider::worker::TaskExecutor> executor = nullptr;
+        if (spider::core::TaskLanguage::Cpp == language) {
+            executor = spider::worker::TaskExecutor::spawn_cpp_executor(
+                    context,
+                    task.get_function_name(),
+                    task.get_id(),
+                    storage_url,
+                    libs,
+                    environment,
+                    arg_buffers
+            );
+        } else if (spider::core::TaskLanguage::Python == language) {
+            executor = spider::worker::TaskExecutor::spawn_python_executor(
+                    context,
+                    task.get_function_name(),
+                    task.get_id(),
+                    storage_url,
+                    environment,
+                    arg_buffers
+            );
+        } else {
+            spdlog::error("Unsupported task language.");
+            fail_task_id = task.get_id();
+            continue;
+        }
 
-        pid_t const pid = executor.get_pid();
+        pid_t const pid = executor->get_pid();
         spider::core::ChildPid::set_pid(pid);
         // Double check if stop token is set to avoid any missing signal
         if (spider::core::StopFlag::is_stop_requested()) {
@@ -411,11 +426,11 @@ auto task_loop(
         }
 
         context.run();
-        executor.wait();
+        executor->wait();
 
         spider::core::ChildPid::set_pid(0);
 
-        if (handle_executor_result(storage_factory, metadata_store, instance, task, executor)) {
+        if (handle_executor_result(storage_factory, metadata_store, instance, task, *executor)) {
             fail_task_id = std::nullopt;
         } else {
             fail_task_id = task.get_id();
