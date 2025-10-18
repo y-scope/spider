@@ -106,21 +106,28 @@ auto get_environment_variable() -> absl::flat_hash_map<
         boost::process::v2::environment::key,
         boost::process::v2::environment::value
 > {
-    boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
-
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
-    char const* path_env_str = std::getenv("PATH");
-    std::string path_env = nullptr == path_env_str ? "" : path_env_str;
-    path_env.append(":");
-    path_env.append(executable_dir.string());
-
+    auto curr_env = boost::process::v2::environment::current();
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value
     >
             environment_variables;
 
-    environment_variables.emplace("PATH", path_env);
+    for (auto const& entry : curr_env) {
+        environment_variables.emplace(entry.key(), entry.value());
+    }
+
+    boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
+
+    auto const path_env_it = environment_variables.find("PATH");
+    if (environment_variables.end() != path_env_it) {
+        std::string path_env = path_env_it->second.string();
+        path_env.append(":");
+        path_env.append(executable_dir.string());
+        environment_variables["PATH"] = boost::process::v2::environment::value(path_env);
+    } else {
+        environment_variables.emplace("PATH", executable_dir.string());
+    }
 
     return environment_variables;
 }
