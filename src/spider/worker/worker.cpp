@@ -414,6 +414,11 @@ auto task_loop(
             fail_task_id = task.get_id();
             continue;
         }
+        if (nullptr == executor) {
+            spdlog::error("Failed to spawn task executor for task {}", task.get_function_name());
+            fail_task_id = task.get_id();
+            continue;
+        }
 
         pid_t const pid = executor->get_pid();
         spider::core::ChildPid::set_pid(pid);

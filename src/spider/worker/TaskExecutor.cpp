@@ -41,13 +41,16 @@ auto TaskExecutor::spawn_cpp_executor(
         > const& environment,
         std::vector<msgpack::sbuffer> const& args_buffers
 ) -> std::unique_ptr<TaskExecutor> {
+    boost::filesystem::path const exe
+            = boost::process::v2::environment::find_executable("spider_task_executor", environment);
+    if (exe.empty()) {
+        return nullptr;
+    }
+
     auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(context));
 
     auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
     auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
-
-    boost::filesystem::path const exe
-            = boost::process::v2::environment::find_executable("spider_task_executor", environment);
 
     std::vector<std::string> process_args{
             "--func",
@@ -101,13 +104,16 @@ auto TaskExecutor::spawn_python_executor(
         > const& environment,
         std::vector<msgpack::sbuffer> const& args_buffers
 ) -> std::unique_ptr<TaskExecutor> {
+    boost::filesystem::path const exe
+            = boost::process::v2::environment::find_executable("python3", environment);
+    if (exe.empty()) {
+        return nullptr;
+    }
+
     auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(context));
 
     auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
     auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
-
-    boost::filesystem::path const exe
-            = boost::process::v2::environment::find_executable("python3", environment);
 
     std::vector<std::string> const process_args{
             "-m",
