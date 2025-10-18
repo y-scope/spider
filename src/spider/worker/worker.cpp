@@ -387,15 +387,6 @@ auto task_loop(
 
         // Validate task language
         auto const language = task.get_language();
-        switch (language) {
-            case spider::core::TaskLanguage::Cpp:
-            case spider::core::TaskLanguage::Python:
-                break;
-            default:
-                spdlog::error("Unsupported task language.");
-                fail_task_id = task.get_id();
-                continue;
-        }
 
         // Execute task
         std::unique_ptr<spider::worker::TaskExecutor> executor = nullptr;
