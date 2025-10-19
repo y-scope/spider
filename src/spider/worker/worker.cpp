@@ -472,7 +472,7 @@ constexpr int cSignalExitBase = 128;
 
 auto main(int argc, char** argv) -> int {
     boost::uuids::random_generator gen;
-    boost::uuids::uuid const worker_id = gen();
+    auto const worker_id = gen();
 
     setup_logger(worker_id);
 
