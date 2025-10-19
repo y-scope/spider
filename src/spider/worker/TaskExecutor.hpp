@@ -45,7 +45,7 @@ public:
             std::vector<msgpack::sbuffer> const& args_buffers
     ) -> std::unique_ptr<TaskExecutor>;
 
-    static auto spawn_python_executor(
+    [[nodiscard]] static auto spawn_python_executor(
             boost::asio::io_context& context,
             std::string const& func_name,
             boost::uuids::uuid task_id,
