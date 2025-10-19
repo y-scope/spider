@@ -368,8 +368,7 @@ auto task_loop(
         std::unique_ptr<spider::worker::TaskExecutor> executor;
         // Task setup scope to ensure storage connection RAII
         {
-            std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
-                    conn_result = storage_factory->provide_storage_connection();
+            auto conn_result = storage_factory->provide_storage_connection();
             if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
                 spdlog::error(
                         "Failed to connect to storage: {}",
@@ -377,17 +376,16 @@ auto task_loop(
                 );
                 continue;
             }
-            auto const& conn =
-                    std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result);
+            auto const& conn
+                    = std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result);
 
-            std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers
-                    = setup_task(*conn, metadata_store, instance, task);
+            auto const optional_arg_buffers = setup_task(*conn, metadata_store, instance, task);
             if (!optional_arg_buffers.has_value()) {
                 spdlog::error("Failed to setup task {}", task.get_function_name());
                 fail_task_id = task.get_id();
                 continue;
             }
-            std::vector<msgpack::sbuffer> const& arg_buffers = optional_arg_buffers.value();
+            auto const& arg_buffers = optional_arg_buffers.value();
 
             // Validate task language
             auto const language = task.get_language();
@@ -419,7 +417,7 @@ auto task_loop(
                         *conn,
                         instance,
                         fmt::format(
-                                "Unsupported task language for task {}",
+                                "Unsupported task language for task `{}`.",
                                 task.get_function_name()
                         )
                 );

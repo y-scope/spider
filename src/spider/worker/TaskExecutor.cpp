@@ -41,7 +41,7 @@ auto TaskExecutor::spawn_cpp_executor(
         > const& environment,
         std::vector<msgpack::sbuffer> const& args_buffers
 ) -> std::unique_ptr<TaskExecutor> {
-    boost::filesystem::path const exe
+    auto const exe
             = boost::process::v2::environment::find_executable("spider_task_executor", environment);
     if (exe.empty()) {
         return nullptr;
@@ -104,8 +104,7 @@ auto TaskExecutor::spawn_python_executor(
         > const& environment,
         std::vector<msgpack::sbuffer> const& args_buffers
 ) -> std::unique_ptr<TaskExecutor> {
-    boost::filesystem::path const exe
-            = boost::process::v2::environment::find_executable("python3", environment);
+    auto const exe = boost::process::v2::environment::find_executable("python3", environment);
     if (exe.empty()) {
         return nullptr;
     }
