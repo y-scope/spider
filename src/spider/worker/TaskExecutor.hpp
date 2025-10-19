@@ -88,7 +88,12 @@ public:
 
 private:
     // Constructors
-    explicit TaskExecutor(boost::asio::io_context& context);
+    explicit TaskExecutor(
+            boost::asio::io_context& context,
+            int read_pipe_fd,
+            int write_pipe_fd,
+            std::unique_ptr<Process> process
+    );
 
     auto process_output_handler() -> boost::asio::awaitable<void>;
 

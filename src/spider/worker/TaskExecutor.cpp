@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -25,10 +26,6 @@
 #include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::worker {
-TaskExecutor::TaskExecutor(boost::asio::io_context& context)
-        : m_read_pipe{context},
-          m_write_pipe{context} {}
-
 auto TaskExecutor::spawn_cpp_executor(
         boost::asio::io_context& context,
         std::string const& func_name,
@@ -46,8 +43,6 @@ auto TaskExecutor::spawn_cpp_executor(
     if (exe.empty()) {
         return nullptr;
     }
-
-    auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(context));
 
     auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
     auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
@@ -69,15 +64,18 @@ auto TaskExecutor::spawn_cpp_executor(
         process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
     }
 
-    executor->m_write_pipe.assign(input_pipe_write_end);
-    executor->m_read_pipe.assign(output_pipe_read_end);
-    executor->m_process = std::make_unique<Process>(Process::spawn(
-            exe.string(),
-            process_args,
-            std::nullopt,
-            std::nullopt,
-            std::nullopt,
-            {input_pipe_read_end, output_pipe_write_end}
+    auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
+            context,
+            output_pipe_read_end,
+            input_pipe_write_end,
+            std::make_unique<Process>(Process::spawn(
+                    exe.string(),
+                    process_args,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    {input_pipe_read_end, output_pipe_write_end}
+            ))
     ));
     // Close the following fds since they're no longer needed by the parent process.
     close(input_pipe_read_end);
@@ -109,8 +107,6 @@ auto TaskExecutor::spawn_python_executor(
         return nullptr;
     }
 
-    auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(context));
-
     auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
     auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
 
@@ -129,16 +125,20 @@ auto TaskExecutor::spawn_python_executor(
             storage_url,
     };
 
-    executor->m_write_pipe.assign(input_pipe_write_end);
-    executor->m_read_pipe.assign(output_pipe_read_end);
-    executor->m_process = std::make_unique<Process>(Process::spawn(
-            exe.string(),
-            process_args,
-            std::nullopt,
-            std::nullopt,
-            std::nullopt,
-            {input_pipe_read_end, output_pipe_write_end}
+    auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
+            context,
+            output_pipe_read_end,
+            input_pipe_write_end,
+            std::make_unique<Process>(Process::spawn(
+                    exe.string(),
+                    process_args,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    {input_pipe_read_end, output_pipe_write_end}
+            ))
     ));
+
     // Close the following fds since they're no longer needed by the parent process.
     close(input_pipe_read_end);
     close(output_pipe_write_end);
@@ -151,6 +151,19 @@ auto TaskExecutor::spawn_python_executor(
     send_message(executor->m_write_pipe, args_request);
 
     return executor;
+}
+
+TaskExecutor::TaskExecutor(
+        boost::asio::io_context& context,
+        int const read_pipe_fd,
+        int const write_pipe_fd,
+        std::unique_ptr<Process> process
+)
+        : m_read_pipe(context),
+          m_write_pipe(context),
+          m_process(std::move(process)) {
+    m_read_pipe.assign(read_pipe_fd);
+    m_write_pipe.assign(write_pipe_fd);
 }
 
 auto TaskExecutor::get_pid() const -> pid_t {
