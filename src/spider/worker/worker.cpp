@@ -106,7 +106,7 @@ auto get_environment_variable() -> absl::flat_hash_map<
         boost::process::v2::environment::key,
         boost::process::v2::environment::value
 > {
-    auto curr_env = boost::process::v2::environment::current();
+    auto const curr_env = boost::process::v2::environment::current();
     absl::flat_hash_map<
             boost::process::v2::environment::key,
             boost::process::v2::environment::value
@@ -117,14 +117,14 @@ auto get_environment_variable() -> absl::flat_hash_map<
         environment_variables.emplace(entry.key(), entry.value());
     }
 
-    boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
+    auto const executable_dir = boost::dll::program_location().parent_path();
 
     auto const path_env_it = environment_variables.find("PATH");
     if (environment_variables.end() != path_env_it) {
         std::string path_env = path_env_it->second.string();
         path_env.append(":");
         path_env.append(executable_dir.string());
-        environment_variables["PATH"] = boost::process::v2::environment::value(path_env);
+        path_env_it->second = boost::process::v2::environment::value(path_env);
     } else {
         environment_variables.emplace("PATH", executable_dir.string());
     }
@@ -207,7 +207,7 @@ auto setup_task(
         spider::core::Task& task
 ) -> std::optional<std::vector<msgpack::sbuffer>> {
     // Get task details
-    spider::core::StorageErr const err = metadata_store->get_task(conn, instance.task_id, &task);
+    auto const err = metadata_store->get_task(conn, instance.task_id, &task);
     if (!err.success()) {
         spdlog::error("Failed to fetch task detail: {}", err.description);
         return std::nullopt;
@@ -365,7 +365,7 @@ auto task_loop(
         // Fetch task detail from metadata storage
         spider::core::Task task{""};
 
-        std::unique_ptr<spider::worker::TaskExecutor> executor = nullptr;
+        std::unique_ptr<spider::worker::TaskExecutor> executor;
         // Task setup scope to ensure storage connection RAII
         {
             std::variant<std::unique_ptr<spider::core::StorageConnection>, spider::core::StorageErr>
@@ -377,9 +377,8 @@ auto task_loop(
                 );
                 continue;
             }
-            auto conn = std::move(
-                    std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result)
-            );
+            auto const& conn =
+                    std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result);
 
             std::optional<std::vector<msgpack::sbuffer>> optional_arg_buffers
                     = setup_task(*conn, metadata_store, instance, task);
@@ -428,7 +427,7 @@ auto task_loop(
             }
             if (nullptr == executor) {
                 spdlog::error(
-                        "Failed to spawn task executor for task {}",
+                        "Failed to spawn task executor for task `{}`.",
                         task.get_function_name()
                 );
                 fail_task_id = task.get_id();

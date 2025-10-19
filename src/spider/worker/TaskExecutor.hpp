@@ -32,7 +32,7 @@ enum class TaskExecutorState : std::uint8_t {
 
 class TaskExecutor {
 public:
-    static auto spawn_cpp_executor(
+    [[nodiscard]] static auto spawn_cpp_executor(
             boost::asio::io_context& context,
             std::string const& func_name,
             boost::uuids::uuid task_id,
@@ -87,7 +87,7 @@ public:
     [[nodiscard]] auto get_error() const -> std::tuple<core::FunctionInvokeError, std::string>;
 
 private:
-    // Private constructor
+    // Constructors
     explicit TaskExecutor(boost::asio::io_context& context);
 
     auto process_output_handler() -> boost::asio::awaitable<void>;
