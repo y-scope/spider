@@ -97,7 +97,7 @@ private:
     TaskExecutorState m_state = TaskExecutorState::Running;
 
     // Use `std::unique_ptr` to work around requirement of default constructor
-    std::unique_ptr<Process> m_process = nullptr;
+    std::unique_ptr<Process> m_process;
     boost::asio::readable_pipe m_read_pipe;
     boost::asio::writable_pipe m_write_pipe;
 
