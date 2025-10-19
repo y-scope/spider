@@ -64,6 +64,7 @@ auto TaskExecutor::spawn_cpp_executor(
         process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
     }
 
+    // Must use `new` because `make_unique` cannot access the private constructor.
     auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
             context,
             output_pipe_read_end,
@@ -125,6 +126,7 @@ auto TaskExecutor::spawn_python_executor(
             storage_url,
     };
 
+    // Must use `new` because `make_unique` cannot access the private constructor.
     auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
             context,
             output_pipe_read_end,
