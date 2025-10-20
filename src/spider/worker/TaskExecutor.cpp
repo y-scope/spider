@@ -275,9 +275,9 @@ TaskExecutor::TaskExecutor(
         std::unique_ptr<Process> process,
         std::vector<msgpack::sbuffer> const& args_buffers
 )
-        : m_read_pipe(context),
-          m_write_pipe(context),
-          m_process(std::move(process)) {
+        : m_read_pipe{context},
+          m_write_pipe{context},
+          m_process{std::move(process)} {
     m_read_pipe.assign(read_pipe_fd);
     m_write_pipe.assign(write_pipe_fd);
 
