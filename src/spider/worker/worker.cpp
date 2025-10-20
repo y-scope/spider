@@ -321,7 +321,7 @@ auto setup_executor(
     metadata_store->task_fail(
             *conn,
             instance,
-            fmt::format("Failed to spawn task executor for task {}", task.get_function_name())
+            fmt::format("Failed to spawn task executor for task `{}`.", task.get_function_name())
     );
     return nullptr;
 }
