@@ -121,7 +121,7 @@ auto get_environment_variable() -> absl::flat_hash_map<
 
     auto const path_env_it = environment_variables.find("PATH");
     if (environment_variables.end() != path_env_it) {
-        std::string path_env = path_env_it->second.string();
+        auto path_env = path_env_it->second.string();
         path_env.append(":");
         path_env.append(executable_dir.string());
         path_env_it->second = boost::process::v2::environment::value(path_env);
@@ -380,8 +380,8 @@ auto task_loop(
                     = std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result);
 
             auto const optional_arg_buffers = setup_task(*conn, metadata_store, instance, task);
-            if (!optional_arg_buffers.has_value()) {
-                spdlog::error("Failed to setup task {}", task.get_function_name());
+            if (false == optional_arg_buffers.has_value()) {
+                spdlog::error("Failed to setup task `{}`.", task.get_function_name());
                 fail_task_id = task.get_id();
                 continue;
             }
@@ -441,7 +441,7 @@ auto task_loop(
             }
         }
 
-        pid_t const pid = executor->get_pid();
+        auto const pid = executor->get_pid();
         spider::core::ChildPid::set_pid(pid);
         // Double check if stop token is set to avoid any missing signal
         if (spider::core::StopFlag::is_stop_requested()) {
