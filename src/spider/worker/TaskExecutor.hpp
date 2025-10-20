@@ -92,7 +92,8 @@ private:
             boost::asio::io_context& context,
             int read_pipe_fd,
             int write_pipe_fd,
-            std::unique_ptr<Process> process
+            std::unique_ptr<Process> process,
+            std::vector<msgpack::sbuffer> const& args_buffers
     );
 
     auto process_output_handler() -> boost::asio::awaitable<void>;

@@ -76,18 +76,12 @@ auto TaskExecutor::spawn_cpp_executor(
                     std::nullopt,
                     std::nullopt,
                     {input_pipe_read_end, output_pipe_write_end}
-            ))
+            )),
+            args_buffers
     ));
     // Close the following fds since they're no longer needed by the parent process.
     close(input_pipe_read_end);
     close(output_pipe_write_end);
-
-    // Set up handler for output file
-    boost::asio::co_spawn(context, executor->process_output_handler(), boost::asio::detached);
-
-    // Send args
-    auto const args_request = core::create_args_request(args_buffers);
-    send_message(executor->m_write_pipe, args_request);
 
     return executor;
 }
@@ -138,34 +132,15 @@ auto TaskExecutor::spawn_python_executor(
                     std::nullopt,
                     std::nullopt,
                     {input_pipe_read_end, output_pipe_write_end}
-            ))
+            )),
+            args_buffers
     ));
 
     // Close the following fds since they're no longer needed by the parent process.
     close(input_pipe_read_end);
     close(output_pipe_write_end);
 
-    // Set up handler for output file
-    boost::asio::co_spawn(context, executor->process_output_handler(), boost::asio::detached);
-
-    // Send args
-    auto const args_request = core::create_args_request(args_buffers);
-    send_message(executor->m_write_pipe, args_request);
-
     return executor;
-}
-
-TaskExecutor::TaskExecutor(
-        boost::asio::io_context& context,
-        int const read_pipe_fd,
-        int const write_pipe_fd,
-        std::unique_ptr<Process> process
-)
-        : m_read_pipe(context),
-          m_write_pipe(context),
-          m_process(std::move(process)) {
-    m_read_pipe.assign(read_pipe_fd);
-    m_write_pipe.assign(write_pipe_fd);
 }
 
 auto TaskExecutor::get_pid() const -> pid_t {
@@ -291,5 +266,26 @@ auto TaskExecutor::get_error() const -> std::tuple<core::FunctionInvokeError, st
                             "Fail to parse error message"
                     )
             );
+}
+
+TaskExecutor::TaskExecutor(
+        boost::asio::io_context& context,
+        int const read_pipe_fd,
+        int const write_pipe_fd,
+        std::unique_ptr<Process> process,
+        std::vector<msgpack::sbuffer> const& args_buffers
+)
+        : m_read_pipe(context),
+          m_write_pipe(context),
+          m_process(std::move(process)) {
+    m_read_pipe.assign(read_pipe_fd);
+    m_write_pipe.assign(write_pipe_fd);
+
+    // Set up handler for output file
+    boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
+
+    // Send args
+    auto const args_request = core::create_args_request(args_buffers);
+    send_message(m_write_pipe, args_request);
 }
 }  // namespace spider::worker
