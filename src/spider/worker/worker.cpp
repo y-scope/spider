@@ -480,6 +480,9 @@ auto task_loop(
                 task,
                 fail_task_id
         );
+        if (nullptr == executor) {
+            continue;
+        }
 
         auto const pid = executor->get_pid();
         spider::core::ChildPid::set_pid(pid);
