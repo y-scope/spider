@@ -269,7 +269,6 @@ auto setup_executor(
     }
     auto const& arg_buffers = optional_arg_buffers.value();
 
-    // Validate task language
     auto const language = task.get_language();
 
     std::unique_ptr<spider::worker::TaskExecutor> executor;
