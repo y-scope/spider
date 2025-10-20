@@ -391,38 +391,45 @@ auto task_loop(
             auto const language = task.get_language();
 
             // Execute task
-            if (spider::core::TaskLanguage::Cpp == language) {
-                executor = spider::worker::TaskExecutor::spawn_cpp_executor(
-                        context,
-                        task.get_function_name(),
-                        task.get_id(),
-                        storage_url,
-                        libs,
-                        environment,
-                        arg_buffers
-                );
-            } else if (spider::core::TaskLanguage::Python == language) {
-                executor = spider::worker::TaskExecutor::spawn_python_executor(
-                        context,
-                        task.get_function_name(),
-                        task.get_id(),
-                        storage_url,
-                        environment,
-                        arg_buffers
-                );
-            } else {
-                spdlog::error("Unsupported task language.");
-                fail_task_id = task.get_id();
-                metadata_store->task_fail(
-                        *conn,
-                        instance,
-                        fmt::format(
-                                "Unsupported task language for task `{}`.",
-                                task.get_function_name()
-                        )
-                );
-                continue;
+            switch (language) {
+                case spider::core::TaskLanguage::Cpp: {
+                    executor = spider::worker::TaskExecutor::spawn_cpp_executor(
+                            context,
+                            task.get_function_name(),
+                            task.get_id(),
+                            storage_url,
+                            libs,
+                            environment,
+                            arg_buffers
+                    );
+                    break;
+                }
+                case spider::core::TaskLanguage::Python: {
+                    executor = spider::worker::TaskExecutor::spawn_python_executor(
+                            context,
+                            task.get_function_name(),
+                            task.get_id(),
+                            storage_url,
+                            environment,
+                            arg_buffers
+                    );
+                    break;
+                }
+                default: {
+                    spdlog::error("Unsupported task language.");
+                    fail_task_id = task.get_id();
+                    metadata_store->task_fail(
+                            *conn,
+                            instance,
+                            fmt::format(
+                                    "Unsupported task language for task `{}`.",
+                                    task.get_function_name()
+                            )
+                    );
+                    continue;
+                }
             }
+
             if (nullptr == executor) {
                 spdlog::error(
                         "Failed to spawn task executor for task `{}`.",
