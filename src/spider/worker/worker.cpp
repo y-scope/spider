@@ -237,7 +237,7 @@ auto setup_task(
  * @param fail_task_id Output parameter to store the ID of the task if setup failed.
  * @return A unique pointer to the created task executor, or nullptr if setup failed.
  */
-auto setup_executor(
+[[nodiscard]] auto setup_executor(
         std::shared_ptr<spider::core::StorageFactory> const& storage_factory,
         std::shared_ptr<spider::core::MetadataStorage> const& metadata_store,
         std::string const& storage_url,

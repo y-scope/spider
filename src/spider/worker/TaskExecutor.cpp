@@ -79,6 +79,7 @@ auto TaskExecutor::spawn_cpp_executor(
             )),
             args_buffers
     ));
+
     // Close the following fds since they're no longer needed by the parent process.
     close(input_pipe_read_end);
     close(output_pipe_write_end);
