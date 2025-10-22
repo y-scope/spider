@@ -32,6 +32,7 @@
 #include <fmt/format.h>
 #include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
+#include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/core/Data.hpp>
 #include <spider/core/Driver.hpp>
@@ -233,8 +234,6 @@ auto setup_task(
  * @param libs The dynamic libraries that include the spider tasks.
  * @param environment The environment variables for the task executor.
  * @param context The context for asynchronous operations.
- * @param task Output parameter to store the fetched task details.
- * @param fail_task_id Output parameter to store the ID of the task if setup failed.
  * @return A unique pointer to the created task executor, or nullptr if setup failed.
  */
 [[nodiscard]] auto setup_executor(
@@ -247,25 +246,25 @@ auto setup_task(
                 boost::process::v2::environment::key,
                 boost::process::v2::environment::value
         > const& environment,
-        boost::asio::io_context& context,
-        spider::core::Task& task,
-        std::optional<boost::uuids::uuid>& fail_task_id
-) -> std::unique_ptr<spider::worker::TaskExecutor> {
+        boost::asio::io_context& context
+) -> ystdlib::error_handling::
+        Result<std::tuple<std::unique_ptr<spider::worker::TaskExecutor>, spider::core::Task>,
+               std::optional<boost::uuids::uuid>> {
     auto conn_result = storage_factory->provide_storage_connection();
     if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
         spdlog::error(
                 "Failed to connect to storage: {}",
                 std::get<spider::core::StorageErr>(conn_result).description
         );
-        return nullptr;
+        return std::nullopt;
     }
     auto const& conn = std::get<std::unique_ptr<spider::core::StorageConnection>>(conn_result);
 
+    spider::core::Task task{""};
     auto const optional_arg_buffers = setup_task(*conn, metadata_store, instance, task);
     if (false == optional_arg_buffers.has_value()) {
         spdlog::error("Failed to setup task `{}`.", task.get_function_name());
-        fail_task_id = task.get_id();
-        return nullptr;
+        return task.get_id();
     }
     auto const& arg_buffers = optional_arg_buffers.value();
 
@@ -299,7 +298,6 @@ auto setup_task(
         }
         default: {
             spdlog::error("Unsupported task language.");
-            fail_task_id = task.get_id();
             metadata_store->task_fail(
                     *conn,
                     instance,
@@ -308,21 +306,20 @@ auto setup_task(
                             task.get_function_name()
                     )
             );
-            return nullptr;
+            return task.get_id();
         }
     }
 
     if (nullptr != executor) {
-        return executor;
+        return std::make_tuple(std::move(executor), task);
     }
     spdlog::error("Failed to spawn task executor for task `{}`.", task.get_function_name());
-    fail_task_id = task.get_id();
     metadata_store->task_fail(
             *conn,
             instance,
             fmt::format("Failed to spawn task executor for task `{}`.", task.get_function_name())
     );
-    return nullptr;
+    return task.get_id();
 }
 
 auto
@@ -466,22 +463,24 @@ auto task_loop(
         spider::core::TaskInstance const instance{task_instance_id, task_id};
         spdlog::debug("Fetched task {}", boost::uuids::to_string(task_id));
         // Fetch task detail from metadata storage
-        spider::core::Task task{""};
 
-        std::unique_ptr<spider::worker::TaskExecutor> executor = setup_executor(
+        auto executor_result = setup_executor(
                 storage_factory,
                 metadata_store,
                 storage_url,
                 instance,
                 libs,
                 environment,
-                context,
-                task,
-                fail_task_id
+                context
         );
-        if (nullptr == executor) {
+        if (executor_result.has_error()) {
+            auto const optional_task_id = executor_result.error();
+            if (optional_task_id.has_value()) {
+                fail_task_id = optional_task_id.value();
+            }
             continue;
         }
+        auto [executor, task] = std::move(executor_result.value());
 
         auto const pid = executor->get_pid();
         spider::core::ChildPid::set_pid(pid);
