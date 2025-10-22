@@ -250,7 +250,7 @@ auto setup_task(
 ) -> ystdlib::error_handling::
         Result<std::tuple<std::unique_ptr<spider::worker::TaskExecutor>, spider::core::Task>,
                std::optional<boost::uuids::uuid>> {
-    auto conn_result = storage_factory->provide_storage_connection();
+    auto const conn_result = storage_factory->provide_storage_connection();
     if (std::holds_alternative<spider::core::StorageErr>(conn_result)) {
         spdlog::error(
                 "Failed to connect to storage: {}",
