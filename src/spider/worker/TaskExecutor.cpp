@@ -16,6 +16,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
@@ -41,6 +42,7 @@ auto TaskExecutor::spawn_cpp_executor(
     auto const exe
             = boost::process::v2::environment::find_executable("spider_task_executor", environment);
     if (exe.empty()) {
+        spdlog::error("Cannot find c++ task executor");
         return nullptr;
     }
 
@@ -100,6 +102,7 @@ auto TaskExecutor::spawn_python_executor(
 ) -> std::unique_ptr<TaskExecutor> {
     auto const exe = boost::process::v2::environment::find_executable("python3", environment);
     if (exe.empty()) {
+        spdlog::error("Cannot find python3 interpreter");
         return nullptr;
     }
 
