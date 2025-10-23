@@ -16,7 +16,6 @@
 #include <boost/process/v2/environment.hpp>
 #include <boost/uuid/uuid.hpp>
 
-#include <spider/core/Task.hpp>
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 #include <spider/worker/FunctionManager.hpp>
@@ -33,11 +32,10 @@ enum class TaskExecutorState : std::uint8_t {
 
 class TaskExecutor {
 public:
-    TaskExecutor(
+    [[nodiscard]] static auto spawn_cpp_executor(
             boost::asio::io_context& context,
             std::string const& func_name,
             boost::uuids::uuid task_id,
-            core::TaskLanguage language,
             std::string const& storage_url,
             std::vector<std::string> const& libs,
             absl::flat_hash_map<
@@ -45,7 +43,19 @@ public:
                     boost::process::v2::environment::value
             > const& environment,
             std::vector<msgpack::sbuffer> const& args_buffers
-    );
+    ) -> std::unique_ptr<TaskExecutor>;
+
+    [[nodiscard]] static auto spawn_python_executor(
+            boost::asio::io_context& context,
+            std::string const& func_name,
+            boost::uuids::uuid task_id,
+            std::string const& storage_url,
+            absl::flat_hash_map<
+                    boost::process::v2::environment::key,
+                    boost::process::v2::environment::value
+            > const& environment,
+            std::vector<msgpack::sbuffer> const& args_buffers
+    ) -> std::unique_ptr<TaskExecutor>;
 
     TaskExecutor(TaskExecutor const&) = delete;
     auto operator=(TaskExecutor const&) -> TaskExecutor& = delete;
@@ -77,6 +87,15 @@ public:
     [[nodiscard]] auto get_error() const -> std::tuple<core::FunctionInvokeError, std::string>;
 
 private:
+    // Constructors
+    explicit TaskExecutor(
+            boost::asio::io_context& context,
+            int read_pipe_fd,
+            int write_pipe_fd,
+            std::unique_ptr<Process> process,
+            std::vector<msgpack::sbuffer> const& args_buffers
+    );
+
     auto process_output_handler() -> boost::asio::awaitable<void>;
 
     std::mutex m_state_mutex;
@@ -84,7 +103,7 @@ private:
     TaskExecutorState m_state = TaskExecutorState::Running;
 
     // Use `std::unique_ptr` to work around requirement of default constructor
-    std::unique_ptr<Process> m_process = nullptr;
+    std::unique_ptr<Process> m_process;
     boost::asio::readable_pipe m_read_pipe;
     boost::asio::writable_pipe m_write_pipe;
 
