@@ -16,8 +16,8 @@ namespace spider::logging {
 auto setup_file_logger(std::string const& logger_name, std::string const& source_name) -> void;
 
 /**
- * Sets up the logger to write to `$SPIDER_LOG_DIR/<logger_name>_<id>.log` directory if the
- * environment variable is set.
+ * Sets up the logger to write to `$SPIDER_LOG_DIR/<logger_name>_<id>.log` if the environment
+ * variable is set.
  * Writes logs to console otherwise.
  *
  * @param logger_name The name of the logger.

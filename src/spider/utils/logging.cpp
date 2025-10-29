@@ -33,7 +33,7 @@ auto setup_logger(std::string const& logger_name, std::string const& log_file_pa
 
 /**
  * Sets up the log format and level for the spdlog logger.
- * @param source_name
+ * @param source_name The source name to include in the log format.
  */
 auto setup_log_format(std::string const& source_name) -> void {
     // NOLINTNEXTLINE(misc-include-cleaner)
