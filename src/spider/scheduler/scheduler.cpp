@@ -1,7 +1,6 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <string>
@@ -19,8 +18,6 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <spdlog/common.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Driver.hpp>
@@ -34,6 +31,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 
 constexpr int cCmdArgParseErr = 1;
@@ -148,46 +146,13 @@ auto cleanup_loop(
     }
 }
 
-/**
- * Sets up the logger for the scheduler.
- * Writes logs to `SPIDER_LOG_FILE` if the environment variable is set.
- * Writes logs to console otherwise.
- */
-auto setup_logger() -> void {
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
-    char const* const log_file_path = std::getenv("SPIDER_LOG_FILE");
-    if (nullptr == log_file_path) {
-        // NOLINTNEXTLINE(misc-include-cleaner)
-        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
-#ifndef NDEBUG
-        spdlog::set_level(spdlog::level::trace);
-#endif
-        return;
-    }
-
-    try {
-        auto const file_logger = spdlog::basic_logger_mt("spider_scheduler", log_file_path);
-        spdlog::set_default_logger(file_logger);
-        spdlog::flush_on(spdlog::level::info);
-    } catch (spdlog::spdlog_ex& ex) {
-        auto const console_logger = spdlog::stdout_color_mt("spider_scheduler_console");
-        spdlog::set_default_logger(console_logger);
-        spdlog::flush_on(spdlog::level::info);
-    }
-
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
-}
-
 constexpr int cSignalExitBase = 128;
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
-    setup_logger();
+    spider::logging::setup_file_logger("spider_scheduler", "spider.scheduler");
+    spdlog::info("Starting Spider Scheduler");
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 

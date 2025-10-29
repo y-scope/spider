@@ -5,7 +5,6 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdlib>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -32,8 +31,6 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 #include <spdlog/common.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Data.hpp>
@@ -48,6 +45,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 #include <spider/worker/ChildPid.hpp>
 #include <spider/worker/TaskExecutor.hpp>
@@ -428,45 +426,6 @@ auto task_loop(
 
 // NOLINTEND(clang-analyzer-unix.BlockInCriticalSection)
 
-/**
- * Sets up the logger for the worker.
- * Writes logs to the `SPIDER_LOG_DIR` directory if the environment variable is set.
- * Writes logs to console otherwise.
- *
- * @param uuid worker id for log file identification.
- */
-auto setup_logger(boost::uuids::uuid const uuid) -> void {
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
-    char const* const log_file_dir = std::getenv("SPIDER_LOG_DIR");
-    if (nullptr == log_file_dir) {
-        // NOLINTNEXTLINE(misc-include-cleaner)
-        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
-#ifndef NDEBUG
-        spdlog::set_level(spdlog::level::trace);
-#endif
-        return;
-    }
-
-    auto const log_file_path
-            = std::filesystem::path{log_file_dir} / fmt::format("worker_{}.log", to_string(uuid));
-
-    try {
-        auto const file_logger = spdlog::basic_logger_mt("spider_worker", log_file_path.string());
-        spdlog::set_default_logger(file_logger);
-        spdlog::flush_on(spdlog::level::info);
-    } catch (spdlog::spdlog_ex& ex) {
-        auto const console_logger = spdlog::stdout_color_mt("spider_worker_console");
-        spdlog::set_default_logger(console_logger);
-        spdlog::flush_on(spdlog::level::info);
-    }
-
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
-}
-
 constexpr int cSignalExitBase = 128;
 }  // namespace
 
@@ -474,7 +433,8 @@ auto main(int argc, char** argv) -> int {
     boost::uuids::random_generator gen;
     auto const worker_id = gen();
 
-    setup_logger(worker_id);
+    spider::logging::setup_directory_logger("spider_worker", "spider.worker", worker_id);
+    spdlog::info("Starting spider worker {}", boost::uuids::to_string(worker_id));
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
