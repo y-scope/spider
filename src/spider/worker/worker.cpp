@@ -235,10 +235,10 @@ auto setup_task(
  * @param libs The dynamic libraries that include the spider tasks.
  * @param environment The environment variables for the task executor.
  * @param context The context for asynchronous operations.
- * @return A result containing a pair of
+ * @return A result containing a pair on success, or the ID of the failed task on failure.
+ * The pair:
  * - A unique pointer to the spawned task executor.
  * - The task fetched from metadata storage.
- * on success. The task id on failure.
  */
 [[nodiscard]] auto setup_executor(
         std::unique_ptr<spider::core::StorageConnection> conn,
