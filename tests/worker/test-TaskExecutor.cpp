@@ -92,20 +92,19 @@ TEMPLATE_LIST_TEST_CASE(
 
     boost::uuids::random_generator gen;
 
-    spider::worker::TaskExecutor executor{
+    auto executor = spider::worker::TaskExecutor::spawn_cpp_executor(
             context,
             "sum_test",
             gen(),
-            spider::core::TaskLanguage::Cpp,
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             pack_args(2, 3)
-    };
+    );
     context.run();
-    executor.wait();
-    REQUIRE(executor.succeed());
-    std::optional<int> const result_option = executor.get_result<int>();
+    executor->wait();
+    REQUIRE(executor->succeed());
+    std::optional<int> const result_option = executor->template get_result<int>();
     REQUIRE(result_option.has_value());
     REQUIRE(5 == result_option.value_or(0));
 }
@@ -125,20 +124,19 @@ TEMPLATE_LIST_TEST_CASE(
 
     boost::uuids::random_generator gen;
 
-    spider::worker::TaskExecutor executor{
+    auto executor = spider::worker::TaskExecutor::spawn_cpp_executor(
             context,
             "sum_test",
             gen(),
-            spider::core::TaskLanguage::Cpp,
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             pack_args(2)
-    };
+    );
     context.run();
-    executor.wait();
-    REQUIRE(executor.error());
-    std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
+    executor->wait();
+    REQUIRE(executor->error());
+    std::tuple<spider::core::FunctionInvokeError, std::string> error = executor->get_error();
     REQUIRE(spider::core::FunctionInvokeError::WrongNumberOfArguments == std::get<0>(error));
 }
 
@@ -157,20 +155,19 @@ TEMPLATE_LIST_TEST_CASE(
 
     boost::uuids::random_generator gen;
 
-    spider::worker::TaskExecutor executor{
+    auto executor = spider::worker::TaskExecutor::spawn_cpp_executor(
             context,
             "error_test",
             gen(),
-            spider::core::TaskLanguage::Cpp,
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             pack_args(2)
-    };
+    );
     context.run();
-    executor.wait();
-    REQUIRE(executor.error());
-    std::tuple<spider::core::FunctionInvokeError, std::string> error = executor.get_error();
+    executor->wait();
+    REQUIRE(executor->error());
+    std::tuple<spider::core::FunctionInvokeError, std::string> error = executor->get_error();
     REQUIRE(spider::core::FunctionInvokeError::FunctionExecutionError == std::get<0>(error));
 }
 
@@ -221,20 +218,19 @@ TEMPLATE_LIST_TEST_CASE(
 
     boost::asio::io_context context;
 
-    spider::worker::TaskExecutor executor{
+    auto executor = spider::worker::TaskExecutor::spawn_cpp_executor(
             context,
             "data_test",
             task_id,
-            spider::core::TaskLanguage::Cpp,
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             pack_args(data.get_id())
-    };
+    );
     context.run();
-    executor.wait();
-    REQUIRE(executor.succeed());
-    std::optional<int> const optional_result = executor.get_result<int>();
+    executor->wait();
+    REQUIRE(executor->succeed());
+    std::optional<int> const optional_result = executor->template get_result<int>();
     REQUIRE(optional_result.has_value());
     if (optional_result.has_value()) {
         REQUIRE(3 == optional_result.value());
@@ -266,20 +262,19 @@ TEMPLATE_LIST_TEST_CASE(
     std::string const input_1(cLargeInputSize, 'a');
     std::string const input_2(cLargeInputSize, 'b');
 
-    spider::worker::TaskExecutor executor{
+    auto executor = spider::worker::TaskExecutor::spawn_cpp_executor(
             context,
             "join_string_test",
             gen(),
-            spider::core::TaskLanguage::Cpp,
             spider::test::get_storage_url<TestType>(),
             get_libraries(),
             environment_variable,
             pack_args(input_1, input_2)
-    };
+    );
     context.run();
-    executor.wait();
-    REQUIRE(executor.succeed());
-    std::optional<std::string> const result_option = executor.get_result<std::string>();
+    executor->wait();
+    REQUIRE(executor->succeed());
+    std::optional<std::string> const result_option = executor->template get_result<std::string>();
     REQUIRE(result_option.has_value());
     REQUIRE(input_1 + input_2 == result_option.value_or(""));
 }

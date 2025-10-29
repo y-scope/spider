@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
@@ -17,7 +18,6 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-#include <spider/core/Task.hpp>
 #include <spider/io/BoostAsio.hpp>  // IWYU pragma: keep
 #include <spider/io/MsgPack.hpp>  // IWYU pragma: keep
 #include <spider/utils/pipe.hpp>
@@ -27,11 +27,10 @@
 #include <spider/worker/TaskExecutorMessage.hpp>
 
 namespace spider::worker {
-TaskExecutor::TaskExecutor(
+auto TaskExecutor::spawn_cpp_executor(
         boost::asio::io_context& context,
         std::string const& func_name,
         boost::uuids::uuid const task_id,
-        core::TaskLanguage const language,
         std::string const& storage_url,
         std::vector<std::string> const& libs,
         absl::flat_hash_map<
@@ -39,9 +38,14 @@ TaskExecutor::TaskExecutor(
                 boost::process::v2::environment::value
         > const& environment,
         std::vector<msgpack::sbuffer> const& args_buffers
-)
-        : m_read_pipe(context),
-          m_write_pipe(context) {
+) -> std::unique_ptr<TaskExecutor> {
+    auto const exe
+            = boost::process::v2::environment::find_executable("spider_task_executor", environment);
+    if (exe.empty()) {
+        spdlog::error("Cannot find c++ task executor");
+        return nullptr;
+    }
+
     auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
     auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
 
@@ -61,48 +65,86 @@ TaskExecutor::TaskExecutor(
         process_args.emplace_back("--libs");
         process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
     }
-    boost::filesystem::path exe;
-    switch (language) {
-        case core::TaskLanguage::Cpp: {
-            exe = boost::process::v2::environment::find_executable(
-                    "spider_task_executor",
-                    environment
-            );
-            break;
-        }
-        case core::TaskLanguage::Python: {
-            exe = boost::process::v2::environment::find_executable(
-                    "spider-py-task-executor",
-                    environment
-            );
-            break;
-        }
-        default: {
-            spdlog::error("Unsupported task language.");
-            return;
-        }
-    }
 
-    m_write_pipe.assign(input_pipe_write_end);
-    m_read_pipe.assign(output_pipe_read_end);
-    m_process = std::make_unique<Process>(Process::spawn(
-            exe.string(),
-            process_args,
-            std::nullopt,
-            std::nullopt,
-            std::nullopt,
-            {input_pipe_read_end, output_pipe_write_end}
+    // Must use `new` because `make_unique` cannot access the private constructor.
+    auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
+            context,
+            output_pipe_read_end,
+            input_pipe_write_end,
+            std::make_unique<Process>(Process::spawn(
+                    exe.string(),
+                    process_args,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    {input_pipe_read_end, output_pipe_write_end}
+            )),
+            args_buffers
     ));
+
     // Close the following fds since they're no longer needed by the parent process.
     close(input_pipe_read_end);
     close(output_pipe_write_end);
 
-    // Set up handler for output file
-    boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
+    return executor;
+}
 
-    // Send args
-    auto const args_request = core::create_args_request(args_buffers);
-    send_message(m_write_pipe, args_request);
+auto TaskExecutor::spawn_python_executor(
+        boost::asio::io_context& context,
+        std::string const& func_name,
+        boost::uuids::uuid const task_id,
+        std::string const& storage_url,
+        absl::flat_hash_map<
+                boost::process::v2::environment::key,
+                boost::process::v2::environment::value
+        > const& environment,
+        std::vector<msgpack::sbuffer> const& args_buffers
+) -> std::unique_ptr<TaskExecutor> {
+    auto const exe = boost::process::v2::environment::find_executable("python3", environment);
+    if (exe.empty()) {
+        spdlog::error("Cannot find python3 interpreter");
+        return nullptr;
+    }
+
+    auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
+    auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
+
+    std::vector<std::string> const process_args{
+            "-m",
+            "spider_py.task_executor.task_executor",
+            "--func",
+            func_name,
+            "--task_id",
+            to_string(task_id),
+            "--input-pipe",
+            std::to_string(input_pipe_read_end),
+            "--output-pipe",
+            std::to_string(output_pipe_write_end),
+            "--storage_url",
+            storage_url,
+    };
+
+    // Must use `new` because `make_unique` cannot access the private constructor.
+    auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
+            context,
+            output_pipe_read_end,
+            input_pipe_write_end,
+            std::make_unique<Process>(Process::spawn(
+                    exe.string(),
+                    process_args,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    {input_pipe_read_end, output_pipe_write_end}
+            )),
+            args_buffers
+    ));
+
+    // Close the following fds since they're no longer needed by the parent process.
+    close(input_pipe_read_end);
+    close(output_pipe_write_end);
+
+    return executor;
 }
 
 auto TaskExecutor::get_pid() const -> pid_t {
@@ -228,5 +270,26 @@ auto TaskExecutor::get_error() const -> std::tuple<core::FunctionInvokeError, st
                             "Fail to parse error message"
                     )
             );
+}
+
+TaskExecutor::TaskExecutor(
+        boost::asio::io_context& context,
+        int const read_pipe_fd,
+        int const write_pipe_fd,
+        std::unique_ptr<Process> process,
+        std::vector<msgpack::sbuffer> const& args_buffers
+)
+        : m_read_pipe{context},
+          m_write_pipe{context},
+          m_process{std::move(process)} {
+    m_read_pipe.assign(read_pipe_fd);
+    m_write_pipe.assign(write_pipe_fd);
+
+    // Set up handler for output file
+    boost::asio::co_spawn(context, process_output_handler(), boost::asio::detached);
+
+    // Send args
+    auto const args_request = core::create_args_request(args_buffers);
+    send_message(m_write_pipe, args_request);
 }
 }  // namespace spider::worker
