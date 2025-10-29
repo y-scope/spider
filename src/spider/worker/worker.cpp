@@ -476,7 +476,7 @@ auto task_loop(
             fail_task_id = executor_setup_result.error();
             continue;
         }
-        auto [executor, task] = std::move(executor_setup_result.value());
+        auto& [executor, task] = executor_setup_result.value();
 
         auto const pid = executor->get_pid();
         spider::core::ChildPid::set_pid(pid);
