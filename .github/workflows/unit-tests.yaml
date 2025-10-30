@@ -69,7 +69,7 @@ jobs:
       - name: "Set up MariaDB tables"
         run: >
           mysql
-          -protocol tcp
+          --protocol tcp
           -u spider
           -ppassword
           spider-storage
