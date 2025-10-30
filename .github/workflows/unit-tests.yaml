@@ -49,6 +49,9 @@ jobs:
       - name: "Install task"
         run: "npm install -g @go-task/cli"
 
+      - name: "Debug services"
+        run: "docker ps -a"
+
       - name: "Install dev dependencies"
         run: "./tools/scripts/lib_install/linux/install-dev.sh"
 
