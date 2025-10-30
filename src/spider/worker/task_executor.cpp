@@ -100,7 +100,7 @@ auto main(int const argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         boost::uuids::string_generator const gen;
-        task_id = gen(task_id_string);
+        task_id = boost::uuids::string_generator{}(task_id_string);
 
         spider::utils::setup_directory_logger("task", "spider.executor", task_id);
 
