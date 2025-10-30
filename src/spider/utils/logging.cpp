@@ -43,9 +43,9 @@ auto set_default_logger(std::string_view const logger_name, std::string_view con
 auto set_log_config(std::string_view const tag) -> void {
     // NOLINTNEXTLINE(misc-include-cleaner)
     spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [{}] %v", tag));
-    spdlog::flush_on(spdlog::level::info);
 #ifndef NDEBUG
     spdlog::set_level(spdlog::level::trace);
+    spdlog::flush_on(spdlog::level::trace);
 #else
     spdlog::set_level(spdlog::level::warn);
     spdlog::flush_on(spdlog::level::warn);
