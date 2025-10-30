@@ -56,12 +56,9 @@ auto set_log_config(std::string_view const tag) -> void {
 auto setup_file_logger(std::string_view const logger_name, std::string_view const tag) -> void {
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
     char const* const log_file_path = std::getenv("SPIDER_LOG_FILE");
-    if (nullptr == log_file_path) {
-        set_log_config(tag);
-        return;
+    if (nullptr != log_file_path) {
+        set_default_logger(logger_name, log_file_path);
     }
-
-    set_default_logger(logger_name, log_file_path);
 
     set_log_config(tag);
 }
