@@ -1,5 +1,6 @@
 """Simple Spider client for testing purposes."""
 
+import os
 import re
 import uuid
 from collections.abc import Generator
@@ -111,7 +112,10 @@ def is_head_task(task_id: uuid.UUID, dependencies: list[tuple[uuid.UUID, uuid.UU
     return not any(dependency[1] == task_id for dependency in dependencies)
 
 
-g_storage_url = "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password"
+g_storage_url = os.getenv(
+    "SPIDER_STORAGE_URL",
+    "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password",
+)
 
 
 @pytest.fixture(scope="session")
