@@ -17,11 +17,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  non-storage-unit-tests:
+  unit-tests:
     strategy:
       matrix:
         os: ["ubuntu-22.04", "ubuntu-24.04"]
     runs-on: "${{matrix.os}}"
+
+    services:
+      mariadb:
+        image: "mariadb:latest"
+        env:
+          MARIADB_DATABASE: "spider-storage"
+          MARIADB_USER: "spider"
+          MARIADB_PASSWORD: "password"
+        ports:
+          - "3306:3306"
+        options: >
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u spider -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - name: "Remove default CMake installation in the runner"
         run: "rm '/usr/local/bin/cmake'"
@@ -55,6 +71,9 @@ jobs:
           SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
         run: "task deps:lib_install"
 
-      - run: "task test:cpp-non-storage-unit-tests"
+      - name: "Set up MariaDB tables"
+        run: "mysql -u spider -ppassword spider-storage < ./tools/scripts/storage/init_db.sql"
 
-      - run: "task test:spider-py-non-storage-unit-tests"
+      - run: "task test:cpp-unit-tests"
+
+      - run: "task test:spider-py-unit-tests"
