@@ -151,8 +151,7 @@ constexpr int cSignalExitBase = 128;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
-    spider::logging::setup_file_logger("spider_scheduler", "spider.scheduler");
-    spdlog::info("Starting Spider Scheduler");
+    spider::utils::setup_file_logger("spider_scheduler", "spider.scheduler");
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 

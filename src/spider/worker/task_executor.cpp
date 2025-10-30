@@ -102,7 +102,7 @@ auto main(int const argc, char** argv) -> int {
         boost::uuids::string_generator const gen;
         task_id = gen(task_id_string);
 
-        spider::logging::setup_directory_logger("spider_executor", "spider.executor", task_id);
+        spider::utils::setup_directory_logger("spider_executor", "spider.executor", task_id);
 
         input_pipe_fd = args["input-pipe"].as<int>();
         if (input_pipe_fd < 0) {
@@ -137,7 +137,7 @@ auto main(int const argc, char** argv) -> int {
         return cCmdArgParseErr;
     }
 
-    spdlog::info("Function to run: {}", func_name);
+    spdlog::debug("Function to run: {}", func_name);
 
     try {
         // Parse task id

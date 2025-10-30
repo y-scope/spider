@@ -509,8 +509,7 @@ auto main(int argc, char** argv) -> int {
     boost::uuids::random_generator gen;
     auto const worker_id = gen();
 
-    spider::logging::setup_directory_logger("spider_worker", "spider.worker", worker_id);
-    spdlog::info("Starting spider worker {}", boost::uuids::to_string(worker_id));
+    spider::utils::setup_directory_logger("spider_worker", "spider.worker", worker_id);
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
