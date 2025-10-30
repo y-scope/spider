@@ -47,7 +47,7 @@ auto set_log_config(std::string_view const tag) -> void {
     spdlog::set_level(spdlog::level::trace);
     spdlog::flush_on(spdlog::level::trace);
 #else
-    spdlog::set_level(spdlog::level::warn);
+    spdlog::set_level(spdlog::level::info);
     spdlog::flush_on(spdlog::level::warn);
 #endif
 }
