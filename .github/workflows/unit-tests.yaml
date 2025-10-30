@@ -33,7 +33,7 @@ jobs:
         ports:
           - "3306:3306"
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u spider -ppassword"
+          --health-cmd="mysqladmin ping -h mariadb -u spider -ppassword"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -74,12 +74,16 @@ jobs:
       - name: "Set up MariaDB tables"
         run: >
           mysql
-          --protocol tcp
+          -h mariadb
           -u spider
           -ppassword
           spider-storage
           < ./tools/scripts/storage/init_db.sql
 
       - run: "task test:cpp-unit-tests"
+        env:
+          SPIDER_STORAGE_URL: "mysql://spider:password@mariadb:3306/spider-storage"
 
       - run: "task test:spider-py-unit-tests"
+        env:
+          SPIDER_STORAGE_URL: "mysql://spider:password@mariadb:3306/spider-storage"
