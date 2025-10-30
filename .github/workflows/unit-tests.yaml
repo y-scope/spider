@@ -33,6 +33,11 @@ jobs:
           MARIADB_RANDOM_ROOT_PASSWORD: true
         ports:
           - "3306:3306"
+        options: >-
+          --health-cmd="mysqladmin ping -h 0.0.0.0 -u spider -ppassword --silent"
+          --health-interval=5s
+          --health-timeout=2s
+          --health-retries=10
 
     steps:
       - name: "Remove default CMake installation in the runner"
@@ -48,9 +53,6 @@ jobs:
 
       - name: "Install task"
         run: "npm install -g @go-task/cli"
-
-      - name: "Debug services"
-        run: "docker ps -a"
 
       - name: "Install dev dependencies"
         run: "./tools/scripts/lib_install/linux/install-dev.sh"
@@ -73,7 +75,7 @@ jobs:
       - name: "Set up MariaDB tables"
         run: >
           mysql
-          -h mariadb
+          -h 0.0.0.0
           -u spider
           -ppassword
           spider-storage
@@ -81,8 +83,8 @@ jobs:
 
       - run: "task test:cpp-unit-tests"
         env:
-          SPIDER_STORAGE_URL: "mysql://spider:password@mariadb:3306/spider-storage"
+          SPIDER_STORAGE_URL: "mysql://spider:password@0.0.0.0:3306/spider-storage"
 
       - run: "task test:spider-py-unit-tests"
         env:
-          SPIDER_STORAGE_URL: "mysql://spider:password@mariadb:3306/spider-storage"
+          SPIDER_STORAGE_URL: "mysql://spider:password@0.0.0.0:3306/spider-storage"
