@@ -12,7 +12,7 @@
 
 namespace spider::test {
 std::string const cMySqlStorageUrl
-        = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password";
+        = "jdbc:mariadb://localhost:3306/spider-storage?user=spider&password=password";
 
 using StorageFactoryTypeList = std::tuple<core::MySqlStorageFactory>;
 
