@@ -30,6 +30,7 @@ jobs:
           MARIADB_DATABASE: "spider-storage"
           MARIADB_USER: "spider"
           MARIADB_PASSWORD: "password"
+          MARIADB_RANDOM_ROOT_PASSWORD: true
         ports:
           - "3306:3306"
         options: >-
