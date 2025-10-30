@@ -67,7 +67,13 @@ jobs:
         run: "task deps:lib_install"
 
       - name: "Set up MariaDB tables"
-        run: "mysql -u spider -ppassword spider-storage < ./tools/scripts/storage/init_db.sql"
+        run: >
+          mysql
+          -protocol tcp
+          -u spider
+          -ppassword
+          spider-storage
+          < ./tools/scripts/storage/init_db.sql
 
       - run: "task test:cpp-unit-tests"
 
