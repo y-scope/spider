@@ -71,14 +71,11 @@ auto setup_directory_logger(
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
     char const* const log_file_dir = std::getenv("SPIDER_LOG_DIR");
     if (nullptr == log_file_dir) {
-        set_log_config(tag);
-        return;
+        auto const log_file_path = std::filesystem::path{log_file_dir}
+                                   / fmt::format("{}_{}.log", logger_name, to_string(id));
+
+        set_default_logger(logger_name, log_file_path.string());
     }
-
-    auto const log_file_path = std::filesystem::path{log_file_dir}
-                               / fmt::format("{}_{}.log", logger_name, to_string(id));
-
-    set_default_logger(logger_name, log_file_path.string());
 
     set_log_config(tag);
 }
