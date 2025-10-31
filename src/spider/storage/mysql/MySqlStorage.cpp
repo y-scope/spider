@@ -29,6 +29,7 @@
 #include <mariadb/conncpp/Statement.hpp>
 #include <mariadb/conncpp/Types.hpp>
 #include <spdlog/spdlog.h>
+#include <ystdlib/error_handling/Result.hpp>
 
 #include <spider/core/Data.hpp>
 #include <spider/core/Driver.hpp>
