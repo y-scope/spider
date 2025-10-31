@@ -82,11 +82,13 @@ jobs:
           < ./tools/scripts/storage/init_db.sql
 
       - run: "task test:cpp-unit-tests"
+        continue-on-error: false
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
 
       - run: "task test:spider-py-unit-tests"
+        continue-on-error: false
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
