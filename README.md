@@ -7,8 +7,8 @@ Follow the steps below to develop and contribute to the project.
 
 ## Requirements
 * Python 3.10 or higher
-* [Task] 3.40.0 to 3.44.0.
-  * Versions higher than 3.44.0 are not supported due to .
+* [Task] 3.44.0
+  * We pin the version to 3.44.0 due to [y-scope/spider#250].
 * [uv] 0.7.0 or higher
 
 ## Set up
@@ -70,3 +70,4 @@ in the table below.
 [spider-docs]: https://docs.yscope.com/spider/main/
 [Task]: https://taskfile.dev
 [uv]: https://docs.astral.sh/uv/
+[y-scope/spider#250]: https://github.com/y-scope/spider/issues/250
