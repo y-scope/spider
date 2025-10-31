@@ -1,4 +1,4 @@
-name: "unit-tests"
+name: "integration-tests"
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unit-tests:
+  integration-tests:
     strategy:
       matrix:
         os: ["ubuntu-22.04", "ubuntu-24.04"]
@@ -81,12 +81,9 @@ jobs:
           spider-storage
           < ./tools/scripts/storage/init_db.sql
 
-      - run: "task test:cpp-unit-tests"
+      - run: "task test:cpp-integration"
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
 
-      - run: "task test:spider-py-unit-tests"
-        env:
-          SPIDER_STORAGE_URL: >-
-            jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
+      # TODO: Add python integration tests when available.
