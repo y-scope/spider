@@ -83,8 +83,10 @@ jobs:
 
       - run: "task test:cpp-unit-tests"
         env:
-          SPIDER_STORAGE_URL: "mysql://spider:password@0.0.0.0:3306/spider-storage"
+          SPIDER_STORAGE_URL: >-
+            jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
 
       - run: "task test:spider-py-unit-tests"
         env:
-          SPIDER_STORAGE_URL: "mysql://spider:password@0.0.0.0:3306/spider-storage"
+          SPIDER_STORAGE_URL: >-
+            jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
