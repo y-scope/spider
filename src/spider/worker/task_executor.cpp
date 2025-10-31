@@ -1,5 +1,3 @@
-#include <cerrno>
-#include <csignal>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -15,7 +13,6 @@
 #include <boost/uuid/string_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <fmt/format.h>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
 #include <spdlog/spdlog.h>
 
 #include <spider/client/TaskContext.hpp>
@@ -25,6 +22,7 @@
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/logging.hpp>
 #include <spider/worker/DllLoader.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/message_pipe.hpp>
@@ -81,12 +79,6 @@ constexpr int cResultSendErr = 6;
 constexpr int cOtherErr = 7;
 
 auto main(int const argc, char** argv) -> int {
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.executor] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
-
     boost::program_options::variables_map const args = parse_arg(argc, argv);
 
     std::string func_name;
@@ -94,6 +86,7 @@ auto main(int const argc, char** argv) -> int {
     std::string task_id_string;
     int input_pipe_fd{-1};
     int output_pipe_fd{-1};
+    boost::uuids::uuid task_id;
     try {
         if (!args.contains("func")) {
             return cCmdArgParseErr;
@@ -106,6 +99,10 @@ auto main(int const argc, char** argv) -> int {
         if (false == args.contains("input-pipe")) {
             return cCmdArgParseErr;
         }
+        task_id = boost::uuids::string_generator{}(task_id_string);
+
+        spider::utils::setup_directory_logger("task", "spider.executor", task_id);
+
         input_pipe_fd = args["input-pipe"].as<int>();
         if (input_pipe_fd < 0) {
             spdlog::error("Invalid input pipe file descriptor: {}", input_pipe_fd);
@@ -143,8 +140,6 @@ auto main(int const argc, char** argv) -> int {
 
     try {
         // Parse task id
-        boost::uuids::string_generator const gen;
-        boost::uuids::uuid const task_id = gen(task_id_string);
 
         // Set up storage
         std::shared_ptr<spider::core::StorageFactory> const storage_factory
