@@ -82,11 +82,12 @@ jobs:
           < ./tools/scripts/storage/init_db.sql
 
       - run: |
-          task test:cpp-unit-tests --exit-code
+          task test:cpp-unit-tests
           echo $?
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=
+          TASK_EXIT_CODE: true
 
       - run: "task test:spider-py-unit-tests --exit-code"
         env:
