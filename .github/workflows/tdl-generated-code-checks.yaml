@@ -30,7 +30,7 @@ jobs:
 
       - name: "Install task"
         shell: "bash"
-        run: "npm install -g @go-task/cli"
+        run: "npm install -g @go-task/cli@3.44.0"
 
       - name: "Generate parsers"
         shell: "bash"
