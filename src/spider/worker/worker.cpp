@@ -31,7 +31,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Data.hpp>
@@ -46,6 +46,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 #include <spider/worker/ChildPid.hpp>
 #include <spider/worker/TaskExecutor.hpp>
@@ -505,12 +506,10 @@ constexpr int cSignalExitBase = 128;
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
-    // Set up spdlog to write to stderr
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.worker] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
+    boost::uuids::random_generator gen;
+    auto const worker_id = gen();
+
+    spider::utils::setup_directory_logger("spider_worker", "spider.worker", worker_id);
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
@@ -558,8 +557,6 @@ auto main(int argc, char** argv) -> int {
     std::shared_ptr<spider::core::DataStorage> const data_store
             = storage_factory->provide_data_storage();
 
-    boost::uuids::random_generator gen;
-    boost::uuids::uuid const worker_id = gen();
     spider::core::Driver driver{worker_id};
 
     {  // Keep the scope of RAII storage connection
