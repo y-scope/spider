@@ -7,7 +7,8 @@ Follow the steps below to develop and contribute to the project.
 
 ## Requirements
 * Python 3.10 or higher
-* [Task] 3.40.0 or higher
+* [Task] 3.40.0 to 3.44.0.
+  * Versions higher than 3.44.0 are not supported due to .
 * [uv] 0.7.0 or higher
 
 ## Set up
