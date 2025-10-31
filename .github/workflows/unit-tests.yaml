@@ -85,7 +85,7 @@ jobs:
         continue-on-error: false
         env:
           SPIDER_STORAGE_URL: >-
-            jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
+            jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=
 
       - run: "task test:spider-py-unit-tests"
         continue-on-error: false
