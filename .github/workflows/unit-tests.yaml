@@ -81,14 +81,18 @@ jobs:
           spider-storage
           < ./tools/scripts/storage/init_db.sql
 
-      - run: "task test:cpp-unit-tests"
-        continue-on-error: false
+      - name: "Run C++ unit tests"
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=
+        run: |
+          set -e
+          task test:cpp-unit-tests
 
-      - run: "task test:spider-py-unit-tests"
-        continue-on-error: false
+      - name: "Run Python unit tests"
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
+        run: |
+          set -e
+          task test:spider-py-unit-tests
