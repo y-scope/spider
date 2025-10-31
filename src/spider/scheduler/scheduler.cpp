@@ -17,7 +17,7 @@
 #include <boost/program_options/variables_map.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>  // IWYU pragma: keep
+#include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 
 #include <spider/core/Driver.hpp>
@@ -31,6 +31,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 
 constexpr int cCmdArgParseErr = 1;
@@ -150,12 +151,7 @@ constexpr int cSignalExitBase = 128;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 auto main(int argc, char** argv) -> int {
-    // Set up spdlog to write to stderr
-    // NOLINTNEXTLINE(misc-include-cleaner)
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [spider.scheduler] %v");
-#ifndef NDEBUG
-    spdlog::set_level(spdlog::level::trace);
-#endif
+    spider::utils::setup_file_logger("spider_scheduler", "spider.scheduler");
 
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
