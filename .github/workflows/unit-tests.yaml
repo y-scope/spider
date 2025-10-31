@@ -81,7 +81,9 @@ jobs:
           spider-storage
           < ./tools/scripts/storage/init_db.sql
 
-      - run: "task test:cpp-unit-tests --exit-code"
+      - run: |
+          task test:cpp-unit-tests --exit-code
+          echo $?
         env:
           SPIDER_STORAGE_URL: >-
             jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=
