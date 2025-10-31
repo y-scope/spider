@@ -1,0 +1,89 @@
+name: "integration-tests"
+
+on:
+  pull_request:
+  push:
+  schedule:
+    # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency
+  cancel-in-progress: true
+
+jobs:
+  integration-tests:
+    strategy:
+      matrix:
+        os: ["ubuntu-22.04", "ubuntu-24.04"]
+    runs-on: "${{matrix.os}}"
+
+    services:
+      mariadb:
+        image: "mariadb:latest"
+        env:
+          MARIADB_DATABASE: "spider-storage"
+          MARIADB_USER: "spider"
+          MARIADB_PASSWORD: "password"
+          MARIADB_RANDOM_ROOT_PASSWORD: true
+        ports:
+          - "3306:3306"
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: "Remove default CMake installation in the runner"
+        run: "rm '/usr/local/bin/cmake'"
+
+      - uses: "actions/checkout@v4"
+        with:
+          submodules: "recursive"
+
+      - uses: "actions/setup-python@v5"
+        with:
+          python-version: "3.10"
+
+      - name: "Install task"
+        run: "npm install -g @go-task/cli@3.44.0"
+
+      - name: "Install dev dependencies"
+        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+
+      - name: "Log tool versions"
+        run: |-
+          cmake --version
+          md5sum --version
+          python --version
+          tar --version
+          task --version
+          uv --version
+
+      - name: "Install project dependencies "
+        timeout-minutes: 10
+        env:
+          SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
+        run: "task deps:lib_install"
+
+      - name: "Set up MariaDB tables"
+        run: >
+          mysql
+          -h 0.0.0.0
+          -u spider
+          -ppassword
+          spider-storage
+          < ./tools/scripts/storage/init_db.sql
+
+      - run: "task test:cpp-integration"
+        env:
+          SPIDER_STORAGE_URL: >-
+            jdbc:mariadb://0.0.0.0:3306/spider-storage?user=spider&password=password
+
+      # TODO: Add python integration tests when available.
