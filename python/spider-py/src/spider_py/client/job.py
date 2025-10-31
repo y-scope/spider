@@ -30,7 +30,7 @@ class Job:
             fetch_and_update_job_status(self._storage, self._impl)
         return self._impl.status
 
-    def get_results(self) -> object | None:
+    def get_results(self) -> tuple[object, ...] | None:
         """
         :return: The job results if the job ended successfully.
         :return: None if the job is still running or ended unsuccessfully.
