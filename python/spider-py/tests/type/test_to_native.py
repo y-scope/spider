@@ -35,6 +35,7 @@ class TestToNativeType:
         assert _string_to_native("int16") is spider_py.Int16
         assert _string_to_native("int32") is spider_py.Int32
         assert _string_to_native("int64") is spider_py.Int64
+        assert _string_to_native("bytes") is bytes
 
     def test_to_class_type(self) -> None:
         """Test converting class TDL type to native type."""
@@ -48,6 +49,7 @@ class TestToNativeType:
         """Test converting list TDL type to native type."""
         assert _string_to_native("List<int8>") == list[spider_py.Int8]
         assert _string_to_native("List<List<int8>>") == list[list[spider_py.Int8]]
+        assert _string_to_native("List<bytes>") == list[bytes]
 
     def test_to_map_type(self) -> None:
         """Test converting map TDL type to native type."""
