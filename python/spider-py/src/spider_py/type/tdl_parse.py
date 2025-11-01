@@ -4,6 +4,7 @@ from lark import Lark, LarkError, Token, Transformer, v_args
 
 from spider_py.type.tdl_type import (
     BoolType,
+    BytesType,
     ClassType,
     DoubleType,
     FloatType,
@@ -31,6 +32,7 @@ ID: /[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*/
 
 PrimitiveTypeDict = {
     "bool": BoolType(),
+    "bytes": BytesType(),
     "double": DoubleType(),
     "float": FloatType(),
     "int8": Int8Type(),
