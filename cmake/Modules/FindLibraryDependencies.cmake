@@ -27,8 +27,7 @@ macro(FindStaticLibraryDependencies fld_LIBNAME fld_PREFIX fld_STATIC_LIBS)
         find_library(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY NAMES ${fld_DEP_LIB} PATH_SUFFIXES lib)
         if(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY)
             list(
-                APPEND
-                ${fld_PREFIX}_LIBRARY_DEPENDENCIES
+                APPEND ${fld_PREFIX}_LIBRARY_DEPENDENCIES
                 "${${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY}"
             )
         else()
@@ -48,8 +47,7 @@ macro(FindDynamicLibraryDependencies fld_PREFIX fld_DYNAMIC_LIBS)
         find_library(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY NAMES ${fld_DEP_LIB} PATH_SUFFIXES lib)
         if(${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY)
             list(
-                APPEND
-                ${fld_PREFIX}_LIBRARY_DEPENDENCIES
+                APPEND ${fld_PREFIX}_LIBRARY_DEPENDENCIES
                 "${${fld_PREFIX}_${fld_DEP_LIB}_LIBRARY}"
             )
         else()
