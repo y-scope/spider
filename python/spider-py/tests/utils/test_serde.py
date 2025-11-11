@@ -54,6 +54,7 @@ class TestMsgpackSerde:
         compare_serde(spider_py.Float(0.0), spider_py.Float)
         compare_serde(b"bytes", bytes)
         compare_serde([b"a", b"b"], list[bytes])
+        compare_serde(["你好".encode(), "世界".encode(), "🤣".encode()], list[bytes])
         compare_serde([spider_py.Int8(1), spider_py.Int8(2)], list[spider_py.Int8])
         compare_serde({spider_py.Int8(1): spider_py.Int8(3)}, dict[spider_py.Int8, spider_py.Int8])
         compare_serde(
