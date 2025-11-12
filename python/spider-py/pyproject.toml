@@ -20,6 +20,7 @@ dependencies = [
   # environment. The default version of libmariadb-dev in Ubuntu 22.04 is 3.2.6.
   # See https://mariadb.com/docs/connectors/mariadb-connector-python/install#build-prerequisites
   "mariadb~=1.0.11",
+  # Lock the minor version to 1.1 to sync with `msgpack-types`
   "msgpack>=1.1.0,<1.2.0",
   "msgpack-types>=0.5.0",
 ]
