@@ -29,7 +29,7 @@ spider-py-task-executor = "spider_py.task_executor.task_executor:main"
 [dependency-groups]
 dev = [
   "mypy>=1.12.0",
-  "pytest>=8.4.1",
+  "pytest>=9.0.0",
   "ruff>=0.4.4",
 ]
 
@@ -58,7 +58,8 @@ show_error_context = true
 module = ["mariadb.*"]
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
+[tool.pytest]
+minversion = "9.0"
 markers = [
   "integration: Mark test as an integration test",
   "storage: Mark unit tests as needing external storage service",
