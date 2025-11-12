@@ -3,7 +3,7 @@ name = "yscope-spider-py"
 version = "0.1.0"
 description = "A distributed task execution framework."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
