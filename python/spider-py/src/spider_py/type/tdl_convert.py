@@ -1,7 +1,5 @@
 """Converts native types to TDL types."""
 
-from __future__ import annotations
-
 from collections.abc import Collection
 from types import GenericAlias
 from typing import get_args, get_origin
