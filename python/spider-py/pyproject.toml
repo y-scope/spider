@@ -71,34 +71,34 @@ select = ["ALL"]
 extend-select = ["PT"]
 ignore = [
   "COM812",  # Redundant and conflicts with ruff format
-  "D203",    # No blank line before docstrings (D211)
-  "D205",    # Breaks if summary is larger than one line due to wrapping or if no summary exists
-  "D212",    # Enforce docstring summary line on the next line after quotes (D213)
-  "D400",    # First line of docstrings may not end in period
-  "D401",    # Docstrings should be written in present tense (not imperative)
-  "D415",    # First line of docstrings may not end in a period, question mark, or exclamation point
-  "FA102",   # Allow use of PEP 604 union in type annotations
-  "FBT",     # Allow bool positional parameters since other value positions are allowed
+  "D203",  # No blank line before docstrings (D211)
+  "D205",  # Breaks if summary is larger than one line due to wrapping or if no summary exists
+  "D212",  # Enforce docstring summary line on the next line after quotes (D213)
+  "D400",  # First line of docstrings may not end in period
+  "D401",  # Docstrings should be written in present tense (not imperative)
+  "D415",  # First line of docstrings may not end in a period, question mark, or exclamation point
+  "FA102",  # Allow use of PEP 604 union in type annotations
+  "FBT",  # Allow bool positional parameters since other value positions are allowed
   "FIX002",  # Allow todo statements
-  "PERF401", # Allow for loops when creating lists
-  "PERF403", # Allow for loops when creating dicts
-  "PLR1716", # Allow chained boolean comparisons
-  "S311",    # Allow usage of `random` package
+  "PERF401",  # Allow for loops when creating lists
+  "PERF403",  # Allow for loops when creating dicts
+  "PLR1716",  # Allow chained boolean comparisons
+  "S311",  # Allow usage of `random` package
   "SIM102",  # Allow collapsible if statements for readability
-  "TD002",   # Author unnecessary for todo statement
-  "TD003",   # Issue link unnecessary for todo statement
-  "UP015",   # Explicit open modes are helpful
+  "TD002",  # Author unnecessary for todo statement
+  "TD003",  # Issue link unnecessary for todo statement
+  "UP015",  # Explicit open modes are helpful
 ]
 isort.order-by-type = false
-typing-extensions = false # Disable type extensions for 3.10 compatibility
+typing-extensions = false  # Disable type extensions for 3.10 compatibility
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
   "INP001",  # Allow implicit namespace package for tests
-  "PLR2004", # Allow use of magic value
-  "S101",    # Allow use of `assert` (security warning)
-  "S603",    # Allow use of `subprocess.Popen` (security warning)
-  "T201",    # Allow use of `print` (testing)
+  "PLR2004",  # Allow use of magic value
+  "S101",  # Allow use of `assert` (security warning)
+  "S603",  # Allow use of `subprocess.Popen` (security warning)
+  "T201",  # Allow use of `print` (testing)
 ]
 
 [tool.ruff.lint.flake8-self]
