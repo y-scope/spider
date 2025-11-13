@@ -1,7 +1,5 @@
 """Spider job module."""
 
-from __future__ import annotations
-
 import msgpack
 
 from spider_py import core
