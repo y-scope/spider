@@ -63,7 +63,7 @@ jobs:
             .task/checksum/lint-cpp-static-check
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
-          key: "main-branch-ubuntu-latest-lint:cpp-static-check"
+          key: "lint:check-cpp-static-on-ubuntu-latest"
 
       - run: "task lint:check -C $(nproc)"
 
@@ -78,4 +78,9 @@ jobs:
             .task/checksum/lint-cpp-static-check
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
-          key: "${{steps.cache-restore-lint-cpp-static-check.outputs.cache-primary-key}}"
+          key: >-
+            lint:check-cpp-static-on-ubuntu-latest{{hashFiles(
+              '.task/checksum/lint-cpp-static-check',
+              '.task/checksum/utils-cpp-lint-clang-tidy-*'
+              'build/lint-clang-tidy/**/*'
+            )}}
