@@ -639,7 +639,7 @@ class MariaDBStorage(Storage):
         if status_str not in _StrToJobStatusMap:
             msg = f"Unknown job status: {status_str}."
             raise StorageError(msg)
-        # Uses fetchall after a fetchone to drain the result set even if it is already empty.
+        # Use fetchall after a fetchone to drain the result set even if it is already empty.
         cursor.fetchall()
         return _StrToJobStatusMap[status_str]
 
