@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Union
 from uuid import UUID, uuid4
 
 from spider_py.core.data import Data, DataId
@@ -21,7 +20,7 @@ class TaskInputOutput:
 
 
 TaskInputValue = bytes
-TaskInputData = Union[Data, DataId]
+TaskInputData = Data | DataId
 
 
 @dataclass
@@ -33,7 +32,7 @@ class TaskInput:
 
 
 TaskOutputValue = bytes
-TaskOutputData = Union[Data, DataId]
+TaskOutputData = Data | DataId
 
 
 @dataclass

@@ -1,9 +1,11 @@
+#:tombi schema.strict = false
+
 [project]
 name = "yscope-spider-py"
 version = "0.1.0"
 description = "A distributed task execution framework."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
@@ -16,10 +18,7 @@ classifiers = [
 ]
 dependencies = [
   "lark>=1.2.2",
-  # MariaDB version must be compatible with libmariadb-dev <3.3.1 installed in the runtime
-  # environment. The default version of libmariadb-dev in Ubuntu 22.04 is 3.2.6.
-  # See https://mariadb.com/docs/connectors/mariadb-connector-python/install#build-prerequisites
-  "mariadb~=1.0.11",
+  "mariadb>=1.1.14",
   # Lock the minor version to 1.1 to sync with `msgpack-types`
   "msgpack>=1.1.0,<1.2.0",
   "msgpack-types>=0.5.0",
@@ -29,22 +28,14 @@ dependencies = [
 spider-py-task-executor = "spider_py.task_executor.task_executor:main"
 
 [dependency-groups]
-dev = [
-  "mypy>=1.12.0",
-  "pytest>=8.4.1",
-  "ruff>=0.4.4",
-]
+dev = ["mypy>=1.12.0", "pytest>=9.0.0", "ruff>=0.4.4"]
 
 [build-system]
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-exclude = [
-  ".python-version",
-  "tests",
-  "uv.lock",
-]
+exclude = [".python-version", "tests", "uv.lock"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spider_py"]
@@ -60,7 +51,8 @@ show_error_context = true
 module = ["mariadb.*"]
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
+[tool.pytest]
+minversion = "9.0"
 markers = [
   "integration: Mark test as an integration test",
   "storage: Mark unit tests as needing external storage service",
@@ -79,34 +71,34 @@ select = ["ALL"]
 extend-select = ["PT"]
 ignore = [
   "COM812",  # Redundant and conflicts with ruff format
-  "D203",  # No blank line before docstrings (D211)
-  "D205",  # Breaks if summary is larger than one line due to wrapping or if no summary exists
-  "D212",  # Enforce docstring summary line on the next line after quotes (D213)
-  "D400",  # First line of docstrings may not end in period
-  "D401",  # Docstrings should be written in present tense (not imperative)
-  "D415",  # First line of docstrings may not end in a period, question mark, or exclamation point
-  "FA102",  # Allow use of PEP 604 union in type annotations
-  "FBT",  # Allow bool positional parameters since other value positions are allowed
+  "D203",    # No blank line before docstrings (D211)
+  "D205",    # Breaks if summary is larger than one line due to wrapping or if no summary exists
+  "D212",    # Enforce docstring summary line on the next line after quotes (D213)
+  "D400",    # First line of docstrings may not end in period
+  "D401",    # Docstrings should be written in present tense (not imperative)
+  "D415",    # First line of docstrings may not end in a period, question mark, or exclamation point
+  "FA102",   # Allow use of PEP 604 union in type annotations
+  "FBT",     # Allow bool positional parameters since other value positions are allowed
   "FIX002",  # Allow todo statements
-  "PERF401",  # Allow for loops when creating lists
-  "PERF403",  # Allow for loops when creating dicts
-  "PLR1716",  # Allow chained boolean comparisons
-  "S311",  # Allow usage of `random` package
+  "PERF401", # Allow for loops when creating lists
+  "PERF403", # Allow for loops when creating dicts
+  "PLR1716", # Allow chained boolean comparisons
+  "S311",    # Allow usage of `random` package
   "SIM102",  # Allow collapsible if statements for readability
-  "TD002",  # Author unnecessary for todo statement
-  "TD003",  # Issue link unnecessary for todo statement
-  "UP015",  # Explicit open modes are helpful
+  "TD002",   # Author unnecessary for todo statement
+  "TD003",   # Issue link unnecessary for todo statement
+  "UP015",   # Explicit open modes are helpful
 ]
 isort.order-by-type = false
-typing-extensions = false  # Disable type extensions for 3.10 compatibility
+typing-extensions = false # Disable type extensions for 3.10 compatibility
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
   "INP001",  # Allow implicit namespace package for tests
-  "PLR2004",  # Allow use of magic value
-  "S101",  # Allow use of `assert` (security warning)
-  "S603",  # Allow use of `subprocess.Popen` (security warning)
-  "T201",  # Allow use of `print` (testing)
+  "PLR2004", # Allow use of magic value
+  "S101",    # Allow use of `assert` (security warning)
+  "S603",    # Allow use of `subprocess.Popen` (security warning)
+  "T201",    # Allow use of `print` (testing)
 ]
 
 [tool.ruff.lint.flake8-self]

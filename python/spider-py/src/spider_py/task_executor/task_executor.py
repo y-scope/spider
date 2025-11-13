@@ -131,7 +131,7 @@ def parse_task_execution_results(
     if not isinstance(types, Sequence) or len(results) != len(types):
         msg = "The number of output types does not match the number of results."
         raise TypeError(msg)
-    for result, ret_type in zip(results, types):
+    for result, ret_type in zip(results, types, strict=True):
         response_messages.append(parse_single_output_to_serializable(result, ret_type))
     return response_messages
 

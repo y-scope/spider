@@ -1,15 +1,10 @@
 """Storage backend interface module."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from spider_py import core
-    from spider_py.core import JobStatus
+from spider_py import core
+from spider_py.core import JobStatus
 
 
 class StorageError(Exception):
