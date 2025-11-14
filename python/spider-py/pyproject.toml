@@ -19,6 +19,8 @@ classifiers = [
 dependencies = [
   "lark>=1.2.2",
   "mariadb>=1.1.14",
+  # Lock the minor version to 1.1 to sync with `msgpack-types`
+  "msgpack>=1.1.0,<1.2.0",
   "msgpack-types>=0.5.0",
 ]
 
@@ -26,22 +28,14 @@ dependencies = [
 spider-py-task-executor = "spider_py.task_executor.task_executor:main"
 
 [dependency-groups]
-dev = [
-  "mypy>=1.12.0",
-  "pytest>=9.0.0",
-  "ruff>=0.4.4",
-]
+dev = ["mypy>=1.12.0", "pytest>=9.0.0", "ruff>=0.4.4"]
 
 [build-system]
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-exclude = [
-  ".python-version",
-  "tests",
-  "uv.lock",
-]
+exclude = [".python-version", "tests", "uv.lock"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spider_py"]
