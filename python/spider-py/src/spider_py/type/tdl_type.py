@@ -1,17 +1,12 @@
 """Spider TDL types."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from types import GenericAlias
 
 from typing_extensions import override
 
 from spider_py.type.type import Double, Float, Int8, Int16, Int32, Int64
 from spider_py.type.utils import get_class_by_name
-
-if TYPE_CHECKING:
-    from types import GenericAlias
 
 
 class TdlType(ABC):
@@ -108,6 +103,18 @@ class BoolType(TdlType):
     @override
     def native_type(self) -> type | GenericAlias:
         return bool
+
+
+class BytesType(TdlType):
+    """TDL bytes type."""
+
+    @override
+    def type_str(self) -> str:
+        return "bytes"
+
+    @override
+    def native_type(self) -> type | GenericAlias:
+        return bytes
 
 
 class ClassType(TdlType):

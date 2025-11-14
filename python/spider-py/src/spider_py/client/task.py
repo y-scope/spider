@@ -1,7 +1,5 @@
 """Spider client task module."""
 
-from __future__ import annotations
-
 import inspect
 from collections.abc import Callable
 from types import FunctionType, GenericAlias

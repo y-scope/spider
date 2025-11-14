@@ -18,11 +18,13 @@ class TestToTDL:
         assert to_tdl_type_str(Int16) == "int16"
         assert to_tdl_type_str(Int32) == "int32"
         assert to_tdl_type_str(Int64) == "int64"
+        assert to_tdl_type_str(bytes) == "bytes"
 
     def test_to_tdl_list(self) -> None:
         """Test converting lists to TDL Types."""
         assert to_tdl_type_str(list[Int8]) == "List<int8>"
         assert to_tdl_type_str(list[list[Int8]]) == "List<List<int8>>"
+        assert to_tdl_type_str(list[bytes]) == "List<bytes>"
 
     def test_to_tdl_map(self) -> None:
         """Test converting maps to TDL Types."""
@@ -41,8 +43,6 @@ class TestToTDL:
             to_tdl_type_str(float)
         with pytest.raises(TypeError):
             to_tdl_type_str(str)
-        with pytest.raises(TypeError):
-            to_tdl_type_str(bytes)
         with pytest.raises(TypeError):
             to_tdl_type_str(list)
         with pytest.raises(TypeError):

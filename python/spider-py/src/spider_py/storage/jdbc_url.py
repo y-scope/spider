@@ -1,7 +1,5 @@
 """JDBC URL module."""
 
-from __future__ import annotations
-
 import urllib.parse
 from dataclasses import dataclass
 

@@ -46,7 +46,7 @@ class Driver:
             return []
 
         core_task_graphs = []
-        for task_graph, task_args in zip(task_graphs, args):
+        for task_graph, task_args in zip(task_graphs, args, strict=True):
             core_task_graphs.append(_copy_graph_for_submission(task_graph, task_args))
 
         core_jobs = self._storage.submit_jobs(self._driver_id, core_task_graphs)

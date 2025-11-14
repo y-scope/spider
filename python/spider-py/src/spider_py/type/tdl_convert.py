@@ -1,13 +1,12 @@
 """Converts native types to TDL types."""
 
-from __future__ import annotations
-
 from collections.abc import Collection
 from types import GenericAlias
 from typing import get_args, get_origin
 
 from spider_py.type.tdl_type import (
     BoolType,
+    BytesType,
     ClassType,
     DoubleType,
     FloatType,
@@ -30,6 +29,7 @@ TypeDict = {
     Float: FloatType(),
     Double: DoubleType(),
     bool: BoolType(),
+    bytes: BytesType(),
 }
 
 
@@ -45,7 +45,7 @@ def _to_primitive_tdl_type(native_type: type | GenericAlias) -> TdlType | None:
     if isinstance(native_type, type) and native_type in TypeDict:
         return TypeDict[native_type]
 
-    if native_type in (int, float, str, complex, bytes):
+    if native_type in (int, float, str, complex):
         msg = f"{native_type} is not a TDL type. Please use the corresponding TDL primitive type."
         raise TypeError(msg)
 

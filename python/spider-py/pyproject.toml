@@ -1,9 +1,11 @@
+#:tombi schema.strict = false
+
 [project]
 name = "yscope-spider-py"
 version = "0.2.0"
 description = "A distributed task execution framework."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
@@ -16,10 +18,9 @@ classifiers = [
 ]
 dependencies = [
   "lark>=1.2.2",
-  # MariaDB version must be compatible with libmariadb-dev <3.3.1 installed in the runtime
-  # environment. The default version of libmariadb-dev in Ubuntu 22.04 is 3.2.6.
-  # See https://mariadb.com/docs/connectors/mariadb-connector-python/install#build-prerequisites
-  "mariadb~=1.0.11",
+  "mariadb>=1.1.14",
+  # Lock the minor version to 1.1 to sync with `msgpack-types`
+  "msgpack>=1.1.0,<1.2.0",
   "msgpack-types>=0.5.0",
 ]
 
@@ -27,22 +28,14 @@ dependencies = [
 spider-py-task-executor = "spider_py.task_executor.task_executor:main"
 
 [dependency-groups]
-dev = [
-  "mypy>=1.12.0",
-  "pytest>=8.4.1",
-  "ruff>=0.4.4",
-]
+dev = ["mypy>=1.12.0", "pytest>=9.0.0", "ruff>=0.4.4"]
 
 [build-system]
 requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-exclude = [
-  ".python-version",
-  "tests",
-  "uv.lock",
-]
+exclude = [".python-version", "tests", "uv.lock"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spider_py"]
@@ -58,7 +51,8 @@ show_error_context = true
 module = ["mariadb.*"]
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
+[tool.pytest]
+minversion = "9.0"
 markers = [
   "integration: Mark test as an integration test",
   "storage: Mark unit tests as needing external storage service",

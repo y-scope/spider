@@ -23,7 +23,7 @@ constexpr std::array<size_t, 12> cBufferSizes{1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 257
 TEST_CASE("Sync socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
-    tcp::endpoint const local_endpoint{address::from_string("127.0.0.1"), 0};
+    tcp::endpoint const local_endpoint{make_address("127.0.0.1"), 0};
     tcp::acceptor acceptor{context, local_endpoint};
 
     std::thread server_thread([&acceptor, &context]() {
@@ -52,10 +52,7 @@ TEST_CASE("Sync socket msgpack", "[io]") {
     tcp::socket socket(context);
     boost::asio::connect(
             socket,
-            std::vector{tcp::endpoint{
-                    address::from_string("127.0.0.1"),
-                    acceptor.local_endpoint().port()
-            }}
+            std::vector{tcp::endpoint{make_address("127.0.0.1"), acceptor.local_endpoint().port()}}
     );
 
     for (size_t const buffer_size : cBufferSizes) {
@@ -73,17 +70,14 @@ TEST_CASE("Sync socket msgpack", "[io]") {
 TEST_CASE("Async socket msgpack", "[io]") {
     boost::asio::io_context context;
     // Create server acceptor
-    tcp::endpoint const local_endpoint{address::from_string("127.0.0.1"), 0};
+    tcp::endpoint const local_endpoint{make_address("127.0.0.1"), 0};
     tcp::acceptor acceptor{context, local_endpoint};
 
     // Create client socket
     tcp::socket client_socket(context);
     boost::asio::connect(
             client_socket,
-            std::vector{tcp::endpoint{
-                    address::from_string("127.0.0.1"),
-                    acceptor.local_endpoint().port()
-            }}
+            std::vector{tcp::endpoint{make_address("127.0.0.1"), acceptor.local_endpoint().port()}}
     );
 
     // Create server socket
