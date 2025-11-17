@@ -79,7 +79,7 @@ jobs:
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
           key: >-
-            lint:check-cpp-static-on-ubuntu-latest{{hashFiles(
+            lint:check-cpp-static-on-ubuntu-latest-${{hashFiles(
               '.task/checksum/lint-cpp-static-check',
               '.task/checksum/utils-cpp-lint-clang-tidy-*'
               'build/lint-clang-tidy/**/*'
