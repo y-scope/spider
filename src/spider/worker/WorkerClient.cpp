@@ -41,6 +41,28 @@ WorkerClient::WorkerClient(
           m_metadata_store(std::move(metadata_store)),
           m_storage_factory(std::move(storage_factory)) {}
 
+/**
+ * Resolves hostname and port to a list of TCP endpoints.
+ *
+ * @param context Boost ASIO context
+ * @param hostname
+ * @param port
+ * @return A vector of resolved TCP endpoints. Empty if resolution fails.
+ */
+auto resolve_hostname(boost::asio::io_context& context, std::string const& hostname, int port)
+        -> std::vector<boost::asio::ip::tcp::endpoint> {
+    try {
+        boost::asio::ip::tcp::resolver resolver(context);
+        boost::asio::ip::tcp::resolver::results_type const results
+                = resolver.resolve(hostname, fmt::format("{}", port));
+        std::vector<boost::asio::ip::tcp::endpoint> endpoints;
+        std::ranges::copy(results, std::back_inserter(endpoints));
+        return endpoints;
+    } catch (boost::system::system_error const& e) {
+        return {};
+    }
+}
+
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id)
         -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
     // Get schedulers
@@ -77,11 +99,13 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         boost::asio::ip::tcp::resolver resolver(context);
         std::vector<boost::asio::ip::tcp::endpoint> endpoints;
         for (auto const& scheduler : schedulers) {
-            boost::asio::ip::tcp::resolver::results_type const results = resolver.resolve(
-                    scheduler.get_addr(),
-                    fmt::format("{}", scheduler.get_port())
+            std::vector<boost::asio::ip::tcp::endpoint> const resolved_endpoints
+                    = resolve_hostname(context, scheduler.get_addr(), scheduler.get_port());
+            endpoints.insert(
+                    endpoints.end(),
+                    resolved_endpoints.begin(),
+                    resolved_endpoints.end()
             );
-            std::ranges::copy(results, std::back_inserter(endpoints));
         }
 
         boost::asio::connect(socket, endpoints);
