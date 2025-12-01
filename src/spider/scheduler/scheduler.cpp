@@ -60,12 +60,17 @@ auto parse_args(int const argc, char** argv) -> boost::program_options::variable
     desc.add_options()(
             "host",
             boost::program_options::value<std::string>(),
-            "scheduler host address"
+            "scheduler host address for workers to connect to"
     );
     desc.add_options()(
             "port",
             boost::program_options::value<unsigned short>(),
-            "port to listen on"
+            "port for worker to connect to"
+    );
+    desc.add_options()(
+            "bind-port",
+            boost::program_options::value<unsigned short>(),
+            "port to listen on. Default is the same as port"
     );
     desc.add_options()(
             "storage_url",
@@ -156,6 +161,7 @@ auto main(int argc, char** argv) -> int {
     boost::program_options::variables_map const args = parse_args(argc, argv);
 
     unsigned short port = 0;
+    unsigned short bind_port = 0;
     std::string scheduler_addr;
     std::string storage_url;
     try {
@@ -164,6 +170,11 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         port = args["port"].as<unsigned short>();
+        if (!args.contains("bind-port")) {
+            bind_port = port;
+        } else {
+            bind - port = args["bind-port"].as<unsigned short>();
+        }
         if (!args.contains("host")) {
             spdlog::error("host is required");
             return cCmdArgParseErr;
@@ -243,7 +254,7 @@ auto main(int argc, char** argv) -> int {
                     data_store,
                     conn
             );
-    spider::scheduler::SchedulerServer server{port, policy, metadata_store, data_store, conn};
+    spider::scheduler::SchedulerServer server{bind_port, policy, metadata_store, data_store, conn};
 
     try {
         // Start a thread that periodically updates the scheduler's heartbeat
