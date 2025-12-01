@@ -69,21 +69,21 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
     std::default_random_engine rng{random_device()};
     std::ranges::shuffle(schedulers, rng);
 
-    std::vector<boost::asio::ip::tcp::endpoint> endpoints;
-    std::ranges::transform(
-            schedulers,
-            std::back_inserter(endpoints),
-            [](core::Scheduler const& scheduler) {
-                return boost::asio::ip::tcp::endpoint{
-                        boost::asio::ip::make_address(scheduler.get_addr()),
-                        static_cast<unsigned short>(scheduler.get_port())
-                };
-            }
-    );
     try {
         // Create socket to scheduler
         boost::asio::io_context context;
         boost::asio::ip::tcp::socket socket(context);
+
+        boost::asio::ip::tcp::resolver resolver(context);
+        std::vector<boost::asio::ip::tcp::endpoint> endpoints;
+        for (auto const& scheduler : schedulers) {
+            boost::asio::ip::tcp::resolver::results_type const results = resolver.resolve(
+                    fmt::format("{}:{}", scheduler.get_addr(), scheduler.get_port()),
+                    "http"
+            );
+            std::ranges::copy(results, std::back_inserter(endpoints));
+        }
+
         boost::asio::connect(socket, endpoints);
 
         scheduler::ScheduleTaskRequest request{m_worker_id, m_worker_addr};
