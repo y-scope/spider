@@ -78,8 +78,8 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         std::vector<boost::asio::ip::tcp::endpoint> endpoints;
         for (auto const& scheduler : schedulers) {
             boost::asio::ip::tcp::resolver::results_type const results = resolver.resolve(
-                    fmt::format("{}:{}", scheduler.get_addr(), scheduler.get_port()),
-                    "http"
+                    scheduler.get_addr(),
+                    fmt::format("{}", scheduler.get_port())
             );
             std::ranges::copy(results, std::back_inserter(endpoints));
         }
