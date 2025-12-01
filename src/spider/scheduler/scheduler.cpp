@@ -173,7 +173,7 @@ auto main(int argc, char** argv) -> int {
         if (!args.contains("bind-port")) {
             bind_port = port;
         } else {
-            bind - port = args["bind-port"].as<unsigned short>();
+            bind_port = args["bind-port"].as<unsigned short>();
         }
         if (!args.contains("host")) {
             spdlog::error("host is required");
