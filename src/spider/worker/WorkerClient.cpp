@@ -115,7 +115,7 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
             );
         }
         if (endpoints.empty()) {
-            spdlog::warn("Failed to resolve any scheduler addresses.");
+            spdlog::error("Failed to resolve any scheduler addresses.");
             return std::nullopt;
         }
 
