@@ -49,12 +49,12 @@ WorkerClient::WorkerClient(
  * @param port
  * @return A vector of resolved TCP endpoints. Empty if resolution fails.
  */
-auto resolve_hostname(boost::asio::io_context& context, std::string const& hostname, int port)
+[[nodiscard]] auto
+resolve_hostname(boost::asio::io_context& context, std::string_view hostname, int port)
         -> std::vector<boost::asio::ip::tcp::endpoint> {
     try {
-        boost::asio::ip::tcp::resolver resolver(context);
-        boost::asio::ip::tcp::resolver::results_type const results
-                = resolver.resolve(hostname, fmt::format("{}", port));
+        boost::asio::ip::tcp::resolver resolver{context};
+        auto const results{resolver.resolve(hostname, fmt::format("{}", port))};
         std::vector<boost::asio::ip::tcp::endpoint> endpoints;
         std::ranges::copy(results, std::back_inserter(endpoints));
         return endpoints;
@@ -99,12 +99,13 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         boost::asio::ip::tcp::resolver resolver(context);
         std::vector<boost::asio::ip::tcp::endpoint> endpoints;
         for (auto const& scheduler : schedulers) {
-            std::vector<boost::asio::ip::tcp::endpoint> const resolved_endpoints
-                    = resolve_hostname(context, scheduler.get_addr(), scheduler.get_port());
+            auto const resolved_endpoints{
+                    resolve_hostname(context, scheduler.get_addr(), scheduler.get_port())
+            };
             endpoints.insert(
-                    endpoints.end(),
-                    resolved_endpoints.begin(),
-                    resolved_endpoints.end()
+                    endpoints.cend(),
+                    resolved_endpoints.cbegin(),
+                    resolved_endpoints.cend()
             );
         }
 
