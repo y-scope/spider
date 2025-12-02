@@ -96,7 +96,6 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
         boost::asio::io_context context;
         boost::asio::ip::tcp::socket socket(context);
 
-        boost::asio::ip::tcp::resolver resolver(context);
         std::vector<boost::asio::ip::tcp::endpoint> endpoints;
         for (auto const& scheduler : schedulers) {
             auto const resolved_endpoints{
