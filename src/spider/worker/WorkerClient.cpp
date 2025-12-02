@@ -28,6 +28,7 @@
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
 
+namespace spider::worker {
 namespace {
 /**
  * Resolves hostname and port to a list of TCP endpoints.
@@ -56,7 +57,6 @@ auto resolve_hostname(boost::asio::io_context& context, std::string_view const h
 }
 }  // namespace
 
-namespace spider::worker {
 WorkerClient::WorkerClient(
         boost::uuids::uuid const worker_id,
         std::string worker_addr,
