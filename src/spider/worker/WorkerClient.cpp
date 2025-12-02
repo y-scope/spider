@@ -7,6 +7,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <variant>
@@ -41,6 +42,7 @@ WorkerClient::WorkerClient(
           m_metadata_store(std::move(metadata_store)),
           m_storage_factory(std::move(storage_factory)) {}
 
+namespace {
 /**
  * Resolves hostname and port to a list of TCP endpoints.
  *
@@ -51,6 +53,9 @@ WorkerClient::WorkerClient(
  */
 [[nodiscard]] auto
 resolve_hostname(boost::asio::io_context& context, std::string_view hostname, int port)
+        -> std::vector<boost::asio::ip::tcp::endpoint>;
+
+auto resolve_hostname(boost::asio::io_context& context, std::string_view const hostname, int port)
         -> std::vector<boost::asio::ip::tcp::endpoint> {
     try {
         boost::asio::ip::tcp::resolver resolver{context};
@@ -59,9 +64,11 @@ resolve_hostname(boost::asio::io_context& context, std::string_view hostname, in
         std::ranges::copy(results, std::back_inserter(endpoints));
         return endpoints;
     } catch (boost::system::system_error const& e) {
+        spdlog::warn("Failed to resolve hostname {}:{}: {}", hostname, port, e.what());
         return {};
     }
 }
+}  // namespace
 
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id)
         -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
