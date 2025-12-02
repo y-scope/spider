@@ -28,20 +28,6 @@
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
 
-namespace spider::worker {
-WorkerClient::WorkerClient(
-        boost::uuids::uuid const worker_id,
-        std::string worker_addr,
-        std::shared_ptr<core::DataStorage> data_store,
-        std::shared_ptr<core::MetadataStorage> metadata_store,
-        std::shared_ptr<core::StorageFactory> storage_factory
-)
-        : m_worker_id{worker_id},
-          m_worker_addr{std::move(worker_addr)},
-          m_data_store(std::move(data_store)),
-          m_metadata_store(std::move(metadata_store)),
-          m_storage_factory(std::move(storage_factory)) {}
-
 namespace {
 /**
  * Resolves hostname and port to a list of TCP endpoints.
@@ -64,11 +50,25 @@ auto resolve_hostname(boost::asio::io_context& context, std::string_view const h
         std::ranges::copy(results, std::back_inserter(endpoints));
         return endpoints;
     } catch (boost::system::system_error const& e) {
-        spdlog::warn("Failed to resolve hostname {}:{}: {}", hostname, port, e.what());
+        spdlog::warn("Failed to resolve hostname {}:{}: {}.", hostname, port, e.what());
         return {};
     }
 }
 }  // namespace
+
+namespace spider::worker {
+WorkerClient::WorkerClient(
+        boost::uuids::uuid const worker_id,
+        std::string worker_addr,
+        std::shared_ptr<core::DataStorage> data_store,
+        std::shared_ptr<core::MetadataStorage> metadata_store,
+        std::shared_ptr<core::StorageFactory> storage_factory
+)
+        : m_worker_id{worker_id},
+          m_worker_addr{std::move(worker_addr)},
+          m_data_store(std::move(data_store)),
+          m_metadata_store(std::move(metadata_store)),
+          m_storage_factory(std::move(storage_factory)) {}
 
 auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_task_id)
         -> std::optional<std::tuple<boost::uuids::uuid, boost::uuids::uuid>> {
@@ -113,6 +113,10 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
                     resolved_endpoints.cbegin(),
                     resolved_endpoints.cend()
             );
+        }
+        if (endpoints.empty()) {
+            spdlog::warn("Failed to resolve any scheduler addresses.");
+            return std::nullopt;
         }
 
         boost::asio::connect(socket, endpoints);
