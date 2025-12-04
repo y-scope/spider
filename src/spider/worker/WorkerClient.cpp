@@ -7,6 +7,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <variant>
@@ -28,6 +29,34 @@
 #include <spider/storage/StorageFactory.hpp>
 
 namespace spider::worker {
+namespace {
+/**
+ * Resolves hostname and port to a list of TCP endpoints.
+ *
+ * @param context Boost ASIO context
+ * @param hostname
+ * @param port
+ * @return A vector of resolved TCP endpoints. Empty if resolution fails.
+ */
+[[nodiscard]] auto
+resolve_hostname(boost::asio::io_context& context, std::string_view hostname, int port)
+        -> std::vector<boost::asio::ip::tcp::endpoint>;
+
+auto resolve_hostname(boost::asio::io_context& context, std::string_view const hostname, int port)
+        -> std::vector<boost::asio::ip::tcp::endpoint> {
+    try {
+        boost::asio::ip::tcp::resolver resolver{context};
+        auto const results{resolver.resolve(hostname, fmt::format("{}", port))};
+        std::vector<boost::asio::ip::tcp::endpoint> endpoints;
+        std::ranges::copy(results, std::back_inserter(endpoints));
+        return endpoints;
+    } catch (boost::system::system_error const& e) {
+        spdlog::warn("Failed to resolve hostname {}:{}: {}.", hostname, port, e.what());
+        return {};
+    }
+}
+}  // namespace
+
 WorkerClient::WorkerClient(
         boost::uuids::uuid const worker_id,
         std::string worker_addr,
@@ -69,21 +98,27 @@ auto WorkerClient::get_next_task(std::optional<boost::uuids::uuid> const& fail_t
     std::default_random_engine rng{random_device()};
     std::ranges::shuffle(schedulers, rng);
 
-    std::vector<boost::asio::ip::tcp::endpoint> endpoints;
-    std::ranges::transform(
-            schedulers,
-            std::back_inserter(endpoints),
-            [](core::Scheduler const& scheduler) {
-                return boost::asio::ip::tcp::endpoint{
-                        boost::asio::ip::make_address(scheduler.get_addr()),
-                        static_cast<unsigned short>(scheduler.get_port())
-                };
-            }
-    );
     try {
         // Create socket to scheduler
         boost::asio::io_context context;
         boost::asio::ip::tcp::socket socket(context);
+
+        std::vector<boost::asio::ip::tcp::endpoint> endpoints;
+        for (auto const& scheduler : schedulers) {
+            auto const resolved_endpoints{
+                    resolve_hostname(context, scheduler.get_addr(), scheduler.get_port())
+            };
+            endpoints.insert(
+                    endpoints.cend(),
+                    resolved_endpoints.cbegin(),
+                    resolved_endpoints.cend()
+            );
+        }
+        if (endpoints.empty()) {
+            spdlog::error("Failed to resolve any scheduler addresses.");
+            return std::nullopt;
+        }
+
         boost::asio::connect(socket, endpoints);
 
         scheduler::ScheduleTaskRequest request{m_worker_id, m_worker_addr};
