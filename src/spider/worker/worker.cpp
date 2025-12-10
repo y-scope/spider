@@ -46,6 +46,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/env.hpp>
 #include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 #include <spider/worker/ChildPid.hpp>
@@ -517,11 +518,20 @@ auto main(int argc, char** argv) -> int {
     std::vector<std::string> libs;
     std::string worker_addr;
     try {
-        if (!args.contains("storage_url")) {
-            spdlog::error("Missing storage_url");
+        auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+        if (storage_url_env.has_value()) {
+            storage_url = storage_url_env.value();
+        } else if (args.contains("storage_url")) {
+            spdlog::warn(
+                    "Prefer using `SPIDER_STORAGE_URL` environment variable over command line "
+                    "argument."
+            );
+            storage_url = args["storage_url"].as<std::string>();
+        } else {
+            spdlog::error("`storage_url` is required.");
             return cCmdArgParseErr;
         }
-        storage_url = args["storage_url"].as<std::string>();
+
         if (!args.contains("host")) {
             spdlog::error("Missing host");
             return cCmdArgParseErr;
