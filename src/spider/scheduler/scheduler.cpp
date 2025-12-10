@@ -34,6 +34,8 @@
 #include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 
+#include "spider/utils/env.hpp"
+
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;
 constexpr int cStorageConnectionErr = 3;
@@ -158,6 +160,10 @@ auto main(int argc, char** argv) -> int {
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
+    auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+    if (storage_url_env.has_value()) {
+        storage_url = std::move(storage_url_env.value());
+    }
     try {
         if (!args.contains("port")) {
             spdlog::error("port is required");
@@ -169,11 +175,17 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         scheduler_addr = args["host"].as<std::string>();
-        if (!args.contains("storage_url")) {
+        if (!storage_url.empty() && !args.contains("storage_url")) {
             spdlog::error("storage_url is required");
             return cCmdArgParseErr;
         }
-        storage_url = args["storage_url"].as<std::string>();
+        if (!storage_url.empty()) {
+            spdlog::warn(
+                    "Passing storage_url via command line is dangerous. Please use "
+                    "SPIDER_STORAGE_URL env variable instead."
+            );
+            storage_url = args["storage_url"].as<std::string>();
+        }
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {
