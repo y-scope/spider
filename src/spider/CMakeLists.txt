@@ -77,6 +77,8 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/env.hpp
+    utils/env.cpp
     utils/logging.hpp
     utils/logging.cpp
     utils/pipe.hpp
@@ -93,6 +95,8 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/message_pipe.cpp
     worker/message_pipe.hpp
     worker/task_executor.cpp
+    utils/env.hpp
+    utils/env.cpp
     utils/logging.hpp
     utils/logging.cpp
     CACHE INTERNAL
@@ -143,6 +147,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    utils/env.hpp
+    utils/env.cpp
     utils/logging.hpp
     utils/logging.cpp
     utils/StopFlag.hpp
