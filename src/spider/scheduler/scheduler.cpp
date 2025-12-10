@@ -31,6 +31,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/env.hpp>
 #include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 
@@ -160,10 +161,6 @@ auto main(int argc, char** argv) -> int {
     unsigned short port = 0;
     std::string scheduler_addr;
     std::string storage_url;
-    auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
-    if (storage_url_env.has_value()) {
-        storage_url = std::move(storage_url_env.value());
-    }
     try {
         if (!args.contains("port")) {
             spdlog::error("port is required");
@@ -175,16 +172,16 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         scheduler_addr = args["host"].as<std::string>();
-        if (!storage_url.empty() && !args.contains("storage_url")) {
-            spdlog::error("storage_url is required");
-            return cCmdArgParseErr;
-        }
-        if (!storage_url.empty()) {
-            spdlog::warn(
-                    "Passing storage_url via command line is dangerous. Please use "
-                    "SPIDER_STORAGE_URL env variable instead."
-            );
+
+        auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+        if (storage_url_env.has_value()) {
+            storage_url = storage_url_env.value();
+        } else if (args.contains("storage_url")) {
+            spdlog::warn("Prefer using `SPIDER_STORAGE_URL` environment variable over command line argument.");
             storage_url = args["storage_url"].as<std::string>();
+        } else {
+            spdlog::error("`storage_url` is required.");
+            return cCmdArgParseErr;
         }
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
