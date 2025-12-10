@@ -26,6 +26,8 @@
 #include <spider/worker/Process.hpp>
 #include <spider/worker/TaskExecutorMessage.hpp>
 
+#include "spider/utils/env.hpp"
+
 namespace spider::worker {
 auto TaskExecutor::spawn_cpp_executor(
         boost::asio::io_context& context,
@@ -58,9 +60,11 @@ auto TaskExecutor::spawn_cpp_executor(
             std::to_string(input_pipe_read_end),
             "--output-pipe",
             std::to_string(output_pipe_write_end),
-            "--storage_url",
-            storage_url,
     };
+    if (!utils::get_env("SPIDER_STORAGE_URL").has_value()) {
+        process_args.emplace_back("--storage_url");
+        process_args.emplace_back(storage_url);
+    }
     if (false == libs.empty()) {
         process_args.emplace_back("--libs");
         process_args.insert(process_args.end(), libs.cbegin(), libs.cend());
