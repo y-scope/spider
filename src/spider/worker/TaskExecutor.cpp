@@ -113,7 +113,7 @@ auto TaskExecutor::spawn_python_executor(
     auto const [input_pipe_read_end, input_pipe_write_end] = core::create_pipe();
     auto const [output_pipe_read_end, output_pipe_write_end] = core::create_pipe();
 
-    std::vector<std::string> const process_args{
+    std::vector<std::string> process_args{
             "-m",
             "spider_py.task_executor.task_executor",
             "--func",
@@ -124,9 +124,11 @@ auto TaskExecutor::spawn_python_executor(
             std::to_string(input_pipe_read_end),
             "--output-pipe",
             std::to_string(output_pipe_write_end),
-            "--storage_url",
-            storage_url,
     };
+    if (false == utils::get_env("SPIDER_STORAGE_URL").has_value()) {
+        process_args.emplace_back("--storage_url");
+        process_args.emplace_back(storage_url);
+    }
 
     // Must use `new` because `make_unique` cannot access the private constructor.
     auto executor = std::unique_ptr<TaskExecutor>(new TaskExecutor(
