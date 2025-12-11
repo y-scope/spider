@@ -39,7 +39,7 @@ def add_storage_env_vars(storage_url: str) -> dict[str, str]:
     :return: The environment variables with the storage URL added.
     """
     env = os.environ.copy()
-    env["SPIDER_STORAGE_URL"] = storage_url
+    env |= {"SPIDER_STORAGE_URL": storage_url}
     return env
 
 

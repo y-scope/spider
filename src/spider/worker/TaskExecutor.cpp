@@ -61,7 +61,7 @@ auto TaskExecutor::spawn_cpp_executor(
             "--output-pipe",
             std::to_string(output_pipe_write_end),
     };
-    if (!utils::get_env("SPIDER_STORAGE_URL").has_value()) {
+    if (false == utils::get_env("SPIDER_STORAGE_URL").has_value()) {
         process_args.emplace_back("--storage_url");
         process_args.emplace_back(storage_url);
     }

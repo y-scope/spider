@@ -191,13 +191,13 @@ def main() -> None:
         storage_url = storage_url_env
     elif args.storage_url is not None:
         logger.warning(
-            "Prefer using SPIDER_STORAGE_URL environment variable over --storage_url argument."
+            "Prefer using `SPIDER_STORAGE_URL` environment variable over `--storage_url` argument."
         )
         storage_url = args.storage_url
     else:
         msg = (
-            "Storage URL must be provided via SPIDER_STORAGE_URL environment variable or"
-            " --storage_url argument."
+            "Storage URL must be provided via `SPIDER_STORAGE_URL` environment variable or"
+            " `--storage_url` argument."
         )
         raise ValueError(msg)
 
