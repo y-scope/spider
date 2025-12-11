@@ -6,7 +6,7 @@ import argparse
 import inspect
 import logging
 from collections.abc import Sequence
-from os import fdopen
+from os import fdopen, getenv
 from pydoc import locate
 from types import FunctionType, GenericAlias
 from typing import get_args, get_origin, get_type_hints, TYPE_CHECKING
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--func", type=str, required=True, help="Name of the function to execute.")
     parser.add_argument(
-        "--storage_url", type=str, required=True, help="JDBC URL for the storage backend."
+        "--storage_url", type=str, required=False, help="JDBC URL for the storage backend."
     )
     parser.add_argument("--task_id", type=str, required=True, help="Task UUID.")
     parser.add_argument(
@@ -183,9 +183,22 @@ def main() -> None:
     function_name = args.func
     task_id = args.task_id
     task_id = UUID(task_id)
-    storage_url = args.storage_url
     input_pipe_fd = args.input_pipe
     output_pipe_fd = args.output_pipe
+
+    storage_url_env = getenv("SPIDER_STORAGE_URL")
+    if storage_url_env is not None:
+        storage_url = storage_url_env
+    elif args.storage_url is not None:
+        logger.warning(
+            "Prefer using SPIDER_STORAGE_URL environment variable over --storage_url argument."
+        )
+        storage_url = args.storage_url
+    else:
+        msg = ("Storage URL must be provided via SPIDER_STORAGE_URL environment variable or"
+              " --storage_url argument."
+               )
+        raise ValueError(msg)
 
     logger.debug("Function to run: %s", function_name)
 
