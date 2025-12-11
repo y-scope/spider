@@ -31,14 +31,17 @@ from .client import (
 from .utils import g_scheduler_port
 
 
-def add_storage_env_vars() -> dict[str, str]:
+def add_storage_env_vars(storage_url: str) -> dict[str, str]:
     """
     Adds the storage URL to the environment variables.
+
+    :param storage_url: The URL of the storage.
     :return: The environment variables with the storage URL added.
     """
     env = os.environ.copy()
-    env["SPIDER_STORAGE_URL"] = g_storage_url
+    env["SPIDER_STORAGE_URL"] = storage_url
     return env
+
 
 def start_scheduler_worker(
     storage_url: str, scheduler_port: int
@@ -54,7 +57,7 @@ def start_scheduler_worker(
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
     dir_path = dir_path / ".." / ".." / "src" / "spider"
-    env = add_storage_env_vars()
+    env = add_storage_env_vars(storage_url)
     scheduler_cmds = [
         str(dir_path / "spider_scheduler"),
         "--host",
@@ -67,8 +70,6 @@ def start_scheduler_worker(
         str(dir_path / "spider_worker"),
         "--host",
         "127.0.0.1",
-        "--storage_url",
-        storage_url,
         "--libs",
         "tests/libworker_test.so",
     ]
