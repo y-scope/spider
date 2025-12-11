@@ -122,12 +122,15 @@ auto main(int const argc, char** argv) -> int {
             storage_url = optional_storage_url_env.value();
         } else if (args.contains("storage_url")) {
             spdlog::warn(
-                    "Prefer using `SPIDER_STORAGE_URL` environment variable over command line "
+                    "Prefer using `SPIDER_STORAGE_URL` environment variable over `--storage_url` "
                     "argument."
             );
             storage_url = args["storage_url"].as<std::string>();
         } else {
-            spdlog::error("`storage_url` is required.");
+            spdlog::error(
+                    "Storage URL must be provided via `SPIDER_STORAGE_URL` environment variable or"
+                    " `--storage_url` argument."
+            );
             return cCmdArgParseErr;
         }
 
