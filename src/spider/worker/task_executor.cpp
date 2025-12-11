@@ -22,6 +22,7 @@
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/env.hpp>
 #include <spider/utils/logging.hpp>
 #include <spider/worker/DllLoader.hpp>
 #include <spider/worker/FunctionManager.hpp>
@@ -116,10 +117,20 @@ auto main(int const argc, char** argv) -> int {
             spdlog::error("Invalid output pipe file descriptor: {}", output_pipe_fd);
             return cCmdArgParseErr;
         }
-        if (!args.contains("storage_url")) {
+        auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+        if (storage_url_env.has_value()) {
+            storage_url = storage_url_env.value();
+        } else if (args.contains("storage_url")) {
+            spdlog::warn(
+                    "Prefer using `SPIDER_STORAGE_URL` environment variable over command line "
+                    "argument."
+            );
+            storage_url = args["storage_url"].as<std::string>();
+        } else {
+            spdlog::error("`storage_url` is required.");
             return cCmdArgParseErr;
         }
-        storage_url = args["storage_url"].as<std::string>();
+
         if (!args.contains("libs")) {
             return cCmdArgParseErr;
         }
