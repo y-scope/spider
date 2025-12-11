@@ -35,8 +35,6 @@
 #include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 
-#include "spider/utils/env.hpp"
-
 constexpr int cCmdArgParseErr = 1;
 constexpr int cSignalHandleErr = 2;
 constexpr int cStorageConnectionErr = 3;
