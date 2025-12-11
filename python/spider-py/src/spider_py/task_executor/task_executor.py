@@ -195,9 +195,10 @@ def main() -> None:
         )
         storage_url = args.storage_url
     else:
-        msg = ("Storage URL must be provided via SPIDER_STORAGE_URL environment variable or"
-              " --storage_url argument."
-               )
+        msg = (
+            "Storage URL must be provided via SPIDER_STORAGE_URL environment variable or"
+            " --storage_url argument."
+        )
         raise ValueError(msg)
 
     logger.debug("Function to run: %s", function_name)
