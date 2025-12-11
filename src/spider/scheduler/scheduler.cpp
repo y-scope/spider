@@ -171,9 +171,9 @@ auto main(int argc, char** argv) -> int {
         }
         scheduler_addr = args["host"].as<std::string>();
 
-        auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
-        if (storage_url_env.has_value()) {
-            storage_url = storage_url_env.value();
+        auto const optional_storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+        if (optional_storage_url_env.has_value()) {
+            storage_url = optional_storage_url_env.value();
         } else if (args.contains("storage_url")) {
             spdlog::warn(
                     "Prefer using `SPIDER_STORAGE_URL` environment variable over command line "

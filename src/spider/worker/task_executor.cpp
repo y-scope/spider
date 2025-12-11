@@ -117,9 +117,9 @@ auto main(int const argc, char** argv) -> int {
             spdlog::error("Invalid output pipe file descriptor: {}", output_pipe_fd);
             return cCmdArgParseErr;
         }
-        auto const storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
-        if (storage_url_env.has_value()) {
-            storage_url = storage_url_env.value();
+        auto const optional_storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+        if (optional_storage_url_env.has_value()) {
+            storage_url = optional_storage_url_env.value();
         } else if (args.contains("storage_url")) {
             spdlog::warn(
                     "Prefer using `SPIDER_STORAGE_URL` environment variable over command line "
