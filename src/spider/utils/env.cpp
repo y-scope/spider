@@ -4,16 +4,16 @@
 #include <string>
 #include <string_view>
 
-#include <boost/process/environment.hpp>
-#include <fmt/format.h>
+#include <boost/process/v2/environment.hpp>
 
 namespace spider::utils {
-auto get_env(std::string const& key) -> std::optional<std::string> {
-    boost::process::environment env = boost::this_process::environment();
-    auto const it = env.find(key);
-    if (it == env.end()) {
-        return std::nullopt;
+auto get_env(std::string_view key) -> std::optional<std::string> {
+    auto const env = boost::process::v2::environment::current();
+    for (auto const& entry : env) {
+        if (entry.key().string() == key) {
+            return entry.value().string();
+        }
     }
-    return it->to_string();
+    return std::nullopt;
 }
 }  // namespace spider::utils

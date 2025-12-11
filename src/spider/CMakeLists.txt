@@ -115,6 +115,7 @@ target_link_libraries(
     spider_task_executor
     PRIVATE
         Boost::filesystem
+        Boost::process
         Boost::program_options
         Boost::system
         ${CMAKE_DL_LIBS}
@@ -164,6 +165,7 @@ target_link_libraries(
     spider_scheduler
     PRIVATE
         Boost::headers
+        Boost::process
         Boost::program_options
         absl::flat_hash_map
         fmt::fmt
