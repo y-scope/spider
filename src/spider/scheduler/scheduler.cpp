@@ -31,6 +31,7 @@
 #include <spider/storage/mysql/MySqlStorageFactory.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
+#include <spider/utils/env.hpp>
 #include <spider/utils/logging.hpp>
 #include <spider/utils/StopFlag.hpp>
 
@@ -169,11 +170,24 @@ auto main(int argc, char** argv) -> int {
             return cCmdArgParseErr;
         }
         scheduler_addr = args["host"].as<std::string>();
-        if (!args.contains("storage_url")) {
-            spdlog::error("storage_url is required");
+
+        auto const optional_storage_url_env = spider::utils::get_env(spider::utils::cStorageUrlEnv);
+        if (optional_storage_url_env.has_value()) {
+            storage_url = optional_storage_url_env.value();
+        } else if (args.contains("storage_url")) {
+            spdlog::warn(
+                    "Prefer using `{}` environment variable over `--storage_url` argument.",
+                    spider::utils::cStorageUrlEnv
+            );
+            storage_url = args["storage_url"].as<std::string>();
+        } else {
+            spdlog::error(
+                    "Storage URL must be provided via `{}` environment variable or `--storage_url` "
+                    "argument.",
+                    spider::utils::cStorageUrlEnv
+            );
             return cCmdArgParseErr;
         }
-        storage_url = args["storage_url"].as<std::string>();
     } catch (boost::bad_any_cast& e) {
         return cCmdArgParseErr;
     } catch (boost::program_options::error& e) {

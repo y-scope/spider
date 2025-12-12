@@ -77,6 +77,8 @@ set(SPIDER_WORKER_SOURCES
     worker/message_pipe.hpp
     worker/WorkerClient.hpp
     worker/WorkerClient.cpp
+    utils/env.hpp
+    utils/env.cpp
     utils/logging.hpp
     utils/logging.cpp
     utils/pipe.hpp
@@ -93,6 +95,8 @@ set(SPIDER_TASK_EXECUTOR_SOURCES
     worker/message_pipe.cpp
     worker/message_pipe.hpp
     worker/task_executor.cpp
+    utils/env.hpp
+    utils/env.cpp
     utils/logging.hpp
     utils/logging.cpp
     CACHE INTERNAL
@@ -111,6 +115,7 @@ target_link_libraries(
     spider_task_executor
     PRIVATE
         Boost::filesystem
+        Boost::process
         Boost::program_options
         Boost::system
         ${CMAKE_DL_LIBS}
@@ -143,6 +148,8 @@ set(SPIDER_SCHEDULER_SOURCES
     scheduler/SchedulerMessage.hpp
     scheduler/SchedulerServer.cpp
     scheduler/SchedulerServer.hpp
+    utils/env.hpp
+    utils/env.cpp
     utils/logging.hpp
     utils/logging.cpp
     utils/StopFlag.hpp
@@ -158,6 +165,7 @@ target_link_libraries(
     spider_scheduler
     PRIVATE
         Boost::headers
+        Boost::process
         Boost::program_options
         absl::flat_hash_map
         fmt::fmt
