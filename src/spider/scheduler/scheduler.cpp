@@ -176,8 +176,8 @@ auto main(int argc, char** argv) -> int {
             storage_url = optional_storage_url_env.value();
         } else if (args.contains("storage_url")) {
             spdlog::warn(
-                    "Prefer using `SPIDER_STORAGE_URL` environment variable over `--storage_url` "
-                    "argument."
+                    "Prefer using `SPIDER_STORAGE_URL` environment variable over `--storage_url`"
+                    " argument."
             );
             storage_url = args["storage_url"].as<std::string>();
         } else {
