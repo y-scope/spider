@@ -6,6 +6,8 @@
 #include <string_view>
 
 namespace spider::utils {
+constexpr std::string_view cStorageUrlEnv = "SPIDER_STORAGE_URL";
+
 /**
  * Gets the value of an environment variable.
  *

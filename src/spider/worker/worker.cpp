@@ -518,19 +518,20 @@ auto main(int argc, char** argv) -> int {
     std::vector<std::string> libs;
     std::string worker_addr;
     try {
-        auto const optional_storage_url_env = spider::utils::get_env("SPIDER_STORAGE_URL");
+        auto const optional_storage_url_env = spider::utils::get_env(spider::utils::cStorageUrlEnv);
         if (optional_storage_url_env.has_value()) {
             storage_url = optional_storage_url_env.value();
         } else if (args.contains("storage_url")) {
             spdlog::warn(
-                    "Prefer using `SPIDER_STORAGE_URL` environment variable over `--storage_url` "
-                    "argument."
+                    "Prefer using `{}` environment variable over `--storage_url` argument.",
+                    spider::utils::cStorageUrlEnv
             );
             storage_url = args["storage_url"].as<std::string>();
         } else {
             spdlog::error(
-                    "Storage URL must be provided via `SPIDER_STORAGE_URL` environment variable or"
-                    " `--storage_url` argument."
+                    "Storage URL must be provided via `{}` environment variable or `--storage_url` "
+                    "argument.",
+                    spider::utils::cStorageUrlEnv
             );
             return cCmdArgParseErr;
         }
