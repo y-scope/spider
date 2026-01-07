@@ -1,5 +1,10 @@
 extend = "tools/yscope-dev-utils/exports/lint-configs/python/ruff.toml"
 
+[lint]
+ignore = [
+  "PLR1716",  # Allow chained boolean comparisons
+]
+
 [lint.per-file-ignores]
 "tests/**" = [
   "S101",  # Allow usage of pytest `assert`

@@ -17,7 +17,7 @@ class BoundedInt(int):
         lower_bound = -(1 << (bits - 1))
         upper_bound = (1 << (bits - 1)) - 1
 
-        if not (lower_bound <= value <= upper_bound):
+        if not (lower_bound <= value and value <= upper_bound):
             msg = (
                 f"Bounded integer value ({value}) must be between {lower_bound} and {upper_bound}."
             )
