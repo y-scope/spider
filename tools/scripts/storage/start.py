@@ -3,6 +3,7 @@
 # dependencies = []
 # ///
 """Script to start a MariaDB Docker container."""
+
 import argparse
 import logging
 import subprocess
@@ -16,6 +17,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
 
 def main() -> int:
     """Main."""
@@ -110,6 +112,7 @@ def main() -> int:
         return result.returncode
     logger.info("MariaDB container started successfully with ID: %d.", result.stdout.strip())
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
