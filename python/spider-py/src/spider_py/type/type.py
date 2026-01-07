@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing_extensions import Self
 
 
 class BoundedInt(int):
     """Bounded integer type."""
 
-    def __new__(cls, value: int, bits: int = 32) -> BoundedInt:
+    def __new__(cls, value: int, bits: int = 32) -> Self:
         """Creates a bounded integer."""
         if bits not in (8, 16, 32, 64):
             msg = f"Unsupported bits size: {bits}. Supported sizes are 8, 16, 32, or 64."
@@ -29,39 +29,39 @@ class BoundedInt(int):
 class Int8(BoundedInt):
     """8 bits integer type."""
 
-    def __new__(cls, value: int) -> Int8:
+    def __new__(cls, value: int) -> Self:
         """Creates an int8 integer."""
-        return cast("Int8", super().__new__(cls, value, bits=8))
+        return super().__new__(cls, value, bits=8)
 
 
 class Int16(BoundedInt):
     """16 bits integer type."""
 
-    def __new__(cls, value: int) -> Int16:
+    def __new__(cls, value: int) -> Self:
         """Creates an int16 integer."""
-        return cast("Int16", super().__new__(cls, value, bits=16))
+        return super().__new__(cls, value, bits=16)
 
 
 class Int32(BoundedInt):
     """32 bits integer type."""
 
-    def __new__(cls, value: int) -> Int32:
+    def __new__(cls, value: int) -> Self:
         """Creates an int32 integer."""
-        return cast("Int32", super().__new__(cls, value, bits=32))
+        return super().__new__(cls, value, bits=32)
 
 
 class Int64(BoundedInt):
     """64 bits integer type."""
 
-    def __new__(cls, value: int) -> Int64:
+    def __new__(cls, value: int) -> Self:
         """Creates an int64 integer."""
-        return cast("Int64", super().__new__(cls, value, bits=64))
+        return super().__new__(cls, value, bits=64)
 
 
 class Float(float):
     """Float type."""
 
-    def __new__(cls, value: float) -> Float:
+    def __new__(cls, value: float) -> Self:
         """Creates a float number."""
         return super().__new__(cls, value)
 
@@ -69,6 +69,6 @@ class Float(float):
 class Double(float):
     """Double type."""
 
-    def __new__(cls, value: float) -> Double:
+    def __new__(cls, value: float) -> Self:
         """Creates a double number."""
         return super().__new__(cls, value)
