@@ -158,6 +158,7 @@ def success_job(
         or get_task_state(storage, child.id) == "running"
         or get_task_state(storage, child.id) == "success"
     )
+    print("success job task ids:", parent_1.id, parent_2.id, child.id)
 
     yield graph, parent_1, parent_2, child
 

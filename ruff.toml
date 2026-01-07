@@ -1,1 +1,8 @@
 extend = "tools/yscope-dev-utils/exports/lint-configs/python/ruff.toml"
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S101",  # Allow usage of pytest `assert`
+    "T201",  # Allow use of `print` (testing)
+    "TC003",  # Ignore performance overhead of imports only used for type checking
+]
