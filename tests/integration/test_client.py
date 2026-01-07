@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from integration.client import g_storage_url, SQLConnection, storage  # noqa: F401
+from integration.client import g_storage_url, SQLConnection
 from integration.utils import g_scheduler_port
 
 
@@ -52,7 +52,7 @@ def start_scheduler_workers(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
     Fixture to start a scheduler process and two worker processes.
