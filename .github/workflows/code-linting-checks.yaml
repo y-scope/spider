@@ -63,6 +63,13 @@ jobs:
             .task/checksum/lint-cpp-static-check
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
+
+          # NOTE:
+          # * This key must be kept in-sync with the key prefix in the `actions/cache/save` step
+          #   below (we can't use the output of the current step since `schedule` workflow runs
+          #   don't run this step).
+          # * Do not provide an exact (explicit) key here. Use a prefix so the cache action can
+          #   match and restore the most recent cache entry that shares that prefix.y.
           key: "lint:check-cpp-static-on-ubuntu-latest"
 
       - run: "task lint:check -C $(nproc)"
@@ -78,6 +85,9 @@ jobs:
             .task/checksum/lint-cpp-static-check
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
+
+          # NOTE: This key prefix (without the hash) must be kept in-sync with the
+          # `actions/cache/restore` step above.
           key: >-
             lint:check-cpp-static-on-ubuntu-latest-${{hashFiles(
               '.task/checksum/lint-cpp-static-check',
