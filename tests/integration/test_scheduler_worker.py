@@ -10,7 +10,7 @@ from pathlib import Path
 import msgpack
 import pytest
 
-from .client import (
+from integration.client import (
     add_driver,
     add_driver_data,
     Data,
@@ -21,14 +21,13 @@ from .client import (
     remove_data,
     remove_job,
     SQLConnection,
-    storage,  # noqa: F401
     submit_job,
     Task,
     TaskGraph,
     TaskInput,
     TaskOutput,
 )
-from .utils import g_scheduler_port
+from integration.utils import g_scheduler_port
 
 
 def add_storage_env_vars(storage_url: str) -> dict[str, str]:
@@ -79,7 +78,7 @@ def start_scheduler_worker(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[None, None, None]:
     """
     Fixture to start qa scheduler process and a worker processes.
@@ -101,7 +100,7 @@ def scheduler_worker(
 
 @pytest.fixture
 def success_job(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
     """
     Fixture to create a job with two parent tasks and one child task.
@@ -168,7 +167,7 @@ def success_job(
 
 @pytest.fixture
 def fail_job(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that will fail. The task will raise an error when executed.
@@ -190,7 +189,6 @@ def fail_job(
     )
 
     submit_job(storage, uuid.uuid4(), graph)
-    print("fail job task id:", task.id)
 
     yield task
 
@@ -199,7 +197,7 @@ def fail_job(
 
 @pytest.fixture
 def data_job(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a data and a task that uses the data.
@@ -229,7 +227,6 @@ def data_job(
     )
 
     submit_job(storage, uuid.uuid4(), graph)
-    print("data job task id:", task.id)
 
     yield task
 
@@ -239,7 +236,7 @@ def data_job(
 
 @pytest.fixture
 def random_fail_job(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that randomly fails. The task will succeed after a few retries.
@@ -270,7 +267,6 @@ def random_fail_job(
     )
 
     submit_job(storage, uuid.uuid4(), graph)
-    print("random fail job task id:", task.id)
 
     yield task
 
@@ -284,7 +280,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(
         self,
-        storage: SQLConnection,  # noqa: F811
+        storage: SQLConnection,
         success_job: tuple[TaskGraph, Task, Task, Task],
     ) -> None:
         """
@@ -314,7 +310,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_failure(
         self,
-        storage: SQLConnection,  # noqa: F811
+        storage: SQLConnection,
         fail_job: Task,
     ) -> None:
         """
@@ -331,7 +327,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_data_job(
         self,
-        storage: SQLConnection,  # noqa: F811
+        storage: SQLConnection,
         data_job: Task,
     ) -> None:
         """
@@ -351,7 +347,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_random_fail_job(
         self,
-        storage: SQLConnection,  # noqa: F811
+        storage: SQLConnection,
         random_fail_job: Task,
     ) -> None:
         """

@@ -12,20 +12,19 @@ from typing import Any
 import msgpack
 import pytest
 
-from .client import (
+from integration.client import (
     g_storage_url,
     get_task_outputs,
     get_task_state,
     remove_job,
     SQLConnection,
-    storage,  # noqa: F401
     submit_job,
     Task,
     TaskGraph,
     TaskInput,
     TaskOutput,
 )
-from .utils import g_scheduler_port
+from integration.utils import g_scheduler_port
 
 
 def start_scheduler_worker(
@@ -73,7 +72,7 @@ def start_scheduler_worker(
 
 @pytest.fixture
 def scheduler_worker_signal(
-    storage: SQLConnection,  # noqa: F811
+    storage: SQLConnection,
 ) -> Generator[tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]], None, None]:
     """
     Fixture to start a scheduler and a worker process.
@@ -98,7 +97,7 @@ class TestWorkerSignal:
 
     def test_task_signal(
         self,
-        storage: SQLConnection,  # noqa: F811
+        storage: SQLConnection,
         scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """
@@ -175,7 +174,7 @@ class TestWorkerSignal:
 
     def test_task_exit(
         self,
-        storage: SQLConnection,  # noqa: F811
+        storage: SQLConnection,
         scheduler_worker_signal: tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]],
     ) -> None:
         """

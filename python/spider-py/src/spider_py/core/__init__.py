@@ -1,9 +1,9 @@
 """Spider core package."""
 
-from .data import Data, DataAddr, DataId
-from .driver import DriverId
-from .job import Job, JobId, JobStatus
-from .task import (
+from spider_py.core.data import Data, DataAddr, DataId
+from spider_py.core.driver import DriverId
+from spider_py.core.job import Job, JobId, JobStatus
+from spider_py.core.task import (
     Task,
     TaskId,
     TaskInput,
@@ -15,7 +15,7 @@ from .task import (
     TaskOutputValue,
     TaskState,
 )
-from .task_graph import TaskGraph
+from spider_py.core.task_graph import TaskGraph
 
 __all__ = [
     "Data",
