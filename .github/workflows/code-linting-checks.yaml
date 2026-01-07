@@ -72,7 +72,7 @@ jobs:
           #   below (we can't use the output of the current step since `schedule` workflow runs
           #   don't run this step).
           # * Do not provide an exact (explicit) key here. Use a prefix so the cache action can
-          #   match and restore the most recent cache entry that shares that prefix.y.
+          #   match and restore the most recent cache entry that shares that prefix.
           key: "lint:check-cpp-static-on-ubuntu-latest"
 
       - run: "task lint:check -C $(nproc)"
