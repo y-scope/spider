@@ -22,7 +22,7 @@ def main() -> int:
     # To silence Ruff S607
     docker_executable = "docker"
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Stop MairaDB Docker container.")
     parser.add_argument(
         "--name",
         type=str,
