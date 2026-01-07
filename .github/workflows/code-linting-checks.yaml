@@ -53,7 +53,10 @@ jobs:
         run: "task deps:lib_install"
 
       # NOTE: We don't use the cache for scheduled runs so that they run lint:cpp-static-check
-      # on all files.
+      # NOTE: We don't restore the cache for `schedule` runs so that below,
+      # `lint:cpp-static-check` runs on all files. If we don't do this periodically,
+      # `lint:cpp-static-check` could miss issues in files that haven't changed but depend on
+      # files which have changed.
       - if: "'schedule' != github.event_name"
         name: "Restore lint:cpp-static-check cache"
         id: "cache-restore-lint-cpp-static-check"
@@ -63,7 +66,14 @@ jobs:
             .task/checksum/lint-cpp-static-check
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
-          key: "main-branch-ubuntu-latest-lint:cpp-static-check"
+
+          # NOTE:
+          # * This key must be kept in-sync with the key prefix in the `actions/cache/save` step
+          #   below (we can't use the output of the current step since `schedule` workflow runs
+          #   don't run this step).
+          # * Do not provide an exact (explicit) key here. Use a prefix so the cache action can
+          #   match and restore the most recent cache entry that shares that prefix.
+          key: "lint:check-cpp-static-on-ubuntu-latest"
 
       - run: "task lint:check -C $(nproc)"
 
@@ -78,4 +88,12 @@ jobs:
             .task/checksum/lint-cpp-static-check
             .task/checksum/utils-cpp-lint-clang-tidy-*
             build/lint-clang-tidy
-          key: "${{steps.cache-restore-lint-cpp-static-check.outputs.cache-primary-key}}"
+
+          # NOTE: This key prefix (without the hash) must be kept in-sync with the
+          # `actions/cache/restore` step above.
+          key: >-
+            lint:check-cpp-static-on-ubuntu-latest-${{hashFiles(
+              '.task/checksum/lint-cpp-static-check',
+              '.task/checksum/utils-cpp-lint-clang-tidy-*',
+              'build/lint-clang-tidy/**/*'
+            )}}
