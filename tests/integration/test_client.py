@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from .client import g_storage_url, SQLConnection, storage  # noqa: F401
-from .utils import g_scheduler_port
+from integration.client import g_storage_url, SQLConnection, storage  # noqa: F401
+from integration.utils import g_scheduler_port
 
 
 def start_scheduler_workers(

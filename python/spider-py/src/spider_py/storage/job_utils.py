@@ -1,8 +1,7 @@
 """Utility functions for job management."""
 
 from spider_py import core
-
-from .storage import Storage
+from spider_py.storage.storage import Storage
 
 
 def fetch_and_update_job_status(storage: Storage, job: core.Job) -> None:

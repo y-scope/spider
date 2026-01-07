@@ -1,10 +1,10 @@
 """Spider python client."""
 
-from .data import Data
-from .driver import Driver
-from .job import Job
-from .task_context import TaskContext
-from .task_graph import chain, group, TaskGraph
+from spider_py.client.data import Data
+from spider_py.client.driver import Driver
+from spider_py.client.job import Job
+from spider_py.client.task_context import TaskContext
+from spider_py.client.task_graph import chain, group, TaskGraph
 
 __all__ = [
     "Data",
