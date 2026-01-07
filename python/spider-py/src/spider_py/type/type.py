@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from typing_extensions import Self
 
 
@@ -33,7 +31,7 @@ class Int8(BoundedInt):
 
     def __new__(cls, value: int) -> Self:
         """Creates an int8 integer."""
-        return cast("Int8", super().__new__(cls, value, bits=8))
+        return super().__new__(cls, value, bits=8)
 
 
 class Int16(BoundedInt):
@@ -41,7 +39,7 @@ class Int16(BoundedInt):
 
     def __new__(cls, value: int) -> Self:
         """Creates an int16 integer."""
-        return cast("Int16", super().__new__(cls, value, bits=16))
+        return super().__new__(cls, value, bits=16)
 
 
 class Int32(BoundedInt):
@@ -49,7 +47,7 @@ class Int32(BoundedInt):
 
     def __new__(cls, value: int) -> Self:
         """Creates an int32 integer."""
-        return cast("Int32", super().__new__(cls, value, bits=32))
+        return super().__new__(cls, value, bits=32)
 
 
 class Int64(BoundedInt):
@@ -57,7 +55,7 @@ class Int64(BoundedInt):
 
     def __new__(cls, value: int) -> Self:
         """Creates an int64 integer."""
-        return cast("Int64", super().__new__(cls, value, bits=64))
+        return super().__new__(cls, value, bits=64)
 
 
 class Float(float):
