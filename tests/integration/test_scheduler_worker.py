@@ -15,12 +15,13 @@ from integration.client import (
     add_driver_data,
     Data,
     Driver,
-    g_storage_url,
+    get_storage_url,
     get_task_outputs,
     get_task_state,
     remove_data,
     remove_job,
     SQLConnection,
+    storage,
     submit_job,
     Task,
     TaskGraph,
@@ -89,7 +90,7 @@ def scheduler_worker(
     """
     _ = storage  # Avoid ARG001
     scheduler_process, worker_process = start_scheduler_worker(
-        storage_url=g_storage_url, scheduler_port=g_scheduler_port
+        storage_url=get_storage_url(), scheduler_port=g_scheduler_port
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)

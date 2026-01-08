@@ -13,11 +13,12 @@ import msgpack
 import pytest
 
 from integration.client import (
-    g_storage_url,
+    get_storage_url,
     get_task_outputs,
     get_task_state,
     remove_job,
     SQLConnection,
+    storage,
     submit_job,
     Task,
     TaskGraph,
@@ -83,7 +84,7 @@ def scheduler_worker_signal(
     """
     _ = storage  # Avoid ARG001
     scheduler_process, worker_process = start_scheduler_worker(
-        storage_url=g_storage_url, scheduler_port=g_scheduler_port, lib="tests/libsignal_test.so"
+        storage_url=get_storage_url(), scheduler_port=g_scheduler_port, lib="tests/libsignal_test.so"
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
