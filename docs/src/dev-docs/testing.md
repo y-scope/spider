@@ -23,8 +23,8 @@ You can use the following tasks to run integration tests.
 
 ## GitHub test workflow
 
-The [tests.yaml][gh-workflow-tests] GitHub workflow runs the all unit tests and
-integration tests on push, pull requests, and daily. 
+The [tests.yaml][gh-workflow-tests] GitHub workflow runs all unit tests and integration tests on
+push, pull requests, and daily. 
 
 
 [gh-workflow-tests]: https://github.com/y-scope/spider/blob/main/.github/workflows/tests.yaml
