@@ -1,5 +1,6 @@
 """Tests for the MariaDB storage backend."""
 
+import os
 from uuid import uuid4
 
 import msgpack
@@ -15,7 +16,8 @@ MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&passw
 @pytest.fixture(scope="session")
 def mariadb_storage() -> MariaDBStorage:
     """Fixture to create a MariaDB storage instance."""
-    params = parse_jdbc_url(MariaDBTestUrl)
+    url = os.getenv("SPIDER_STORAGE_URL", MariaDBTestUrl)
+    params = parse_jdbc_url(url)
     return MariaDBStorage(params)
 
 

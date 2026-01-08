@@ -1,5 +1,6 @@
 """Tests for the driver module."""
 
+import os
 from dataclasses import dataclass
 
 import pytest
@@ -12,7 +13,8 @@ MariaDBTestUrl = "jdbc:mariadb://127.0.0.1:3306/spider-storage?user=spider&passw
 @pytest.fixture(scope="session")
 def driver() -> Driver:
     """Fixture for the driver."""
-    return Driver(MariaDBTestUrl)
+    url = os.getenv("SPIDER_STORAGE_URL", MariaDBTestUrl)
+    return Driver(url)
 
 
 def double(_: TaskContext, x: Int8) -> Int8:
