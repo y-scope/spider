@@ -21,7 +21,7 @@ from integration.client import (
     remove_data,
     remove_job,
     SQLConnection,
-    storage,
+    storage,  # noqa: F401
     submit_job,
     Task,
     TaskGraph,
@@ -79,7 +79,7 @@ def start_scheduler_worker(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[None, None, None]:
     """
     Fixture to start qa scheduler process and a worker processes.
@@ -101,7 +101,7 @@ def scheduler_worker(
 
 @pytest.fixture
 def success_job(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[tuple[TaskGraph, Task, Task, Task], None, None]:
     """
     Fixture to create a job with two parent tasks and one child task.
@@ -168,7 +168,7 @@ def success_job(
 
 @pytest.fixture
 def fail_job(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that will fail. The task will raise an error when executed.
@@ -198,7 +198,7 @@ def fail_job(
 
 @pytest.fixture
 def data_job(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a data and a task that uses the data.
@@ -237,7 +237,7 @@ def data_job(
 
 @pytest.fixture
 def random_fail_job(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[Task, None, None]:
     """
     Fixture to create a job that randomly fails. The task will succeed after a few retries.
@@ -281,7 +281,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_success(
         self,
-        storage: SQLConnection,
+        storage: SQLConnection,  # noqa: F811
         success_job: tuple[TaskGraph, Task, Task, Task],
     ) -> None:
         """
@@ -311,7 +311,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_job_failure(
         self,
-        storage: SQLConnection,
+        storage: SQLConnection,  # noqa: F811
         fail_job: Task,
     ) -> None:
         """
@@ -328,7 +328,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_data_job(
         self,
-        storage: SQLConnection,
+        storage: SQLConnection,  # noqa: F811
         data_job: Task,
     ) -> None:
         """
@@ -348,7 +348,7 @@ class TestSchedulerWorker:
     @pytest.mark.usefixtures("scheduler_worker")
     def test_random_fail_job(
         self,
-        storage: SQLConnection,
+        storage: SQLConnection,  # noqa: F811
         random_fail_job: Task,
     ) -> None:
         """
