@@ -1,4 +1,5 @@
 """Simple Spider client for testing purposes."""
+
 import os
 import re
 import uuid
@@ -112,6 +113,7 @@ def is_head_task(task_id: uuid.UUID, dependencies: list[tuple[uuid.UUID, uuid.UU
 
 
 G_STORAGE_URL = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
+
 
 def get_storage_url() -> str:
     """
