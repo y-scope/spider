@@ -37,7 +37,7 @@ _TABLE_CREATORS = [
     (
         `id`            BINARY(16) NOT NULL,
         `client_id`     BINARY(16) NOT NULL,
-        `creation_time` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        `creation_time` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE NO ACTION,
         `state`         ENUM ('running', 'success', 'fail', 'cancel') NOT NULL DEFAULT 'running',
         KEY (`client_id`) USING BTREE,
         INDEX idx_jobs_creation_time (`creation_time`),
@@ -152,7 +152,7 @@ _TABLE_CREATORS = [
     (
         `id`         BINARY(16) NOT NULL,
         `task_id`    BINARY(16) NOT NULL,
-        `start_time` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        `start_time` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE NO ACTION,
         CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
             ON UPDATE NO ACTION ON DELETE CASCADE,
         PRIMARY KEY (`id`)
@@ -163,7 +163,7 @@ _TABLE_CREATORS = [
     (
         `scheduler_id` BINARY(16) NOT NULL,
         `task_id`      BINARY(16) NOT NULL,
-        `lease_time`   TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        `lease_time`   TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE NO ACTION,
         CONSTRAINT `lease_scheduler_id` FOREIGN KEY (`scheduler_id`) REFERENCES `schedulers` (`id`)
             ON UPDATE NO ACTION ON DELETE CASCADE,
         CONSTRAINT `lease_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
