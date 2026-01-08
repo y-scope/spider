@@ -19,7 +19,9 @@ tasks:
     deps:
       - "build-unit-test"
     env:
-      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+      SPIDER_STORAGE_URL:
+        "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
+        user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
     vars:
       MARIADB_CONTAINER_NAME:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
@@ -43,7 +45,9 @@ tasks:
     deps:
       - "build-unit-test"
     env:
-      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+      SPIDER_STORAGE_URL:
+        "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
+        user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
     vars:
       MARIADB_CONTAINER_NAME:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
@@ -84,7 +88,9 @@ tasks:
             "spider_scheduler",
             "integrationTest"]
     env:
-      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+      SPIDER_STORAGE_URL:
+        "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
+        user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
     vars:
       MARIADB_CONTAINER_NAME:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
@@ -140,7 +146,9 @@ tasks:
     env:
       # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
-      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+      SPIDER_STORAGE_URL:
+        "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
+        user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
     vars:
       MARIADB_CONTAINER_NAME:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
@@ -173,7 +181,9 @@ tasks:
     env:
       # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
-      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+      SPIDER_STORAGE_URL:
+        "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
+        user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
     vars:
       MARIADB_CONTAINER_NAME:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
