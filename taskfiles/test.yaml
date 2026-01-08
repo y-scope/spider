@@ -194,6 +194,7 @@ tasks:
       - "uv run pytest -m \"storage\""
 
   start-storage:
+    internal: true
     vars:
       MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
