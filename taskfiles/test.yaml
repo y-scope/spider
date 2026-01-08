@@ -4,6 +4,9 @@ vars:
   G_UNIT_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/unitTest"
   G_TEST_VENV_DIR: "{{.G_BUILD_DIR}}/test-venv"
   G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
+  G_MARIADB_DATABASE: "spider-db"
+  G_MARIADB_USERNAME: "spider-user"
+  G_MARIADB_PASSWORD: "spider-password"
 
 tasks:
   cpp-non-storage-unit-tests:
@@ -15,13 +18,49 @@ tasks:
   cpp-storage-unit-tests:
     deps:
       - "build-unit-test"
+    env:
+      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+    vars:
+      MARIADB_CONTAINER_NAME:
+        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
+        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
+      MARIADB_PORT:
+        sh: "tools/scripts/storage/get_free_port.py"
     cmds:
+      - task: "start-storage"
+        vars:
+          MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
+          MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
+          MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
+          MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
+          MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
 
   cpp-unit-tests:
     deps:
       - "build-unit-test"
+    env:
+      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+    vars:
+      MARIADB_CONTAINER_NAME:
+        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
+        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
+      MARIADB_PORT:
+        sh: "tools/scripts/storage/get_free_port.py"
     cmds:
+      - task: "start-storage"
+        vars:
+          MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
+          MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
+          MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
+          MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
+          MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "{{.G_UNIT_TEST_BINARY}}"
 
   build-unit-test:
@@ -44,9 +83,28 @@ tasks:
             "spider_worker",
             "spider_scheduler",
             "integrationTest"]
-    cmd: |-
-      . ../test-venv/bin/activate
-      ../test-venv/bin/pytest tests/integration
+    env:
+      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+    vars:
+      MARIADB_CONTAINER_NAME:
+        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
+        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
+      MARIADB_PORT:
+        sh: "tools/scripts/storage/get_free_port.py"
+    cmds:
+      - task: "start-storage"
+        vars:
+          MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
+          MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
+          MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
+          MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
+          MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - |-
+        . ../test-venv/bin/activate
+        ../test-venv/bin/pytest tests/integration
 
   venv:
     internal: true
@@ -82,7 +140,24 @@ tasks:
     env:
       # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
+      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+    vars:
+      MARIADB_CONTAINER_NAME:
+        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
+        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
+      MARIADB_PORT:
+        sh: "tools/scripts/storage/get_free_port.py"
     cmds:
+      - task: "start-storage"
+        vars:
+          MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
+          MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
+          MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
+          MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
+          MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "uv run pytest"
 
   spider-py-non-storage-unit-tests:
@@ -98,5 +173,47 @@ tasks:
     env:
       # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
+      SPIDER_STORAGE_URL: "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+    vars:
+      MARIADB_CONTAINER_NAME:
+        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
+        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
+      MARIADB_PORT:
+        sh: "tools/scripts/storage/get_free_port.py"
     cmds:
+      - task: "start-storage"
+        vars:
+          MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
+          MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
+          MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
+          MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
+          MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "uv run pytest -m \"storage\""
+
+  start-storage:
+    vars:
+      MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
+      MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
+      MARIADB_USERNAME: "{{.MARIADB_USERNAME}}"
+      MARIADB_PASSWORD: "{{.MARIADB_PASSWORD}}"
+      MARIADB_PORT: "{{.MARIADB_PORT | default 3306}}"
+    cmds:
+      - |-
+        tools/scripts/storage/start.py \
+        --name "{{.MARIADB_CONTAINER_NAME}}" \
+        --port "{{.MARIADB_PORT}}" \
+        --database "{{.MARIADB_DATABASE}}" \
+        --username "{{.MARIADB_USERNAME}}" \
+        --password "{{.MARIADB_PASSWORD}}"
+      - |-
+        tools/scripts/storage/wait_for_db.py \
+        --name "{{.MARIADB_CONTAINER_NAME}}"
+      - |-
+        tools/scripts/storage/init_db.py \
+        --port "{{.MARIADB_PORT}}" \
+        --database "{{.MARIADB_DATABASE}}" \
+        --username "{{.MARIADB_USERNAME}}" \
+        --password "{{.MARIADB_PASSWORD}}"
