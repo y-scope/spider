@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  non-storage-unit-tests:
+  tests:
     strategy:
       matrix:
         os: ["ubuntu-22.04", "ubuntu-24.04"]
@@ -55,6 +55,8 @@ jobs:
           SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
         run: "task deps:lib_install"
 
-      - run: "task test:cpp-non-storage-unit-tests"
+      - run: "task test:cpp-unit-tests"
 
-      - run: "task test:spider-py-non-storage-unit-tests"
+      - run: "task test:cpp-integration-tests"
+
+      - run: "task test:spider-py-unit-tests"
