@@ -270,7 +270,7 @@ def main() -> int:
 
     with (
         mariadb.connect(
-            host="localhost",
+            host="127.0.0.1",
             port=args.port,
             user=args.username,
             password=args.password,

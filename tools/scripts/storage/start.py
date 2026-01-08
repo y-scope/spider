@@ -110,7 +110,7 @@ def main() -> int:
     if result.returncode != 0:
         logger.error("Failed to start MariaDB container:\n%s", result.stderr)
         return result.returncode
-    logger.info("MariaDB container started successfully with ID: %d.", result.stdout.strip())
+    logger.info("MariaDB container started successfully with ID: %s.", result.stdout.strip())
     return 0
 
 
