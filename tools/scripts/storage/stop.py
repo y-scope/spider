@@ -22,7 +22,7 @@ def main() -> int:
     # To silence Ruff S607
     docker_executable = "docker"
 
-    parser = argparse.ArgumentParser(description="Stop MairaDB Docker container.")
+    parser = argparse.ArgumentParser(description="Stop MariaDB Docker container.")
     parser.add_argument(
         "--name",
         type=str,
@@ -41,13 +41,13 @@ def main() -> int:
         logger.warning("Container '%s' doesn't exist. Exit peacefully.", args.name)
         return 0
 
-    localstack_stop_cmd = [
+    mariadb_stop_cmd = [
         "docker",
         "stop",
         args.name,
     ]
 
-    result = subprocess.run(localstack_stop_cmd, capture_output=True, text=True, check=False)
+    result = subprocess.run(mariadb_stop_cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         logger.error("Failed to stop MariaDB container:\n%s", result.stderr)
         return result.returncode
