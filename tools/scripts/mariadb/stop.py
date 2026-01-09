@@ -42,7 +42,7 @@ def main() -> int:
         return 0
 
     mariadb_stop_cmd = [
-        "docker",
+        docker_executable,
         "stop",
         args.name,
     ]
