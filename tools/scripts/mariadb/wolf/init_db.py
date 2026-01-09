@@ -25,7 +25,8 @@ _TABLE_CREATORS = [
       `id` BINARY(16) NOT NULL,
       `address` VARCHAR(40) NOT NULL,
       `port` INT UNSIGNED NOT NULL,
-      CONSTRAINT `scheduler_driver_id` FOREIGN KEY (`id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `scheduler_driver_id` FOREIGN KEY (`id`) REFERENCES `drivers` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
       PRIMARY KEY (`id`)
     );
     """,
@@ -52,7 +53,8 @@ _TABLE_CREATORS = [
       `max_retry` INT UNSIGNED DEFAULT 0,
       `retry` INT UNSIGNED DEFAULT 0,
       `instance_id` BINARY(16),
-      CONSTRAINT `task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
       PRIMARY KEY (`id`)
     );
     """,
@@ -61,8 +63,10 @@ _TABLE_CREATORS = [
       `job_id` BINARY(16) NOT NULL,
       `task_id` BINARY(16) NOT NULL,
       `position` INT UNSIGNED NOT NULL,
-      CONSTRAINT `input_task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `input_task_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `input_task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `input_task_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
       INDEX (`job_id`, `position`),
       PRIMARY KEY (`task_id`)
     );
@@ -72,8 +76,10 @@ _TABLE_CREATORS = [
       `job_id` BINARY(16) NOT NULL,
       `task_id` BINARY(16) NOT NULL,
       `position` INT UNSIGNED NOT NULL,
-      CONSTRAINT `output_task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `output_task_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `output_task_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `output_task_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
       INDEX (`job_id`, `position`),
       PRIMARY KEY (`task_id`)
     );
@@ -94,8 +100,10 @@ _TABLE_CREATORS = [
       `type` VARCHAR(999) NOT NULL,
       `value` VARBINARY(999),
       `data_id` BINARY(16),
-      CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
+      CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`)
+      ON UPDATE NO ACTION ON DELETE NO ACTION,
       PRIMARY KEY (`task_id`, `position`)
     );
     """,
@@ -108,9 +116,12 @@ _TABLE_CREATORS = [
       `output_task_position` INT UNSIGNED,
       `value` VARBINARY(999),
       `data_id` BINARY(16),
-      CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`) REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
-      CONSTRAINT `input_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
+      CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`)
+      REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
+      CONSTRAINT `input_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`)
+      ON UPDATE NO ACTION ON DELETE NO ACTION,
       PRIMARY KEY (`task_id`, `position`)
     );
     """,
@@ -120,8 +131,10 @@ _TABLE_CREATORS = [
       `child` BINARY(16) NOT NULL,
       KEY (`parent`) USING BTREE,
       KEY (`child`) USING BTREE,
-      CONSTRAINT `task_dep_parent` FOREIGN KEY (`parent`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `task_dep_child` FOREIGN KEY (`child`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+      CONSTRAINT `task_dep_parent` FOREIGN KEY (`parent`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `task_dep_child` FOREIGN KEY (`child`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE
     );
     """,
     """
@@ -129,7 +142,8 @@ _TABLE_CREATORS = [
       `id` BINARY(16) NOT NULL,
       `task_id` BINARY(16) NOT NULL,
       `start_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `instance_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
       PRIMARY KEY (`id`)
     );
     """,
@@ -138,8 +152,10 @@ _TABLE_CREATORS = [
       `scheduler_id` BINARY(16) NOT NULL,
       `task_id` BINARY(16) NOT NULL,
       `lease_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT `lease_scheduler_id` FOREIGN KEY (`scheduler_id`) REFERENCES `schedulers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `lease_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `lease_scheduler_id` FOREIGN KEY (`scheduler_id`) REFERENCES `schedulers` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `lease_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
       INDEX (`scheduler_id`),
       PRIMARY KEY (`scheduler_id`, `task_id`)
     );
@@ -149,7 +165,8 @@ _TABLE_CREATORS = [
       `id` BINARY(16) NOT NULL,
       `address` VARCHAR(40) NOT NULL,
       KEY (`id`) USING BTREE,
-      CONSTRAINT `locality_data_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+      CONSTRAINT `locality_data_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE
     );
     """,
     """
@@ -158,8 +175,10 @@ _TABLE_CREATORS = [
       `driver_id` BINARY(16) NOT NULL,
       KEY (`id`) USING BTREE,
       KEY (`driver_id`) USING BTREE,
-      CONSTRAINT `data_driver_ref_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `data_ref_driver_id` FOREIGN KEY (`driver_id`) REFERENCES `drivers` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+      CONSTRAINT `data_driver_ref_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `data_ref_driver_id` FOREIGN KEY (`driver_id`) REFERENCES `drivers` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE
     );
     """,
     """
@@ -168,8 +187,10 @@ _TABLE_CREATORS = [
       `task_id` BINARY(16) NOT NULL,
       KEY (`id`) USING BTREE,
       KEY (`task_id`) USING BTREE,
-      CONSTRAINT `data_task_ref_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-      CONSTRAINT `data_ref_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+      CONSTRAINT `data_task_ref_id` FOREIGN KEY (`id`) REFERENCES `data` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE,
+      CONSTRAINT `data_ref_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE
     );
     """,
     """
@@ -186,7 +207,8 @@ _TABLE_CREATORS = [
       `value` VARBINARY(999) NOT NULL,
       `task_id` BINARY(16) NOT NULL,
       PRIMARY KEY (`task_id`, `kv_key`),
-      CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+      CONSTRAINT `kv_data_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`)
+      ON UPDATE NO ACTION ON DELETE CASCADE
     );
     """,
 ]

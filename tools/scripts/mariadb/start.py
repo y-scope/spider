@@ -8,6 +8,7 @@ import argparse
 import logging
 import subprocess
 import sys
+import time
 
 _MARIADB_IMAGE = "mariadb:latest"
 
@@ -51,6 +52,12 @@ def main() -> int:
         type=str,
         default="spider-db",
         help="The database name of the started MariaDB (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=120,
+        help="The timeout in seconds to wait for the container to be ready (default: %(default)s)",
     )
     args = parser.parse_args()
 
@@ -111,7 +118,30 @@ def main() -> int:
         logger.error("Failed to start MariaDB container:\n%s", result.stderr)
         return result.returncode
     logger.info("MariaDB container started successfully with ID: %s.", result.stdout.strip())
-    return 0
+
+    start = time.time()
+    while True:
+        result = subprocess.run(
+            [
+                docker_executable,
+                "exec",
+                args.name,
+                "healthcheck.sh",
+                "--connect",
+                "--innodb_initialized",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.info("MariaDB container '%s' is ready for connections.", args.name)
+            return 0
+        if time.time() - start > args.timeout:
+            logger.error("Timeout reached. MariaDB container '%s' is not ready.", args.name)
+            return 1
+
+        time.sleep(5)
 
 
 if __name__ == "__main__":

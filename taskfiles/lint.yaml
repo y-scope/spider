@@ -138,7 +138,7 @@ tasks:
     cmds:
       - for:
           - "tests/integration"
-          - "tools/scripts/storage"
+          - "tools/scripts/mariadb"
         cmd: |-
           . "{{.G_LINT_VENV_DIR}}/bin/activate"
           mypy "{{.ITEM}}"

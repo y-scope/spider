@@ -27,18 +27,18 @@ tasks:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
         sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
       MARIADB_PORT:
-        sh: "tools/scripts/storage/get_free_port.py"
+        sh: "tools/scripts/get_free_port.py"
     cmds:
-      - task: "start-storage"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
           MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
 
   cpp-unit-tests:
@@ -53,18 +53,18 @@ tasks:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
         sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
       MARIADB_PORT:
-        sh: "tools/scripts/storage/get_free_port.py"
+        sh: "tools/scripts/get_free_port.py"
     cmds:
-      - task: "start-storage"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
           MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "{{.G_UNIT_TEST_BINARY}}"
 
   build-unit-test:
@@ -96,18 +96,18 @@ tasks:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
         sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
       MARIADB_PORT:
-        sh: "tools/scripts/storage/get_free_port.py"
+        sh: "tools/scripts/get_free_port.py"
     cmds:
-      - task: "start-storage"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
           MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - |-
         . ../test-venv/bin/activate
         ../test-venv/bin/pytest tests/integration
@@ -154,18 +154,18 @@ tasks:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
         sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
       MARIADB_PORT:
-        sh: "tools/scripts/storage/get_free_port.py"
+        sh: "tools/scripts/get_free_port.py"
     cmds:
-      - task: "start-storage"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
           MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "uv run pytest"
 
   spider-py-non-storage-unit-tests:
@@ -189,21 +189,21 @@ tasks:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
         sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
       MARIADB_PORT:
-        sh: "tools/scripts/storage/get_free_port.py"
+        sh: "tools/scripts/get_free_port.py"
     cmds:
-      - task: "start-storage"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
           MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/storage/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "uv run pytest -m \"storage\""
 
-  start-storage:
+  start-mariadb:
     internal: true
     vars:
       MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
@@ -213,17 +213,14 @@ tasks:
       MARIADB_PORT: "{{.MARIADB_PORT | default 3306}}"
     cmds:
       - |-
-        tools/scripts/storage/start.py \
+        tools/scripts/mariadb/start.py \
         --name "{{.MARIADB_CONTAINER_NAME}}" \
         --port "{{.MARIADB_PORT}}" \
         --database "{{.MARIADB_DATABASE}}" \
         --username "{{.MARIADB_USERNAME}}" \
         --password "{{.MARIADB_PASSWORD}}"
       - |-
-        tools/scripts/storage/wait_for_db.py \
-        --name "{{.MARIADB_CONTAINER_NAME}}"
-      - |-
-        tools/scripts/storage/init_db.py \
+        tools/scripts/mariadb/wolf/init_db.py \
         --port "{{.MARIADB_PORT}}" \
         --database "{{.MARIADB_DATABASE}}" \
         --username "{{.MARIADB_USERNAME}}" \
