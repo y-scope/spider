@@ -112,7 +112,7 @@ tasks:
       # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
       SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
-    required:
+    requires:
       vars: ["SPIDER_STORAGE_URL"]
     dir: "{{.G_SRC_PYTHON_DIR}}"
     cmd: "uv run pytest"
@@ -124,7 +124,7 @@ tasks:
     internal: true
     env:
       SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
-    required:
+    requires:
       vars: ["SPIDER_STORAGE_URL"]
     dir: "{{.ROOT_DIR}}"
     deps:
@@ -138,7 +138,7 @@ tasks:
     internal: true
     env:
       SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
-    required:
+    requires:
       vars: ["SPIDER_STORAGE_URL"]
     dir: "{{.G_BUILD_SPIDER_DIR}}"
     deps:
