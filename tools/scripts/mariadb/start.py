@@ -150,7 +150,8 @@ def main() -> int:
         "stop",
         args.name,
     ]
-    subprocess.run(
+    # Ignore any failures in the stop command
+    _ = subprocess.run(
         mariadb_stop_cmd,
         capture_output=True,
         text=True,
