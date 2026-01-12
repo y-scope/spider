@@ -138,10 +138,25 @@ def main() -> int:
             logger.info("MariaDB container '%s' is ready for connections.", args.name)
             return 0
         if time.time() - start > args.timeout:
-            logger.error("Timeout reached. MariaDB container '%s' is not ready.", args.name)
-            return 1
+            break
 
         time.sleep(5)
+
+    # Cleanup on failure
+    logger.error("Timeout reached. MariaDB container '%s' is not ready.", args.name)
+    logger.info("Stopping MariaDB container '%s'.", args.name)
+    mariadb_stop_cmd = [
+        docker_executable,
+        "stop",
+        args.name,
+    ]
+    subprocess.run(
+        mariadb_stop_cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return 1
 
 
 if __name__ == "__main__":

@@ -29,9 +29,6 @@ tasks:
       MARIADB_PORT:
         sh: "tools/scripts/get_free_port.py"
     cmds:
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
@@ -39,6 +36,9 @@ tasks:
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
 
   cpp-unit-tests:
@@ -55,9 +55,6 @@ tasks:
       MARIADB_PORT:
         sh: "tools/scripts/get_free_port.py"
     cmds:
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
@@ -65,6 +62,9 @@ tasks:
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "{{.G_UNIT_TEST_BINARY}}"
 
   build-unit-test:
@@ -98,9 +98,6 @@ tasks:
       MARIADB_PORT:
         sh: "tools/scripts/get_free_port.py"
     cmds:
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
@@ -108,6 +105,9 @@ tasks:
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - |-
         . ../test-venv/bin/activate
         ../test-venv/bin/pytest tests/integration
@@ -156,9 +156,6 @@ tasks:
       MARIADB_PORT:
         sh: "tools/scripts/get_free_port.py"
     cmds:
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
@@ -166,6 +163,9 @@ tasks:
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "uv run pytest"
 
   spider-py-non-storage-unit-tests:
@@ -191,9 +191,6 @@ tasks:
       MARIADB_PORT:
         sh: "tools/scripts/get_free_port.py"
     cmds:
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
       - task: "start-mariadb"
         vars:
           MARIADB_CONTAINER_NAME: "{{.MARIADB_CONTAINER_NAME}}"
@@ -201,6 +198,9 @@ tasks:
           MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
           MARIADB_PORT: "{{.MARIADB_PORT}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
       - "uv run pytest -m \"storage\""
 
   start-mariadb:
