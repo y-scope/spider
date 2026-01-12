@@ -15,19 +15,19 @@ tasks:
     cmds:
       - task: "mariadb-storage-task-executor"
         vars:
-          TEST_TASK: "spider-wolf-unit-tests-executor"
+          STORAGE_TASK: "spider-wolf-unit-tests-executor"
 
   cpp-integration:
     cmds:
       - task: "mariadb-storage-task-executor"
         vars:
-          TEST_TASK: "spider-wolf-integration-tests-executor"
+          STORAGE_TASK: "spider-wolf-integration-tests-executor"
 
   spider-py-unit-tests:
     cmds:
       - task: "mariadb-storage-task-executor"
         vars:
-          TEST_TASK: "spider-py-unit-tests-executor"
+          STORAGE_TASK: "spider-py-unit-tests-executor"
 
   build-unit-test:
     internal: true
