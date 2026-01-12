@@ -7,10 +7,6 @@ You can use the following tasks to run the set of unit tests that's appropriate.
 | Task                                    | Description                                                                 |
 |-----------------------------------------|-----------------------------------------------------------------------------|
 | `test:cpp-unit-tests`                   | Runs all C++ unit tests.                                                    |
-| `test:cpp-non-storage-unit-tests`       | Runs all C++ unit tests which don't require a storage backend to run.       |
-| `test:cpp-storage-unit-tests`           | Runs all C++ unit tests which require a storage backend to run.             |
-| `test:spider-py-unit-tests`             | Runs all spider-py unit tests.                                              |
-| `test:spider-py-non-storage-unit-tests` | Runs all spider-py unit tests which don't require a storage backend to run. |
 | `test:spider-py-storage-unit-tests`     | Runs all spider-py unit tests which require a storage backend to run.       |
 
 ## Running integration tests

@@ -49,7 +49,7 @@ jobs:
           task --version
           uv --version
 
-      - name: "Install project dependencies "
+      - name: "Install project dependencies"
         timeout-minutes: 10
         env:
           SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
@@ -57,6 +57,6 @@ jobs:
 
       - run: "task test:cpp-unit-tests"
 
-      - run: "task test:cpp-integration"
-
       - run: "task test:spider-py-unit-tests"
+
+      - run: "task test:cpp-integration"
