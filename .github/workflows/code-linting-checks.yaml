@@ -75,6 +75,8 @@ jobs:
           #   match and restore the most recent cache entry that shares that prefix.
           key: "lint:check-cpp-static-on-ubuntu-latest"
 
+      - run: "task deps:check-rust-lockfile"
+
       - run: "task lint:check -C $(nproc)"
 
       # Cache the source file checksums and the generated files (logs) for the

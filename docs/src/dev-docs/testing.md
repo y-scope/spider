@@ -4,18 +4,12 @@
 
 You can use the following tasks to run the set of unit tests that's appropriate.
 
-| Task                                    | Description                                                                 |
-|-----------------------------------------|-----------------------------------------------------------------------------|
-| `test:cpp-unit-tests`                   | Runs all C++ unit tests.                                                    |
-| `test:spider-py-storage-unit-tests`     | Runs all spider-py unit tests which require a storage backend to run.       |
+| Task                                | Description                                                           |
+|-------------------------------------|-----------------------------------------------------------------------|
+| `test:cpp-unit-tests`               | Runs all C++ unit tests.                                              |
+| `test:rust-unit-tests`              | Runs all Rust unit tests.                                             |
+| `test:spider-py-storage-unit-tests` | Runs all spider-py unit tests which require a storage backend to run. |
 
-## Running integration tests
-
-You can use the following tasks to run integration tests.
-
-| Task                   | Description                     |
-|------------------------|---------------------------------|
-| `test:cpp-integration` | Runs all C++ integration tests. |
 
 ## GitHub test workflow
 
