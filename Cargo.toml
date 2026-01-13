@@ -1,5 +1,5 @@
 [workspace]
-members = [
-    "components/spider-core",
-]
 resolver = "3"
+members = [
+  "components/spider-core",
+]
