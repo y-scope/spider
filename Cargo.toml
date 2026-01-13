@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "components/core",
+    "components/spider-core",
 ]
 resolver = "3"
