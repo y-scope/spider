@@ -5,24 +5,29 @@ vars:
   G_TEST_VENV_DIR: "{{.G_BUILD_DIR}}/test-venv"
   G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
 
+  # MariaDB testing config
+  G_MARIADB_DATABASE: "spider-db"
+  G_MARIADB_USERNAME: "spider-user"
+  G_MARIADB_PASSWORD: "spider-password"
+
 tasks:
-  cpp-non-storage-unit-tests:
-    deps:
-      - "build-unit-test"
-    cmds:
-      - "{{.G_UNIT_TEST_BINARY}} \"~[storage]\""
-
-  cpp-storage-unit-tests:
-    deps:
-      - "build-unit-test"
-    cmds:
-      - "{{.G_UNIT_TEST_BINARY}} \"[storage]\""
-
   cpp-unit-tests:
-    deps:
-      - "build-unit-test"
     cmds:
-      - "{{.G_UNIT_TEST_BINARY}}"
+      - task: "mariadb-storage-task-executor"
+        vars:
+          STORAGE_TASK: "spider-wolf-unit-tests-executor"
+
+  cpp-integration:
+    cmds:
+      - task: "mariadb-storage-task-executor"
+        vars:
+          STORAGE_TASK: "spider-wolf-integration-tests-executor"
+
+  spider-py-unit-tests:
+    cmds:
+      - task: "mariadb-storage-task-executor"
+        vars:
+          STORAGE_TASK: "spider-py-unit-tests-executor"
 
   build-unit-test:
     internal: true
@@ -30,23 +35,6 @@ tasks:
       - task: ":build:cpp-target"
         vars:
           TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
-
-  cpp-integration:
-    dir: "{{.G_BUILD_SPIDER_DIR}}"
-    deps:
-      - "venv"
-      - task: ":build:cpp-target"
-        vars:
-          TARGETS: [
-            "spider_task_executor",
-            "worker_test",
-            "client_test",
-            "spider_worker",
-            "spider_scheduler",
-            "integrationTest"]
-    cmd: |-
-      . ../test-venv/bin/activate
-      ../test-venv/bin/pytest tests/integration
 
   venv:
     internal: true
@@ -77,26 +65,95 @@ tasks:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
 
-  spider-py-unit-tests:
-    dir: "{{.G_SRC_PYTHON_DIR}}"
-    env:
-      # Don't create __pycache__ directories in the source tree.
-      PYTHONDONTWRITEBYTECODE: "1"
+  # A generic wrapper that runs the given task with a MariaDB storage backend.
+  #
+  # @param {string} STORAGE_TASK The task to execute. The task must accept no parameters other than
+  # `SPIDER_STORAGE_URL`, which is set to the MariaDB instance URL.
+  mariadb-storage-task-executor:
+    internal: true
+    vars:
+      MARIADB_CONTAINER_NAME:
+        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
+        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
+      MARIADB_PORT:
+        sh: "tools/scripts/get_free_port.py"
+    requires:
+      vars: ["STORAGE_TASK"]
+    dir: "{{.ROOT_DIR}}"
     cmds:
-      - "uv run pytest"
+      - |-
+        tools/scripts/mariadb/start.py \
+        --name "{{.MARIADB_CONTAINER_NAME}}" \
+        --port "{{.MARIADB_PORT}}" \
+        --database "{{.G_MARIADB_DATABASE}}" \
+        --username "{{.G_MARIADB_USERNAME}}" \
+        --password "{{.G_MARIADB_PASSWORD}}"
+      - defer: |-
+          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
+          --name "{{.MARIADB_CONTAINER_NAME}}"
+      - |-
+        tools/scripts/mariadb/wolf/init_db.py \
+        --port "{{.MARIADB_PORT}}" \
+        --database "{{.G_MARIADB_DATABASE}}" \
+        --username "{{.G_MARIADB_USERNAME}}" \
+        --password "{{.G_MARIADB_PASSWORD}}"
+      - task: "{{.STORAGE_TASK}}"
+        vars:
+          SPIDER_STORAGE_URL:
+            "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
+            user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
 
-  spider-py-non-storage-unit-tests:
-    dir: "{{.G_SRC_PYTHON_DIR}}"
+  # Internal task that runs all spider-py's unit tests.
+  #
+  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
+  spider-py-unit-tests-executor:
+    internal: true
     env:
       # Don't create __pycache__ directories in the source tree.
       PYTHONDONTWRITEBYTECODE: "1"
-    cmds:
-      - "uv run pytest -m \"not storage\""
+      SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
+    requires:
+      vars: ["SPIDER_STORAGE_URL"]
+    dir: "{{.G_SRC_PYTHON_DIR}}"
+    cmd: "uv run pytest"
 
-  spider-py-storage-unit-tests:
-    dir: "{{.G_SRC_PYTHON_DIR}}"
+  # Internal task that runs all Spider Wolf's unit tests.
+  #
+  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
+  spider-wolf-unit-tests-executor:
+    internal: true
     env:
-      # Don't create __pycache__ directories in the source tree.
-      PYTHONDONTWRITEBYTECODE: "1"
+      SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
+    requires:
+      vars: ["SPIDER_STORAGE_URL"]
+    dir: "{{.ROOT_DIR}}"
+    deps:
+      - "build-unit-test"
+    cmd: "{{.G_UNIT_TEST_BINARY}}"
+
+  # Internal task that runs all Spider Wolf's integration tests.
+  #
+  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
+  spider-wolf-integration-tests-executor:
+    internal: true
+    env:
+      SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
+    requires:
+      vars: ["SPIDER_STORAGE_URL"]
+    dir: "{{.G_BUILD_SPIDER_DIR}}"
+    deps:
+      - "venv"
+      - task: ":build:cpp-target"
+        vars:
+          TARGETS: [
+            "spider_task_executor",
+            "worker_test",
+            "client_test",
+            "spider_worker",
+            "spider_scheduler",
+            "integrationTest"
+          ]
     cmds:
-      - "uv run pytest -m \"storage\""
+      - |-
+        . {{.G_TEST_VENV_DIR}}/bin/activate
+        {{.G_TEST_VENV_DIR}}/bin/pytest tests/integration

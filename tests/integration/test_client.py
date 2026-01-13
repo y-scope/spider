@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from integration.client import g_storage_url, SQLConnection
+from integration.client import get_storage_url, SQLConnection, storage  # noqa: F401
 from integration.utils import g_scheduler_port
 
 
@@ -52,7 +52,7 @@ def start_scheduler_workers(
 
 @pytest.fixture(scope="class")
 def scheduler_worker(
-    storage: SQLConnection,
+    storage: SQLConnection,  # noqa: F811
 ) -> Generator[None, None, None]:
     """
     Fixture to start a scheduler process and two worker processes.
@@ -63,7 +63,7 @@ def scheduler_worker(
     """
     _ = storage  # Avoid ARG001
     scheduler_process, worker_process_0, worker_process_1 = start_scheduler_workers(
-        storage_url=g_storage_url, scheduler_port=g_scheduler_port
+        storage_url=get_storage_url(), scheduler_port=g_scheduler_port
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)
@@ -84,7 +84,7 @@ class TestClient:
         client_cmds = [
             str(dir_path / "client_test"),
             "--storage_url",
-            g_storage_url,
+            get_storage_url(),
         ]
         p = subprocess.run(client_cmds, check=True, timeout=20)
         assert p.returncode == 0

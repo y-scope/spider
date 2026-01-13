@@ -1,5 +1,6 @@
 """Simple Spider client for testing purposes."""
 
+import os
 import re
 import uuid
 from collections.abc import Generator
@@ -111,7 +112,15 @@ def is_head_task(task_id: uuid.UUID, dependencies: list[tuple[uuid.UUID, uuid.UU
     return not any(dependency[1] == task_id for dependency in dependencies)
 
 
-g_storage_url = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
+G_STORAGE_URL = "jdbc:mariadb://localhost:3306/spider_test?user=root&password=password"
+
+
+def get_storage_url() -> str:
+    """
+    Gets the storage URL from the environment variable or uses the default.
+    :return: The storage URL.
+    """
+    return os.getenv("SPIDER_STORAGE_URL", G_STORAGE_URL)
 
 
 @pytest.fixture(scope="session")
@@ -122,7 +131,7 @@ def storage() -> Generator[SQLConnection, None, None]:
     after the test session is complete.
     :return: A generator yielding a MySQL connection object.
     """
-    conn = create_connection(g_storage_url)
+    conn = create_connection(get_storage_url())
     yield conn
     conn.close()
 
