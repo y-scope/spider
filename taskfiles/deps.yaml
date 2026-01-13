@@ -1,5 +1,8 @@
 version: "3"
 
+includes:
+  toolchains: "toolchains.yaml"
+
 vars:
   G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
 
@@ -8,6 +11,17 @@ vars:
   G_ANTLR_JAR_FILE: "{{.G_DEPS_DIR}}/antlr-{{.G_ANTLR_VERSION}}-complete.jar"
 
 tasks:
+  check-rust-lockfile:
+    cmds:
+      - task: "cargo-workspace-fetch"
+        vars:
+          CARGO_FETCH_FLAGS: "--locked"
+
+  update-rust-lockfile:
+    cmds:
+      - task: "cargo-workspace-update"
+        vars:
+          CARGO_UPDATE_FLAGS: ""
 
   lib_install:
     cmds:
@@ -260,3 +274,29 @@ tasks:
             - "program_options"
             - "regex"
             - "system"
+
+  # Runs `cargo fetch` in the root Rust workspace directory with the specified flags.
+  #
+  # @param {string} CARGO_FETCH_FLAGS The flags to pass to the `cargo fetch` command.
+  cargo-workspace-fetch:
+    internal: true
+    requires:
+      vars: ["CARGO_FETCH_FLAGS"]
+    dir: "{{.ROOT_DIR}}"
+    deps: ["toolchains:rust"]
+    cmd: |-
+      . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+      cargo fetch {{.CARGO_FETCH_FLAGS}}
+
+  # Runs `cargo update` in the root Rust workspace directory with the specified flags.
+  #
+  # @param {string} CARGO_UPDATE_FLAGS The flags to pass to the `cargo update` command.
+  cargo-workspace-update:
+    internal: true
+    requires:
+      vars: ["CARGO_UPDATE_FLAGS"]
+    dir: "{{.ROOT_DIR}}"
+    deps: ["toolchains:rust"]
+    cmd: |-
+      . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+      cargo update {{.CARGO_UPDATE_FLAGS}}

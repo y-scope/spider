@@ -16,6 +16,7 @@ vars:
   G_BUILD_EXAMPLES_DIR: "{{.G_BUILD_DIR}}/examples"
   G_EXAMPLES_CMAKE_CACHE: "{{.G_BUILD_EXAMPLES_DIR}}/CMakeCache.txt"
   G_EXAMPLES_COMPILE_COMMANDS_DB: "{{.G_BUILD_EXAMPLES_DIR}}/compile_commands.json"
+  G_RUST_BUILD_DIR: "{{.G_BUILD_DIR}}/rust-targets"
   G_SRC_SPIDER_DIR: "{{.ROOT_DIR}}/src/spider"
   G_TEST_DIR: "{{.ROOT_DIR}}/tests"
   G_EXAMPLES_DIR: "{{.ROOT_DIR}}/examples"

@@ -2,7 +2,9 @@ toml-version = "v1.0.0"
 
 [files]
 include = ["**/*.toml"]
-exclude = ["tools/yscope-dev-utils/**", "build/**"]
+# Note: Schema store has no available schema for `.cargo/config.toml` yet, so we exclude linting for
+# the file until one is available. See https://github.com/rust-lang/cargo/issues/12883.
+exclude = ["tools/yscope-dev-utils/**", "build/**", ".cargo/config.toml"]
 
 [format]
 
@@ -33,3 +35,7 @@ include = ["pyproject.toml"]
 [[schemas]]
 path = "https://json.schemastore.org/ruff.json"
 include = ["ruff.toml"]
+
+[[schemas]]
+path = "https://json.schemastore.org/cargo.json"
+include = ["Cargo.toml"]

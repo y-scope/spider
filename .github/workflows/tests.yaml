@@ -57,6 +57,8 @@ jobs:
 
       - run: "task test:cpp-unit-tests"
 
+      - run: "task test:rust-unit-tests"
+
       - run: "task test:spider-py-unit-tests"
 
       - run: "task test:cpp-integration"
