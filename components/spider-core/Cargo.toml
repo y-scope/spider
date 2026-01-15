@@ -8,3 +8,4 @@ name = "spider_core"
 path = "src/lib.rs"
 
 [dependencies]
+uuid = {  version = "1.19.0", features = ["v4"] }
