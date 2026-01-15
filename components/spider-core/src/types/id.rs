@@ -1,5 +1,6 @@
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A generic identifier type that wraps a UUID and a type marker.
@@ -11,19 +12,20 @@ use uuid::Uuid;
 /// # Examples
 ///
 /// ```rust
+/// #[derive(Debug, PartialEq, Eq)]
 /// enum SomeTypeIdMarker {}
 /// type SomeTypeId = Id<SomeTypeIdMarker>;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id<TypeMarker>(Uuid, PhantomData<TypeMarker>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Id<TypeMarker: Debug + PartialEq + Eq>(Uuid, PhantomData<TypeMarker>);
 
-impl<TypeMarker> Default for Id<TypeMarker> {
+impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<TypeMarker> Id<TypeMarker> {
+impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     #[must_use]
     pub fn new() -> Self {
         Self(Uuid::new_v4(), PhantomData)
@@ -40,33 +42,54 @@ impl<TypeMarker> Id<TypeMarker> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ResourceGroupIdMarker {}
 pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TaskIdMarker {}
 pub type TaskId = Id<TaskIdMarker>;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum JobIdMarker {}
 pub type JobId = Id<JobIdMarker>;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum DataIdMarker {}
 pub type DataId = Id<DataIdMarker>;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum WorkerIdMarker {}
 pub type WorkerId = Id<WorkerIdMarker>;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TaskInstanceIdMarker {}
 pub type TaskInstanceId = Id<TaskInstanceIdMarker>;
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
+
     use super::*;
 
     #[test]
     fn test_id_basic() {
-        type TestId = Id<()>;
-        let id = TestId::new();
+        let id = TaskId::new();
         let underlying_uuid = id.as_uuid_ref().to_owned();
-        assert_eq!(id, TestId::from(underlying_uuid));
+        assert_eq!(id, TaskId::from(underlying_uuid));
+
+        assert_ne!(TypeId::of::<TaskId>(), TypeId::of::<JobId>());
+    }
+
+    #[test]
+    fn task_id_json_roundtrip() {
+        let id = TaskId::new();
+        let deserialized_id: TaskId = serde_json::from_str(
+            serde_json::to_string(&id)
+                .expect("JSON serialization failure")
+                .as_str(),
+        )
+        .expect("JSON deserialization failure");
+        assert_eq!(id, deserialized_id);
     }
 }
