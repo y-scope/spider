@@ -1,0 +1,12 @@
+[package]
+name = "spider-storage"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "spider_storage"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1.89"
+spider-core = { path = "../spider-core" }

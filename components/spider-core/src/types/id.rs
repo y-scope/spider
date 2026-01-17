@@ -66,6 +66,60 @@ pub type WorkerId = Id<WorkerIdMarker>;
 pub enum TaskInstanceIdMarker {}
 pub type TaskInstanceId = Id<TaskInstanceIdMarker>;
 
+/// Represents a signed ID.
+///
+/// In the Spider scheduling framework, resources are owned by resource groups. Many operations
+/// require both the resource group ID and the resource's own ID to enforce proper access control.
+/// This struct encapsulates both identifiers for such operations by treating the resource group ID
+/// as the signature.
+///
+/// # Type Parameters
+///
+/// * [`TypeMarker`] - A marker type used to differentiate between different resource types.
+pub struct SignedId<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq, {
+    signature: ResourceGroupId,
+    id: Id<TypeMarker>,
+}
+
+impl<TypeMarker> SignedId<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+{
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created instance of [`SignedId`].
+    #[must_use]
+    pub const fn new(signature: ResourceGroupId, id: Id<TypeMarker>) -> Self {
+        Self { signature, id }
+    }
+
+    /// # Returns
+    ///
+    /// A reference to the underlying signature.
+    #[must_use]
+    pub const fn get_signature(&self) -> &ResourceGroupId {
+        &self.signature
+    }
+
+    /// # Returns
+    ///
+    /// A reference to the underlying raw ID.
+    #[must_use]
+    pub const fn get(&self) -> &Id<TypeMarker> {
+        &self.id
+    }
+}
+
+pub type SignedJobId = SignedId<JobIdMarker>;
+
+pub type SignedTaskId = SignedId<TaskIdMarker>;
+
+pub type SignedTaskInstanceId = SignedId<TaskInstanceIdMarker>;
+
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
