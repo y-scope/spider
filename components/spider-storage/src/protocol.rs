@@ -26,6 +26,13 @@ pub enum SharedDataOwner {
     Job(SignedJobId),
 }
 
+/// Represents the possible results of a job when queried.
+pub enum JobResult {
+    NotReady,
+    Output(Vec<TaskOutput>),
+    Stopped,
+}
+
 /// Defines the storage interface for job orchestration.
 ///
 /// In the Spider scheduling framework, every job is associated with a resource group ID.
@@ -110,8 +117,9 @@ pub trait JobOrchestration {
     ///
     /// # Returns
     ///
-    /// * [`Some(Vec<TaskOutput>)`] if the job is completed and results are available.
-    /// * [`None`] if the job is not yet completed or results are not available.
+    /// * [`JobResult::NotReady`] if the job is not yet completed.
+    /// * [`JobResult::Output`] if the job has completed successfully.
+    /// * [`JobResult::Stopped`] if the job has been failed or cancelled.
     ///
     /// # Errors
     ///
@@ -119,10 +127,7 @@ pub trait JobOrchestration {
     ///
     /// Implementations **must document** the specific error variants they may return and the
     /// conditions under which those errors occur.
-    async fn get_job_result(
-        &self,
-        signed_id: SignedJobId,
-    ) -> Result<Option<Vec<TaskOutput>>, StorageError>;
+    async fn get_job_result(&self, signed_id: SignedJobId) -> Result<JobResult, StorageError>;
 
     /// Cancels a job.
     ///
@@ -143,6 +148,13 @@ pub trait JobOrchestration {
     async fn cancel_job(&self, signed_id: SignedJobId) -> Result<(), StorageError>;
 
     /// Deletes a job.
+    ///
+    /// This method is designed for GC and is not expected to be invoked by users. To delete a job,
+    /// it must be in one of the following states:
+    ///
+    /// * [`JobState::Succeeded`]
+    /// * [`JobState::Failed`]
+    /// * [`JobState::Cancelled`]
     ///
     /// # Parameters
     ///
@@ -217,7 +229,9 @@ pub trait TaskOrchestration {
 
     /// Creates a new task instance for execution.
     ///
-    /// This method is typically invoked by the scheduler when a task is ready to be executed.
+    /// This method is typically invoked by the scheduler when a task is ready to be executed. If
+    /// the task is in [`TaskState::Ready`], this method will transition it to
+    /// [`TaskState::Running`].
     ///
     /// # Parameters
     ///
@@ -238,7 +252,9 @@ pub trait TaskOrchestration {
         signed_id: SignedTaskId,
     ) -> Result<TaskInstanceId, StorageError>;
 
-    /// Marks a task instance as completed and stores its outputs.
+    /// Completes a task instance and uploads its outputs.
+    ///
+    /// On success, this method will transition the task instance to [`TaskState::Succeeded`].
     ///
     /// # Parameters
     ///
@@ -263,6 +279,9 @@ pub trait TaskOrchestration {
 
     /// Cancels a task instance.
     ///
+    /// If the cancelled instance is the only task instance associated with the task, this method
+    /// will also transition the task to [`TaskState::Cancelled`].
+    ///
     /// # Parameters
     ///
     /// * `signed_id` - The signed ID of the target task instance.
@@ -283,6 +302,9 @@ pub trait TaskOrchestration {
     ) -> Result<(), StorageError>;
 
     /// Marks a task instance as failed and records the error message.
+    ///
+    /// If the failed instance is the only task instance associated with the task, this method
+    /// will also transition the task to [`TaskState::Failed`].
     ///
     /// # Parameters
     ///
