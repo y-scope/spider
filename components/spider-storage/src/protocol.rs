@@ -1,18 +1,21 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    task::TaskGraph,
+    task::{TaskGraph, TaskMetadata},
     types::{
         id::{
             DataId,
             JobId,
             ResourceGroupId,
+            SchedulerId,
             SignedJobId,
             SignedTaskId,
             SignedTaskInstanceId,
+            TaskId,
             TaskInstanceId,
+            WorkerId,
         },
         io::{Data, TaskInput, TaskOutput},
     },
@@ -31,6 +34,24 @@ pub enum JobResult {
     NotReady,
     Output(Vec<TaskOutput>),
     Stopped,
+}
+
+/// The storage interface for the Spider scheduling framework. The Spider storage backend must
+/// implement the following traits:
+///
+/// * [`JobOrchestration`]
+/// * [`TaskOrchestration`]
+/// * [`DataManagement`]
+/// * [`Scheduling`]
+/// * [`LivenessTracking`]
+pub trait SpiderStorage:
+    JobOrchestration + TaskOrchestration + DataManagement + Scheduling + LivenessTracking {
+}
+
+/// Implements [`SpiderStorage`] for any type that implements all the sub-traits.
+impl<T> SpiderStorage for T where
+    T: JobOrchestration + TaskOrchestration + DataManagement + Scheduling + LivenessTracking
+{
 }
 
 /// Defines the storage interface for job orchestration.
@@ -430,4 +451,180 @@ pub trait DataManagement {
     /// conditions under which those errors occur.
     async fn remove_data_ref(&self, owner: SharedDataOwner, id: DataId)
     -> Result<(), StorageError>;
+}
+
+/// Defines the storage interface for scheduling operations.
+///
+/// # NOTE
+///
+/// All operations defined by this trait **must be transactional**. Implementations are required to
+/// guarantee atomicity and consistency for each operation.
+#[async_trait]
+pub trait Scheduling {
+    /// Retrieves tasks that are ready for execution.
+    ///
+    /// A task is considered ready for execution if it is in [`TaskState::Ready`].
+    ///
+    /// # Parameters
+    ///
+    /// * `num_tasks` - The maximum number of ready tasks to retrieve. If `None`, all ready tasks
+    ///   are returned.
+    ///
+    /// # Returns
+    ///
+    /// A vector of task metadata for ready tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn get_ready_tasks(
+        &self,
+        num_tasks: Option<usize>,
+    ) -> Result<Vec<TaskMetadata>, StorageError>;
+
+    /// Retrieves jobs that have failed.
+    ///
+    /// A job is considered failed if it is in [`JobState::Failed`].
+    ///
+    /// # Parameters
+    ///
+    /// * `num_jobs` - The maximum number of failed jobs to retrieve. If `None`, all failed jobs are
+    ///   returned.
+    ///
+    /// # Returns
+    ///
+    /// A vector of job IDs for failed jobs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn get_failed_jobs(&self, num_jobs: Option<usize>) -> Result<Vec<JobId>, StorageError>;
+
+    /// Resets a failed job to allow it to be retried.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the failed job to reset.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn reset_failed_job(&self, job_id: JobId) -> Result<(), StorageError>;
+
+    /// Retrieves tasks that have exceeded their execution timeout.
+    ///
+    /// # Parameters
+    ///
+    /// * `timeout` - The duration after which a running task is considered timed out.
+    ///
+    /// # Returns
+    ///
+    /// A vector of task IDs for timed-out tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn get_timeout_tasks(&self, timeout: Duration) -> Result<Vec<TaskId>, StorageError>;
+
+    /// Retrieves workers that have not sent a heartbeat within the specified timeout.
+    ///
+    /// # Parameters
+    ///
+    /// * `timeout` - The duration after which a worker without a heartbeat is considered timed out.
+    ///
+    /// # Returns
+    ///
+    /// A vector of worker IDs for timed-out workers on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn get_timeout_workers(&self, timeout: Duration) -> Result<Vec<WorkerId>, StorageError>;
+}
+
+/// Defines the storage interface for liveness tracking operations.
+///
+/// # NOTE
+///
+/// All operations defined by this trait **must be transactional**. Implementations are required to
+/// guarantee atomicity and consistency for each operation.
+#[async_trait]
+pub trait LivenessTracking {
+    /// Registers a new worker in the scheduling system.
+    ///
+    /// # Returns
+    ///
+    /// The unique ID assigned to the newly registered worker on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn register_worker(&self) -> Result<WorkerId, StorageError>;
+
+    /// Registers a new scheduler in the scheduling system.
+    ///
+    /// # Parameters
+    ///
+    /// * `address` - The network address of the scheduler.
+    /// * `port` - The port number on which the scheduler is listening to.
+    ///
+    /// # Returns
+    ///
+    /// The unique ID assigned to the newly registered scheduler on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn register_scheduler(
+        &self,
+        address: String,
+        port: u16,
+    ) -> Result<SchedulerId, StorageError>;
+
+    /// Updates the heartbeat timestamp for a worker.
+    ///
+    /// Workers should call this method periodically to signal that they are still alive and
+    /// operational. The scheduler uses these heartbeat timestamps to detect failed or unreachable
+    /// workers.
+    ///
+    /// # Parameters
+    ///
+    /// * `worker_id` - The ID of the worker whose heartbeat should be updated.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`StorageError`] instance indicating the failures.
+    ///
+    /// Implementations **must document** the specific error variants they may return and the
+    /// conditions under which those errors occur.
+    async fn update_worker_heartbeat(&self, worker_id: WorkerId) -> Result<(), StorageError>;
 }

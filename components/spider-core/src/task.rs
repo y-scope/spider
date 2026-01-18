@@ -13,3 +13,6 @@ pub enum TaskState {
 
 /// Represents a directed acyclic graph (DAG) of tasks.
 pub struct TaskGraph {}
+
+/// Represents metadata associated with a task.
+pub struct TaskMetadata {}

@@ -63,6 +63,10 @@ pub enum WorkerIdMarker {}
 pub type WorkerId = Id<WorkerIdMarker>;
 
 #[derive(Debug, PartialEq, Eq)]
+pub enum SchedulerIdMarker {}
+pub type SchedulerId = Id<SchedulerIdMarker>;
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum TaskInstanceIdMarker {}
 pub type TaskInstanceId = Id<TaskInstanceIdMarker>;
 
