@@ -36,7 +36,10 @@ tasks:
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
       - "docs-venv"
     cmds:
-      - "rm -rf '{{.OUTPUT_DIR}}'"
+      # Call `clean` before building since `sphinx-build --write-all --fresh-env` isn't always
+      # equivalent to building from scratch.
+      - task: "clean"
+      - "python3 '{{.ROOT_DIR}}/tools/scripts/find-broken-docs-links.py'"
       - |-
         . "{{.G_DOCS_VENV_DIR}}/bin/activate"
         sphinx-build \
