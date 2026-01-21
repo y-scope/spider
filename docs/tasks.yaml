@@ -93,38 +93,6 @@ tasks:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
 
-  wolf:site:
-    cmds:
-      - task: "site"
-        vars:
-          TASK_NAME: "docs:wolf:site"
-          CHECKSUM_FILE: "{{.G_BUILD_DIR}}/docs#wolf#site.md5"
-          OUTPUT_DIR: "{{.G_DOCS_WOLF_BUILD_DIR}}"
-          SRC_DIR: "{{.TASKFILE_DIR}}/wolf"
-
-  wolf:serve:
-    deps:
-      - "http-server"
-      - "wolf:site"
-    cmds:
-      - "npm --prefix '{{.G_NODE_DEPS_DIR}}' exec http-server '{{.G_DOCS_WOLF_BUILD_DIR}}' -c-1"
-
-  huntsman:site:
-    cmds:
-      - task: "site"
-        vars:
-          TASK_NAME: "docs:huntsman:site"
-          CHECKSUM_FILE: "{{.G_BUILD_DIR}}/docs#huntsman#site.md5"
-          OUTPUT_DIR: "{{.G_DOCS_HUNTSMAN_BUILD_DIR}}"
-          SRC_DIR: "{{.TASKFILE_DIR}}/huntsman"
-
-  huntsman:serve:
-    deps:
-      - "http-server"
-      - "huntsman:site"
-    cmds:
-      - "npm --prefix '{{.G_NODE_DEPS_DIR}}' exec http-server '{{.G_DOCS_HUNTSMAN_BUILD_DIR}}' -c-1"
-
   docs-venv:
     internal: true
     vars:
