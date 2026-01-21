@@ -24,7 +24,7 @@ The MariaDB storage contains the following tables:
 
 | Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
 | --- | --- | --- | --- | --- |
-| id | VARBINARY(16) | ✅ | Primary Key |  |
+| id | BINARY(16) | ✅ | Primary Key |  |
 | external_id | VARCHAR(256) | ✅ | Unique |  |
 
 ### jobs
@@ -95,13 +95,13 @@ The MariaDB storage contains the following tables:
 
 ### task_inputs
 
-| Column Name | Data Type | Not NULL | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| task_id | BINARY(16) | ✅ | Primary Key (task_id, position) | Foreign key → tasks(id) ON DELETE CASCADE |
-| position | INT UNSIGNED | ✅ | Primary Key (task_id, position) |  |
-| type | ENUM (’VALUE’, ‘DATA’) | ✅ |  |  |
-| value_id | INT UNSIGNED |  |  | Foreign key → value(id) |
-| data_id | BINARY(16) |  |  | Foreign key → data(id) |
+| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
+| --- | --- |----------| --- | --- |
+| task_id | BINARY(16) | ✅        | Primary Key (task_id, position) | Foreign key → tasks(id) ON DELETE CASCADE |
+| position | INT UNSIGNED | ✅        | Primary Key (task_id, position) |  |
+| type | ENUM (’VALUE’, ‘DATA’) | ✅        |  |  |
+| value_id | INT UNSIGNED |          |  | Foreign key → value(id) |
+| data_id | BINARY(16) |          |  | Foreign key → data(id) |
 
 ### task_outputs
 

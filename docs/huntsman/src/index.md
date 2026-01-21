@@ -3,7 +3,7 @@
 Spider is a distributed system for executing user-defined tasks. It is designed to achieve low
 latency, high throughput, and robust fault tolerance.
 
-Spider's docs are separated into following categories:
+Spider's docs are separated into the following categories:
 
 ::::{grid} 1 1 2 2
 :gutter: 2
