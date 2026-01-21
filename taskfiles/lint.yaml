@@ -115,7 +115,7 @@ tasks:
         vars:
           FLAGS:
             - "--config-file '{{.ROOT_DIR}}/.clang-tidy'"
-            - "-p '{{.G_EXAMPLES_COMPILE_COMMANDS_DB}}'"
+            - "-p '{{.G_EXAMPLES_WOLF_COMPILE_COMMANDS_DB}}'"
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp"]
           OUTPUT_DIR: "{{.G_LINT_CLANG_TIDY_DIR}}"
           ROOT_PATHS:
