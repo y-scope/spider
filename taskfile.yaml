@@ -43,7 +43,7 @@ tasks:
     sources:
       - "{{.TASKFILE}}"
       - "CMakeLists.txt"
-      - "examples/quick-start/CMakeLists.txt"
+      - "examples/wolf/quick-start/CMakeLists.txt"
     generates:
       - "{{.G_SPIDER_CMAKE_CACHE}}"
       - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
