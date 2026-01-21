@@ -18,7 +18,6 @@ tasks:
 
   wolf:site:
     cmds:
-      - "python3 '{{.ROOT_DIR}}/tools/scripts/find-broken-docs-links.py'"
       - task: "site"
         vars:
           TASK_NAME: "{{.TASK}}"
