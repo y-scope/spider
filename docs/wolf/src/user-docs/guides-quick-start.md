@@ -11,13 +11,13 @@ you'll need to:
 * Set up a Spider cluster
 * Run the client
 
-The example source code for this guide is in [examples/quick-start].
+The example source code for this guide is in [examples/wolf/quick-start].
 
 :::{note}
 In the rest of this guide:
 
-1. we specify source file paths relative to `examples/quick-start`.
-2. all CMake commands should be run from inside `examples/quick-start`.
+1. we specify source file paths relative to `examples/wolf/quick-start`.
+2. all CMake commands should be run from inside `examples/wolf/quick-start`.
 :::
 
 # Requirements
@@ -48,7 +48,7 @@ explain them in other guides.
 
 For example, the task in `src/tasks.cpp` computes and returns the sum of two integers:
 
-:::{literalinclude} ../../../examples/quick-start/src/tasks.cpp
+:::{literalinclude} ../../../../examples/wolf/quick-start/src/tasks.cpp
 :caption: src/tasks.cpp: The example task.
 :language: cpp
 :lines: 5-12
@@ -103,7 +103,7 @@ To make Spider to run a task, we first need to write a client application. Gener
 For example, the client in `src/client.cpp` runs the `sum` task from the previous section and
 verifies its result:
 
-:::{literalinclude} ../../../examples/quick-start/src/client.cpp
+:::{literalinclude} ../../../../examples/wolf/quick-start/src/client.cpp
 :caption: src/client.cpp: A snippet of the example client.
 :language: cpp
 :lines: 24-35
@@ -260,5 +260,5 @@ support for fault tolerance.
 [deps-task]: https://github.com/y-scope/spider/blob/main/taskfiles/deps.yaml
 [Docker]: https://docs.docker.com/engine/install/
 [docker-non-root]: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
-[examples/quick-start]: https://github.com/y-scope/spider/tree/main/examples/quick-start
+[examples/wolf/quick-start]: https://github.com/y-scope/spider/tree/main/examples/wolf/quick-start
 [Task]: https://taskfile.dev/
