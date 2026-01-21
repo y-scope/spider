@@ -19,15 +19,15 @@ Each site has its own directory with:
 
 ## Build commands
 
-* Build the Wolf site:
+* Build the Wolf site incrementally:
 
   ```shell
   task docs:wolf:site
   ```
+  
+  * The output of the build will be in `../build/docs/huntsman`.
 
-  * The output of the build will be in `../build/docs/wolf`.
-
-* Build the Huntsman site:
+* Build the Huntsman site incrementally:
 
   ```shell
   task docs:huntsman:site
