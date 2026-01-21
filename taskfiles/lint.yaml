@@ -61,7 +61,7 @@ tasks:
       - "{{.ROOT_DIR}}/.clang-tidy"
       - "{{.TASKFILE}}"
       - "{{.G_SRC_SPIDER_DIR}}/.clang-format"
-      - "{{.G_EXAMPLES_DIR}}/**/*"
+      - "{{.G_EXAMPLES_WOLF_DIR}}/**/*"
       - "{{.G_SRC_SPIDER_DIR}}/**/*"
       - "{{.G_TEST_DIR}}/**/*"
     deps: ["cpp-configs", "venv"]
@@ -74,7 +74,7 @@ tasks:
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp"]
           ROOT_PATHS: &cpp_source_files
             - "{{.G_SRC_SPIDER_DIR}}"
-            - "{{.G_EXAMPLES_DIR}}"
+            - "{{.G_EXAMPLES_WOLF_DIR}}"
             - "{{.G_TEST_DIR}}"
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
@@ -119,7 +119,7 @@ tasks:
           INCLUDE_FILENAME_PATTERNS: ["*.cpp", "*.h", "*.hpp"]
           OUTPUT_DIR: "{{.G_LINT_CLANG_TIDY_DIR}}"
           ROOT_PATHS:
-            - "{{.G_EXAMPLES_DIR}}"
+            - "{{.G_EXAMPLES_WOLF_DIR}}"
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
   py-check:
