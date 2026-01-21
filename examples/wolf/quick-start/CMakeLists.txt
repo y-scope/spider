@@ -7,7 +7,7 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 # Add the Spider library
-add_subdirectory(../../ spider EXCLUDE_FROM_ALL)
+add_subdirectory(../../.. spider EXCLUDE_FROM_ALL)
 
 # Add the tasks library
 add_library(

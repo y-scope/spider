@@ -1,7 +1,12 @@
 # Docs
 
-This directory contains the files necessary to generate a Sphinx-based documentation website for
-this project:
+This directory contains the files necessary to generate Sphinx-based documentation websites for
+this project. There are two documentation sites:
+
+* `wolf` - Wolf documentation
+* `huntsman` - Huntsman documentation
+
+Each site has its own directory with:
 
 * `conf` - Configuration files
 * `src` - The actual docs
@@ -14,15 +19,23 @@ this project:
 
 ## Build commands
 
-* Build the site incrementally:
+* Build the Wolf site:
 
   ```shell
-  task docs:site
+  task docs:wolf:site
   ```
 
-  * The output of the build will be in `../build/docs/html`.
+  * The output of the build will be in `../build/docs/wolf`.
 
-* Clean up the build:
+* Build the Huntsman site:
+
+  ```shell
+  task docs:huntsman:site
+  ```
+
+  * The output of the build will be in `../build/docs/huntsman`.
+
+* Clean up all builds:
 
   ```shell
   task docs:clean
@@ -30,12 +43,20 @@ this project:
 
 ## Viewing the output
 
-```shell
-task docs:serve
-```
+* Serve the Wolf site:
 
-The command above will install [http-server] and serve the built docs site; `http-server` will print
-the address it binds to (usually http://localhost:8080).
+  ```shell
+  task docs:wolf:serve
+  ```
+
+* Serve the Huntsman site:
+
+  ```shell
+  task docs:huntsman:serve
+  ```
+
+The commands above will install [http-server] and serve the built docs site; `http-server` will
+print the address it binds to (usually http://localhost:8080).
 
 [http-server]: https://www.npmjs.com/package/http-server
 [Node.js]: https://nodejs.org/en/download/current

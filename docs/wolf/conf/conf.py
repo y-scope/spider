@@ -1,7 +1,7 @@
 # -- Project information -------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "Spider"
+project = "Wolf"
 
 # NOTE: We don't include a period after "Inc" since the theme adds one already.
 copyright = "2024-2025 YScope Inc"
@@ -66,7 +66,7 @@ html_context = {
     "github_user": "y-scope",
     "github_repo": "spider",
     "github_version": "main",
-    "doc_path": "docs/src",
+    "doc_path": "docs/wolf/src",
 }
 
 # -- Theme custom CSS and JS ---------------------------------------------------

@@ -48,7 +48,7 @@ explain them in other guides.
 
 For example, the task in `src/tasks.cpp` computes and returns the sum of two integers:
 
-:::{literalinclude} ../../../examples/quick-start/src/tasks.cpp
+:::{literalinclude} ../../../../examples/wolf/quick-start/src/tasks.cpp
 :caption: src/tasks.cpp: The example task.
 :language: cpp
 :lines: 5-12
@@ -103,7 +103,7 @@ To make Spider to run a task, we first need to write a client application. Gener
 For example, the client in `src/client.cpp` runs the `sum` task from the previous section and
 verifies its result:
 
-:::{literalinclude} ../../../examples/quick-start/src/client.cpp
+:::{literalinclude} ../../../../examples/wolf/quick-start/src/client.cpp
 :caption: src/client.cpp: A snippet of the example client.
 :language: cpp
 :lines: 24-35

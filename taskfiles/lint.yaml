@@ -189,6 +189,7 @@ tasks:
           --strict \
           .gersemirc \
           .github/ \
+          docs/ \
           taskfile.yaml \
           taskfiles/
 
@@ -266,7 +267,7 @@ tasks:
       - "CMakeLists.txt"
       - "src/spider/CMakeLists.txt"
       - "tests/CMakeLists.txt"
-      - "examples/quick-start/CMakeLists.txt"
+      - "examples/wolf/quick-start/CMakeLists.txt"
       - "cmake/Modules/*.cmake"
     cmds:
       - for: "sources"
