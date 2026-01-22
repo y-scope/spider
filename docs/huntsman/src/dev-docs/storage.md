@@ -2,150 +2,192 @@
 
 ## MariaDB Storage Schema
 
-The MariaDB storage contains the following tables:
+The MariaDB storage contains the following tables.
 
 ### workers
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Primary Key |  |
-| heartbeat | TIMESTAMP | ✅ |  | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+This table contains worker information and their heartbeats.
+
+| Column Name | Data Type   | Not Null | Key / Uniqueness | Notes                                                 |
+|-------------|-------------|----------|------------------|-------------------------------------------------------|
+| id          | BINARY(16)  | Yes      | Primary Key      |                                                       |
+| heartbeat   | TIMESTAMP   | Yes      |                  | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
 
 ### schedulers
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Primary Key |  |
-| address | VARCHAR(40) | ✅ |  |  |
-| port | INT UNSIGNED | ✅ |  |  |
-| heartbeat | TIMESTAMP | ✅ |  | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+This table contains worker information and their heartbeats.
+
+| Column Name | Data Type     | Not Null | Key / Uniqueness | Notes                                                 |
+|-------------|---------------|----------|------------------|-------------------------------------------------------|
+| id          | BINARY(16)    | Yes      | Primary Key      |                                                       |
+| address     | VARCHAR(40)   | Yes      |                  |                                                       |
+| port        | INT UNSIGNED  | Yes      |                  |                                                       |
+| heartbeat   | TIMESTAMP     | Yes      |                  | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
 
 ### resource_groups
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Primary Key |  |
-| external_id | VARCHAR(256) | ✅ | Unique |  |
+This table keeps track of all resource groups.
+
+| Column Name  | Data Type    | Not Null | Key / Uniqueness  | Notes |
+|--------------|--------------|----------|-------------------|-------|
+| id           | BINARY(16)   | Yes      | Primary Key       |       |
+| external_id  | VARCHAR(256) | Yes      | Unique            |       |
 
 ### jobs
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes                                              |
-| --- | --- | --- | --- |----------------------------------------------------|
-| id | BINARY(16) | ✅ | Primary Key |                                                    |
-| resource_group_id | VARBINARY(16) | ✅ | Index | Foreign Key → resource_groups(id) ON DELETE CASCADE |
-| creation_time | TIMESTAMP | ✅ | Index | DEFAULT CURRENT_TIMESTAMP                          |
-| state | ENUM ('RUNNING', 'PENDING_RETRY', 'SUCCEEDED', 'FAILED', 'CANCELLED') | ✅ | Index | DEFAULT 'RUNNING'                                  |
-| max_num_retries | INT UNSIGNED | ✅ |  | DEFAULT 5                                          |
-| num_retries | INT UNSIGNED | ✅ |  | DEFAULT 0                                          |
+This table contains the metadata of each job.
+
+| Column Name       | Data Type                                                             | Not Null | Key / Uniqueness | Notes                                               |
+|-------------------|-----------------------------------------------------------------------|----------|------------------|-----------------------------------------------------|
+| id                | BINARY(16)                                                            | Yes      | Primary Key      |                                                     |
+| resource_group_id | VARBINARY(16)                                                         | Yes      | Index            | Foreign Key → resource_groups(id) ON DELETE CASCADE |
+| creation_time     | TIMESTAMP                                                             | Yes      | Index            | DEFAULT CURRENT_TIMESTAMP                           |
+| state             | ENUM ('RUNNING', 'PENDING_RETRY', 'SUCCEEDED', 'FAILED', 'CANCELLED') | Yes      | Index            | DEFAULT 'RUNNING'                                   |
+| max_num_retries   | INT UNSIGNED                                                          | Yes      |                  | DEFAULT 5                                           |
+| num_retries       | INT UNSIGNED                                                          | Yes      |                  | DEFAULT 0                                           |
 
 ### tasks
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Primary Key |  |
-| job_id | BINARY(16) | ✅ |  | Foreign Key → jobs(id) ON DELETE CASCADE |
-| func_name | VARCHAR(64) | ✅ |  |  |
-| language | ENUM('CPP','RUST','PYTHON') | ✅ |  |  |
-| state | ENUM(’PENDING’, ‘READY’, ‘RUNNING’, ‘SUCCEEDED’, ‘FAILED’, ‘CANCELLED’) | ✅ |  |  |
-| num_parents | INT UNSIGNED | ✅ |  |  |
-| num_succeeded_parents | INT UNSIGNED | ✅ |  | DEFAULT 0 |
-| timeout | FLOAT |  |  |  |
-| max_num_retries | INT UNSIGNED |  |  | DEFAULT 0 |
-| num_retries | INT UNSIGNED |  |  | DEFAULT 0 |
-| instance_id | BINARY(16) |  |  | Set to first finished task instance |
+This table contains the metadata of each task.
 
-### complete_task_dependencies
+| Column Name             | Data Type                                                                | Not Null | Key / Uniqueness | Notes                                             |
+|-------------------------|--------------------------------------------------------------------------|----------|------------------|---------------------------------------------------|
+| id                      | BINARY(16)                                                               | Yes      |  Primary Key     |                                                   |
+| job_id                  | BINARY(16)                                                               | Yes      |                  | Foreign Key → jobs(id) ON DELETE CASCADE          |
+| package_name            | VARCHAR(64)                                                              | Yes      |                  |                                                   |
+| func_name               | VARCHAR(64)                                                              | Yes      |                  |                                                   |
+| language                | ENUM('CPP','RUST','PYTHON')                                              | Yes      |                  |                                                   |
+| state                   | ENUM('PENDING', 'READY', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')  | Yes      |                  |                                                   |
+| num_parents             | INT UNSIGNED                                                             | Yes      |                  |                                                   |
+| num_succeeded_parents   | INT UNSIGNED                                                             | Yes      |                  | DEFAULT 0                                         |
+| task_graph_insertion_id | INT UNSIGNED                                                             | Yes      |                  | The insertion ID in the original task graph       |
+| timeout                 | FLOAT                                                                    |          |                  |                                                   |
+| max_num_retries         | INT UNSIGNED                                                             |          |                  | DEFAULT 0                                         |
+| num_retries             | INT UNSIGNED                                                             |          |                  | DEFAULT 0                                         |
+| instance_id             | BINARY(16)                                                               |          |                  | Set to the Id of the first finished task instance |
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| parent | BINARY(16) | ✅ | Index, Unique(parent, child) | Foreign key → tasks(id) ON DELETE CASCADE |
-| child | BINARY(16) | ✅ | Index, Unique(parent, child) | Foreign key → tasks(id) ON DELETE CASCADE |
+### completed_task_control_flow_deps
+
+This table records unique parent-to-child relationships for tasks whose parent has completed
+successfully. Each row represents a completed dependency and indicates that the parent task finished
+for the given child.
+
+The primary purpose of this table is to make updates to `tasks(num_succeeded_parents)` idempotent.
+
+| Column Name  | Data Type  | Not Null | Key / Uniqueness              | Notes                                     |
+|--------------|------------|----------|-------------------------------|-------------------------------------------|
+| parent       | BINARY(16) | Yes      | Index, Unique(parent, child)  | Foreign key → tasks(id) ON DELETE CASCADE |
+| child        | BINARY(16) | Yes      | Index, Unique(parent, child)  | Foreign key → tasks(id) ON DELETE CASCADE |
 
 ### input_tasks
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| job_id | BINARY(16) | ✅ | Index | Foreign key → jobs(id) ON DELETE CASCADE |
-| task_id | BINARY(16) | ✅ | Primary Key | Foreign key → tasks(id) ON DELETE CASCADE |
-| position | INT UNSIGNED | ✅ |  |  |
+This table records all input tasks for jobs.
+
+| Column Name  | Data Type    | Not Null | Key / Uniqueness | Notes                                     |
+|--------------|--------------|----------|------------------|-------------------------------------------|
+| job_id       | BINARY(16)   | Yes      | Index            | Foreign key → jobs(id) ON DELETE CASCADE  |
+| task_id      | BINARY(16)   | Yes      | Primary Key      | Foreign key → tasks(id) ON DELETE CASCADE |
 
 ### output_tasks
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| job_id | BINARY(16) | ✅ | Index | Foreign key → jobs(id) ON DELETE CASCADE |
-| task_id | BINARY(16) | ✅ | Primary Key | Foreign key → tasks(id) ON DELETE CASCADE |
-| position | INT UNSIGNED | ✅ |  |  |
+This table records all output tasks for jobs.
 
-### data
+| Column Name | Data Type    | Not Null | Key / Uniqueness | Notes                                     |
+|-------------|--------------|----------|------------------|-------------------------------------------|
+| job_id      | BINARY(16)   | Yes      | Index            | Foreign key → jobs(id) ON DELETE CASCADE  |
+| task_id     | BINARY(16)   | Yes      | Primary Key      | Foreign key → tasks(id) ON DELETE CASCADE |
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Primary Key |  |
-| payload | VARBINARY(1024) | ✅ |  |  |
+### shared_values
 
-### value
+This table keeps track of shareable values. The lifecycle of these values is managed based on
+reference counting.
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | INT UNSIGNED | ✅ | Primary Key | AUTO_INCREMENT |
-| job_id | BINARY(16) | ✅ | Index | Foreign key → jobs(id) ON DELETE CASCADE |
-| type | VARBINARY(1024) | ✅ |  |  |
-| payload | VARBINARY(1024) |  |  |  |
+| Column Name        | Data Type       | Not Null | Key / Uniqueness | Notes                                  |
+|--------------------|-----------------|----------|------------------|----------------------------------------|
+| id                 | BINARY(16)      | Yes      | Primary Key      |                                        |
+| task_graph_data_id | BINARY(16)      | Yes      |                  | The data ID in the original task graph |
+| type               | VARBINARY(1024) | Yes      |                  |                                        |
+| payload            | VARBINARY(1024) | Yes      |                  |                                        |
+
+### resource_group_to_shared_value_ref
+
+This table keeps track of all references from resource groups to shared values.
+
+| Column Name       | Data Type  | Not Null | Key / Uniqueness | Notes                             |
+|-------------------|------------|----------|------------------|-----------------------------------|
+| id                | BINARY(16) | Yes      | Index            | Foreign key → shared_values(id)   |
+| resource_group_id | BINARY(16) | Yes      | Index            | Foreign key → resource_groups(id) |
+
+### job_to_shared_value_ref
+
+This table keeps track of all references from jobs to shared values.
+
+| Column Name | Data Type  | Not Null | Key / Uniqueness | Notes                           |
+|-------------|------------|----------|------------------|---------------------------------|
+| id          | BINARY(16) | Yes      | Index            | Foreign key → shared_values(id) |
+| job_id      | BINARY(16) | Yes      | Index            | Foreign key → jobs(id)          |
+
+### values
+
+This table keeps track of all values. The lifecycle of these values binds to the lifecycle of the
+owner job.
+
+| Column Name        | Data Type       | Not Null | Key / Uniqueness | Notes                                    |
+|--------------------|-----------------|----------|------------------|------------------------------------------|
+| id                 | INT UNSIGNED    | Yes      | Primary Key      | AUTO_INCREMENT                           |
+| task_graph_data_id | INT UNSIGNED    | Yes      |                  | The data ID in the original task graph   |
+| owner_job_id       | BINARY(16)      | Yes      | Index            | Foreign key → jobs(id) ON DELETE CASCADE |
+| type               | VARBINARY(1024) | Yes      |                  |                                          |
+| payload            | VARBINARY(1024) |          |                  |                                          |
 
 ### task_inputs
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- |----------| --- | --- |
-| task_id | BINARY(16) | ✅        | Primary Key (task_id, position) | Foreign key → tasks(id) ON DELETE CASCADE |
-| position | INT UNSIGNED | ✅        | Primary Key (task_id, position) |  |
-| type | ENUM (’VALUE’, ‘DATA’) | ✅        |  |  |
-| value_id | INT UNSIGNED |          |  | Foreign key → value(id) |
-| data_id | BINARY(16) |          |  | Foreign key → data(id) |
+This table records all task inputs, each references to a value or a shared value.
+
+| Column Name     | Data Type                      | Not Null | Key / Uniqueness                | Notes                                     |
+|-----------------|--------------------------------|----------|---------------------------------|-------------------------------------------|
+| task_id         | BINARY(16)                     | Yes      | Primary Key (task_id, position) | Foreign key → tasks(id) ON DELETE CASCADE |
+| position        | INT UNSIGNED                   | Yes      | Primary Key (task_id, position) |                                           |
+| type            | ENUM ('VALUE', 'SHARED_VALUE') | Yes      |                                 |                                           |
+| value_id        | INT UNSIGNED                   |          |                                 | Foreign key → values(id)                  |
+| shared_value_id | BINARY(16)                     |          |                                 | Foreign key → shared_values(id)           |
 
 ### task_outputs
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| task_id | BINARY(16) | ✅ | Primary Key | Foreign key → tasks(id) |
-| position | INT UNSIGNED | ✅ | Primary Key |  |
-| type | ENUM (’VALUE’, ‘DATA’) | ✅ |  |  |
-| value_id | INT UNSIGNED |  |  | Foreign key → value(id) |
-| data_id | BINARY(16) |  |  | Foreign key → data(id) |
+This table records all task outputs, each references to a value or a shared value.
 
-### task_dependencies
+| Column Name     | Data Type                      | Not Null | Key / Uniqueness | Notes                           |
+|-----------------|--------------------------------|----------|------------------|---------------------------------|
+| task_id         | BINARY(16)                     | Yes      | Primary Key      | Foreign key → tasks(id)         |
+| position        | INT UNSIGNED                   | Yes      | Primary Key      |                                 |
+| type            | ENUM ('VALUE', 'SHARED_VALUE') | Yes      |                  |                                 |
+| value_id        | INT UNSIGNED                   |          |                  | Foreign key → value(id)         |
+| shared_value_id | BINARY(16)                     |          |                  | Foreign key → shared_values(id) |
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| parent | BINARY(16) | ✅ | Index | Foreign key → tasks(id) |
-| child | BINARY(16) | ✅ | Index | Foreign key → tasks(id) |
-| position | INT UNSIGNED | ✅ |  |  |
+### task_control_flow_deps
+
+This table records all parent-to-child relationships for tasks.
+
+| Column Name | Data Type    | Not Null | Key / Uniqueness | Notes                   |
+|-------------|--------------|----------|------------------|-------------------------|
+| parent      | BINARY(16)   | Yes      | Index            | Foreign key → tasks(id) |
+| child       | BINARY(16)   | Yes      | Index            | Foreign key → tasks(id) |
 
 ### task_instances
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Primary Key |  |
-| task_id | BINARY(16) | ✅ |  | Foreign key → tasks(id) |
-| start_time | TIMESTAMP | ✅ |  | DEFAULT CURRENT_TIMESTAMP |
+This table contains the metadata of all task instances.
 
-### data_locality
+| Column Name | Data Type  | Not Null | Key / Uniqueness | Notes                     |
+|-------------|------------|----------|------------------|---------------------------|
+| id          | BINARY(16) | Yes      | Primary Key      |                           |
+| task_id     | BINARY(16) | Yes      |                  | Foreign key → tasks(id)   |
+| start_time  | TIMESTAMP  | Yes      |                  | DEFAULT CURRENT_TIMESTAMP |
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Index | Foreign key → data(id) |
-| address | VARCHAR(40) | ✅ |  |  |
+### shared_value_localities
 
-### resource_group_to_data_ref
+This table keeps track of all localities associated with shared values.
 
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Index | Foreign key → data(id) |
-| resource_group_id | BINARY(16) | ✅ | Index | Foreign key → resource_groups(id) |
-
-### job_to_data_ref
-
-| Column Name | Data Type | Not Null | Key / Uniqueness | Notes |
-| --- | --- | --- | --- | --- |
-| id | BINARY(16) | ✅ | Index | Foreign key → data(id) |
-| job_id | BINARY(16) | ✅ | Index | Foreign key → jobs(id) |
+| Column Name | Data Type   | Not Null | Key / Uniqueness | Notes                           |
+|-------------|-------------|----------|------------------|---------------------------------|
+| id          | BINARY(16)  | Yes      | Index            | Foreign key → shared_values(id) |
+| address     | VARCHAR(40) | Yes      |                  |                                 |
