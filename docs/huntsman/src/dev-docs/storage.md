@@ -40,7 +40,7 @@ This table contains the metadata of each job.
 | Column Name       | Data Type                                                             | Not Null | Key / Uniqueness | Notes                                               |
 |-------------------|-----------------------------------------------------------------------|----------|------------------|-----------------------------------------------------|
 | id                | BINARY(16)                                                            | Yes      | Primary Key      |                                                     |
-| resource_group_id | VARBINARY(16)                                                         | Yes      | Index            | Foreign Key → resource_groups(id) ON DELETE CASCADE |
+| resource_group_id | BINARY(16)                                                            | Yes      | Index            | Foreign Key → resource_groups(id) ON DELETE CASCADE |
 | creation_time     | TIMESTAMP                                                             | Yes      | Index            | DEFAULT CURRENT_TIMESTAMP                           |
 | state             | ENUM ('RUNNING', 'PENDING_RETRY', 'SUCCEEDED', 'FAILED', 'CANCELLED') | Yes      | Index            | DEFAULT 'RUNNING'                                   |
 | max_num_retries   | INT UNSIGNED                                                          | Yes      |                  | DEFAULT 5                                           |
