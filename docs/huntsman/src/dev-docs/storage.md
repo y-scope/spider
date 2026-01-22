@@ -15,7 +15,7 @@ This table contains worker information and their heartbeats.
 
 ### schedulers
 
-This table contains worker information and their heartbeats.
+This table contains scheduler information and their heartbeats.
 
 | Column Name | Data Type     | Not Null | Key / Uniqueness | Notes                                                 |
 |-------------|---------------|----------|------------------|-------------------------------------------------------|
@@ -161,7 +161,7 @@ This table records all task outputs, each references to a value or a shared valu
 | task_id         | BINARY(16)                     | Yes      | Primary Key      | Foreign key → tasks(id)         |
 | position        | INT UNSIGNED                   | Yes      | Primary Key      |                                 |
 | type            | ENUM ('VALUE', 'SHARED_VALUE') | Yes      |                  |                                 |
-| value_id        | INT UNSIGNED                   |          |                  | Foreign key → value(id)         |
+| value_id        | INT UNSIGNED                   |          |                  | Foreign key → values(id)        |
 | shared_value_id | BINARY(16)                     |          |                  | Foreign key → shared_values(id) |
 
 ### task_control_flow_deps
