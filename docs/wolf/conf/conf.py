@@ -1,10 +1,12 @@
+from datetime import date
+
 # -- Project information -------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "Wolf"
 
 # NOTE: We don't include a period after "Inc" since the theme adds one already.
-copyright = "2024-2025 YScope Inc"
+copyright = f"2024-{date.today().year} YScope Inc"
 
 # -- General configuration -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
