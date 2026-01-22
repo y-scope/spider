@@ -12,10 +12,18 @@ Storage
 ^^^
 Spider's storage system.
 :::
+
+:::{grid-item-card}
+:link: task-graph
+Task graph
+^^^
+Spider's task graph design.
+:::
 ::::
 
 :::{toctree}
 :hidden:
 
 storage
+task-graph
 :::
