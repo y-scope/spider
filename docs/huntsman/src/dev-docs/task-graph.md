@@ -14,7 +14,7 @@ A task is a vertex in the task graph. Each task contains metadata required for e
 * TDL package name: The identifier of the TDL package that contains the task function
   implementation.
 * Task function name: The name of the function that implements the task's logic.
-* Other metadata such as maximum number of retires allowed.
+* Other metadata such as maximum number of retries allowed.
 
 Tasks are classified based on their position in the graph:
 
