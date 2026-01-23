@@ -88,7 +88,6 @@ impl DataTypeDescriptor {
     /// # Errors
     ///
     /// * Forwards [`serde_json::from_str`]'s return values on failure.
-    /// * Forwards [`Self::validate`]'s return values on failure.
     pub fn from_json(json: &str) -> Result<Self, Error> {
         serde_json::from_str(json).map_err(Into::into)
     }
@@ -123,7 +122,6 @@ impl DataTypeDescriptor {
     /// Returns an error if:
     ///
     /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
-    /// * Forwards [`Self::validate`]'s return values on failure.
     pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
         rmp_serde::from_slice(bytes).map_err(Into::into)
     }
