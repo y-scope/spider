@@ -35,7 +35,7 @@ pub struct BytesTypeDescriptor {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MapKeyTypeDescriptor {
     Int(IntTypeDescriptor),
-    String(BytesTypeDescriptor),
+    Bytes(BytesTypeDescriptor),
 }
 
 /// Type descriptor for all supported types of a value.
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn test_map_with_string_key() {
         let value_descriptor = ValueTypeDescriptor::map(
-            MapKeyTypeDescriptor::String(BytesTypeDescriptor {}),
+            MapKeyTypeDescriptor::Bytes(BytesTypeDescriptor {}),
             ValueTypeDescriptor::int64(),
         );
 
@@ -428,15 +428,15 @@ mod tests {
 
     #[test]
     fn test_complex_nesting() {
-        // Map<String, List<Map<Int32, List<Map<Int64, List<Map<String, Bytes>>>>>>>
+        // Map<Bytes, List<Map<Int32, List<Map<Int64, List<Map<Bytes, Bytes>>>>>>>
         let value_descriptor = ValueTypeDescriptor::map(
-            MapKeyTypeDescriptor::String(BytesTypeDescriptor {}),
+            MapKeyTypeDescriptor::Bytes(BytesTypeDescriptor {}),
             ValueTypeDescriptor::list(ValueTypeDescriptor::map(
                 MapKeyTypeDescriptor::Int(IntTypeDescriptor::Int32),
                 ValueTypeDescriptor::list(ValueTypeDescriptor::map(
                     MapKeyTypeDescriptor::Int(IntTypeDescriptor::Int64),
                     ValueTypeDescriptor::list(ValueTypeDescriptor::map(
-                        MapKeyTypeDescriptor::String(BytesTypeDescriptor {}),
+                        MapKeyTypeDescriptor::Bytes(BytesTypeDescriptor {}),
                         ValueTypeDescriptor::bytes(),
                     )),
                 )),
