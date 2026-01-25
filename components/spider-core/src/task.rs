@@ -1,7 +1,9 @@
 mod type_descriptor;
+mod task_graph;
 
 use thiserror::Error;
 pub use type_descriptor::*;
+pub use task_graph::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -16,10 +18,10 @@ pub enum Error {
 
     #[error("Invalid struct name: {0}")]
     InvalidStructName(String),
-}
 
-/// Represents a task in the Spider scheduling framework.
-pub struct Task {}
+    #[error("Invalid task inputs: {0}")]
+    InvalidTaskInputs(String),
+}
 
 /// Enum for all possible states of a task.
 pub enum TaskState {
