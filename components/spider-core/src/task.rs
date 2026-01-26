@@ -1,9 +1,9 @@
-mod type_descriptor;
 mod task_graph;
+mod type_descriptor;
 
+pub use task_graph::*;
 use thiserror::Error;
 pub use type_descriptor::*;
-pub use task_graph::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -32,9 +32,6 @@ pub enum TaskState {
     Failed(String),
     Cancelled,
 }
-
-/// Represents a directed acyclic graph (DAG) of tasks.
-pub struct TaskGraph {}
 
 /// Represents metadata associated with a task.
 pub struct TaskMetadata {}
