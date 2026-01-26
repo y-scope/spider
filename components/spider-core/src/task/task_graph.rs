@@ -210,7 +210,7 @@ impl TaskGraph {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::compute_dependencies_from_inputs`]'s return values on failure.
+    /// * Forwards [`Self::compute_and_update_dependencies_from_inputs`]'s return values on failure.
     #[allow(clippy::needless_pass_by_value)]
     pub fn insert_task(
         &mut self,
@@ -221,8 +221,12 @@ impl TaskGraph {
         input_sources: Option<Vec<TaskInputOutputIndex>>,
     ) -> Result<TaskIndex, Error> {
         let task_idx = self.get_next_task_index();
-        let (input_dep_indices, parent_indices) =
-            self.compute_dependencies_from_inputs(task_idx, &positional_inputs, input_sources)?;
+        let (input_dep_indices, parent_indices) = self
+            .compute_and_update_dependencies_from_inputs(
+                task_idx,
+                &positional_inputs,
+                input_sources,
+            )?;
 
         let mut output_dep_indices: Vec<DataflowDependencyIndex> = Vec::new();
         for (position, output_type) in positional_outputs.into_iter().enumerate() {
@@ -291,11 +295,9 @@ impl TaskGraph {
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
     /// inputs.
     ///
-    /// # NOTE
-    ///
-    /// On success, this method mutates the task graph by registering the given task as a child of
-    /// the computed parent tasks. This mutation occurs **after** all inputs have been validated. If
-    /// input validation fails, the task graph remains unchanged.
+    /// On success, this method also updates the task graph by registering the given task as a child
+    /// of the computed parent tasks. This mutation occurs **after** all inputs have been validated.
+    /// If input validation fails, the task graph remains unchanged.
     ///
     /// # Returns
     ///
@@ -319,7 +321,7 @@ impl TaskGraph {
     ///   non-existent data-flow dependencies.
     /// * The referenced data-flow dependencies have no source task.
     /// * Any computed parent task indices reference non-existent tasks.
-    fn compute_dependencies_from_inputs(
+    fn compute_and_update_dependencies_from_inputs(
         &mut self,
         task_idx: TaskIndex,
         inputs: &[DataTypeDescriptor],
