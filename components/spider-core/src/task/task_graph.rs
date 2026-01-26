@@ -69,7 +69,7 @@ impl Task {
 
     /// # Returns
     ///
-    /// Whether this task has no child tasks. A task with no parent tasks is considered an output
+    /// Whether this task has no child tasks. A task with no child tasks is considered an output
     /// task.
     #[must_use]
     pub const fn is_output_task(&self) -> bool {
@@ -288,15 +288,14 @@ impl TaskGraph {
         self.dataflow_deps.get(*output_dep_idx)
     }
 
-    /// Computes the input data-flow dependencies and parent task indices for a task
-    /// based on its inputs.
+    /// Computes the input data-flow dependencies and parent task indices for a task based on its
+    /// inputs.
     ///
     /// # NOTE
     ///
-    /// On success, this method mutates the task graph by registering the given task
-    /// as a child of the computed parent tasks. This mutation occurs **after** all
-    /// inputs have been validated. If input validation fails, the task graph remains
-    /// unchanged.
+    /// On success, this method mutates the task graph by registering the given task as a child of
+    /// the computed parent tasks. This mutation occurs **after** all inputs have been validated. If
+    /// input validation fails, the task graph remains unchanged.
     ///
     /// # Returns
     ///
@@ -909,7 +908,7 @@ mod tests {
         assert_eq!(task_8.get_input_dep_indices(), &vec![6, 5]);
         assert_eq!(task_8.get_output_dep_indices(), &vec![16]);
 
-        // Validate task_8
+        // Validate task_9
         let task_9 = graph.get_task(9).expect("task_9 should exist");
         assert_eq!(task_9.get_index(), 9);
         assert_eq!(task_9.get_tdl_package(), TEST_PACKAGE);
