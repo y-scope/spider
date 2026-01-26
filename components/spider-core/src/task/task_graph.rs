@@ -1617,7 +1617,7 @@ mod tests {
         ));
     }
 
-    /// Tests error handling when input type doesn't match the source output type.
+    /// Tests error handling when the input type doesn't match the source output type.
     #[test]
     fn test_insert_task_type_mismatch() {
         let mut graph = TaskGraph::default();
@@ -1661,7 +1661,7 @@ mod tests {
         );
     }
 
-    /// Tests error handling when input source references an invalid task index.
+    /// Tests error handling when the input source references an invalid task index.
     #[test]
     fn test_insert_task_invalid_task_index() {
         let mut graph = TaskGraph::default();
@@ -1695,7 +1695,7 @@ mod tests {
         ));
     }
 
-    /// Tests error handling when input source references an invalid output position.
+    /// Tests error handling when the input source references an invalid output position.
     #[test]
     fn test_insert_task_invalid_output_position() {
         let mut graph = TaskGraph::default();
