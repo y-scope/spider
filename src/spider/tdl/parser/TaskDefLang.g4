@@ -278,6 +278,128 @@ builtinType returns [std::unique_ptr<spider::tdl::parser::ast::Node> retval]
 }
 ;
 
-ID: [a-zA-Z_][a-zA-Z0-9_]* ;
 SPACE:  [ \t\r\n] -> skip ;
 COMMENT: '//' (~[\r\n])* -> skip;
+
+RESERVED_CONTROL_FLOW_WORDS
+: 'if'
+| 'else'
+| 'elif'
+| 'switch'
+| 'case'
+| 'default'
+| 'match'
+| 'while'
+| 'for'
+| 'loop'
+| 'do'
+| 'break'
+| 'continue'
+| 'return'
+| 'goto'
+| 'pass'
+| 'yield'
+;
+
+RESERVED_DEF_WORDS
+: 'class'
+| 'struct'
+| 'enum'
+| 'union'
+| 'interface'
+| 'namespace'
+| 'using'
+| 'typedef'
+| 'decltype'
+| 'def'
+| 'dataclass'
+| 'fn'
+| 'let'
+| 'module'
+| 'import'
+| 'template'
+| 'requires'
+| 'concept'
+;
+
+RESERVED_TYPE_AND_STORAGE_WORDS
+: 'int'
+| 'long'
+| 'short'
+| 'byte'
+| 'signed'
+| 'unsigned'
+| 'char'
+| 'string'
+| 'str'
+| 'float'
+| 'double'
+| 'bool'
+| 'void'
+| 'const'
+| 'static'
+| 'auto'
+| 'volatile'
+| 'register'
+| 'final'
+| 'abstract'
+| 'this'
+| 'self'
+| 'new'
+| 'delete'
+| 'null'
+| 'nullptr'
+| 'None'
+| 'true'
+| 'false'
+| 'True'
+| 'False'
+;
+
+RESERVED_ERROR_HANDLING_WORDS
+: 'try'
+| 'catch'
+| 'throw'
+| 'throws'
+| 'raise'
+| 'finally'
+| 'assert'
+| 'except'
+;
+
+RESERVED_ACCESS_CONTROL_WORDS
+: 'public'
+| 'private'
+| 'protected'
+| 'internal'
+| 'friend'
+;
+
+RESERVED_OTHER_WORDS
+: 'operator'
+| 'inline'
+| 'virtual'
+| 'override'
+| 'extern'
+| 'sizeof'
+| 'await'
+| 'async'
+| 'with'
+| 'global'
+| 'nonlocal'
+| 'and'
+| 'or'
+| 'not'
+| 'in'
+| 'is'
+| 'del'
+| 'lambda'
+| 'from'
+| 'as'
+| 'constexpr'
+| 'nodiscard'
+| 'noexcept'
+;
+
+// ID must be defined after RESERVED_* so that the reserved words get higher precedence.
+ID: [a-zA-Z_][a-zA-Z0-9_]* ;

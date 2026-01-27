@@ -331,6 +331,21 @@ TEST_CASE("Parser errors", "[tdl][parser]") {
         REQUIRE(optional_error_code.value()
                 == Namespace::ErrorCode{Namespace::ErrorCodeEnum::DuplicatedFunctionName});
     }
+
+    SECTION("Using reserved words") {
+        constexpr std::string_view cNamespaceWithReservedWord{" namespace if { fn empty(); }"};
+        std::istringstream input_stream{std::string{cNamespaceWithReservedWord}};
+        auto const parse_result{parse_translation_unit_from_istream(input_stream)};
+        REQUIRE(parse_result.has_error());
+        auto const& error{parse_result.error()};
+
+        constexpr std::string_view cExpectedErrorMessage{
+                "Parser: mismatched input 'if' expecting ID"
+        };
+        constexpr SourceLocation cExpectedSourceLocation{1, 11};
+        REQUIRE(error.get_message() == cExpectedErrorMessage);
+        REQUIRE(error.get_source_location() == cExpectedSourceLocation);
+    }
 }
 }  // namespace
 

@@ -27,7 +27,9 @@ public:
     T__0 = 1, T__1 = 2, T__2 = 3, T__3 = 4, T__4 = 5, T__5 = 6, T__6 = 7, 
     T__7 = 8, T__8 = 9, T__9 = 10, T__10 = 11, T__11 = 12, T__12 = 13, T__13 = 14, 
     T__14 = 15, T__15 = 16, T__16 = 17, T__17 = 18, T__18 = 19, T__19 = 20, 
-    T__20 = 21, T__21 = 22, T__22 = 23, ID = 24, SPACE = 25, COMMENT = 26
+    T__20 = 21, T__21 = 22, T__22 = 23, SPACE = 24, COMMENT = 25, RESERVED_CONTROL_FLOW_WORDS = 26, 
+    RESERVED_DEF_WORDS = 27, RESERVED_TYPE_AND_STORAGE_WORDS = 28, RESERVED_ERROR_HANDLING_WORDS = 29, 
+    RESERVED_ACCESS_CONTROL_WORDS = 30, RESERVED_OTHER_WORDS = 31, ID = 32
   };
 
   explicit TaskDefLangLexer(antlr4::CharStream *input);
