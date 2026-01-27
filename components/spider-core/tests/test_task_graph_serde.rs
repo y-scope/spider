@@ -387,3 +387,38 @@ fn test_serde() {
         .expect("deserialization from JSON should succeed");
     assert_eq!(task_graph, deserialized_task_graph);
 }
+
+#[test]
+fn test_invalid_schema_version() {
+    let invalid_versions = vec![
+        serde_json::Value::String("0.0.0".to_string()),
+        serde_json::Value::Bool(true),
+        serde_json::Value::Null,
+        serde_json::Value::Number(123.into()),
+    ];
+    for invalid_version in invalid_versions {
+        let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+        task_graph["schema_version"] = serde_json::json!(invalid_version);
+        assert!(TaskGraph::from_json(&task_graph.to_string()).is_err());
+    }
+}
+
+#[test]
+fn test_incompatible_schema_version() {
+    let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+    // The major version is large enough that we are unlikely to use
+    task_graph["schema_version"] = serde_json::json!("100000.0.0");
+    assert!(TaskGraph::from_json(&task_graph.to_string()).is_err());
+}
+
+#[test]
+fn test_invalid_task_descriptor() {
+    let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+    // Remove the first task descriptor, which makes the task graph invalid since other tasks depend
+    // on the output of the first task.
+    task_graph["tasks"]
+        .as_array_mut()
+        .expect("tasks should be an array")
+        .remove(0);
+    assert!(TaskGraph::from_json(&task_graph.to_string()).is_err());
+}
