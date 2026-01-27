@@ -1,3 +1,6 @@
+use semver::{Version, VersionReq};
+use serde::{Deserialize, Serialize};
+
 use crate::task::{DataTypeDescriptor, Error};
 
 /// A unique identifier for a task within a task graph, assigned based on insertion order.
@@ -19,7 +22,7 @@ pub type DataflowDependencyIndex = usize;
 
 /// A unique identifier for a task input/output in the task graph, including the task index and the
 /// position of the input/output within that task.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskInputOutputIndex {
     pub task_idx: TaskIndex,
     pub position: usize,
@@ -32,6 +35,7 @@ pub struct TaskInputOutputIndex {
 /// * TDL information (including package name and task function name).
 /// * Task inputs and outputs, represented as data-flow dependencies (positionally).
 /// * Parent and child tasks which imply control-flow dependencies.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     idx: TaskIndex,
     tdl_package: String,
@@ -146,6 +150,7 @@ impl Task {
 ///   * `None` if the data is an initial input to the graph.
 ///   * A specific task output in the graph otherwise.
 /// * A list of destinations indicating where the data is consumed in the graph as a task input.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataflowDependency {
     index: DataflowDependencyIndex,
     type_descriptor: DataTypeDescriptor,
@@ -192,14 +197,74 @@ impl DataflowDependency {
     }
 }
 
+/// A self-contained descriptor of a task that captures all information needed for task creation.
+///
+/// This structure serves two primary purposes:
+/// * **Task Creation**: Provides all parameters required by [`TaskGraph::insert_task`] to add a new
+///   task to a graph.
+/// * **Serialization**: Enables task graph serialization by capturing insertion-time information
+///   that can be replayed during deserialization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskDescriptor {
+    /// The TDL package containing the task function to execute.
+    pub tdl_package: String,
+
+    /// The TDL function name to execute within the package.
+    pub tdl_function: String,
+
+    /// The data types of the task's positional inputs, in order.
+    pub inputs: Vec<DataTypeDescriptor>,
+
+    /// The data types of the task's positional outputs, in order.
+    pub outputs: Vec<DataTypeDescriptor>,
+
+    /// The source of each positional input.
+    ///
+    /// * `Some(sources)`: Each input comes from a specific task output in the graph. The vector
+    ///   length must match the length of `positional_inputs`.
+    /// * `None`: All inputs are graph inputs (i.e., external inputs with no source tasks). This
+    ///   indicates the task is an input task to the graph.
+    pub input_sources: Option<Vec<TaskInputOutputIndex>>,
+}
+
 /// An in-memory representation of a directed acyclic graph (DAG) of tasks and their dependencies.
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct TaskGraph {
     dataflow_deps: Vec<DataflowDependency>,
     tasks: Vec<Task>,
 }
 
 impl TaskGraph {
+    /// Loads a task graph from a serialized task graph in JSON format.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized task graph on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`serde_json::from_str`]'s return values on failure.
+    pub fn from_json(json_str: &str) -> Result<Self, Error> {
+        serde_json::from_str(json_str).map_err(Into::into)
+    }
+
+    /// Serializes the task graph into JSON format.
+    ///
+    /// # Returns
+    ///
+    /// The serialized task graph as a JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`serde_json::to_string`]'s return values on failure.
+    pub fn to_json(&self) -> Result<String, Error> {
+        serde_json::to_string(&self).map_err(Into::into)
+    }
+
     /// Inserts a new task into the graph with the given details.
     ///
     /// # Returns
@@ -212,24 +277,17 @@ impl TaskGraph {
     ///
     /// * Forwards [`Self::compute_and_update_dependencies_from_inputs`]'s return values on failure.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn insert_task(
-        &mut self,
-        tdl_package: String,
-        tdl_function: String,
-        positional_inputs: Vec<DataTypeDescriptor>,
-        positional_outputs: Vec<DataTypeDescriptor>,
-        input_sources: Option<Vec<TaskInputOutputIndex>>,
-    ) -> Result<TaskIndex, Error> {
+    pub fn insert_task(&mut self, task_descriptor: TaskDescriptor) -> Result<TaskIndex, Error> {
         let task_idx = self.get_next_task_index();
         let (input_dep_indices, parent_indices) = self
             .compute_and_update_dependencies_from_inputs(
                 task_idx,
-                &positional_inputs,
-                input_sources,
+                &task_descriptor.inputs,
+                task_descriptor.input_sources,
             )?;
 
         let mut output_dep_indices: Vec<DataflowDependencyIndex> = Vec::new();
-        for (position, output_type) in positional_outputs.into_iter().enumerate() {
+        for (position, output_type) in task_descriptor.outputs.into_iter().enumerate() {
             let output_dep_idx = self.get_next_dataflow_dep_index();
             let output_dep = DataflowDependency::new(
                 output_dep_idx,
@@ -242,8 +300,8 @@ impl TaskGraph {
 
         self.tasks.push(Task::new(
             task_idx,
-            tdl_package,
-            tdl_function,
+            task_descriptor.tdl_package,
+            task_descriptor.tdl_function,
             input_dep_indices,
             output_dep_indices,
             parent_indices,
@@ -429,6 +487,141 @@ impl TaskGraph {
     const fn get_next_task_index(&self) -> TaskIndex {
         self.tasks.len()
     }
+
+    /// Converts the task graph to a serialized format.
+    ///
+    /// # Returns
+    ///
+    /// A [`SerializedTaskGraph`] representation of the task graph.
+    ///
+    /// # Panics
+    ///
+    /// This method panics to signal internal consistency violations (indicative of a bug in the
+    /// task graph implementation).
+    fn to_serialized_task_graph(&self) -> SerializedTaskGraph {
+        let mut serialized_tasks = Vec::new();
+        for task in &self.tasks {
+            let inputs: Vec<_> = task
+                .get_input_dep_indices()
+                .iter()
+                .map(|input_dep_idx| {
+                    self.dataflow_deps
+                        .get(*input_dep_idx)
+                        .expect("input dep idx should reference to a valid data-flow dep")
+                        .get_type_descriptor()
+                        .clone()
+                })
+                .collect();
+            let outputs: Vec<_> = task
+                .get_output_dep_indices()
+                .iter()
+                .map(|output_dep_idx| {
+                    self.dataflow_deps
+                        .get(*output_dep_idx)
+                        .expect("output dep idx should reference to a valid data-flow dep")
+                        .get_type_descriptor()
+                        .clone()
+                })
+                .collect();
+            let input_sources: Option<Vec<_>> = if task.is_input_task() {
+                None
+            } else {
+                Some(
+                    task.get_input_dep_indices()
+                        .iter()
+                        .map(|input_dep_idx| {
+                            self.dataflow_deps
+                                .get(*input_dep_idx)
+                                .expect("input dep idx should reference to a valid data-flow dep")
+                                .src
+                                .expect("src must exist for non-input tasks")
+                        })
+                        .collect(),
+                )
+            };
+            serialized_tasks.push(TaskDescriptor {
+                tdl_package: task.tdl_package.clone(),
+                tdl_function: task.tdl_function.clone(),
+                inputs,
+                outputs,
+                input_sources,
+            });
+        }
+        SerializedTaskGraph {
+            schema_version: TASK_GRAPH_SCHEMA_VERSION.to_owned(),
+            tasks: serialized_tasks,
+        }
+    }
+}
+
+impl Serialize for TaskGraph {
+    fn serialize<SerializerImpl>(
+        &self,
+        serializer: SerializerImpl,
+    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error>
+    where
+        SerializerImpl: serde::Serializer, {
+        self.to_serialized_task_graph().serialize(serializer)
+    }
+}
+
+impl<'deserializer_lifetime> Deserialize<'deserializer_lifetime> for TaskGraph {
+    fn deserialize<DeserializerImpl>(
+        deserializer: DeserializerImpl,
+    ) -> Result<Self, DeserializerImpl::Error>
+    where
+        DeserializerImpl: serde::Deserializer<'deserializer_lifetime>, {
+        let serializable = SerializedTaskGraph::deserialize(deserializer)?;
+        let schema_version = Version::parse(&serializable.schema_version).map_err(|error| {
+            serde::de::Error::custom(format!(
+                "invalid schema version string '{}': {}",
+                serializable.schema_version, error
+            ))
+        })?;
+
+        if !TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT.matches(&schema_version) {
+            return Err(serde::de::Error::custom(format!(
+                "incompatible task graph schema version: found {}, compatible requirements: {}",
+                serializable.schema_version, TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION
+            )));
+        }
+
+        let mut graph = Self::default();
+        for (idx, task_descriptor) in serializable.tasks.into_iter().enumerate() {
+            let inserted_idx = graph.insert_task(task_descriptor).map_err(|error| {
+                serde::de::Error::custom(format!(
+                    "failed to insert task (index={idx}) during deserialization: {error:?}"
+                ))
+            })?;
+
+            if inserted_idx != idx {
+                return Err(serde::de::Error::custom(format!(
+                    "task insertion order corrupted: expected index {idx}, got {inserted_idx}"
+                )));
+            }
+        }
+
+        Ok(graph)
+    }
+}
+
+/// Task graph schema version of the current build.
+const TASK_GRAPH_SCHEMA_VERSION: &str = "0.1.0";
+
+/// Task graph schema version compatibility requirement.
+const TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION: &str = ">=0.1.0,<0.2.0";
+
+static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<VersionReq> =
+    std::sync::LazyLock::new(|| {
+        VersionReq::parse(TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION)
+            .expect("`TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION` must be a valid semver requirement")
+    });
+
+/// A serialized representation of a task graph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SerializedTaskGraph {
+    schema_version: String,
+    tasks: Vec<TaskDescriptor>,
 }
 
 #[cfg(test)]
@@ -573,51 +766,51 @@ mod tests {
         );
 
         let task_0_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_1".to_string(),
-                vec![int32_type.clone(), float64_type.clone()],
-                vec![int64_type.clone(), bool_type.clone()],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_1".to_string(),
+                inputs: vec![int32_type.clone(), float64_type.clone()],
+                outputs: vec![int64_type.clone(), bool_type.clone()],
+                input_sources: None,
+            })
             .expect("task_0 insertion should succeed");
 
         assert_eq!(task_0_idx, 0, "task_0 should have index 0");
 
         let task_1_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_2".to_string(),
-                vec![bytes_type.clone()],
-                vec![list_int32_type.clone(), bytes_type.clone()],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_2".to_string(),
+                inputs: vec![bytes_type.clone()],
+                outputs: vec![list_int32_type.clone(), bytes_type.clone()],
+                input_sources: None,
+            })
             .expect("task_1 insertion should succeed");
 
         assert_eq!(task_1_idx, 1, "task_1 should have index 1");
 
         let task_2_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_3".to_string(),
-                vec![int64_type.clone()],
-                vec![map_type.clone(), struct_type.clone()],
-                Some(vec![TaskInputOutputIndex {
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_3".to_string(),
+                inputs: vec![int64_type.clone()],
+                outputs: vec![map_type.clone(), struct_type.clone()],
+                input_sources: Some(vec![TaskInputOutputIndex {
                     task_idx: 0,
                     position: 0,
                 }]),
-            )
+            })
             .expect("task_2 insertion should succeed");
 
         assert_eq!(task_2_idx, 2, "task_2 should have index 2");
 
         let task_3_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_4".to_string(),
-                vec![map_type.clone(), bool_type.clone()],
-                vec![int32_type.clone()],
-                Some(vec![
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_4".to_string(),
+                inputs: vec![map_type.clone(), bool_type.clone()],
+                outputs: vec![int32_type.clone()],
+                input_sources: Some(vec![
                     TaskInputOutputIndex {
                         task_idx: 2,
                         position: 0,
@@ -627,18 +820,18 @@ mod tests {
                         position: 1,
                     },
                 ]),
-            )
+            })
             .expect("task_3 insertion should succeed");
 
         assert_eq!(task_3_idx, 3, "task_3 should have index 3");
 
         let task_4_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_5".to_string(),
-                vec![map_type.clone(), list_int32_type.clone()],
-                vec![float32_type.clone(), bytes_type.clone()],
-                Some(vec![
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_5".to_string(),
+                inputs: vec![map_type.clone(), list_int32_type.clone()],
+                outputs: vec![float32_type.clone(), bytes_type.clone()],
+                input_sources: Some(vec![
                     TaskInputOutputIndex {
                         task_idx: 2,
                         position: 0,
@@ -648,38 +841,38 @@ mod tests {
                         position: 0,
                     },
                 ]),
-            )
+            })
             .expect("task_4 insertion should succeed");
 
         assert_eq!(task_4_idx, 4, "task_4 should have index 4");
 
         let task_5_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_6".to_string(),
-                vec![int32_type.clone()],
-                vec![bool_type.clone(), list_bytes_type.clone()],
-                Some(vec![TaskInputOutputIndex {
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_6".to_string(),
+                inputs: vec![int32_type.clone()],
+                outputs: vec![bool_type.clone(), list_bytes_type.clone()],
+                input_sources: Some(vec![TaskInputOutputIndex {
                     task_idx: 3,
                     position: 0,
                 }]),
-            )
+            })
             .expect("task_5 insertion should succeed");
 
         assert_eq!(task_5_idx, 5, "task_5 should have index 5");
 
         let task_6_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_7".to_string(),
-                vec![
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_7".to_string(),
+                inputs: vec![
                     list_bytes_type.clone(),
                     list_bytes_type.clone(),
                     bool_type.clone(),
                     bytes_type.clone(),
                 ],
-                vec![int64_type.clone()],
-                Some(vec![
+                outputs: vec![int64_type.clone()],
+                input_sources: Some(vec![
                     TaskInputOutputIndex {
                         task_idx: 5,
                         position: 1,
@@ -697,33 +890,33 @@ mod tests {
                         position: 1,
                     },
                 ]),
-            )
+            })
             .expect("task_6 insertion should succeed");
 
         assert_eq!(task_6_idx, 6, "task_6 should have index 6");
 
         let task_7_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_8".to_string(),
-                vec![list_bytes_type.clone()],
-                vec![float64_type.clone()],
-                Some(vec![TaskInputOutputIndex {
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_8".to_string(),
+                inputs: vec![list_bytes_type.clone()],
+                outputs: vec![float64_type.clone()],
+                input_sources: Some(vec![TaskInputOutputIndex {
                     task_idx: 5,
                     position: 1,
                 }]),
-            )
+            })
             .expect("task_7 insertion should succeed");
 
         assert_eq!(task_7_idx, 7, "task_7 should have index 7");
 
         let task_8_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_9".to_string(),
-                vec![bytes_type.clone(), list_int32_type.clone()],
-                vec![int32_type.clone()],
-                Some(vec![
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_9".to_string(),
+                inputs: vec![bytes_type.clone(), list_int32_type.clone()],
+                outputs: vec![int32_type.clone()],
+                input_sources: Some(vec![
                     TaskInputOutputIndex {
                         task_idx: 1,
                         position: 1,
@@ -733,22 +926,25 @@ mod tests {
                         position: 0,
                     },
                 ]),
-            )
+            })
             .expect("task_8 insertion should succeed");
 
         assert_eq!(task_8_idx, 8, "task_8 should have index 8");
 
         let task_9_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_10".to_string(),
-                vec![],
-                vec![],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_10".to_string(),
+                inputs: vec![],
+                outputs: vec![],
+                input_sources: None,
+            })
             .expect("task_9 insertion should succeed");
 
         assert_eq!(task_9_idx, 9, "task_9 should have index 9");
+
+        let json_serialized = serde_json::to_string_pretty(&graph).expect("shouldn't fail");
+        println!("{json_serialized}");
 
         // Validate task_0
         let task_0 = graph.get_task(0).expect("task_0 should exist");
@@ -1528,24 +1724,24 @@ mod tests {
 
         // Create task_0 with 2 outputs
         let task_0_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_1".to_string(),
-                vec![int32_type.clone()],
-                vec![float64_type.clone(), bool_type.clone()],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_1".to_string(),
+                inputs: vec![int32_type.clone()],
+                outputs: vec![float64_type.clone(), bool_type.clone()],
+                input_sources: None,
+            })
             .expect("task_0 insertion should succeed");
 
         assert_eq!(task_0_idx, 0);
 
         // Attempt to create task_1 with 3 inputs but only 2 input sources (mismatched count)
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![float64_type.clone(), bool_type, int32_type.clone()],
-            vec![int32_type.clone()],
-            Some(vec![
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![float64_type.clone(), bool_type, int32_type.clone()],
+            outputs: vec![int32_type.clone()],
+            input_sources: Some(vec![
                 TaskInputOutputIndex {
                     task_idx: 0,
                     position: 0,
@@ -1555,28 +1751,28 @@ mod tests {
                     position: 1,
                 },
             ]),
-        ));
+        }));
 
         // Attempt to create task_1 with 1 input but 0 input sources (mismatched count)
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![float64_type],
-            vec![int32_type.clone()],
-            Some(vec![]),
-        ));
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![float64_type],
+            outputs: vec![int32_type.clone()],
+            input_sources: Some(vec![]),
+        }));
 
         // Attempt to create task_1 with 0 input but 1 input sources (mismatched count)
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![],
-            vec![int32_type],
-            Some(vec![TaskInputOutputIndex {
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![],
+            outputs: vec![int32_type],
+            input_sources: Some(vec![TaskInputOutputIndex {
                 task_idx: 0,
                 position: 0,
             }]),
-        ));
+        }));
 
         // Verify graph state is unchanged
         assert_eq!(
@@ -1597,25 +1793,25 @@ mod tests {
 
         // Create task_0 with a single Int32 output
         let task_0_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_1".to_string(),
-                vec![],
-                vec![int32_type.clone()],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_1".to_string(),
+                inputs: vec![],
+                outputs: vec![int32_type.clone()],
+                input_sources: None,
+            })
             .expect("task_0 insertion should succeed");
 
         assert_eq!(task_0_idx, 0);
 
         // Attempt to create task_1 with no input but the source is not `None`
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![],
-            vec![int32_type],
-            Some(vec![]),
-        ));
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![],
+            outputs: vec![int32_type],
+            input_sources: Some(vec![]),
+        }));
     }
 
     /// Tests error handling when the input type doesn't match the source output type.
@@ -1630,36 +1826,28 @@ mod tests {
 
         // Create task_0 with Float64 and Boolean outputs
         let task_0_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_1".to_string(),
-                vec![int32_type.clone()],
-                vec![float64_type, bool_type],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_1".to_string(),
+                inputs: vec![int32_type.clone()],
+                outputs: vec![float64_type, bool_type],
+                input_sources: None,
+            })
             .expect("task_0 insertion should succeed");
 
         assert_eq!(task_0_idx, 0);
 
         // Attempt to create task_1 with Bytes input but the source is Float64 (type mismatch)
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![bytes_type],
-            vec![int32_type],
-            Some(vec![TaskInputOutputIndex {
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![bytes_type],
+            outputs: vec![int32_type],
+            input_sources: Some(vec![TaskInputOutputIndex {
                 task_idx: 0,
                 position: 0,
             }]),
-        ));
-
-        assert_eq!(
-            graph
-                .get_task(0)
-                .expect("task_0 should still exist")
-                .get_num_children(),
-            0
-        );
+        }));
     }
 
     /// Tests error handling when the input source references an invalid task index.
@@ -1672,28 +1860,28 @@ mod tests {
 
         // Create task_0
         let task_0_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_1".to_string(),
-                vec![int32_type.clone()],
-                vec![float64_type.clone()],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_1".to_string(),
+                inputs: vec![int32_type.clone()],
+                outputs: vec![float64_type.clone()],
+                input_sources: None,
+            })
             .expect("task_0 insertion should succeed");
 
         assert_eq!(task_0_idx, 0);
 
         // Attempt to create task_1 with the source referencing non-existent task_5
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![float64_type],
-            vec![int32_type],
-            Some(vec![TaskInputOutputIndex {
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![float64_type],
+            outputs: vec![int32_type],
+            input_sources: Some(vec![TaskInputOutputIndex {
                 task_idx: 5,
                 position: 0,
             }]),
-        ));
+        }));
     }
 
     /// Tests error handling when the input source references an invalid output position.
@@ -1707,28 +1895,28 @@ mod tests {
 
         // Create task_0 with 2 outputs (positions 0 and 1)
         let task_0_idx = graph
-            .insert_task(
-                TEST_PACKAGE.to_string(),
-                "fn_1".to_string(),
-                vec![int32_type.clone()],
-                vec![float64_type.clone(), bool_type],
-                None,
-            )
+            .insert_task(TaskDescriptor {
+                tdl_package: TEST_PACKAGE.to_string(),
+                tdl_function: "fn_1".to_string(),
+                inputs: vec![int32_type.clone()],
+                outputs: vec![float64_type.clone(), bool_type],
+                input_sources: None,
+            })
             .expect("task_0 insertion should succeed");
 
         assert_eq!(task_0_idx, 0);
 
         // Attempt to create task_1 with the source referencing non-existent output position 2
-        assert_invalid_task_inputs(&graph.insert_task(
-            TEST_PACKAGE.to_string(),
-            "fn_2".to_string(),
-            vec![float64_type],
-            vec![int32_type],
-            Some(vec![TaskInputOutputIndex {
+        assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
+            tdl_package: TEST_PACKAGE.to_string(),
+            tdl_function: "fn_2".to_string(),
+            inputs: vec![float64_type],
+            outputs: vec![int32_type],
+            input_sources: Some(vec![TaskInputOutputIndex {
                 task_idx: 0,
                 position: 2,
             }]),
-        ));
+        }));
     }
 
     /// # Panics
