@@ -221,7 +221,7 @@ pub struct TaskDescriptor {
     /// The source of each positional input.
     ///
     /// * `Some(sources)`: Each input comes from a specific task output in the graph. The vector
-    ///   length must match the length of `positional_inputs`.
+    ///   length must match the length of `inputs`.
     /// * `None`: All inputs are graph inputs (i.e., external inputs with no source tasks). This
     ///   indicates the task is an input task to the graph.
     pub input_sources: Option<Vec<TaskInputOutputIndex>>,

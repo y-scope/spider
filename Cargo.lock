@@ -210,7 +210,6 @@ name = "spider-core"
 version = "0.1.0"
 dependencies = [
  "non-empty-string",
- "once_cell",
  "rmp-serde",
  "semver",
  "serde",
