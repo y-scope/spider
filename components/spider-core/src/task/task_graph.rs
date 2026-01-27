@@ -616,7 +616,7 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
             .expect("`TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION` must be a valid semver requirement")
     });
 
-/// A serialized representation of a task graph.
+/// Serializable representation of a task graph.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SerializedTaskGraph {
     schema_version: String,
