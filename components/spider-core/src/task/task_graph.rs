@@ -487,18 +487,18 @@ impl TaskGraph {
         self.tasks.len()
     }
 
-    /// Converts the task graph to a serialized format.
+    /// Converts the task graph to its serializable format.
     ///
     /// # Returns
     ///
-    /// A [`SerializedTaskGraph`] representation of the task graph.
+    /// A [`SerializableTaskGraph`] representation of the task graph.
     ///
     /// # Panics
     ///
     /// This method panics to signal internal consistency violations (indicative of a bug in the
     /// task graph implementation).
-    fn to_serialized_task_graph(&self) -> SerializedTaskGraph {
-        let mut serialized_tasks = Vec::new();
+    fn to_serializable(&self) -> SerializableTaskGraph {
+        let mut tasks = Vec::new();
         for task in &self.tasks {
             let inputs: Vec<_> = task
                 .get_input_dep_indices()
@@ -538,7 +538,7 @@ impl TaskGraph {
                         .collect(),
                 )
             };
-            serialized_tasks.push(TaskDescriptor {
+            tasks.push(TaskDescriptor {
                 tdl_package: task.tdl_package.clone(),
                 tdl_function: task.tdl_function.clone(),
                 inputs,
@@ -546,9 +546,9 @@ impl TaskGraph {
                 input_sources,
             });
         }
-        SerializedTaskGraph {
+        SerializableTaskGraph {
             schema_version: TASK_GRAPH_SCHEMA_VERSION.to_owned(),
-            tasks: serialized_tasks,
+            tasks,
         }
     }
 }
@@ -560,7 +560,7 @@ impl Serialize for TaskGraph {
     ) -> Result<SerializerImpl::Ok, SerializerImpl::Error>
     where
         SerializerImpl: serde::Serializer, {
-        self.to_serialized_task_graph().serialize(serializer)
+        self.to_serializable().serialize(serializer)
     }
 }
 
@@ -570,7 +570,7 @@ impl<'deserializer_lifetime> Deserialize<'deserializer_lifetime> for TaskGraph {
     ) -> Result<Self, DeserializerImpl::Error>
     where
         DeserializerImpl: serde::Deserializer<'deserializer_lifetime>, {
-        let serializable = SerializedTaskGraph::deserialize(deserializer)?;
+        let serializable = SerializableTaskGraph::deserialize(deserializer)?;
         let schema_version = Version::parse(&serializable.schema_version).map_err(|error| {
             serde::de::Error::custom(format!(
                 "invalid schema version string '{}': {}",
@@ -618,7 +618,7 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
 
 /// Serializable representation of a task graph.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SerializedTaskGraph {
+struct SerializableTaskGraph {
     schema_version: String,
     tasks: Vec<TaskDescriptor>,
 }
@@ -941,9 +941,6 @@ mod tests {
             .expect("task_9 insertion should succeed");
 
         assert_eq!(task_9_idx, 9, "task_9 should have index 9");
-
-        let json_serialized = serde_json::to_string_pretty(&graph).expect("shouldn't fail");
-        println!("{json_serialized}");
 
         // Validate task_0
         let task_0 = graph.get_task(0).expect("task_0 should exist");
