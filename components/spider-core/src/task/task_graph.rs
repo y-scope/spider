@@ -276,7 +276,6 @@ impl TaskGraph {
     /// Returns an error if:
     ///
     /// * Forwards [`Self::compute_and_update_dependencies_from_inputs`]'s return values on failure.
-    #[allow(clippy::needless_pass_by_value)]
     pub fn insert_task(&mut self, task_descriptor: TaskDescriptor) -> Result<TaskIndex, Error> {
         let task_idx = self.get_next_task_index();
         let (input_dep_indices, parent_indices) = self
