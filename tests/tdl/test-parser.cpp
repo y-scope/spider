@@ -273,8 +273,8 @@ TEST_CASE("Parsing `cTestInput1`", "[tdl][parser]") {
     REQUIRE(serialize_result.value() == cExpectedSerializedAst);
 
     auto struct_spec_dependency_graph{translation_unit->create_struct_spec_dependency_graph()};
-    REQUIRE(struct_spec_dependency_graph.get_num_struct_specs() == 2);
-    REQUIRE(struct_spec_dependency_graph.get_strongly_connected_components().empty());
+    REQUIRE(struct_spec_dependency_graph->get_num_struct_specs() == 2);
+    REQUIRE(struct_spec_dependency_graph->get_strongly_connected_components().empty());
 }
 
 TEST_CASE("Parser errors", "[tdl][parser]") {
