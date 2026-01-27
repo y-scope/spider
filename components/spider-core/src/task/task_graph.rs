@@ -1,5 +1,12 @@
 use semver::{Version, VersionReq};
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize,
+    Serialize,
+    de::{self, MapAccess, Visitor},
+    ser::{SerializeMap, SerializeSeq, Serializer},
+};
+use strum::{EnumCount, IntoEnumIterator};
+use strum_macros::{EnumCount, EnumIter};
 
 use crate::task::{DataTypeDescriptor, Error};
 
@@ -250,6 +257,21 @@ impl TaskGraph {
         serde_json::from_str(json_str).map_err(Into::into)
     }
 
+    /// Loads a task graph from a serialized task graph in `MessagePack` format.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized task graph on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
+    pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
+        rmp_serde::from_slice(bytes).map_err(Into::into)
+    }
+
     /// Serializes the task graph into JSON format.
     ///
     /// # Returns
@@ -263,6 +285,21 @@ impl TaskGraph {
     /// * Forwards [`serde_json::to_string`]'s return values on failure.
     pub fn to_json(&self) -> Result<String, Error> {
         serde_json::to_string(&self).map_err(Into::into)
+    }
+
+    /// Serializes the task graph into `MessagePack` format.
+    ///
+    /// # Returns
+    ///
+    /// The serialized task graph as a `MessagePack` byte vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`rmp_serde::to_vec_named`]'s return values on failure.
+    pub fn to_msgpack(&self) -> Result<Vec<u8>, Error> {
+        rmp_serde::to_vec_named(&self).map_err(Into::into)
     }
 
     /// Inserts a new task into the graph with the given details.
@@ -347,6 +384,11 @@ impl TaskGraph {
             .output_dep_indices
             .get(index.position)?;
         self.dataflow_deps.get(*output_dep_idx)
+    }
+
+    #[must_use]
+    pub const fn get_num_tasks(&self) -> usize {
+        self.tasks.len()
     }
 
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
@@ -487,18 +529,30 @@ impl TaskGraph {
         self.tasks.len()
     }
 
-    /// Converts the task graph to its serializable format.
+    /// Serializes the tasks as a sequence of [`TaskDescriptor`].
+    ///
+    /// # Type Parameters
+    ///
+    /// * `SequenceSerializer`: Serializer for the sequence of task descriptors.
     ///
     /// # Returns
     ///
-    /// A [`SerializableTaskGraph`] representation of the task graph.
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SerializeSeq::serialize_element`]'s return values on failure.
     ///
     /// # Panics
     ///
     /// This method panics to signal internal consistency violations (indicative of a bug in the
     /// task graph implementation).
-    fn to_serializable(&self) -> SerializableTaskGraph {
-        let mut tasks = Vec::new();
+    fn serialize_tasks_as_task_descriptor_seq<SequenceSerializer: SerializeSeq>(
+        &self,
+        sequence: &mut SequenceSerializer,
+    ) -> Result<(), SequenceSerializer::Error> {
         for task in &self.tasks {
             let inputs: Vec<_> = task
                 .get_input_dep_indices()
@@ -538,69 +592,48 @@ impl TaskGraph {
                         .collect(),
                 )
             };
-            tasks.push(TaskDescriptor {
+            let task_descriptor = TaskDescriptor {
                 tdl_package: task.tdl_package.clone(),
                 tdl_function: task.tdl_function.clone(),
                 inputs,
                 outputs,
                 input_sources,
-            });
+            };
+            sequence.serialize_element(&task_descriptor)?;
         }
-        SerializableTaskGraph {
-            schema_version: TASK_GRAPH_SCHEMA_VERSION.to_owned(),
-            tasks,
-        }
+        Ok(())
     }
 }
 
 impl Serialize for TaskGraph {
-    fn serialize<SerializerImpl>(
+    fn serialize<SerializerImpl: Serializer>(
         &self,
         serializer: SerializerImpl,
-    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error>
-    where
-        SerializerImpl: serde::Serializer, {
-        self.to_serializable().serialize(serializer)
+    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error> {
+        let mut map = serializer.serialize_map(Some(SerializableTaskGraphField::COUNT))?;
+        // Iterate the field enum to ensure all fields are serialized and only once.
+        for field in SerializableTaskGraphField::iter() {
+            match field {
+                SerializableTaskGraphField::Tasks => map.serialize_entry(
+                    SerializableTaskGraphField::Tasks.as_str(),
+                    &TaskDescriptorSequence { graph: self },
+                )?,
+                SerializableTaskGraphField::SchemaVersion => map.serialize_entry(
+                    SerializableTaskGraphField::SchemaVersion.as_str(),
+                    TASK_GRAPH_SCHEMA_VERSION,
+                )?,
+            }
+        }
+
+        map.end()
     }
 }
 
 impl<'deserializer_lifetime> Deserialize<'deserializer_lifetime> for TaskGraph {
-    fn deserialize<DeserializerImpl>(
+    fn deserialize<DeserializerImpl: serde::Deserializer<'deserializer_lifetime>>(
         deserializer: DeserializerImpl,
-    ) -> Result<Self, DeserializerImpl::Error>
-    where
-        DeserializerImpl: serde::Deserializer<'deserializer_lifetime>, {
-        let serializable = SerializableTaskGraph::deserialize(deserializer)?;
-        let schema_version = Version::parse(&serializable.schema_version).map_err(|error| {
-            serde::de::Error::custom(format!(
-                "invalid schema version string '{}': {}",
-                serializable.schema_version, error
-            ))
-        })?;
-
-        if !TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT.matches(&schema_version) {
-            return Err(serde::de::Error::custom(format!(
-                "incompatible task graph schema version: found {}, compatible requirements: {}",
-                serializable.schema_version, TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION
-            )));
-        }
-
-        let mut graph = Self::default();
-        for (idx, task_descriptor) in serializable.tasks.into_iter().enumerate() {
-            let inserted_idx = graph.insert_task(task_descriptor).map_err(|error| {
-                serde::de::Error::custom(format!(
-                    "failed to insert task (index={idx}) during deserialization: {error:?}"
-                ))
-            })?;
-
-            if inserted_idx != idx {
-                return Err(serde::de::Error::custom(format!(
-                    "task insertion order corrupted: expected index {idx}, got {inserted_idx}"
-                )));
-            }
-        }
-
-        Ok(graph)
+    ) -> Result<Self, DeserializerImpl::Error> {
+        deserializer.deserialize_map(TaskGraphVisitor)
     }
 }
 
@@ -616,11 +649,119 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
             .expect("`TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION` must be a valid semver requirement")
     });
 
-/// Serializable representation of a task graph.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SerializableTaskGraph {
-    schema_version: String,
-    tasks: Vec<TaskDescriptor>,
+/// Fields of a serializable task graph.
+#[derive(Deserialize, EnumIter, EnumCount)]
+#[serde(field_identifier, rename_all = "snake_case")]
+enum SerializableTaskGraphField {
+    SchemaVersion,
+    Tasks,
+}
+
+impl SerializableTaskGraphField {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::SchemaVersion => "schema_version",
+            Self::Tasks => "tasks",
+        }
+    }
+}
+
+/// Visitor for deserializing a task graph from a map.
+struct TaskGraphVisitor;
+
+impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisitor {
+    type Value = TaskGraph;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let names: Vec<&'static str> = SerializableTaskGraphField::iter()
+            .map(|field| field.as_str())
+            .collect();
+        write!(f, "a map with fields: {}", names.join(","))
+    }
+
+    fn visit_map<MapAccessImpl: MapAccess<'deserializer_lifetime>>(
+        self,
+        mut map: MapAccessImpl,
+    ) -> Result<TaskGraph, MapAccessImpl::Error> {
+        let mut schema_version_raw: Option<String> = None;
+        let mut tasks_result: Option<Result<Vec<TaskDescriptor>, _>> = None;
+
+        while let Some(key) = map.next_key::<SerializableTaskGraphField>()? {
+            match key {
+                SerializableTaskGraphField::SchemaVersion => {
+                    if schema_version_raw.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::SchemaVersion.as_str(),
+                        ));
+                    }
+                    schema_version_raw = Some(map.next_value()?);
+                }
+                SerializableTaskGraphField::Tasks => {
+                    if tasks_result.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::Tasks.as_str(),
+                        ));
+                    }
+                    // To enforce version checking before deserializing tasks, we capture the result
+                    // but defer the dispatching.
+                    tasks_result = Some(map.next_value());
+                }
+            }
+        }
+
+        let schema_version_raw = schema_version_raw.ok_or_else(|| {
+            de::Error::missing_field(SerializableTaskGraphField::SchemaVersion.as_str())
+        })?;
+        let tasks_result = tasks_result
+            .ok_or_else(|| de::Error::missing_field(SerializableTaskGraphField::Tasks.as_str()))?;
+
+        let schema_version = Version::parse(&schema_version_raw).map_err(|error| {
+            de::Error::custom(format!(
+                "invalid schema version string '{schema_version_raw}': {error}"
+            ))
+        })?;
+
+        if !TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT.matches(&schema_version) {
+            return Err(de::Error::custom(format!(
+                "incompatible task graph schema version: found {schema_version_raw}, compatible \
+                 requirement: {TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION}"
+            )));
+        }
+
+        let mut graph = TaskGraph::default();
+        for (idx, task_descriptor) in tasks_result?.into_iter().enumerate() {
+            let inserted_idx = graph.insert_task(task_descriptor).map_err(|error| {
+                de::Error::custom(format!(
+                    "failed to insert task (index={idx}) during deserialization: {error}"
+                ))
+            })?;
+
+            if inserted_idx != idx {
+                return Err(de::Error::custom(format!(
+                    "task insertion order corrupted: expected index {idx}, got {inserted_idx}"
+                )));
+            }
+        }
+
+        Ok(graph)
+    }
+}
+
+/// Wrapper of a task graph that enables streaming serialization of the underlying tasks.
+struct TaskDescriptorSequence<'task_graph_lifetime> {
+    graph: &'task_graph_lifetime TaskGraph,
+}
+
+impl Serialize for TaskDescriptorSequence<'_> {
+    fn serialize<SerializerImpl: Serializer>(
+        &self,
+        serializer: SerializerImpl,
+    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error> {
+        let mut sequence = serializer.serialize_seq(Some(self.graph.get_num_tasks()))?;
+        self.graph
+            .serialize_tasks_as_task_descriptor_seq(&mut sequence)?;
+        sequence.end()
+    }
 }
 
 #[cfg(test)]

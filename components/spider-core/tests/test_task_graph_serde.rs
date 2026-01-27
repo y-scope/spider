@@ -372,6 +372,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
 
 #[test]
 fn test_serde() {
+    // Test JSON serde
     let task_graph =
         TaskGraph::from_json(TASK_GRAPH_IN_JSON).expect("deserialization from JSON should succeed");
     let serialized_task_graph = task_graph
@@ -383,9 +384,22 @@ fn test_serde() {
         serde_json::from_str::<serde_json::Value>(&serialized_task_graph)
             .expect("deserialization from JSON should succeed")
     );
-    let deserialized_task_graph: TaskGraph = TaskGraph::from_json(&serialized_task_graph)
+    let deserialized_task_graph_from_json = TaskGraph::from_json(&serialized_task_graph)
         .expect("deserialization from JSON should succeed");
-    assert_eq!(task_graph, deserialized_task_graph);
+    assert_eq!(task_graph, deserialized_task_graph_from_json);
+
+    // Test MessagePack serde
+    let serialized_task_graph_msgpack = deserialized_task_graph_from_json
+        .to_msgpack()
+        .expect("serialization to MessagePack should succeed");
+    let deserialized_task_graph_from_msgpack =
+        TaskGraph::from_msgpack(&serialized_task_graph_msgpack)
+            .expect("deserialization from MessagePack should succeed");
+    assert_eq!(task_graph, deserialized_task_graph_from_msgpack);
+    assert_eq!(
+        deserialized_task_graph_from_json,
+        deserialized_task_graph_from_msgpack
+    );
 }
 
 #[test]
@@ -421,4 +435,42 @@ fn test_invalid_task_descriptor() {
         .expect("tasks should be an array")
         .remove(0);
     assert!(TaskGraph::from_json(&task_graph.to_string()).is_err());
+}
+
+#[test]
+fn test_missing_fields() {
+    let expected_fields = vec!["schema_version", "tasks"];
+    for field in expected_fields {
+        let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+        task_graph
+            .as_object_mut()
+            .expect("task graph should be an object")
+            .remove(field);
+        match TaskGraph::from_json(&task_graph.to_string()) {
+            Ok(_) => panic!("deserialization should fail"),
+            Err(err) => assert!(err.to_string().contains("missing field")),
+        }
+    }
+}
+
+/// Tests that the schema version check happens before the task descriptor check.
+#[test]
+fn test_schema_version_check_priority() {
+    const TASK_GRAPH_WITH_INCOMPATIBLE_VERSION_AND_TASKS: &str = r#"{
+        "tasks": [
+          {
+          "company": "yscope"
+          }
+        ],
+        "schema_version": "1000000.0.0"
+    }"#;
+    match TaskGraph::from_json(TASK_GRAPH_WITH_INCOMPATIBLE_VERSION_AND_TASKS) {
+        Ok(_) => panic!("deserialization should fail"),
+        Err(err) => {
+            assert!(
+                err.to_string()
+                    .contains("incompatible task graph schema version")
+            );
+        }
+    }
 }
