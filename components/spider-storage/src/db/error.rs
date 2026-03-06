@@ -1,5 +1,7 @@
-use spider_core::job::JobState;
-use spider_core::types::id::{JobId, ResourceGroupId};
+use spider_core::{
+    job::JobState,
+    types::id::{JobId, ResourceGroupId},
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {

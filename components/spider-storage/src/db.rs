@@ -1,2 +1,2 @@
-mod protocol;
 mod error;
+mod protocol;
