@@ -73,7 +73,7 @@ pub trait ExternalJobStorage {
     ) -> Result<(), DbError>;
 
     /// Cancels a job. The cancelled job will move to
-    /// * [`JobState::Cleanup`] if the job has a `cleanup` function.
+    /// * [`JobState::CleanupReady`] if the job has a `cleanup` function.
     /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
