@@ -2,7 +2,7 @@
 pub struct Job {}
 
 /// Enum for all possible states of a job.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobState {
     Ready,
     Running,
