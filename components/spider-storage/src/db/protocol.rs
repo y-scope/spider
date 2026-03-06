@@ -88,9 +88,9 @@ pub trait ExternalJobStorage {
     ///   job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the job is in one of terminal states:
-    ///   * ['`JobState::Succeeded`']
-    ///   * ['`JobState::Failed`']
-    ///   * ['`JobState::Cancelled`']
+    ///   * [`JobState::Succeeded`]
+    ///   * [`JobState::Failed`]
+    ///   * [`JobState::Cancelled`]
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     async fn cancel_job(
         &self,
