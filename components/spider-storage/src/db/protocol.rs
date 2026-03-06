@@ -194,7 +194,7 @@ pub trait InternalJobStorage {
     async fn set_job_state(
         &self,
         job_id: JobId,
-        old_state: Option<Vec<JobState>>,
+        old_state: Option<&[JobState]>,
         new_state: JobState,
     ) -> Result<(), DbError>;
 
