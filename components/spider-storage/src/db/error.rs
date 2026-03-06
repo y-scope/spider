@@ -7,6 +7,10 @@ use spider_core::{
 pub enum DbError {
     #[error("resource group `{0:?}` not found")]
     ResourceGroupNotFound(ResourceGroupId),
+    #[error("resource group `{0:?}` already exists")]
+    ResourceGroupAlreadyExists(ResourceGroupId),
+    #[error("resource group `{0:?}` password is incorrect")]
+    InvalidPassword(ResourceGroupId),
     #[error("resource group `{0:?}` has no access")]
     InvalidAccess(ResourceGroupId),
     #[error("job `{0:?}` does not exist")]

@@ -12,16 +12,18 @@ use spider_core::{
 
 use crate::db::error::DbError;
 
+/// The database storage interface. A database storage must implement the following traits:
+///
+/// * [`ExternalJobStorage`]
+/// * [`InternalJobStorage`]
+/// * [`UserStorage`]
 #[async_trait]
-pub trait DbStorage {}
+pub trait DbStorage: ExternalJobStorage + InternalJobStorage + UserStorage {}
 
 /// Defines the user-facing storage interface for job storage in database.
 #[async_trait]
 pub trait ExternalJobStorage {
     /// Stores a job into the database.
-    /// If the `resource_group_id` does not exist in the database, a new resource group will be
-    /// registered.
-    ///
     ///
     /// # Parameters
     ///
@@ -37,6 +39,7 @@ pub trait ExternalJobStorage {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     ///
     /// # Note
@@ -85,9 +88,9 @@ pub trait ExternalJobStorage {
     ///   job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the job is in one of terminal states:
-    ///   * ['JobState::Succeeded']
-    ///   * ['JobState::Failed']
-    ///   * ['JobState::Cancelled']
+    ///   * ['`JobState::Succeeded`']
+    ///   * ['`JobState::Failed`']
+    ///   * ['`JobState::Cancelled`']
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     async fn cancel_job(
         &self,
@@ -219,4 +222,54 @@ pub trait InternalJobStorage {
     /// # Errors
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError>;
+}
+
+/// Defines the storage interface for resource group management in database.
+#[async_trait]
+pub trait UserStorage {
+    /// Adds a resource group to the database.
+    ///
+    /// # Parameters
+    /// * `resource_group_id` - The ID of the resource group to add.
+    /// * `password` - The hashed password for the resource group.
+    ///
+    /// # Errors
+    ///
+    /// * [`DbError::ResourceGroupAlreadyExists`] if the `resource_group_id` already exists.
+    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    async fn add_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: String,
+    ) -> Result<(), DbError>;
+
+    /// Verifies the password of a resource group.
+    ///
+    /// # Parameters
+    /// * `resource_group_id` - The ID of the resource group to verify.
+    /// * `password` - The hashed password to verify.
+    ///
+    /// # Errors
+    ///
+    /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
+    /// * [`DbError::InvalidPassword`] if the password is incorrect.
+    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    async fn verify_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: String,
+    ) -> Result<(), DbError>;
+
+    /// Deletes a resource group from the database.
+    ///
+    /// # Parameters
+    /// * `resource_group_id` - The ID of the resource group to delete.
+    ///
+    /// # Errors
+    /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
+    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    async fn delete_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), DbError>;
 }
