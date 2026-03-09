@@ -18,7 +18,16 @@ use crate::db::error::DbError;
 /// * [`InternalJobStorage`]
 /// * [`UserStorage`]
 #[async_trait]
-pub trait DbStorage: ExternalJobStorage + InternalJobStorage + UserStorage {}
+pub trait DbStorage: ExternalJobStorage + InternalJobStorage + UserStorage {
+    /// Initializes the database.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if
+    ///
+    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    async fn initialize(&self) -> Result<(), DbError>;
+}
 
 /// Defines the user-facing storage interface for job storage in database.
 #[async_trait]
