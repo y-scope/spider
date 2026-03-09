@@ -16,10 +16,39 @@ pub struct MariaDbStorage {
     pool: MySqlPool,
 }
 
+impl MariaDbStorage {
+    async fn new(pool: MySqlPool) -> MariaDbStorage {
+        MariaDbStorage { pool: pool.clone() }
+    }
+}
+
+const TABLE_CREATION_QUERIES: &[&str] = &[
+    r#"
+CREATE TABLE IF NOT EXISTS `resource_groups` (
+  id UUID NOT NULL,
+  password VARCHAR(2048) NOT NULL,
+  PRIMARY KEY (`id`)
+)
+    "#,
+    r#"
+CREATE TABLE IF NOT EXISTS `jobs` (
+  id UUID NOT NULL DEFAULT UUIV_v7 (),
+  resource_group_id UUID NOT NULL,
+  serailized_task_graph LONGTEXT NOT NULL,
+  serialized_job_inputs LONGTEXT NOT NULL,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`) REFERENCES (`resource_groups`.`id`)
+)
+    "#
+];
+
 #[async_trait]
 impl DbStorage for MariaDbStorage {
     async fn initialize(&self) -> Result<(), DbError> {
-        todo!()
+        for table_creation_query in TABLE_CREATION_QUERIES {
+            sqlx::query(table_creation_query).execute(&self.pool).await?;
+        }
+        Ok(())
     }
 }
 #[async_trait]
