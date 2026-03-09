@@ -1,4 +1,5 @@
 mod error;
+mod mariadb;
 mod protocol;
 
 pub use error::DbError;

@@ -10,5 +10,5 @@ path = "src/lib.rs"
 [dependencies]
 async-trait = "0.1.89"
 spider-core = { path = "../spider-core" }
-sqlx = "0.8.6"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "mysql"] }
 thiserror = "2.0.18"
