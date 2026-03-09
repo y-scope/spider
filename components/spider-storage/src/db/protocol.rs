@@ -70,8 +70,8 @@ pub trait ExternalJobStorage {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or do not have access
-    ///   to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
+    ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Ready`] state.
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
