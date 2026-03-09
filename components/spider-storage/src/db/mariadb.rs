@@ -17,6 +17,12 @@ pub struct MariaDbStorage {
 }
 
 #[async_trait]
+impl DbStorage for MariaDbStorage {
+    async fn initialize(&self) -> Result<(), DbError> {
+        todo!()
+    }
+}
+#[async_trait]
 impl ExternalJobStorage for MariaDbStorage {
     async fn register_job(
         &self,
@@ -113,6 +119,3 @@ impl UserStorage for MariaDbStorage {
         todo!()
     }
 }
-
-#[async_trait]
-impl DbStorage for MariaDbStorage {}
