@@ -11,7 +11,40 @@ use spider_core::{
 };
 use sqlx::MySqlPool;
 
+use super::sql_utils;
 use crate::db::{DbError, DbStorage, ExternalJobStorage, InternalJobStorage, UserStorage};
+
+const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
+const JOBS_TABLE_NAME: &str = "jobs";
+
+#[must_use]
+const fn resource_groups_creation_query() -> &'static str {
+    r"
+CREATE TABLE IF NOT EXISTS `resource_groups` (
+  id UUID NOT NULL,
+  password VARCHAR(2048) NOT NULL,
+  PRIMARY KEY (`id`)
+);"
+}
+
+#[must_use]
+fn jobs_creation_query() -> String {
+    format!(
+        r"
+CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
+  id UUID NOT NULL DEFAULT UUIV_v7 (),
+  resource_group_id UUID NOT NULL,
+  state ENUM({state_enum}) NOT NULL DEFAULT 'Ready',
+  serialized_task_graph LONGTEXT NOT NULL,
+  serialized_job_inputs LONGTEXT NOT NULL,
+  serialized_job_outputs LONGTEXT,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
+    REFERENCES (`{RESOURCE_GROUPS_TABLE_NAME}`.`id`)
+);",
+        state_enum = sql_utils::sql_enum_values::<JobState>()
+    )
+}
 
 pub struct MariaDbStorage {
     pool: MySqlPool,
@@ -24,35 +57,15 @@ impl MariaDbStorage {
     }
 }
 
-const TABLE_CREATION_QUERIES: &[&str] = &[
-    r"
-CREATE TABLE IF NOT EXISTS `resource_groups` (
-  id UUID NOT NULL,
-  password VARCHAR(2048) NOT NULL,
-  PRIMARY KEY (`id`)
-)
-    ",
-    r"
-CREATE TABLE IF NOT EXISTS `jobs` (
-  id UUID NOT NULL DEFAULT UUIV_v7 (),
-  resource_group_id UUID NOT NULL,
-  serailized_task_graph LONGTEXT NOT NULL,
-  serialized_job_inputs LONGTEXT NOT NULL,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
-    REFERENCES (`resource_groups`.`id`)
-)
-    ",
-];
-
 #[async_trait]
 impl DbStorage for MariaDbStorage {
     async fn initialize(&self) -> Result<(), DbError> {
-        for table_creation_query in TABLE_CREATION_QUERIES {
-            sqlx::query(table_creation_query)
-                .execute(&self.pool)
-                .await?;
-        }
+        sqlx::query(resource_groups_creation_query())
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query(jobs_creation_query().as_str()).execute(&self.pool).await?;
+
         Ok(())
     }
 }
