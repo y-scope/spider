@@ -32,7 +32,7 @@ fn jobs_creation_query() -> String {
     format!(
         r"
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
-  id UUID NOT NULL DEFAULT UUIV_v7 (),
+  id UUID NOT NULL DEFAULT UUIV_v7(),
   resource_group_id UUID NOT NULL,
   state ENUM({state_enum}) NOT NULL DEFAULT 'Ready',
   serialized_task_graph LONGTEXT NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   serialized_job_outputs LONGTEXT,
   PRIMARY KEY (`id`),
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
-    REFERENCES (`{RESOURCE_GROUPS_TABLE_NAME}`.`id`)
+    REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
 );",
         state_enum = sql_utils::sql_enum_values::<JobState>()
     )
@@ -51,7 +51,7 @@ pub struct MariaDbStorage {
 }
 
 impl MariaDbStorage {
-    #[must_use] 
+    #[must_use]
     pub const fn new(pool: MySqlPool) -> Self {
         Self { pool }
     }
@@ -64,7 +64,9 @@ impl DbStorage for MariaDbStorage {
             .execute(&self.pool)
             .await?;
 
-        sqlx::query(jobs_creation_query().as_str()).execute(&self.pool).await?;
+        sqlx::query(jobs_creation_query().as_str())
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
