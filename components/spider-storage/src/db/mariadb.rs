@@ -10,7 +10,7 @@ use spider_core::{
         io::{TaskInput, TaskOutput},
     },
 };
-use sqlx::MySqlPool;
+use sqlx::{MySqlPool, Row};
 
 use super::sql_utils;
 use crate::db::{DbError, DbStorage, ExternalJobStorage, InternalJobStorage, UserStorage};
@@ -96,55 +96,224 @@ impl DbStorage for MariaDbStorage {
         Ok(())
     }
 }
+
 #[async_trait]
 impl ExternalJobStorage for MariaDbStorage {
     async fn register_job(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _task_graph: Arc<TaskGraph>,
-        _job_inputs: Vec<TaskInput>,
+        resource_group_id: ResourceGroupId,
+        task_graph: Arc<TaskGraph>,
+        job_inputs: Vec<TaskInput>,
     ) -> Result<JobId, DbError> {
-        todo!()
+        const CHECK_RG_QUERY: &str = formatcp!(
+            "SELECT 1 FROM `{table}` WHERE `id` = ?;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+        const INSERT_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
+             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let rg_id_str = resource_group_id.as_uuid_ref().to_string();
+
+        let rg_exists: Option<(i32,)> = sqlx::query_as(CHECK_RG_QUERY)
+            .bind(&rg_id_str)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if rg_exists.is_none() {
+            return Err(DbError::ResourceGroupNotFound(resource_group_id));
+        }
+
+        let serialized_task_graph = task_graph
+            .to_json()
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let serialized_job_inputs =
+            serde_json::to_string(&job_inputs).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
+        let row = sqlx::query(INSERT_QUERY)
+            .bind(&rg_id_str)
+            .bind(serialized_task_graph)
+            .bind(serialized_job_inputs)
+            .fetch_one(&self.pool)
+            .await?;
+
+        let id_str: String = row.get(0);
+        id_str
+            .parse::<JobId>()
+            .map_err(|e| DbError::from(sqlx::Error::Protocol(e.to_string())))
     }
 
     async fn start_job(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _job_id: JobId,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
     ) -> Result<(), DbError> {
-        todo!()
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT `state`, `resource_group_id` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            table = JOBS_TABLE_NAME,
+        );
+        const UPDATE_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let mut tx = self.pool.begin().await?;
+        let job_id_str = job_id.as_uuid_ref().to_string();
+
+        let row: Option<(String, String)> = sqlx::query_as(SELECT_QUERY)
+            .bind(&job_id_str)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let (state_str, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
+        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+
+        let state = sql_utils::parse_job_state(&state_str)?;
+        if state != JobState::Ready {
+            return Err(DbError::WrongJobState(state));
+        }
+
+        sqlx::query(UPDATE_QUERY)
+            .bind(JobState::Running.to_string())
+            .bind(&job_id_str)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn cancel_job(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _job_id: JobId,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
     ) -> Result<(), DbError> {
-        todo!()
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT `state`, `resource_group_id`, `cleanup_tdl_package` FROM `{table}` WHERE `id` \
+             = ? FOR UPDATE;",
+            table = JOBS_TABLE_NAME,
+        );
+        const UPDATE_STATE_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+        const UPDATE_STATE_AND_END_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let mut tx = self.pool.begin().await?;
+        let job_id_str = job_id.as_uuid_ref().to_string();
+
+        let row: Option<(String, String, Option<String>)> = sqlx::query_as(SELECT_QUERY)
+            .bind(&job_id_str)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let (state_str, rg_id_str, cleanup_tdl_package) =
+            row.ok_or(DbError::JobNotFound(job_id))?;
+        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+
+        let state = sql_utils::parse_job_state(&state_str)?;
+        if JobState::TERMINAL.contains(&state) {
+            return Err(DbError::WrongJobState(state));
+        }
+
+        if cleanup_tdl_package.is_some() {
+            sqlx::query(UPDATE_STATE_QUERY)
+                .bind(JobState::CleanupReady.to_string())
+                .bind(&job_id_str)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query(UPDATE_STATE_AND_END_QUERY)
+                .bind(JobState::Cancelled.to_string())
+                .bind(&job_id_str)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn get_job_state(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _job_id: JobId,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
     ) -> Result<JobState, DbError> {
-        todo!()
+        const QUERY: &str = formatcp!(
+            "SELECT `state`, `resource_group_id` FROM `{table}` WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let row: Option<(String, String)> = sqlx::query_as(QUERY)
+            .bind(job_id.as_uuid_ref().to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let (state_str, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
+        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+
+        sql_utils::parse_job_state(&state_str).map_err(Into::into)
     }
 
     async fn get_job_outputs(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _job_id: JobId,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
     ) -> Result<Vec<TaskOutput>, DbError> {
-        todo!()
+        const QUERY: &str = formatcp!(
+            "SELECT `state`, `resource_group_id`, `serialized_job_outputs` FROM `{table}` WHERE \
+             `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let row: Option<(String, String, Option<String>)> = sqlx::query_as(QUERY)
+            .bind(job_id.as_uuid_ref().to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let (state_str, rg_id_str, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
+        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+
+        let state = sql_utils::parse_job_state(&state_str)?;
+        if state != JobState::Succeeded {
+            return Err(DbError::WrongJobState(state));
+        }
+
+        let outputs_str = serialized_outputs.unwrap_or_default();
+        let outputs: Vec<TaskOutput> =
+            serde_json::from_str(&outputs_str).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        Ok(outputs)
     }
 
     async fn get_job_error(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _job_id: JobId,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
     ) -> Result<String, DbError> {
-        todo!()
+        const QUERY: &str = formatcp!(
+            "SELECT `state`, `resource_group_id`, `error_message` FROM `{table}` WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let row: Option<(String, String, Option<String>)> = sqlx::query_as(QUERY)
+            .bind(job_id.as_uuid_ref().to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let (state_str, rg_id_str, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
+        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+
+        let state = sql_utils::parse_job_state(&state_str)?;
+        if state != JobState::Failed {
+            return Err(DbError::WrongJobState(state));
+        }
+
+        Ok(error_message.unwrap_or_default())
     }
 }
 
@@ -152,19 +321,135 @@ impl ExternalJobStorage for MariaDbStorage {
 impl InternalJobStorage for MariaDbStorage {
     async fn set_job_state(
         &self,
-        _job_id: JobId,
-        _old_state: Option<&[JobState]>,
-        _new_state: JobState,
+        job_id: JobId,
+        old_state: Option<&[JobState]>,
+        new_state: JobState,
     ) -> Result<(), DbError> {
-        todo!()
+        let job_id_str = job_id.as_uuid_ref().to_string();
+
+        let rows_affected = if let Some(old_states) = old_state {
+            let state_list = sql_utils::sql_quoted_list(old_states);
+            let query = format!(
+                "UPDATE `{JOBS_TABLE_NAME}` SET `state` = ? WHERE `id` = ? AND `state` IN \
+                 ({state_list});"
+            );
+            sqlx::query(&query)
+                .bind(new_state.to_string())
+                .bind(&job_id_str)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+        } else {
+            const QUERY: &str = formatcp!(
+                "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
+                table = JOBS_TABLE_NAME,
+            );
+            sqlx::query(QUERY)
+                .bind(new_state.to_string())
+                .bind(&job_id_str)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+        };
+
+        if rows_affected == 0 {
+            const CHECK_QUERY: &str = formatcp!(
+                "SELECT `state` FROM `{table}` WHERE `id` = ?;",
+                table = JOBS_TABLE_NAME,
+            );
+
+            let row: Option<(String,)> = sqlx::query_as(CHECK_QUERY)
+                .bind(&job_id_str)
+                .fetch_optional(&self.pool)
+                .await?;
+
+            match row {
+                None => return Err(DbError::JobNotFound(job_id)),
+                Some((state_str,)) => {
+                    let state = sql_utils::parse_job_state(&state_str)?;
+                    return Err(DbError::WrongJobState(state));
+                }
+            }
+        }
+
+        Ok(())
     }
 
-    async fn delete_jobs(&self, _timeout: Duration) -> Result<Vec<JobId>, DbError> {
-        todo!()
+    async fn delete_jobs(&self, timeout: Duration) -> Result<Vec<JobId>, DbError> {
+        let timeout_secs = timeout.as_secs();
+
+        let select_query = format!(
+            "SELECT `id` FROM `{JOBS_TABLE_NAME}` WHERE `state` IN ({terminal}) AND `ended_at` < \
+             NOW() - INTERVAL {timeout_secs} SECOND;",
+            terminal = sql_utils::sql_quoted_list(&JobState::TERMINAL),
+        );
+
+        let mut tx = self.pool.begin().await?;
+
+        let rows: Vec<(String,)> = sqlx::query_as(&select_query).fetch_all(&mut *tx).await?;
+
+        let mut job_ids: Vec<JobId> = Vec::with_capacity(rows.len());
+        for (id_str,) in &rows {
+            job_ids.push(
+                id_str
+                    .parse()
+                    .map_err(|e: uuid::Error| sqlx::Error::Protocol(e.to_string()))?,
+            );
+        }
+
+        if !job_ids.is_empty() {
+            let placeholders = vec!["?"; job_ids.len()].join(",");
+            let delete_query =
+                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders});");
+            let mut query = sqlx::query(&delete_query);
+            for job_id in &job_ids {
+                query = query.bind(job_id.as_uuid_ref().to_string());
+            }
+            query.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(job_ids)
     }
 
     async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError> {
-        todo!()
+        let select_query = format!(
+            "SELECT `id` FROM `{JOBS_TABLE_NAME}` WHERE `state` NOT IN ({non_reset});",
+            non_reset = sql_utils::sql_quoted_list(&[
+                JobState::Ready,
+                JobState::Succeeded,
+                JobState::Failed,
+                JobState::Cancelled,
+            ]),
+        );
+
+        let mut tx = self.pool.begin().await?;
+
+        let rows: Vec<(String,)> = sqlx::query_as(&select_query).fetch_all(&mut *tx).await?;
+
+        let mut job_ids: Vec<JobId> = Vec::with_capacity(rows.len());
+        for (id_str,) in &rows {
+            job_ids.push(
+                id_str
+                    .parse()
+                    .map_err(|e: uuid::Error| sqlx::Error::Protocol(e.to_string()))?,
+            );
+        }
+
+        if !job_ids.is_empty() {
+            let placeholders = vec!["?"; job_ids.len()].join(",");
+            let update_query = format!(
+                "UPDATE `{JOBS_TABLE_NAME}` SET `state` = ? WHERE `id` IN ({placeholders});"
+            );
+            let mut query = sqlx::query(&update_query).bind(JobState::Ready.to_string());
+            for job_id in &job_ids {
+                query = query.bind(job_id.as_uuid_ref().to_string());
+            }
+            query.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(job_ids)
     }
 }
 
@@ -172,24 +457,71 @@ impl InternalJobStorage for MariaDbStorage {
 impl UserStorage for MariaDbStorage {
     async fn add_resource_group(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _password: String,
+        resource_group_id: ResourceGroupId,
+        password: String,
     ) -> Result<(), DbError> {
-        todo!()
+        const QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` (`id`, `password`) VALUES (?, ?);",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+
+        let result = sqlx::query(QUERY)
+            .bind(resource_group_id.as_uuid_ref().to_string())
+            .bind(password)
+            .execute(&self.pool)
+            .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("1062") => {
+                Err(DbError::ResourceGroupAlreadyExists(resource_group_id))
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn verify_resource_group(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _password: String,
+        resource_group_id: ResourceGroupId,
+        password: String,
     ) -> Result<(), DbError> {
-        todo!()
+        const QUERY: &str = formatcp!(
+            "SELECT `password` FROM `{table}` WHERE `id` = ?;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+
+        let row: Option<(String,)> = sqlx::query_as(QUERY)
+            .bind(resource_group_id.as_uuid_ref().to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        match row {
+            None => Err(DbError::ResourceGroupNotFound(resource_group_id)),
+            Some((stored_password,)) if stored_password != password => {
+                Err(DbError::InvalidPassword(resource_group_id))
+            }
+            Some(_) => Ok(()),
+        }
     }
 
     async fn delete_resource_group(
         &self,
-        _resource_group_id: ResourceGroupId,
+        resource_group_id: ResourceGroupId,
     ) -> Result<(), DbError> {
-        todo!()
+        const QUERY: &str = formatcp!(
+            "DELETE FROM `{table}` WHERE `id` = ?;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+
+        let result = sqlx::query(QUERY)
+            .bind(resource_group_id.as_uuid_ref().to_string())
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::ResourceGroupNotFound(resource_group_id));
+        }
+
+        Ok(())
     }
 }

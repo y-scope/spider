@@ -5,7 +5,9 @@ pub struct Value {}
 pub struct Data {}
 
 /// Represents an input of a task.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct TaskInput {}
 
 /// Represents an output of a task.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct TaskOutput {}

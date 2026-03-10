@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -39,6 +39,14 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     #[must_use]
     pub const fn as_uuid_ref(&self) -> &Uuid {
         &self.0
+    }
+}
+
+impl<TypeMarker: Debug + PartialEq + Eq> FromStr for Id<TypeMarker> {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(s).map(Self::from)
     }
 }
 
