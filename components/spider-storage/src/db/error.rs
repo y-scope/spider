@@ -17,6 +17,8 @@ pub enum DbError {
     JobNotFound(JobId),
     #[error("job in wrong state: {0:?}")]
     WrongJobState(JobState),
+    #[error("data integrity error: {0}")]
+    DataIntegrity(String),
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
 }
