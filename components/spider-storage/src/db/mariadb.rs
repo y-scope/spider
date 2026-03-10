@@ -41,6 +41,16 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   serialized_task_graph LONGTEXT NOT NULL,
   serialized_job_inputs LONGTEXT NOT NULL,
   serialized_job_outputs LONGTEXT,
+  error_message LONGTEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  ended_at TIMESTAMP,
+  max_num_retries INT UNSIGNED NOT NULL DEFAULT 0,
+  num_retries INT UNSIGNED NOT NULL DEFAULT 0,
+  commit_tdl_package VARCHAR(512),
+  commit_tdl_function VARCHAR(512),
+  cleanup_tdl_package VARCHAR(512),
+  cleanup_tdl_function VARCHAR(512),
   PRIMARY KEY (`id`),
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
