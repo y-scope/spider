@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1.89"
+const_format = "0.2.35"
 spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "mysql"] }
 strum = "0.27.2"

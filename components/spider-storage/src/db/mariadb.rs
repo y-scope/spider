@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use const_format::formatcp;
 use spider_core::{
     job::JobState,
     task::TaskGraph,
@@ -19,12 +20,14 @@ const JOBS_TABLE_NAME: &str = "jobs";
 
 #[must_use]
 const fn resource_groups_creation_query() -> &'static str {
-    r"
-CREATE TABLE IF NOT EXISTS `resource_groups` (
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
   id UUID NOT NULL,
   password VARCHAR(2048) NOT NULL,
   PRIMARY KEY (`id`)
 );"
+    )
 }
 
 #[must_use]
@@ -32,7 +35,7 @@ fn jobs_creation_query() -> String {
     format!(
         r"
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
-  id UUID NOT NULL DEFAULT UUIV_v7(),
+  id UUID NOT NULL DEFAULT UUID_v7(),
   resource_group_id UUID NOT NULL,
   state ENUM({state_enum}) NOT NULL DEFAULT 'Ready',
   serialized_task_graph LONGTEXT NOT NULL,
