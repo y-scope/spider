@@ -109,7 +109,7 @@ impl ExternalJobStorage for MariaDbStorage {
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
              `serialized_job_inputs`, `commit_tdl_package`, `commit_tdl_function`, \
              `cleanup_tdl_package`, `cleanup_tdl_function`) VALUES (?, ?, ?, ?, ?, ?, ?) \
-             RETURNING `id`;",
+             RETURNING CAST(`id` AS CHAR) AS `id`;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -146,7 +146,7 @@ impl ExternalJobStorage for MariaDbStorage {
                     DbError::DataIntegrity(format!("invalid job UUID from database: {e}"))
                 })
             }
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("1452") => {
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
                 Err(DbError::ResourceGroupNotFound(resource_group_id))
             }
             Err(e) => Err(e.into()),
@@ -159,7 +159,8 @@ impl ExternalJobStorage for MariaDbStorage {
         job_id: JobId,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, `resource_group_id` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ? FOR \
+             UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_QUERY: &str = formatcp!(
@@ -199,8 +200,8 @@ impl ExternalJobStorage for MariaDbStorage {
         job_id: JobId,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, `resource_group_id`, `cleanup_tdl_package` FROM `{table}` WHERE `id` \
-             = ? FOR UPDATE;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR), `cleanup_tdl_package` FROM \
+             `{table}` WHERE `id` = ? FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_STATE_QUERY: &str = formatcp!(
@@ -253,7 +254,7 @@ impl ExternalJobStorage for MariaDbStorage {
         job_id: JobId,
     ) -> Result<JobState, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, `resource_group_id` FROM `{table}` WHERE `id` = ?;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -274,8 +275,8 @@ impl ExternalJobStorage for MariaDbStorage {
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, `resource_group_id`, `serialized_job_outputs` FROM `{table}` WHERE \
-             `id` = ?;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR), `serialized_job_outputs` FROM \
+             `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -311,7 +312,8 @@ impl ExternalJobStorage for MariaDbStorage {
         job_id: JobId,
     ) -> Result<String, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, `resource_group_id`, `error_message` FROM `{table}` WHERE `id` = ?;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR), `error_message` FROM `{table}` \
+             WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -403,8 +405,8 @@ impl InternalJobStorage for MariaDbStorage {
         let timeout_secs = timeout.as_secs();
 
         let select_query = format!(
-            "SELECT `id` FROM `{JOBS_TABLE_NAME}` WHERE `state` IN ({terminal}) AND `ended_at` < \
-             NOW() - INTERVAL {timeout_secs} SECOND;",
+            "SELECT CAST(`id` AS CHAR) FROM `{JOBS_TABLE_NAME}` WHERE `state` IN ({terminal}) AND \
+             `ended_at` < NOW() - INTERVAL {timeout_secs} SECOND;",
             terminal = sql_utils::sql_quoted_list(&JobState::TERMINAL),
         );
 
@@ -436,7 +438,8 @@ impl InternalJobStorage for MariaDbStorage {
 
     async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError> {
         let select_query = format!(
-            "SELECT `id` FROM `{JOBS_TABLE_NAME}` WHERE `state` NOT IN ({non_reset});",
+            "SELECT CAST(`id` AS CHAR) FROM `{JOBS_TABLE_NAME}` WHERE `state` NOT IN \
+             ({non_reset});",
             non_reset = sql_utils::sql_quoted_list(&[
                 JobState::Ready,
                 JobState::Succeeded,
@@ -493,7 +496,7 @@ impl UserStorage for MariaDbStorage {
 
         match result {
             Ok(_) => Ok(()),
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("1062") => {
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
                 Err(DbError::ResourceGroupAlreadyExists(resource_group_id))
             }
             Err(e) => Err(e.into()),
