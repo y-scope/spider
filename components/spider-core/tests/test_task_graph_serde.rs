@@ -132,7 +132,8 @@ fn test_commit_cleanup_task_serde() {
     let json = task_graph
         .to_json()
         .expect("serialization to JSON should succeed");
-    let deserialized = TaskGraph::from_json(&json).expect("deserialization from JSON should succeed");
+    let deserialized =
+        TaskGraph::from_json(&json).expect("deserialization from JSON should succeed");
     assert_eq!(task_graph, deserialized);
     assert_eq!(deserialized.get_commit_task(), Some(&commit_task));
     assert_eq!(deserialized.get_cleanup_task(), Some(&cleanup_task));
@@ -162,7 +163,8 @@ fn test_without_commit_cleanup_tasks_roundtrip() {
     let json = task_graph
         .to_json()
         .expect("serialization to JSON should succeed");
-    let deserialized = TaskGraph::from_json(&json).expect("deserialization from JSON should succeed");
+    let deserialized =
+        TaskGraph::from_json(&json).expect("deserialization from JSON should succeed");
     assert_eq!(deserialized.get_commit_task(), None);
     assert_eq!(deserialized.get_cleanup_task(), None);
 
