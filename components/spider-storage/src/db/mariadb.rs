@@ -107,7 +107,9 @@ impl ExternalJobStorage for MariaDbStorage {
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
+             `serialized_job_inputs`, `commit_tdl_package`, `commit_tdl_function`, \
+             `cleanup_tdl_package`, `cleanup_tdl_function`) \
+             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING `id`;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -120,10 +122,23 @@ impl ExternalJobStorage for MariaDbStorage {
             DbError::DataIntegrity(format!("failed to serialize job inputs: {e}"))
         })?;
 
+        let (commit_pkg, commit_fn) = task_graph.get_commit_task().map_or(
+            (None, None),
+            |t| (Some(t.tdl_package.clone()), Some(t.tdl_function.clone())),
+        );
+        let (cleanup_pkg, cleanup_fn) = task_graph.get_cleanup_task().map_or(
+            (None, None),
+            |t| (Some(t.tdl_package.clone()), Some(t.tdl_function.clone())),
+        );
+
         let result = sqlx::query(INSERT_QUERY)
             .bind(&rg_id_str)
             .bind(serialized_task_graph)
             .bind(serialized_job_inputs)
+            .bind(commit_pkg)
+            .bind(commit_fn)
+            .bind(cleanup_pkg)
+            .bind(cleanup_fn)
             .fetch_one(&self.pool)
             .await;
 
