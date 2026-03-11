@@ -29,14 +29,14 @@ pub fn sql_quoted_list<T: Display>(values: &[T]) -> String {
 /// # Errors
 ///
 /// * [`DbError::InvalidAccess`] if the resource group IDs do not match.
-/// * Forwards a [`sqlx::error::Error`] if the UUID column is invalid.
+/// * [`DbError::DataIntegrity`] if the UUID column is invalid.
 pub fn validate_resource_group_access(
     rg_id_str: &str,
     expected: ResourceGroupId,
 ) -> Result<(), DbError> {
-    let actual: ResourceGroupId = rg_id_str
-        .parse()
-        .map_err(|e: uuid::Error| sqlx::Error::Protocol(e.to_string()))?;
+    let actual: ResourceGroupId = rg_id_str.parse().map_err(|e: uuid::Error| {
+        DbError::DataIntegrity(format!("invalid resource group UUID: {e}"))
+    })?;
     if actual != expected {
         return Err(DbError::InvalidAccess(expected));
     }
@@ -47,7 +47,8 @@ pub fn validate_resource_group_access(
 ///
 /// # Errors
 ///
-/// * Forwards a [`sqlx::error::Error`] if the state string is not a valid [`JobState`] variant.
-pub fn parse_job_state(state_str: &str) -> Result<JobState, sqlx::Error> {
-    JobState::from_str(state_str).map_err(|e| sqlx::Error::Protocol(e.to_string()))
+/// * [`DbError::DataIntegrity`] if the state string is not a valid [`JobState`] variant.
+pub fn parse_job_state(state_str: &str) -> Result<JobState, DbError> {
+    JobState::from_str(state_str)
+        .map_err(|e| DbError::DataIntegrity(format!("invalid job state: {e}")))
 }

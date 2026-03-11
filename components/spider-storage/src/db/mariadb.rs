@@ -105,10 +105,6 @@ impl ExternalJobStorage for MariaDbStorage {
         task_graph: Arc<TaskGraph>,
         job_inputs: Vec<TaskInput>,
     ) -> Result<JobId, DbError> {
-        const CHECK_RG_QUERY: &str = formatcp!(
-            "SELECT 1 FROM `{table}` WHERE `id` = ?;",
-            table = RESOURCE_GROUPS_TABLE_NAME,
-        );
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
              `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
@@ -117,32 +113,32 @@ impl ExternalJobStorage for MariaDbStorage {
 
         let rg_id_str = resource_group_id.as_uuid_ref().to_string();
 
-        let rg_exists: Option<(i32,)> = sqlx::query_as(CHECK_RG_QUERY)
-            .bind(&rg_id_str)
-            .fetch_optional(&self.pool)
-            .await?;
+        let serialized_task_graph = task_graph.to_json().map_err(|e| {
+            DbError::DataIntegrity(format!("failed to serialize task graph: {e}"))
+        })?;
+        let serialized_job_inputs = serde_json::to_string(&job_inputs).map_err(|e| {
+            DbError::DataIntegrity(format!("failed to serialize job inputs: {e}"))
+        })?;
 
-        if rg_exists.is_none() {
-            return Err(DbError::ResourceGroupNotFound(resource_group_id));
-        }
-
-        let serialized_task_graph = task_graph
-            .to_json()
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let serialized_job_inputs =
-            serde_json::to_string(&job_inputs).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-
-        let row = sqlx::query(INSERT_QUERY)
+        let result = sqlx::query(INSERT_QUERY)
             .bind(&rg_id_str)
             .bind(serialized_task_graph)
             .bind(serialized_job_inputs)
             .fetch_one(&self.pool)
-            .await?;
+            .await;
 
-        let id_str: String = row.get(0);
-        id_str
-            .parse::<JobId>()
-            .map_err(|e| DbError::from(sqlx::Error::Protocol(e.to_string())))
+        match result {
+            Ok(row) => {
+                let id_str: String = row.get(0);
+                id_str.parse::<JobId>().map_err(|e| {
+                    DbError::DataIntegrity(format!("invalid job UUID from database: {e}"))
+                })
+            }
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("1452") => {
+                Err(DbError::ResourceGroupNotFound(resource_group_id))
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn start_job(
@@ -257,7 +253,7 @@ impl ExternalJobStorage for MariaDbStorage {
         let (state_str, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
         sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
-        sql_utils::parse_job_state(&state_str).map_err(Into::into)
+        sql_utils::parse_job_state(&state_str)
     }
 
     async fn get_job_outputs(
@@ -271,8 +267,10 @@ impl ExternalJobStorage for MariaDbStorage {
             table = JOBS_TABLE_NAME,
         );
 
+        let job_id_str = job_id.as_uuid_ref().to_string();
+
         let row: Option<(String, String, Option<String>)> = sqlx::query_as(QUERY)
-            .bind(job_id.as_uuid_ref().to_string())
+            .bind(&job_id_str)
             .fetch_optional(&self.pool)
             .await?;
 
@@ -284,9 +282,14 @@ impl ExternalJobStorage for MariaDbStorage {
             return Err(DbError::WrongJobState(state));
         }
 
-        let outputs_str = serialized_outputs.unwrap_or_default();
-        let outputs: Vec<TaskOutput> =
-            serde_json::from_str(&outputs_str).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let outputs_str = serialized_outputs.ok_or_else(|| {
+            DbError::DataIntegrity(format!(
+                "job `{job_id_str}` succeeded but has no serialized outputs"
+            ))
+        })?;
+        let outputs: Vec<TaskOutput> = serde_json::from_str(&outputs_str).map_err(|e| {
+            DbError::DataIntegrity(format!("failed to deserialize job outputs: {e}"))
+        })?;
         Ok(outputs)
     }
 
@@ -300,8 +303,10 @@ impl ExternalJobStorage for MariaDbStorage {
             table = JOBS_TABLE_NAME,
         );
 
+        let job_id_str = job_id.as_uuid_ref().to_string();
+
         let row: Option<(String, String, Option<String>)> = sqlx::query_as(QUERY)
-            .bind(job_id.as_uuid_ref().to_string())
+            .bind(&job_id_str)
             .fetch_optional(&self.pool)
             .await?;
 
@@ -313,7 +318,12 @@ impl ExternalJobStorage for MariaDbStorage {
             return Err(DbError::WrongJobState(state));
         }
 
-        Ok(error_message.unwrap_or_default())
+        let message = error_message.ok_or_else(|| {
+            DbError::DataIntegrity(format!(
+                "job `{job_id_str}` failed but has no error message"
+            ))
+        })?;
+        Ok(message)
     }
 }
 
@@ -326,6 +336,7 @@ impl InternalJobStorage for MariaDbStorage {
         new_state: JobState,
     ) -> Result<(), DbError> {
         let job_id_str = job_id.as_uuid_ref().to_string();
+        let mut tx = self.pool.begin().await?;
 
         let rows_affected = if let Some(old_states) = old_state {
             let state_list = sql_utils::sql_quoted_list(old_states);
@@ -336,7 +347,7 @@ impl InternalJobStorage for MariaDbStorage {
             sqlx::query(&query)
                 .bind(new_state.to_string())
                 .bind(&job_id_str)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await?
                 .rows_affected()
         } else {
@@ -347,7 +358,7 @@ impl InternalJobStorage for MariaDbStorage {
             sqlx::query(QUERY)
                 .bind(new_state.to_string())
                 .bind(&job_id_str)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await?
                 .rows_affected()
         };
@@ -360,7 +371,7 @@ impl InternalJobStorage for MariaDbStorage {
 
             let row: Option<(String,)> = sqlx::query_as(CHECK_QUERY)
                 .bind(&job_id_str)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
 
             match row {
@@ -372,6 +383,7 @@ impl InternalJobStorage for MariaDbStorage {
             }
         }
 
+        tx.commit().await?;
         Ok(())
     }
 
@@ -390,11 +402,9 @@ impl InternalJobStorage for MariaDbStorage {
 
         let mut job_ids: Vec<JobId> = Vec::with_capacity(rows.len());
         for (id_str,) in &rows {
-            job_ids.push(
-                id_str
-                    .parse()
-                    .map_err(|e: uuid::Error| sqlx::Error::Protocol(e.to_string()))?,
-            );
+            job_ids.push(id_str.parse().map_err(|e: uuid::Error| {
+                DbError::DataIntegrity(format!("invalid job UUID: {e}"))
+            })?);
         }
 
         if !job_ids.is_empty() {
@@ -429,11 +439,9 @@ impl InternalJobStorage for MariaDbStorage {
 
         let mut job_ids: Vec<JobId> = Vec::with_capacity(rows.len());
         for (id_str,) in &rows {
-            job_ids.push(
-                id_str
-                    .parse()
-                    .map_err(|e: uuid::Error| sqlx::Error::Protocol(e.to_string()))?,
-            );
+            job_ids.push(id_str.parse().map_err(|e: uuid::Error| {
+                DbError::DataIntegrity(format!("invalid job UUID: {e}"))
+            })?);
         }
 
         if !job_ids.is_empty() {
@@ -508,20 +516,33 @@ impl UserStorage for MariaDbStorage {
         &self,
         resource_group_id: ResourceGroupId,
     ) -> Result<(), DbError> {
-        const QUERY: &str = formatcp!(
+        const DELETE_JOBS_QUERY: &str = formatcp!(
+            "DELETE FROM `{table}` WHERE `resource_group_id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+        const DELETE_RG_QUERY: &str = formatcp!(
             "DELETE FROM `{table}` WHERE `id` = ?;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let result = sqlx::query(QUERY)
-            .bind(resource_group_id.as_uuid_ref().to_string())
-            .execute(&self.pool)
+        let rg_id_str = resource_group_id.as_uuid_ref().to_string();
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(DELETE_JOBS_QUERY)
+            .bind(&rg_id_str)
+            .execute(&mut *tx)
+            .await?;
+
+        let result = sqlx::query(DELETE_RG_QUERY)
+            .bind(&rg_id_str)
+            .execute(&mut *tx)
             .await?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::ResourceGroupNotFound(resource_group_id));
         }
 
+        tx.commit().await?;
         Ok(())
     }
 }
