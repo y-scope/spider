@@ -7,6 +7,7 @@ use crate::db::DbError;
 
 /// Returns the inner part of a SQL `ENUM(...)` definition from a Rust enum,
 /// e.g. `'Ready','Running','CommitReady'`.
+#[must_use]
 pub fn sql_enum_values<T: IntoEnumIterator + Display>() -> String {
     T::iter()
         .map(|s| format!("'{s}'"))
@@ -51,4 +52,86 @@ pub fn validate_resource_group_access(
 pub fn parse_job_state(state_str: &str) -> Result<JobState, DbError> {
     JobState::from_str(state_str)
         .map_err(|e| DbError::DataIntegrity(format!("invalid job state: {e}")))
+}
+
+/// Converts a JDBC `MariaDB` URL to a sqlx-compatible `MySQL` URL.
+///
+/// Example:
+/// ```text
+/// jdbc:mariadb://127.0.0.1:3306/spider-db?user=spider-user&password=spider-password
+/// ```
+/// becomes:
+/// ```text
+/// mysql://spider-user:spider-password@127.0.0.1:3306/spider-db
+/// ```
+///
+/// # Errors
+///
+/// Returns [`DbError::DataIntegrity`] if the URL is malformed or missing required parameters.
+pub fn jdbc_url_to_sqlx(jdbc_url: &str) -> Result<String, DbError> {
+    let rest = jdbc_url.strip_prefix("jdbc:mariadb://").ok_or_else(|| {
+        DbError::DataIntegrity("JDBC URL must start with 'jdbc:mariadb://'".to_string())
+    })?;
+
+    let (host_port_db, query) = rest.split_once('?').ok_or_else(|| {
+        DbError::DataIntegrity("JDBC URL must contain query parameters after '?'".to_string())
+    })?;
+
+    let params: Vec<(&str, &str)> = query.split('&').filter_map(|p| p.split_once('=')).collect();
+
+    let user = params
+        .iter()
+        .find(|(k, _)| *k == "user")
+        .map(|(_, v)| *v)
+        .ok_or_else(|| DbError::DataIntegrity("JDBC URL missing 'user' parameter".to_string()))?;
+
+    let password = params
+        .iter()
+        .find(|(k, _)| *k == "password")
+        .map(|(_, v)| *v)
+        .ok_or_else(|| {
+            DbError::DataIntegrity("JDBC URL missing 'password' parameter".to_string())
+        })?;
+
+    Ok(format!("mysql://{user}:{password}@{host_port_db}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_jdbc_url_to_sqlx() {
+        let jdbc =
+            "jdbc:mariadb://127.0.0.1:3306/spider-db?user=spider-user&password=spider-password";
+        let result = jdbc_url_to_sqlx(jdbc).unwrap();
+        assert_eq!(
+            result,
+            "mysql://spider-user:spider-password@127.0.0.1:3306/spider-db"
+        );
+    }
+
+    #[test]
+    fn test_jdbc_url_to_sqlx_missing_prefix() {
+        let jdbc = "mysql://127.0.0.1:3306/spider-db?user=u&password=p";
+        assert!(jdbc_url_to_sqlx(jdbc).is_err());
+    }
+
+    #[test]
+    fn test_jdbc_url_to_sqlx_missing_user() {
+        let jdbc = "jdbc:mariadb://127.0.0.1:3306/spider-db?password=p";
+        assert!(jdbc_url_to_sqlx(jdbc).is_err());
+    }
+
+    #[test]
+    fn test_jdbc_url_to_sqlx_missing_password() {
+        let jdbc = "jdbc:mariadb://127.0.0.1:3306/spider-db?user=u";
+        assert!(jdbc_url_to_sqlx(jdbc).is_err());
+    }
+
+    #[test]
+    fn test_jdbc_url_to_sqlx_missing_query() {
+        let jdbc = "jdbc:mariadb://127.0.0.1:3306/spider-db";
+        assert!(jdbc_url_to_sqlx(jdbc).is_err());
+    }
 }
