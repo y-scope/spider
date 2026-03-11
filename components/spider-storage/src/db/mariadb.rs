@@ -108,28 +108,25 @@ impl ExternalJobStorage for MariaDbStorage {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
              `serialized_job_inputs`, `commit_tdl_package`, `commit_tdl_function`, \
-             `cleanup_tdl_package`, `cleanup_tdl_function`) \
-             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING `id`;",
+             `cleanup_tdl_package`, `cleanup_tdl_function`) VALUES (?, ?, ?, ?, ?, ?, ?) \
+             RETURNING `id`;",
             table = JOBS_TABLE_NAME,
         );
 
         let rg_id_str = resource_group_id.as_uuid_ref().to_string();
 
-        let serialized_task_graph = task_graph.to_json().map_err(|e| {
-            DbError::DataIntegrity(format!("failed to serialize task graph: {e}"))
-        })?;
-        let serialized_job_inputs = serde_json::to_string(&job_inputs).map_err(|e| {
-            DbError::DataIntegrity(format!("failed to serialize job inputs: {e}"))
-        })?;
+        let serialized_task_graph = task_graph
+            .to_json()
+            .map_err(|e| DbError::DataIntegrity(format!("failed to serialize task graph: {e}")))?;
+        let serialized_job_inputs = serde_json::to_string(&job_inputs)
+            .map_err(|e| DbError::DataIntegrity(format!("failed to serialize job inputs: {e}")))?;
 
-        let (commit_pkg, commit_fn) = task_graph.get_commit_task().map_or(
-            (None, None),
-            |t| (Some(t.tdl_package.clone()), Some(t.tdl_function.clone())),
-        );
-        let (cleanup_pkg, cleanup_fn) = task_graph.get_cleanup_task().map_or(
-            (None, None),
-            |t| (Some(t.tdl_package.clone()), Some(t.tdl_function.clone())),
-        );
+        let (commit_pkg, commit_fn) = task_graph.get_commit_task().map_or((None, None), |t| {
+            (Some(t.tdl_package.clone()), Some(t.tdl_function.clone()))
+        });
+        let (cleanup_pkg, cleanup_fn) = task_graph.get_cleanup_task().map_or((None, None), |t| {
+            (Some(t.tdl_package.clone()), Some(t.tdl_function.clone()))
+        });
 
         let result = sqlx::query(INSERT_QUERY)
             .bind(&rg_id_str)
