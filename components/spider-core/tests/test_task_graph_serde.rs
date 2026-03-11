@@ -1,4 +1,4 @@
-use spider_core::task::TaskGraph;
+use spider_core::task::{TaskDescriptor, TaskGraph};
 
 #[test]
 fn test_serde() {
@@ -103,6 +103,73 @@ fn test_schema_version_check_priority() {
             );
         }
     }
+}
+
+#[test]
+fn test_commit_cleanup_task_serde() {
+    let commit_task = TaskDescriptor {
+        tdl_package: "commit_pkg".to_string(),
+        tdl_function: "commit_fn".to_string(),
+        inputs: vec![],
+        outputs: vec![],
+        input_sources: None,
+    };
+    let cleanup_task = TaskDescriptor {
+        tdl_package: "cleanup_pkg".to_string(),
+        tdl_function: "cleanup_fn".to_string(),
+        inputs: vec![],
+        outputs: vec![],
+        input_sources: None,
+    };
+
+    // Build a task graph with commit and cleanup tasks
+    let mut task_graph =
+        TaskGraph::from_json(TASK_GRAPH_IN_JSON).expect("deserialization from JSON should succeed");
+    task_graph.set_commit_task(commit_task.clone());
+    task_graph.set_cleanup_task(cleanup_task.clone());
+
+    // JSON roundtrip
+    let json = task_graph
+        .to_json()
+        .expect("serialization to JSON should succeed");
+    let deserialized = TaskGraph::from_json(&json).expect("deserialization from JSON should succeed");
+    assert_eq!(task_graph, deserialized);
+    assert_eq!(deserialized.get_commit_task(), Some(&commit_task));
+    assert_eq!(deserialized.get_cleanup_task(), Some(&cleanup_task));
+
+    // MessagePack roundtrip
+    let msgpack = task_graph
+        .to_msgpack()
+        .expect("serialization to MessagePack should succeed");
+    let deserialized_msgpack =
+        TaskGraph::from_msgpack(&msgpack).expect("deserialization from MessagePack should succeed");
+    assert_eq!(task_graph, deserialized_msgpack);
+
+    // Verify JSON contains the commit/cleanup fields
+    let json_value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(json_value["commit_task"]["tdl_package"], "commit_pkg");
+    assert_eq!(json_value["cleanup_task"]["tdl_function"], "cleanup_fn");
+}
+
+#[test]
+fn test_without_commit_cleanup_tasks_roundtrip() {
+    let task_graph =
+        TaskGraph::from_json(TASK_GRAPH_IN_JSON).expect("deserialization from JSON should succeed");
+    assert_eq!(task_graph.get_commit_task(), None);
+    assert_eq!(task_graph.get_cleanup_task(), None);
+
+    // JSON roundtrip preserves None
+    let json = task_graph
+        .to_json()
+        .expect("serialization to JSON should succeed");
+    let deserialized = TaskGraph::from_json(&json).expect("deserialization from JSON should succeed");
+    assert_eq!(deserialized.get_commit_task(), None);
+    assert_eq!(deserialized.get_cleanup_task(), None);
+
+    // Verify JSON does not contain commit/cleanup fields
+    let json_value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(json_value.get("commit_task").is_none());
+    assert!(json_value.get("cleanup_task").is_none());
 }
 
 const TASK_GRAPH_IN_JSON: &str = r#"{
