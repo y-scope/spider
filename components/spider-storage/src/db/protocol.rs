@@ -25,7 +25,7 @@ pub trait DbStorage: ExternalJobStorage + InternalJobStorage + UserStorage {
     ///
     /// Returns an error if
     ///
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn initialize(&self) -> Result<(), DbError>;
 }
 
@@ -64,6 +64,7 @@ pub trait ExternalJobStorage {
     /// Starts a job.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The owner of the job.
     /// * `job_id` - The ID of the job.
     ///
@@ -75,7 +76,7 @@ pub trait ExternalJobStorage {
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Ready`] state.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn start_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -89,6 +90,7 @@ pub trait ExternalJobStorage {
     /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The owner of the job.
     /// * `job_id` - The ID of the job.
     ///
@@ -103,7 +105,7 @@ pub trait ExternalJobStorage {
     ///   * [`JobState::Succeeded`]
     ///   * [`JobState::Failed`]
     ///   * [`JobState::Cancelled`]
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn cancel_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -128,7 +130,7 @@ pub trait ExternalJobStorage {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_state(
         &self,
         resource_group_id: ResourceGroupId,
@@ -138,6 +140,7 @@ pub trait ExternalJobStorage {
     /// Gets the outputs of a job.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The owner of the job.
     /// * `job_id` - The ID of the job.
     ///
@@ -153,7 +156,7 @@ pub trait ExternalJobStorage {
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Succeeded`] state.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_outputs(
         &self,
         resource_group_id: ResourceGroupId,
@@ -163,6 +166,7 @@ pub trait ExternalJobStorage {
     /// Gets the error message of a job.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The owner of the job.
     /// * `job_id` - The ID of the job.
     ///
@@ -178,7 +182,7 @@ pub trait ExternalJobStorage {
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Failed`] state.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_error(
         &self,
         resource_group_id: ResourceGroupId,
@@ -192,6 +196,7 @@ pub trait InternalJobStorage {
     /// Sets the state of a job.
     ///
     /// # Parameters
+    ///
     /// * `job_id` - The ID of the job.
     /// * `old_state` - The expected old state of the job. If `None`, the state will be updated
     ///   regardless of the current state.
@@ -204,7 +209,7 @@ pub trait InternalJobStorage {
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the current state of the job does not match any of the
     ///   states in `old_state` (if `old_state` is not `None`).
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn set_job_state(
         &self,
         job_id: JobId,
@@ -216,6 +221,7 @@ pub trait InternalJobStorage {
     /// [`JobState::Failed`], or [`JobState::Cancelled`]) for a certain duration.
     ///
     /// # Parameters
+    ///
     /// * `timeout` - The duration after which jobs in terminal states should be deleted.
     ///
     /// # Returns
@@ -226,7 +232,7 @@ pub trait InternalJobStorage {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete_jobs(&self, timeout: std::time::Duration) -> Result<Vec<JobId>, DbError>;
 
     /// Resets all started jobs that are in non-terminal states.
@@ -236,6 +242,9 @@ pub trait InternalJobStorage {
     /// The IDs of the reset jobs on success.
     ///
     /// # Errors
+    ///
+    /// Returns an error if:
+    ///
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError>;
 }
@@ -246,13 +255,16 @@ pub trait UserStorage {
     /// Adds a resource group to the database.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The ID of the resource group to add.
     /// * `password` - The hashed password for the resource group.
     ///
     /// # Errors
     ///
+    /// Returns an error if:
+    ///
     /// * [`DbError::ResourceGroupAlreadyExists`] if the `resource_group_id` already exists.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn add_resource_group(
         &self,
         resource_group_id: ResourceGroupId,
@@ -262,14 +274,17 @@ pub trait UserStorage {
     /// Verifies the password of a resource group.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The ID of the resource group to verify.
     /// * `password` - The hashed password to verify.
     ///
     /// # Errors
     ///
+    /// Returns an error if:
+    ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * [`DbError::InvalidPassword`] if the password is incorrect.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn verify_resource_group(
         &self,
         resource_group_id: ResourceGroupId,
@@ -279,11 +294,15 @@ pub trait UserStorage {
     /// Deletes a resource group from the database.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The ID of the resource group to delete.
     ///
     /// # Errors
+    ///
+    /// Returns an error if:
+    ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete_resource_group(
         &self,
         resource_group_id: ResourceGroupId,
