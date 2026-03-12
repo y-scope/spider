@@ -14,15 +14,15 @@ use crate::db::error::DbError;
 
 /// The database storage interface. A database storage must implement the following traits:
 ///
-/// * [`ExternalJobStorage`]
-/// * [`InternalJobStorage`]
-/// * [`UserStorage`]
+/// * [`ExternalJobOrchestration`]
+/// * [`InternalJobOrchestration`]
+/// * [`ResourceGroupStorage`]
 #[async_trait]
-pub trait DbStorage: ExternalJobStorage + InternalJobStorage + UserStorage {}
+pub trait DbStorage: ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupStorage {}
 
 /// Defines the user-facing storage interface for job storage in the database.
 #[async_trait]
-pub trait ExternalJobStorage {
+pub trait ExternalJobOrchestration {
     /// Registers a job in the database.
     ///
     /// # Parameters
@@ -183,7 +183,7 @@ pub trait ExternalJobStorage {
 
 /// Defines the internal storage interface for job storage in database.
 #[async_trait]
-pub trait InternalJobStorage {
+pub trait InternalJobOrchestration {
     /// Sets the state of a job.
     ///
     /// # Parameters
@@ -242,7 +242,7 @@ pub trait InternalJobStorage {
 
 /// Defines the storage interface for resource group management in database.
 #[async_trait]
-pub trait UserStorage {
+pub trait ResourceGroupStorage {
     /// Adds a resource group to the database.
     ///
     /// # Parameters
