@@ -18,8 +18,8 @@ use crate::db::{
     ExternalJobOrchestration,
     InternalJobOrchestration,
     ResourceGroupStorage,
+    error::ExpectedStates,
 };
-use crate::db::error::ExpectedStates;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
@@ -188,7 +188,10 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Ready {
-            return Err(DbError::UnexpectedJobState{current: state, expected: ExpectedStates(vec![JobState::Ready])});
+            return Err(DbError::UnexpectedJobState {
+                current: state,
+                expected: ExpectedStates(vec![JobState::Ready]),
+            });
         }
 
         sqlx::query(UPDATE_QUERY)
@@ -234,14 +237,14 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state.is_terminal() {
-            return Err(DbError::UnexpectedJobState{
+            return Err(DbError::UnexpectedJobState {
                 current: state,
                 expected: ExpectedStates(vec![
                     JobState::Ready,
                     JobState::Running,
                     JobState::CommitReady,
                     JobState::CleanupReady,
-                ])
+                ]),
             });
         }
 
@@ -307,9 +310,9 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Succeeded {
-            return Err(DbError::UnexpectedJobState{
+            return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates(vec![JobState::Succeeded])
+                expected: ExpectedStates(vec![JobState::Succeeded]),
             });
         }
 
@@ -347,9 +350,9 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Failed {
-            return Err(DbError::UnexpectedJobState{
+            return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates(vec![JobState::Failed])
+                expected: ExpectedStates(vec![JobState::Failed]),
             });
         }
 
@@ -413,9 +416,9 @@ impl InternalJobOrchestration for MariaDbStorage {
                 None => return Err(DbError::JobNotFound(job_id)),
                 Some((state_str,)) => {
                     let state = sql_utils::parse_job_state(&state_str)?;
-                    return Err(DbError::UnexpectedJobState{
+                    return Err(DbError::UnexpectedJobState {
                         current: state,
-                        expected: ExpectedStates(vec![JobState::Failed])
+                        expected: ExpectedStates(vec![JobState::Failed]),
                     });
                 }
             }
@@ -508,8 +511,8 @@ impl ResourceGroupStorage for MariaDbStorage {
         password: String,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?)\
-             RETURNING CAST(`id` AS CHAR) AS `id`; ;",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?)RETURNING CAST(`id` \
+             AS CHAR) AS `id`; ;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
@@ -526,9 +529,9 @@ impl ResourceGroupStorage for MariaDbStorage {
                     DbError::DataIntegrity(format!("invalid job UUID from database: {e}"))
                 })
             }
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
-                Err(DbError::ResourceGroupAlreadyExists(external_resource_group_id))
-            }
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => Err(
+                DbError::ResourceGroupAlreadyExists(external_resource_group_id),
+            ),
             Err(e) => Err(e.into()),
         }
     }
