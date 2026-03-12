@@ -504,22 +504,28 @@ impl InternalJobOrchestration for MariaDbStorage {
 impl ResourceGroupStorage for MariaDbStorage {
     async fn add_resource_group(
         &self,
-        external_resource_group_id: String
+        external_resource_group_id: String,
         password: String,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?);",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?)\
+             RETURNING CAST(`id` AS CHAR) AS `id`; ;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
         let result = sqlx::query(QUERY)
-            .bind(external_resource_group_id.as_uuid_ref().to_string())
+            .bind(external_resource_group_id.clone())
             .bind(password)
-            .execute(&self.pool)
+            .fetch_one(&self.pool)
             .await;
 
         match result {
-            Ok(_) => Ok(()),
+            Ok(row) => {
+                let id_str: String = row.get(0);
+                id_str.parse::<ResourceGroupId>().map_err(|e| {
+                    DbError::DataIntegrity(format!("invalid job UUID from database: {e}"))
+                })
+            }
             Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
                 Err(DbError::ResourceGroupAlreadyExists(external_resource_group_id))
             }
