@@ -13,7 +13,12 @@ use spider_core::{
 use sqlx::MySqlPool;
 
 use super::sql_utils;
-use crate::db::{DbError, DbStorage, ExternalJobStorage, InternalJobStorage, UserStorage};
+use crate::db::{
+    DbError,
+    ExternalJobOrchestration,
+    InternalJobOrchestration,
+    ResourceGroupStorage,
+};
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
@@ -23,9 +28,11 @@ const fn resource_groups_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
-  id UUID NOT NULL,
+  id UUID NOT NULL DEFAULT UUID_v7(),
+  external_id VARCHAR(256) NOT NULL,
   password VARCHAR(2048) NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `external_resource_group_id` (`external_id`)
 );"
     )
 }
@@ -71,8 +78,7 @@ impl MariaDbStorage {
     }
 }
 
-#[async_trait]
-impl DbStorage for MariaDbStorage {
+impl MariaDbStorage {
     /// Initializes the database by creating necessary tables if they do not exist.
     ///
     /// Note: `MariaDB` does not support transactions for DDL statements. All DDL statements are
@@ -84,7 +90,7 @@ impl DbStorage for MariaDbStorage {
     /// Returns an error if
     ///
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
-    async fn initialize(&self) -> Result<(), DbError> {
+    pub async fn initialize(&self) -> Result<(), DbError> {
         sqlx::query(resource_groups_creation_query())
             .execute(&self.pool)
             .await?;
@@ -97,7 +103,7 @@ impl DbStorage for MariaDbStorage {
     }
 }
 #[async_trait]
-impl ExternalJobStorage for MariaDbStorage {
+impl ExternalJobOrchestration for MariaDbStorage {
     async fn register_job(
         &self,
         _resource_group_id: ResourceGroupId,
@@ -149,7 +155,7 @@ impl ExternalJobStorage for MariaDbStorage {
 }
 
 #[async_trait]
-impl InternalJobStorage for MariaDbStorage {
+impl InternalJobOrchestration for MariaDbStorage {
     async fn set_job_state(
         &self,
         _job_id: JobId,
@@ -169,12 +175,12 @@ impl InternalJobStorage for MariaDbStorage {
 }
 
 #[async_trait]
-impl UserStorage for MariaDbStorage {
+impl ResourceGroupStorage for MariaDbStorage {
     async fn add_resource_group(
         &self,
-        _resource_group_id: ResourceGroupId,
+        _external_resource_group_id: String,
         _password: String,
-    ) -> Result<(), DbError> {
+    ) -> Result<ResourceGroupId, DbError> {
         todo!()
     }
 
