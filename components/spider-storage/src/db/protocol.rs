@@ -256,7 +256,8 @@ pub trait ResourceGroupStorage {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::ResourceGroupAlreadyExists`] if the `resource_group_id` already exists.
+    /// * [`DbError::ResourceGroupAlreadyExists`] if the `external_resource_group_id` already
+    ///   exists.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn add_resource_group(
         &self,
