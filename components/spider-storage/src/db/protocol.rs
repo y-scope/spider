@@ -92,10 +92,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or cannot cancel the
     ///   job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::UnexpectedJobState`] if the job is in one of terminal states:
-    ///   * [`JobState::Succeeded`]
-    ///   * [`JobState::Failed`]
-    ///   * [`JobState::Cancelled`]
+    /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn cancel_job(
         &self,
@@ -208,8 +205,7 @@ pub trait InternalJobOrchestration {
         new_state: JobState,
     ) -> Result<(), DbError>;
 
-    /// Deletes jobs that are in terminal states (i.e., [`JobState::Succeeded`],
-    /// [`JobState::Failed`], or [`JobState::Cancelled`]) for a certain duration.
+    /// Deletes jobs that are in terminal states for a certain duration.
     ///
     /// # Parameters
     ///

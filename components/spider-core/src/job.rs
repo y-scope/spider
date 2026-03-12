@@ -14,3 +14,13 @@ pub enum JobState {
     Failed,
     Cancelled,
 }
+
+impl JobState {
+    /// Checks if the job is in a terminal state (Succeeded, Failed, or Cancelled).
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            JobState::Succeeded | JobState::Failed | JobState::Cancelled
+        )
+    }
+}
