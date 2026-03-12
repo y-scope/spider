@@ -416,9 +416,9 @@ impl InternalJobOrchestration for MariaDbStorage {
                 None => return Err(DbError::JobNotFound(job_id)),
                 Some((state_str,)) => {
                     let state = sql_utils::parse_job_state(&state_str)?;
-                    return Err(DbError::UnexpectedJobState {
-                        current: state,
-                        expected: ExpectedStates(vec![JobState::Failed]),
+                    return Err(DbError::InvalidJobStateTransition {
+                        from: state,
+                        to: new_state,
                     });
                 }
             }
