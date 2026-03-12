@@ -194,25 +194,18 @@ pub trait InternalJobOrchestration {
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
-    /// * `old_state` - The expected old state of the job. If `None`, the state will be updated
-    ///   regardless of the current state.
-    /// * `new_state` - The new state to set for the job.
+    /// * `state` - The new state to set for the job.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::InvalidJobStateTransition`] if the current state of the job does not match any
-    ///   of the states in `old_state` (if `old_state` is not `None`).
+    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `state` is
+    ///   invalid.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn set_job_state(
-        &self,
-        job_id: JobId,
-        old_state: Option<&[JobState]>,
-        new_state: JobState,
-    ) -> Result<(), DbError>;
+    async fn set_job_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
     /// Deletes jobs that are in terminal states for a certain duration.
     ///
