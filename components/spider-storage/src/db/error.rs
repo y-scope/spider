@@ -1,4 +1,5 @@
 use std::fmt::Display;
+
 use spider_core::{
     job::JobState,
     types::id::{JobId, ResourceGroupId},
@@ -17,12 +18,9 @@ pub enum DbError {
     #[error("job `{0:?}` does not exist")]
     JobNotFound(JobId),
     #[error("job in state {from} cannot transit into state {to}")]
-    InvalidJobStateTransition{
-        from: JobState,
-        to: JobState,
-    },
+    InvalidJobStateTransition { from: JobState, to: JobState },
     #[error("job in state {current}, expect state {expected}")]
-    UnexpectedJobState{
+    UnexpectedJobState {
         current: JobState,
         expected: ExpectedStates,
     },
@@ -32,12 +30,17 @@ pub enum DbError {
     Sql(#[from] sqlx::error::Error),
 }
 
+#[derive(Debug)]
 pub struct ExpectedStates(pub Vec<JobState>);
 
 impl Display for ExpectedStates {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let states = self.0.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ");
-        write!(f, "{}", states)
+        let states = self
+            .0
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "{states}")
     }
 }
-
