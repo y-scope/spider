@@ -521,7 +521,7 @@ impl ResourceGroupStorage for MariaDbStorage {
         match result {
             Ok(_) => Ok(()),
             Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
-                Err(DbError::ResourceGroupAlreadyExists(resource_group_id))
+                Err(DbError::ResourceGroupAlreadyExists(external_resource_group_id))
             }
             Err(e) => Err(e.into()),
         }
