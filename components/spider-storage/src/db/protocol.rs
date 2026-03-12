@@ -29,10 +29,10 @@ pub trait DbStorage: ExternalJobStorage + InternalJobStorage + UserStorage {
     async fn initialize(&self) -> Result<(), DbError>;
 }
 
-/// Defines the user-facing storage interface for job storage in database.
+/// Defines the user-facing storage interface for job storage in the database.
 #[async_trait]
 pub trait ExternalJobStorage {
-    /// Stores a job into the database.
+    /// Registers a job in the database.
     ///
     /// # Parameters
     ///
@@ -49,9 +49,10 @@ pub trait ExternalJobStorage {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     ///
     /// # Note
+    ///
     /// This function assumes that the `task_graph` and `job_inputs` are consistent.
     async fn register_job(
         &self,
@@ -81,7 +82,9 @@ pub trait ExternalJobStorage {
         job_id: JobId,
     ) -> Result<(), DbError>;
 
-    /// Cancels a job. The cancelled job will move to
+    /// Cancels a job.
+    ///
+    /// The cancelled job will move to:
     /// * [`JobState::CleanupReady`] if the job has a `cleanup` function.
     /// * [`JobState::Cancelled`] otherwise.
     ///
@@ -110,6 +113,7 @@ pub trait ExternalJobStorage {
     /// Gets the state of a job.
     ///
     /// # Parameters
+    ///
     /// * `resource_group_id` - The owner of the job.
     /// * `job_id` - The ID of the job.
     ///
@@ -196,6 +200,7 @@ pub trait InternalJobStorage {
     /// # Errors
     ///
     /// Returns an error if:
+    ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::WrongJobState`] if the current state of the job does not match any of the
     ///   states in `old_state` (if `old_state` is not `None`).
@@ -218,6 +223,8 @@ pub trait InternalJobStorage {
     /// The IDs of the deleted jobs on success.
     ///
     /// # Errors
+    ///
+    /// Returns an error if:
     ///
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     async fn delete_jobs(&self, timeout: std::time::Duration) -> Result<Vec<JobId>, DbError>;
