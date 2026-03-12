@@ -13,7 +13,13 @@ use spider_core::{
 use sqlx::{MySqlPool, Row};
 
 use super::sql_utils;
-use crate::db::{DbError, DbStorage, ExternalJobStorage, InternalJobStorage, UserStorage};
+use crate::db::{
+    DbError,
+    ExternalJobOrchestration,
+    InternalJobOrchestration,
+    ResourceGroupStorage,
+};
+use crate::db::error::ExpectedStates;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
@@ -23,9 +29,11 @@ const fn resource_groups_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
-  id UUID NOT NULL,
+  id UUID NOT NULL DEFAULT UUID_v7(),
+  external_id VARCHAR(256) NOT NULL,
   password VARCHAR(2048) NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `external_resource_group_id` (`external_id`)
 );"
     )
 }
@@ -71,8 +79,7 @@ impl MariaDbStorage {
     }
 }
 
-#[async_trait]
-impl DbStorage for MariaDbStorage {
+impl MariaDbStorage {
     /// Initializes the database by creating necessary tables if they do not exist.
     ///
     /// Note: `MariaDB` does not support transactions for DDL statements. All DDL statements are
@@ -84,7 +91,7 @@ impl DbStorage for MariaDbStorage {
     /// Returns an error if
     ///
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
-    async fn initialize(&self) -> Result<(), DbError> {
+    pub async fn initialize(&self) -> Result<(), DbError> {
         sqlx::query(resource_groups_creation_query())
             .execute(&self.pool)
             .await?;
@@ -98,7 +105,7 @@ impl DbStorage for MariaDbStorage {
 }
 
 #[async_trait]
-impl ExternalJobStorage for MariaDbStorage {
+impl ExternalJobOrchestration for MariaDbStorage {
     async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -181,7 +188,7 @@ impl ExternalJobStorage for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Ready {
-            return Err(DbError::WrongJobState(state));
+            return Err(DbError::UnexpectedJobState{current: state, expected: ExpectedStates(vec![JobState::Ready])});
         }
 
         sqlx::query(UPDATE_QUERY)
@@ -226,8 +233,16 @@ impl ExternalJobStorage for MariaDbStorage {
         sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
         let state = sql_utils::parse_job_state(&state_str)?;
-        if JobState::TERMINAL.contains(&state) {
-            return Err(DbError::WrongJobState(state));
+        if state.is_terminal() {
+            return Err(DbError::UnexpectedJobState{
+                current: state,
+                expected: ExpectedStates(vec![
+                    JobState::Ready,
+                    JobState::Running,
+                    JobState::CommitReady,
+                    JobState::CleanupReady,
+                ])
+            });
         }
 
         if cleanup_tdl_package.is_some() {
@@ -292,7 +307,10 @@ impl ExternalJobStorage for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Succeeded {
-            return Err(DbError::WrongJobState(state));
+            return Err(DbError::UnexpectedJobState{
+                current: state,
+                expected: ExpectedStates(vec![JobState::Succeeded])
+            });
         }
 
         let outputs_str = serialized_outputs.ok_or_else(|| {
@@ -329,7 +347,10 @@ impl ExternalJobStorage for MariaDbStorage {
 
         let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Failed {
-            return Err(DbError::WrongJobState(state));
+            return Err(DbError::UnexpectedJobState{
+                current: state,
+                expected: ExpectedStates(vec![JobState::Failed])
+            });
         }
 
         let message = error_message.ok_or_else(|| {
@@ -342,7 +363,7 @@ impl ExternalJobStorage for MariaDbStorage {
 }
 
 #[async_trait]
-impl InternalJobStorage for MariaDbStorage {
+impl InternalJobOrchestration for MariaDbStorage {
     async fn set_job_state(
         &self,
         job_id: JobId,
@@ -392,7 +413,10 @@ impl InternalJobStorage for MariaDbStorage {
                 None => return Err(DbError::JobNotFound(job_id)),
                 Some((state_str,)) => {
                     let state = sql_utils::parse_job_state(&state_str)?;
-                    return Err(DbError::WrongJobState(state));
+                    return Err(DbError::UnexpectedJobState{
+                        current: state,
+                        expected: ExpectedStates(vec![JobState::Failed])
+                    });
                 }
             }
         }
@@ -477,19 +501,19 @@ impl InternalJobStorage for MariaDbStorage {
 }
 
 #[async_trait]
-impl UserStorage for MariaDbStorage {
+impl ResourceGroupStorage for MariaDbStorage {
     async fn add_resource_group(
         &self,
-        resource_group_id: ResourceGroupId,
+        external_resource_group_id: String
         password: String,
-    ) -> Result<(), DbError> {
+    ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`id`, `password`) VALUES (?, ?);",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?);",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
         let result = sqlx::query(QUERY)
-            .bind(resource_group_id.as_uuid_ref().to_string())
+            .bind(external_resource_group_id.as_uuid_ref().to_string())
             .bind(password)
             .execute(&self.pool)
             .await;
