@@ -19,3 +19,4 @@ uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+uuid = { version = "1.19.0", features = ["v4"] }

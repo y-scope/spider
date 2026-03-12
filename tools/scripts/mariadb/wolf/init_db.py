@@ -15,9 +15,11 @@ import mariadb  # type: ignore [import-not-found]
 _TABLE_CREATORS = [
     """
     CREATE TABLE IF NOT EXISTS `resource_groups` (
-      id UUID NOT NULL,
+      id UUID NOT NULL DEFAULT UUID_v7(),
+      external_id VARCHAR(256) NOT NULL,
       password VARCHAR(2048) NOT NULL,
-      PRIMARY KEY (`id`)
+      PRIMARY KEY (`id`),
+      UNIQUE INDEX `external_resource_group_id` (`external_id`)
     );
     """,
     """

@@ -7,10 +7,9 @@ use spider_core::{
 };
 use spider_storage::db::{
     DbError,
-    DbStorage,
-    ExternalJobStorage,
+    ExternalJobOrchestration,
     MariaDbStorage,
-    UserStorage,
+    ResourceGroupStorage,
     sql_utils,
 };
 use sqlx::MySqlPool;
@@ -37,12 +36,11 @@ async fn setup() -> MariaDbStorage {
 }
 
 async fn create_test_resource_group(storage: &MariaDbStorage) -> ResourceGroupId {
-    let rg_id = ResourceGroupId::new();
+    let external_id = uuid::Uuid::new_v4().to_string();
     storage
-        .add_resource_group(copy_rg(&rg_id), "test-password".to_string())
+        .add_resource_group(external_id, "test-password".to_string())
         .await
-        .expect("add_resource_group should succeed");
-    rg_id
+        .expect("add_resource_group should succeed")
 }
 
 fn minimal_task_graph() -> TaskGraph {
@@ -233,7 +231,7 @@ async fn test_start_job_wrong_state() {
 
     let result = storage.start_job(rg_id, job_id).await;
     assert!(
-        matches!(result, Err(DbError::WrongJobState(_))),
-        "expected WrongJobState, got {result:?}"
+        matches!(result, Err(DbError::UnexpectedJobState { .. })),
+        "expected UnexpectedJobState, got {result:?}"
     );
 }
