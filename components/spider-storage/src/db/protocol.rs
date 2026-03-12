@@ -66,7 +66,7 @@ pub trait ExternalJobStorage {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Ready`] state.
+    /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn start_job(
         &self,
@@ -92,7 +92,7 @@ pub trait ExternalJobStorage {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or cannot cancel the
     ///   job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::WrongJobState`] if the job is in one of terminal states:
+    /// * [`DbError::UnexpectedJobState`] if the job is in one of terminal states:
     ///   * [`JobState::Succeeded`]
     ///   * [`JobState::Failed`]
     ///   * [`JobState::Cancelled`]
@@ -146,7 +146,7 @@ pub trait ExternalJobStorage {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Succeeded`] state.
+    /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`] state.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_outputs(
         &self,
@@ -172,7 +172,7 @@ pub trait ExternalJobStorage {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
     ///   access to the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::WrongJobState`] if the job is not in [`JobState::Failed`] state.
+    /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Failed`] state.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_error(
         &self,
@@ -198,8 +198,8 @@ pub trait InternalJobStorage {
     /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::WrongJobState`] if the current state of the job does not match any of the
-    ///   states in `old_state` (if `old_state` is not `None`).
+    /// * [`DbError::InvalidJobStateTransition`] if the current state of the job does not match any
+    ///   of the states in `old_state` (if `old_state` is not `None`).
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn set_job_state(
         &self,
