@@ -10,7 +10,7 @@ pub enum DbError {
     #[error("resource group `{0:?}` not found")]
     ResourceGroupNotFound(ResourceGroupId),
     #[error("resource group `{0:?}` already exists")]
-    ResourceGroupAlreadyExists(ResourceGroupId),
+    ResourceGroupAlreadyExists(String),
     #[error("resource group `{0:?}` password is incorrect")]
     InvalidPassword(ResourceGroupId),
     #[error("resource group `{0:?}` has no access")]
