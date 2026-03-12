@@ -243,8 +243,12 @@ pub trait ResourceGroupStorage {
     ///
     /// # Parameters
     ///
-    /// * `resource_group_id` - The ID of the resource group to add.
+    /// * `external_resource_group_id` - The ID of the external resource group to add.
     /// * `password` - The hashed password for the resource group.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the created resource group on success.
     ///
     /// # Errors
     ///
@@ -254,9 +258,9 @@ pub trait ResourceGroupStorage {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn add_resource_group(
         &self,
-        resource_group_id: ResourceGroupId,
+        external_resource_group_id: String,
         password: String,
-    ) -> Result<(), DbError>;
+    ) -> Result<ResourceGroupId, DbError>;
 
     /// Verifies the password of a resource group.
     ///
