@@ -31,11 +31,37 @@ pub enum DbError {
         expected: ExpectedStates,
     },
 
-    #[error("data integrity error: {0}")]
-    DataIntegrity(String),
+    #[error("Task graph serialization failure: {0}")]
+    TaskGraphSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("Value serialization failure: {0}")]
+    ValueSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("Value deserialization failure: {0}")]
+    ValueDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
+}
+
+impl DbError {
+    pub fn task_graph_ser<E>(e: E) -> Self
+    where
+        E: serde::ser::Error + Send + Sync + 'static, {
+        Self::TaskGraphSerializationFailure(Box::new(e))
+    }
+
+    pub fn value_ser<E>(e: E) -> Self
+    where
+        E: serde::ser::Error + Send + Sync + 'static, {
+        Self::ValueSerializationFailure(Box::new(e))
+    }
+
+    pub fn value_de<E>(e: E) -> Self
+    where
+        E: serde::de::Error + Send + Sync + 'static, {
+        Self::ValueDeserializationFailure(Box::new(e))
+    }
 }
 
 #[derive(Debug)]

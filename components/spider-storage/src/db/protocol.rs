@@ -42,7 +42,8 @@ pub trait ExternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * [`DbError::DataIntegrity`] if serialization of the task graph or job inputs fails.
+    /// * [`DbError::TaskGraphSerializationFailure`] if the `task_graph` serialization fails.
+    /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     ///
     /// # Note
@@ -72,7 +73,7 @@ pub trait ExternalJobOrchestration {
     ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn start_job(
         &self,
@@ -100,7 +101,7 @@ pub trait ExternalJobOrchestration {
     ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn cancel_job(
         &self,
@@ -126,7 +127,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
     ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_state(
         &self,
@@ -153,7 +154,8 @@ pub trait ExternalJobOrchestration {
     ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`] state.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * [`DbError::ValueDeserializationFailure`] if the job outputs deserialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_outputs(
         &self,
@@ -180,7 +182,7 @@ pub trait ExternalJobOrchestration {
     ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Failed`] state.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_job_error(
         &self,
@@ -206,7 +208,7 @@ pub trait InternalJobOrchestration {
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `state` is
     ///   invalid.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn set_job_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
@@ -224,7 +226,7 @@ pub trait InternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete_jobs(&self, timeout: std::time::Duration) -> Result<Vec<JobId>, DbError>;
 
@@ -238,7 +240,7 @@ pub trait InternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
     async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError>;
 }
@@ -263,7 +265,7 @@ pub trait ResourceGroupManagement {
     ///
     /// * [`DbError::ResourceGroupAlreadyExists`] if the `external_resource_group_id` already
     ///   exists.
-    /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn add_resource_group(
         &self,
