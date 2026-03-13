@@ -16,10 +16,10 @@ use crate::db::error::DbError;
 ///
 /// * [`ExternalJobOrchestration`]
 /// * [`InternalJobOrchestration`]
-/// * [`ResourceGroupStorage`]
+/// * [`ResourceGroupManagement`]
 #[async_trait]
 pub trait DbStorage:
-    ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupStorage {
+    ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupManagement {
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
@@ -242,7 +242,7 @@ pub trait InternalJobOrchestration {
 
 /// Defines the storage interface for resource group management in database.
 #[async_trait]
-pub trait ResourceGroupStorage {
+pub trait ResourceGroupManagement {
     /// Adds a resource group to the database.
     ///
     /// # Parameters

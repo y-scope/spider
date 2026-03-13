@@ -6,5 +6,5 @@ pub use protocol::{
     DbStorage,
     ExternalJobOrchestration,
     InternalJobOrchestration,
-    ResourceGroupStorage,
+    ResourceGroupManagement,
 };
