@@ -31,6 +31,9 @@ pub enum DbError {
         expected: ExpectedStates,
     },
 
+    #[error("database corrupted: {0}")]
+    CorruptedDbState(String),
+
     #[error("Task graph serialization failure: {0}")]
     TaskGraphSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
