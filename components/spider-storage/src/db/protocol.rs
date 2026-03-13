@@ -48,6 +48,8 @@ pub trait ExternalJobOrchestration {
     /// # Note
     ///
     /// This function assumes that the `task_graph` and `job_inputs` are consistent.
+    ///
+    /// TODO: Fix this when #284 is addressed.
     async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -66,8 +68,8 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
@@ -81,7 +83,8 @@ pub trait ExternalJobOrchestration {
     /// Cancels a job.
     ///
     /// The cancelled job will move to:
-    /// * [`JobState::CleanupReady`] if the job has a `cleanup` function.
+    ///
+    /// * [`JobState::CleanupReady`] if the job has a cleanup function.
     /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters

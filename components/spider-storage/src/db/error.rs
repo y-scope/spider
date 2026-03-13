@@ -7,25 +7,32 @@ use spider_core::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {
-    #[error("resource group `{0:?}` not found")]
     ResourceGroupNotFound(ResourceGroupId),
+
     #[error("resource group `{0:?}` already exists")]
     ResourceGroupAlreadyExists(String),
+
     #[error("resource group `{0:?}` password is incorrect")]
     InvalidPassword(ResourceGroupId),
+
     #[error("resource group `{0:?}` has no access")]
     InvalidAccess(ResourceGroupId),
+
     #[error("job `{0:?}` does not exist")]
     JobNotFound(JobId),
+
     #[error("job in state {from} cannot transit into state {to}")]
     InvalidJobStateTransition { from: JobState, to: JobState },
+
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
         current: JobState,
         expected: ExpectedStates,
     },
+
     #[error("data integrity error: {0}")]
     DataIntegrity(String),
+
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
 }
