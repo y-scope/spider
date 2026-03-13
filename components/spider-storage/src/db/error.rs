@@ -7,6 +7,7 @@ use spider_core::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {
+    #[error("resource group `{0:?}` does not exist")]
     ResourceGroupNotFound(ResourceGroupId),
 
     #[error("resource group `{0:?}` already exists")]
