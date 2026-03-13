@@ -96,7 +96,8 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
@@ -122,8 +123,8 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
@@ -148,8 +149,8 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`] state.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
@@ -175,8 +176,8 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Failed`] state.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
