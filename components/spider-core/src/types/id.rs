@@ -66,9 +66,7 @@ pub type WorkerId = Id<WorkerIdMarker>;
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TaskInstanceIdMarker {}
-pub type TaskInstanceId = Id<TaskInstanceIdMarker>;
+pub type TaskInstanceId = u64;
 
 /// Represents a signed ID.
 ///
@@ -121,8 +119,6 @@ where
 pub type SignedJobId = SignedId<JobIdMarker>;
 
 pub type SignedTaskId = SignedId<TaskIdMarker>;
-
-pub type SignedTaskInstanceId = SignedId<TaskInstanceIdMarker>;
 
 #[cfg(test)]
 mod tests {

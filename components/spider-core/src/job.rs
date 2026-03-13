@@ -2,6 +2,7 @@
 pub struct Job {}
 
 /// Enum for all possible states of a job.
+#[derive(Debug)]
 pub enum JobState {
     Running,
     PendingRetry,

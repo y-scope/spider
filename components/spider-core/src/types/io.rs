@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 /// Represents a value object.
 pub struct Value {}
 
@@ -5,7 +7,12 @@ pub struct Value {}
 pub struct Data {}
 
 /// Represents an input of a task.
-pub struct TaskInput {}
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TaskInput {
+    ValuePayload(Vec<u8>),
+}
 
 /// Represents an output of a task.
-pub struct TaskOutput {}
+pub enum TaskOutput {
+    ValuePayload(Vec<u8>),
+}
