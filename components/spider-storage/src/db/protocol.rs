@@ -93,8 +93,7 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or cannot cancel the
-    ///   job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
     /// * [`DbError::DataIntegrity`] if the data in the database is invalid.
