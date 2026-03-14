@@ -12,7 +12,6 @@ use spider_core::{
             SchedulerId,
             SignedJobId,
             SignedTaskId,
-            SignedTaskInstanceId,
             TaskId,
             TaskInstanceId,
             WorkerId,
@@ -44,13 +43,11 @@ pub enum JobResult {
 /// * [`DataManagement`]
 /// * [`Scheduling`]
 /// * [`LivenessTracking`]
-pub trait SpiderStorage:
-    JobOrchestration + TaskOrchestration + DataManagement + Scheduling + LivenessTracking {
-}
+pub trait SpiderStorage: JobOrchestration + DataManagement + Scheduling + LivenessTracking {}
 
 /// Implements [`SpiderStorage`] for any type that implements all the sub-traits.
 impl<T> SpiderStorage for T where
-    T: JobOrchestration + TaskOrchestration + DataManagement + Scheduling + LivenessTracking
+    T: JobOrchestration + DataManagement + Scheduling + LivenessTracking
 {
 }
 

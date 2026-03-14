@@ -1,11 +1,17 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, atomic::AtomicUsize},
+};
+
 use serde::Serialize;
-use spider_core::job::JobState;
-use spider_core::task::{DataflowDependencyIndex, Task, TaskIndex};
-use spider_core::types::id::{JobId, TaskInstanceId};
-use spider_core::types::io::{TaskInput, TaskOutput};
+use spider_core::{
+    job::JobState,
+    task::{DataflowDependencyIndex, Task, TaskIndex},
+    types::{
+        id::{JobId, TaskInstanceId},
+        io::{TaskInput, TaskOutput},
+    },
+};
 
 /// Enum for all possible states of a task.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -20,7 +26,10 @@ pub enum TaskState {
 
 impl TaskState {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, TaskState::Succeeded | TaskState::Failed(_) | TaskState::Cancelled)
+        matches!(
+            self,
+            TaskState::Succeeded | TaskState::Failed(_) | TaskState::Cancelled
+        )
     }
 }
 
@@ -116,12 +125,10 @@ impl DataRef {
 
     fn as_task_input(&self) -> Result<TaskInput, Error> {
         match &*self.data.read().expect("rw lock poisoned") {
-            Data::Value(optional_value) => {
-                Ok(TaskInput::ValuePayload(optional_value.clone().ok_or(Error::TaskInputNotReady)?))
-            }
-            Data::Channel => {
-                Err(Error::InvalidTaskOutput)
-            }
+            Data::Value(optional_value) => Ok(TaskInput::ValuePayload(
+                optional_value.clone().ok_or(Error::TaskInputNotReady)?,
+            )),
+            Data::Channel => Err(Error::InvalidTaskOutput),
         }
     }
 }
@@ -153,7 +160,11 @@ impl TaskMetadata {
         })
     }
 
-    fn complete(&mut self, task_instance_id: TaskInstanceId, task_outputs: Vec<TaskOutput>) -> Result<(), Error> {
+    fn complete(
+        &mut self,
+        task_instance_id: TaskInstanceId,
+        task_outputs: Vec<TaskOutput>,
+    ) -> Result<(), Error> {
         if !self.registered_instances.contains(&task_instance_id) {
             return Err(Error::TaskInstanceNotRegistered(task_instance_id));
         }
@@ -167,7 +178,10 @@ impl TaskMetadata {
 
     fn write_outputs(&self, task_outputs: Vec<TaskOutput>) -> Result<(), Error> {
         if task_outputs.len() != self.outputs.len() {
-            return Err(Error::TaskOutputsLengthMismatch(self.outputs.len(), task_outputs.len()));
+            return Err(Error::TaskOutputsLengthMismatch(
+                self.outputs.len(),
+                task_outputs.len(),
+            ));
         }
         for (output_ref, output) in self.outputs.iter().zip(task_outputs.into_iter()) {
             output_ref.write_task_output(output)?;
@@ -176,7 +190,10 @@ impl TaskMetadata {
     }
 
     fn fetch_inputs(&self) -> Result<Vec<TaskInput>, Error> {
-        self.inputs.iter().map(|input_ref| input_ref.as_task_input()).collect()
+        self.inputs
+            .iter()
+            .map(|input_ref| input_ref.as_task_input())
+            .collect()
     }
 }
 
@@ -197,26 +214,44 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn register_task_instance(&self, task_instance_id: TaskInstanceId, task_index: TaskIndex) -> Result<ExecutionContext, Error> {
+    pub fn register_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+    ) -> Result<ExecutionContext, Error> {
         let job_metadata = self.metadata.read().expect("rw lock poisoned");
-        let mut task_metadata = job_metadata.task_graph.tasks.get(task_index)
+        let mut task_metadata = job_metadata
+            .task_graph
+            .tasks
+            .get(task_index)
             .ok_or(Error::TaskIndexOutOfBound(task_index))?
             .lock()
             .expect("mutex poisoned");
         task_metadata.register(task_instance_id)
     }
 
-    pub async fn complete_task_instance(&self, task_instance_id: TaskInstanceId, task_index: TaskIndex, task_outputs: Vec<TaskOutput>) -> Result<(), Error> {
+    pub async fn complete_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+        task_outputs: Vec<TaskOutput>,
+    ) -> Result<(), Error> {
         let job_metadata = self.metadata.read().expect("rw lock poisoned");
 
         // Update the task metadata
-        let mut task_metadata = job_metadata.task_graph.tasks.get(task_index)
+        let mut task_metadata = job_metadata
+            .task_graph
+            .tasks
+            .get(task_index)
             .ok_or(Error::TaskIndexOutOfBound(task_index))?
             .lock()
             .expect("mutex poisoned");
         task_metadata.complete(task_instance_id, task_outputs)?;
         for child_idx in &task_metadata.children {
-            let mut child_metadata = job_metadata.task_graph.tasks.get(*child_idx)
+            let mut child_metadata = job_metadata
+                .task_graph
+                .tasks
+                .get(*child_idx)
                 .ok_or(Error::TaskIndexOutOfBound(*child_idx))?
                 .lock()
                 .expect("mutex poisoned");
@@ -226,7 +261,10 @@ impl Job {
                 self.ready_queue_sender.send((self.id, *child_idx)).await?;
             }
         }
-        let num_unfinished_tasks = job_metadata.num_unfinished_tasks.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) - 1;
+        let num_unfinished_tasks = job_metadata
+            .num_unfinished_tasks
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
+            - 1;
         drop(task_metadata);
         drop(job_metadata);
 
@@ -236,7 +274,6 @@ impl Job {
 
         // Atomic decrement guarantees that only one thread's control flow can reach here.
         let job_metadata = self.metadata.write().expect("rw lock poisoned");
-
 
         Ok(())
     }
