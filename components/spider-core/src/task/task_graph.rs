@@ -5,8 +5,8 @@ use serde::{
     de::{self, MapAccess, Visitor},
     ser::{SerializeMap, SerializeSeq, Serializer},
 };
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum::{EnumCount, IntoEnumIterator};
+use strum_macros::{EnumCount, EnumIter};
 
 use crate::task::{DataTypeDescriptor, Error};
 
@@ -239,8 +239,6 @@ pub struct TaskDescriptor {
 pub struct TaskGraph {
     dataflow_deps: Vec<DataflowDependency>,
     tasks: Vec<Task>,
-    commit_task: Option<TaskDescriptor>,
-    cleanup_task: Option<TaskDescriptor>,
 }
 
 impl TaskGraph {
@@ -391,24 +389,6 @@ impl TaskGraph {
     #[must_use]
     pub const fn get_num_tasks(&self) -> usize {
         self.tasks.len()
-    }
-
-    pub fn set_commit_task(&mut self, task: TaskDescriptor) {
-        self.commit_task = Some(task);
-    }
-
-    pub fn set_cleanup_task(&mut self, task: TaskDescriptor) {
-        self.cleanup_task = Some(task);
-    }
-
-    #[must_use]
-    pub const fn get_commit_task(&self) -> Option<&TaskDescriptor> {
-        self.commit_task.as_ref()
-    }
-
-    #[must_use]
-    pub const fn get_cleanup_task(&self) -> Option<&TaskDescriptor> {
-        self.cleanup_task.as_ref()
     }
 
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
@@ -630,7 +610,7 @@ impl Serialize for TaskGraph {
         &self,
         serializer: SerializerImpl,
     ) -> Result<SerializerImpl::Ok, SerializerImpl::Error> {
-        let mut map = serializer.serialize_map(None)?;
+        let mut map = serializer.serialize_map(Some(SerializableTaskGraphField::COUNT))?;
         // Iterate the field enum to ensure all fields are serialized and only once.
         for field in SerializableTaskGraphField::iter() {
             match field {
@@ -642,22 +622,6 @@ impl Serialize for TaskGraph {
                     SerializableTaskGraphField::SchemaVersion.as_str(),
                     TASK_GRAPH_SCHEMA_VERSION,
                 )?,
-                SerializableTaskGraphField::CommitTask => {
-                    if let Some(ref commit_task) = self.commit_task {
-                        map.serialize_entry(
-                            SerializableTaskGraphField::CommitTask.as_str(),
-                            commit_task,
-                        )?;
-                    }
-                }
-                SerializableTaskGraphField::CleanupTask => {
-                    if let Some(ref cleanup_task) = self.cleanup_task {
-                        map.serialize_entry(
-                            SerializableTaskGraphField::CleanupTask.as_str(),
-                            cleanup_task,
-                        )?;
-                    }
-                }
             }
         }
 
@@ -686,13 +650,11 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
     });
 
 /// Fields of a serializable task graph.
-#[derive(Deserialize, EnumIter)]
+#[derive(Deserialize, EnumIter, EnumCount)]
 #[serde(field_identifier, rename_all = "snake_case")]
 enum SerializableTaskGraphField {
     SchemaVersion,
     Tasks,
-    CommitTask,
-    CleanupTask,
 }
 
 impl SerializableTaskGraphField {
@@ -700,8 +662,6 @@ impl SerializableTaskGraphField {
         match self {
             Self::SchemaVersion => "schema_version",
             Self::Tasks => "tasks",
-            Self::CommitTask => "commit_task",
-            Self::CleanupTask => "cleanup_task",
         }
     }
 }
@@ -725,8 +685,6 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
     ) -> Result<TaskGraph, MapAccessImpl::Error> {
         let mut schema_version_raw: Option<String> = None;
         let mut tasks_result: Option<Result<Vec<TaskDescriptor>, _>> = None;
-        let mut commit_task: Option<TaskDescriptor> = None;
-        let mut cleanup_task: Option<TaskDescriptor> = None;
 
         while let Some(key) = map.next_key::<SerializableTaskGraphField>()? {
             match key {
@@ -747,22 +705,6 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
                     // To enforce version checking before deserializing tasks, we capture the result
                     // but defer the dispatching.
                     tasks_result = Some(map.next_value());
-                }
-                SerializableTaskGraphField::CommitTask => {
-                    if commit_task.is_some() {
-                        return Err(de::Error::duplicate_field(
-                            SerializableTaskGraphField::CommitTask.as_str(),
-                        ));
-                    }
-                    commit_task = Some(map.next_value()?);
-                }
-                SerializableTaskGraphField::CleanupTask => {
-                    if cleanup_task.is_some() {
-                        return Err(de::Error::duplicate_field(
-                            SerializableTaskGraphField::CleanupTask.as_str(),
-                        ));
-                    }
-                    cleanup_task = Some(map.next_value()?);
                 }
             }
         }
@@ -800,9 +742,6 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
                 )));
             }
         }
-
-        graph.commit_task = commit_task;
-        graph.cleanup_task = cleanup_task;
 
         Ok(graph)
     }
