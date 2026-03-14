@@ -48,21 +48,21 @@ pub enum DbError {
 }
 
 impl DbError {
-    pub fn task_graph_ser<E>(e: E) -> Self
-    where
-        E: serde::ser::Error + Send + Sync + 'static, {
+    pub fn task_graph_ser<SerializationError: serde::ser::Error + Send + Sync + 'static>(
+        e: SerializationError,
+    ) -> Self {
         Self::TaskGraphSerializationFailure(Box::new(e))
     }
 
-    pub fn value_ser<E>(e: E) -> Self
-    where
-        E: serde::ser::Error + Send + Sync + 'static, {
+    pub fn value_ser<SerializationError: serde::ser::Error + Send + Sync + 'static>(
+        e: SerializationError,
+    ) -> Self {
         Self::ValueSerializationFailure(Box::new(e))
     }
 
-    pub fn value_de<E>(e: E) -> Self
-    where
-        E: serde::de::Error + Send + Sync + 'static, {
+    pub fn value_de<DeserializationError: serde::de::Error + Send + Sync + 'static>(
+        e: DeserializationError,
+    ) -> Self {
         Self::ValueDeserializationFailure(Box::new(e))
     }
 }
