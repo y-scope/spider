@@ -17,7 +17,7 @@ use crate::db::{
     DbError,
     ExternalJobOrchestration,
     InternalJobOrchestration,
-    ResourceGroupStorage,
+    ResourceGroupManagement,
 };
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
@@ -156,12 +156,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorage {
-    async fn set_job_state(
-        &self,
-        _job_id: JobId,
-        _old_state: Option<&[JobState]>,
-        _new_state: JobState,
-    ) -> Result<(), DbError> {
+    async fn set_job_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
         todo!()
     }
 
@@ -175,7 +170,7 @@ impl InternalJobOrchestration for MariaDbStorage {
 }
 
 #[async_trait]
-impl ResourceGroupStorage for MariaDbStorage {
+impl ResourceGroupManagement for MariaDbStorage {
     async fn add_resource_group(
         &self,
         _external_resource_group_id: String,
