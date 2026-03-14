@@ -127,6 +127,7 @@ tasks:
       - task: "spider-py-check"
 
   py-fix:
+    cmds:
       - task: "spider-py-fix"
 
   spider-py-check:
