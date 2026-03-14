@@ -191,7 +191,7 @@ pub trait ExternalJobOrchestration {
     ) -> Result<String, DbError>;
 }
 
-/// Defines the internal storage interface for job storage in database.
+/// Defines the internal storage interface for job storage in the database.
 #[async_trait]
 pub trait InternalJobOrchestration {
     /// Sets the state of a job.
@@ -241,11 +241,11 @@ pub trait InternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError>;
 }
 
-/// Defines the storage interface for resource group management in database.
+/// Defines the storage interface for resource group management in the database.
 #[async_trait]
 pub trait ResourceGroupManagement {
     /// Adds a resource group to the database.
