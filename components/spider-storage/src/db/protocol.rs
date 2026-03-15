@@ -258,7 +258,7 @@ pub trait InternalJobOrchestration {
     ///
     /// # Errors
     ///
-    /// Returns an error if
+    /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CleanupReady`
@@ -275,6 +275,8 @@ pub trait InternalJobOrchestration {
     /// * `error_message` - The error message explaining the failure.
     ///
     /// # Errors
+    ///
+    /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `Failed` is
