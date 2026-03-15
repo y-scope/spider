@@ -212,6 +212,77 @@ pub trait InternalJobOrchestration {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn set_job_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
+    /// Finishes job execution by
+    /// * Writing job outputs
+    /// * Setting job state to `CommitReady` if the job has a `commit` task, `Succeeded` otherwise.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    /// * `job_outputs` - The outputs of the job.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the job on success. Must be
+    ///
+    /// * [`JobState::CommitReady`] if the job has a `commit` task.
+    /// * [`JobState::Succeeded`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CommitReady`
+    ///   or `Succeeded` is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn finish_job(
+        &self,
+        job_id: JobId,
+        job_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, DbError>;
+
+    /// Cancels job execution.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the job on success. Must be
+    ///
+    /// * [`JobState::CleanupReady`] if the job has a `cleanup` task.
+    /// * [`JobState::Cancelled`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CleanupReady`
+    ///   or `Cancelled` is invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn cancel_job(&self, job_id: JobId) -> Result<JobState, DbError>;
+
+    /// Fails job execution.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    /// * `error_message` - The error message explaining the failure.
+    ///
+    /// # Errors
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `Failed` is
+    ///   invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn fail_job(&self, job_id: JobId, error_message: String) -> Result<(), DbError>;
+
     /// Deletes jobs that are in terminal states for a certain duration.
     ///
     /// # Parameters
