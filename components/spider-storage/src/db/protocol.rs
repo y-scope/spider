@@ -235,6 +235,7 @@ pub trait InternalJobOrchestration {
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CommitReady`
     ///   or `Succeeded` is invalid.
+    /// * [`DbError::ValueSerializationFailure`] if the `job_outputs` serialization fails.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn finish_job(
@@ -263,6 +264,7 @@ pub trait InternalJobOrchestration {
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CleanupReady`
     ///   or `Cancelled` is invalid.
+    /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn cancel_job(&self, job_id: JobId) -> Result<JobState, DbError>;
