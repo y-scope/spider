@@ -24,13 +24,23 @@ pub enum Error {
 }
 
 /// Enum for all possible states of a task.
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum TaskState {
-    PENDING,
+    Pending,
     Ready,
     Running,
     Succeeded,
     Failed(String),
     Cancelled,
+}
+
+impl TaskState {
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            TaskState::Succeeded | TaskState::Failed(_) | TaskState::Cancelled
+        )
+    }
 }
 
 /// Represents metadata associated with a task.

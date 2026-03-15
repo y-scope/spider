@@ -1,280 +1,385 @@
 use std::{
     collections::{HashMap, HashSet},
+    future::Ready,
     sync::{Arc, atomic::AtomicUsize},
 };
 
 use serde::Serialize;
 use spider_core::{
     job::JobState,
-    task::{DataflowDependencyIndex, Task, TaskIndex},
+    task::{DataflowDependencyIndex, Task, TaskIndex, TaskState},
     types::{
         id::{JobId, TaskInstanceId},
         io::{TaskInput, TaskOutput},
     },
 };
 
-/// Enum for all possible states of a task.
-#[derive(Eq, PartialEq, Debug, Clone)]
-pub enum TaskState {
-    Pending,
-    Ready,
-    Running,
-    Succeeded,
-    Failed(String),
-    Cancelled,
+use crate::cache::{
+    error::{CacheError, CacheError::Internal, InternalError, RejectionError},
+    types::{ExecutionContext, Reader, TdlContext, Writer},
+};
+
+pub struct TaskGraph {
+    tasks: Vec<SharedTaskControlBlock>,
+    outputs: Vec<OutputReader>,
+    commit_task: Option<SharedTerminationTaskControlBlock>,
+    cleanup_task: Option<SharedTerminationTaskControlBlock>,
 }
 
-impl TaskState {
-    pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            TaskState::Succeeded | TaskState::Failed(_) | TaskState::Cancelled
-        )
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("invalid task output")]
-    InvalidTaskOutput,
-
-    #[error("task output already written")]
-    TaskOutputDuplicateWrite,
-
-    #[error("task input not ready")]
-    TaskInputNotReady,
-
-    #[error("task outputs length mismatch: expected {0}, got {1}")]
-    TaskOutputsLengthMismatch(usize, usize),
-
-    #[error("task index {0} is out of bounds")]
-    TaskIndexOutOfBound(TaskIndex),
-
-    #[error("task is already in a terminal state: {0:?}")]
-    TaskAlreadyTerminal(TaskState),
-
-    #[error("job is already in a terminal state: {0:?}")]
-    JobAlreadyTerminal(JobState),
-
-    #[error("task is still pending")]
-    TaskStillPending,
-
-    #[error("task instance {0} is not registered")]
-    TaskInstanceNotRegistered(TaskInstanceId),
-
-    #[error("failed to send ready task to the queue: {0}")]
-    TokioSendError(#[from] tokio::sync::mpsc::error::SendError<(JobId, TaskIndex)>),
-}
-
-#[derive(Serialize, Clone)]
-pub struct TdlContext {
-    package: String,
-    func: String,
-}
-
-#[derive(Serialize)]
-pub struct ExecutionContext {
-    pub task_instance_id: TaskInstanceId,
-    pub tdl_context: TdlContext,
-    pub inputs: Vec<TaskInput>,
-}
-
-/// Internal representation of a data dependency.
-enum Data {
-    Value(Option<Vec<u8>>),
-    Channel,
-}
-
-/// A shareable reference to a data object, allowing multiple tasks to read/write the same data
-/// concurrently.
-struct DataRef {
-    data: Arc<std::sync::RwLock<Data>>,
-}
-
-impl DataRef {
-    fn new_value(value: Vec<u8>) -> Self {
-        Self {
-            data: Arc::new(std::sync::RwLock::new(Data::Value(Some(value)))),
-        }
+impl TaskGraph {
+    pub fn get_task(&self, task_index: TaskIndex) -> Option<SharedTaskControlBlock> {
+        self.tasks.get(task_index).cloned()
     }
 
-    fn new_null_value() -> Self {
-        Self {
-            data: Arc::new(std::sync::RwLock::new(Data::Value(None))),
-        }
-    }
-
-    fn write_task_output(&self, task_output: TaskOutput) -> Result<(), Error> {
-        match task_output {
-            TaskOutput::ValuePayload(payload) => {
-                match &mut *self.data.write().expect("rw lock poisoned") {
-                    Data::Value(optional_value) => {
-                        if optional_value.is_some() {
-                            return Err(Error::TaskOutputDuplicateWrite);
-                        }
-                        *optional_value = Some(payload);
-                    }
-                    Data::Channel => {
-                        return Err(Error::InvalidTaskOutput);
-                    }
-                }
+    pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, RejectionError> {
+        let mut outputs = Vec::with_capacity(self.outputs.len());
+        for output_reader in &self.outputs {
+            let output_guard = output_reader.read().await;
+            if let Some(output) = &*output_guard {
+                outputs.push(output.clone());
+            } else {
+                return Err(RejectionError::TaskOutputNotReady.into());
             }
         }
-        Ok(())
+        Ok(outputs)
     }
 
-    fn as_task_input(&self) -> Result<TaskInput, Error> {
-        match &*self.data.read().expect("rw lock poisoned") {
-            Data::Value(optional_value) => Ok(TaskInput::ValuePayload(
-                optional_value.clone().ok_or(Error::TaskInputNotReady)?,
-            )),
-            Data::Channel => Err(Error::InvalidTaskOutput),
-        }
-    }
-}
-
-struct TaskMetadata {
-    state: TaskState,
-    tdl_context: TdlContext,
-    registered_instances: HashSet<TaskInstanceId>,
-    num_unfinished_parents: usize,
-    inputs: Vec<DataRef>,
-    outputs: Vec<DataRef>,
-    children: Vec<TaskIndex>,
-}
-
-impl TaskMetadata {
-    fn register(&mut self, task_instance_id: TaskInstanceId) -> Result<ExecutionContext, Error> {
-        if self.state.is_terminal() {
-            return Err(Error::TaskAlreadyTerminal(self.state.clone()));
-        }
-        if self.state != TaskState::Ready || self.state != TaskState::Running {
-            return Err(Error::TaskStillPending);
-        }
-        self.state = TaskState::Running;
-        self.registered_instances.insert(task_instance_id);
-        Ok(ExecutionContext {
-            task_instance_id,
-            tdl_context: self.tdl_context.clone(),
-            inputs: self.fetch_inputs()?,
-        })
+    pub fn get_commit_task(&self) -> Option<SharedTerminationTaskControlBlock> {
+        self.commit_task.clone()
     }
 
-    fn complete(
-        &mut self,
-        task_instance_id: TaskInstanceId,
-        task_outputs: Vec<TaskOutput>,
-    ) -> Result<(), Error> {
-        if !self.registered_instances.contains(&task_instance_id) {
-            return Err(Error::TaskInstanceNotRegistered(task_instance_id));
-        }
-        if self.state.is_terminal() {
-            return Err(Error::TaskAlreadyTerminal(self.state.clone()));
-        }
-        self.write_outputs(task_outputs)?;
-        self.state = TaskState::Succeeded;
-        Ok(())
-    }
-
-    fn write_outputs(&self, task_outputs: Vec<TaskOutput>) -> Result<(), Error> {
-        if task_outputs.len() != self.outputs.len() {
-            return Err(Error::TaskOutputsLengthMismatch(
-                self.outputs.len(),
-                task_outputs.len(),
-            ));
-        }
-        for (output_ref, output) in self.outputs.iter().zip(task_outputs.into_iter()) {
-            output_ref.write_task_output(output)?;
-        }
-        Ok(())
-    }
-
-    fn fetch_inputs(&self) -> Result<Vec<TaskInput>, Error> {
-        self.inputs
-            .iter()
-            .map(|input_ref| input_ref.as_task_input())
-            .collect()
+    pub fn get_cleanup_task(&self) -> Option<SharedTerminationTaskControlBlock> {
+        self.cleanup_task.clone()
     }
 }
 
-struct TaskGraph {
-    tasks: Vec<std::sync::Mutex<TaskMetadata>>,
+#[derive(Clone)]
+pub struct SharedTaskControlBlock {
+    inner: Arc<tokio::sync::Mutex<TaskControlBlock>>,
 }
 
-struct JobMetadata {
-    state: JobState,
-    task_graph: TaskGraph,
-    num_unfinished_tasks: AtomicUsize,
-}
-
-pub struct Job {
-    id: JobId,
-    metadata: std::sync::RwLock<JobMetadata>,
-    ready_queue_sender: tokio::sync::mpsc::Sender<(JobId, TaskIndex)>,
-}
-
-impl Job {
-    pub fn register_task_instance(
+impl SharedTaskControlBlock {
+    pub async fn register_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
-        task_index: TaskIndex,
-    ) -> Result<ExecutionContext, Error> {
-        let job_metadata = self.metadata.read().expect("rw lock poisoned");
-        let mut task_metadata = job_metadata
-            .task_graph
-            .tasks
-            .get(task_index)
-            .ok_or(Error::TaskIndexOutOfBound(task_index))?
-            .lock()
-            .expect("mutex poisoned");
-        task_metadata.register(task_instance_id)
+    ) -> Result<ExecutionContext, CacheError> {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.register_task_instance(task_instance_id)?;
+
+        // NOTE: The following execution can only fail due to internal errors.
+        let result: Result<_, InternalError> = {
+            let inputs = tcb.fetch_inputs().await?;
+            let execution_context = ExecutionContext {
+                task_instance_id,
+                tdl_context: tcb.base.tdl_context.clone(),
+                inputs,
+            };
+            Ok(execution_context)
+        };
+        result.map_err(CacheError::from)
     }
 
     pub async fn complete_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
-        task_index: TaskIndex,
         task_outputs: Vec<TaskOutput>,
-    ) -> Result<(), Error> {
-        let job_metadata = self.metadata.read().expect("rw lock poisoned");
+    ) -> Result<Vec<TaskIndex>, CacheError> {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.complete_task_instance(task_instance_id)?;
 
-        // Update the task metadata
-        let mut task_metadata = job_metadata
-            .task_graph
-            .tasks
-            .get(task_index)
-            .ok_or(Error::TaskIndexOutOfBound(task_index))?
-            .lock()
-            .expect("mutex poisoned");
-        task_metadata.complete(task_instance_id, task_outputs)?;
-        for child_idx in &task_metadata.children {
-            let mut child_metadata = job_metadata
-                .task_graph
-                .tasks
-                .get(*child_idx)
-                .ok_or(Error::TaskIndexOutOfBound(*child_idx))?
-                .lock()
-                .expect("mutex poisoned");
-            child_metadata.num_unfinished_parents -= 1;
-            if child_metadata.num_unfinished_parents == 0 {
-                child_metadata.state = TaskState::Ready;
-                self.ready_queue_sender.send((self.id, *child_idx)).await?;
+        // NOTE: The following execution can only fail due to internal errors.
+        let result: Result<_, InternalError> = {
+            tcb.write_outputs(task_outputs).await?;
+            let mut ready_child_indices = Vec::new();
+            for child in &tcb.children {
+                let mut child_tcb = child.inner.lock().await;
+                if child_tcb.num_parents == 0 {
+                    return Err(InternalError::TaskGraphCorrupted(
+                        "the child has no unfinished parent, but it is still updated as if one of \
+                         its parent just completed."
+                            .to_owned(),
+                    )
+                    .into());
+                }
+                child_tcb.num_unfinished_parents -= 1;
+                if child_tcb.num_unfinished_parents != 0 {
+                    continue;
+                }
+
+                // In practice, this update is guarded by a read lock on the task graph, which
+                // guarantees that the child tasks shouldn't be terminated, as the parent is
+                // not.
+                if child_tcb.base.state.is_terminal() {
+                    return Err(InternalError::TaskGraphCorrupted(
+                        "a child task is in a terminal state, but it is still updated as if one \
+                         of its parent just completed."
+                            .to_owned(),
+                    )
+                    .into());
+                }
+                child_tcb.base.state = TaskState::Ready;
+                ready_child_indices.push(child_tcb.index);
             }
-        }
-        let num_unfinished_tasks = job_metadata
-            .num_unfinished_tasks
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
-            - 1;
-        drop(task_metadata);
-        drop(job_metadata);
 
-        if num_unfinished_tasks > 0 {
-            return Ok(());
+            Ok(ready_child_indices)
+        };
+        result.map_err(CacheError::from)
+    }
+
+    pub async fn fail_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        error_message: String,
+    ) -> Result<TaskState, CacheError> {
+        let mut tcb = self.inner.lock().await;
+        tcb.base
+            .fail_task_instance(task_instance_id, error_message)
+            .map_err(CacheError::from)
+    }
+
+    pub async fn reset(&self) {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.instance_ids.clear();
+
+        // Reset outputs
+        for output_writer in &tcb.outputs {
+            let mut output = output_writer.write().await;
+            *output = None;
         }
 
-        // Atomic decrement guarantees that only one thread's control flow can reach here.
-        let job_metadata = self.metadata.write().expect("rw lock poisoned");
+        tcb.base.retry_counter.reset();
+
+        tcb.num_unfinished_parents = tcb.num_parents;
+        tcb.base.state = if tcb.num_unfinished_parents == 0 {
+            TaskState::Ready
+        } else {
+            TaskState::Pending
+        };
+    }
+
+    pub async fn force_remove_task_instance(&self, task_instance_id: TaskInstanceId) -> bool {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.force_remove_task_instance(task_instance_id)
+    }
+}
+
+#[derive(Clone)]
+pub struct SharedTerminationTaskControlBlock {
+    inner: Arc<tokio::sync::Mutex<TerminationTaskControlBlock>>,
+}
+
+impl SharedTerminationTaskControlBlock {
+    pub fn register_termination_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<TdlContext, CacheError> {
+        let mut tcb = self.inner.blocking_lock();
+        tcb.base.register_task_instance(task_instance_id)?;
+        Ok(tcb.base.tdl_context.clone())
+    }
+
+    pub fn complete_termination_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<(), CacheError> {
+        let mut tcb = self.inner.blocking_lock();
+        tcb.base.complete_task_instance(task_instance_id)
+    }
+
+    pub fn fail_termination_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        error_message: String,
+    ) -> Result<TaskState, CacheError> {
+        let mut tcb = self.inner.blocking_lock();
+        tcb.base
+            .fail_task_instance(task_instance_id, error_message)
+            .map_err(CacheError::from)
+    }
+
+    pub async fn force_remove_task_instance(&self, task_instance_id: TaskInstanceId) -> bool {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.force_remove_task_instance(task_instance_id)
+    }
+}
+
+struct BaseTaskControlBlock {
+    state: TaskState,
+    tdl_context: TdlContext,
+    instance_ids: HashSet<TaskInstanceId>,
+    max_num_instances: usize,
+    retry_counter: RetryCounter,
+}
+
+impl BaseTaskControlBlock {
+    fn register_task_instance(
+        &mut self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<(), CacheError> {
+        if self.state.is_terminal() {
+            return Err(RejectionError::TaskAlreadyTerminated(self.state.clone()).into());
+        }
+        if !matches!(self.state, TaskState::Ready | TaskState::Running) {
+            return Err(InternalError::TaskNotReady.into());
+        }
+        if self.instance_ids.len() >= self.max_num_instances {
+            return Err(RejectionError::TaskInstanceLimitExceeded.into());
+        }
+        self.instance_ids.insert(task_instance_id);
+        self.state = TaskState::Running;
+        Ok(())
+    }
+
+    fn complete_task_instance(
+        &mut self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<(), CacheError> {
+        if !self.instance_ids.remove(&task_instance_id) {
+            return Err(RejectionError::InvalidTaskInstanceId.into());
+        }
+        if self.state.is_terminal() {
+            return Err(RejectionError::TaskAlreadyTerminated(self.state.clone()).into());
+        }
+        self.state = TaskState::Succeeded;
+        Ok(())
+    }
+
+    fn fail_task_instance(
+        &mut self,
+        task_instance_id: TaskInstanceId,
+        error_message: String,
+    ) -> Result<TaskState, RejectionError> {
+        if !self.instance_ids.remove(&task_instance_id) {
+            return Err(RejectionError::InvalidTaskInstanceId.into());
+        }
+        if self.state.is_terminal() {
+            return Err(RejectionError::TaskAlreadyTerminated(self.state.clone()).into());
+        }
+
+        if self.retry_counter.retry() == 0 {
+            self.state = if self.instance_ids.len() == 0 {
+                TaskState::Running
+            } else {
+                TaskState::Ready
+            };
+        } else {
+            self.state = TaskState::Failed(error_message);
+        }
+        Ok(self.state.clone())
+    }
+
+    fn force_remove_task_instance(&mut self, task_instance_id: TaskInstanceId) -> bool {
+        let existed = self.instance_ids.remove(&task_instance_id);
+        if existed && self.state == TaskState::Running {
+            self.state = TaskState::Ready;
+        }
+        existed
+    }
+}
+
+struct TaskControlBlock {
+    base: BaseTaskControlBlock,
+    index: TaskIndex,
+    num_parents: usize,
+    num_unfinished_parents: usize,
+    inputs: Vec<InputReader>,
+    outputs: Vec<OutputWriter>,
+    children: Vec<SharedTaskControlBlock>,
+}
+
+impl TaskControlBlock {
+    async fn write_outputs(&self, task_outputs: Vec<TaskOutput>) -> Result<(), InternalError> {
+        if task_outputs.len() != self.outputs.len() {
+            return Err(InternalError::TaskOutputsLengthMismatch(
+                self.outputs.len(),
+                task_outputs.len(),
+            ));
+        }
+
+        // Write task outputs
+        // NOTE: Currently, there is only one possible task output type (value payload) and thus we
+        // do not need to validate the type. In the future, when more task output types are
+        // supported, type validation should be done before any writes happens to avoid partial
+        // writes.
+        for (output_writer, task_output) in self.outputs.iter().zip(task_outputs.into_iter()) {
+            let mut output = output_writer.write().await;
+            if output.is_some() {
+                return Err(InternalError::TaskOutputDuplicateWrite);
+            }
+            *output = Some(task_output);
+        }
 
         Ok(())
+    }
+
+    async fn fetch_inputs(&self) -> Result<Vec<TaskInput>, CacheError> {
+        let mut inputs = Vec::with_capacity(self.inputs.len());
+        for input_reader in &self.inputs {
+            inputs.push(input_reader.read_as_task_input().await?);
+        }
+        Ok(inputs)
+    }
+}
+
+struct TerminationTaskControlBlock {
+    base: BaseTaskControlBlock,
+}
+
+type ValuePayload = Option<Vec<u8>>;
+
+#[derive(Clone)]
+struct Channel {}
+
+enum InputReader {
+    Value(Reader<ValuePayload>),
+    Channel(Channel),
+}
+
+impl InputReader {
+    async fn read_as_task_input(&self) -> Result<TaskInput, CacheError> {
+        match self {
+            InputReader::Value(value_payload) => {
+                let value_guard = value_payload.read().await;
+                if let Some(value) = &*value_guard {
+                    Ok(TaskInput::ValuePayload(value.clone()))
+                } else {
+                    Err(InternalError::TaskInputNotReady.into())
+                }
+            }
+            InputReader::Channel(_) => unimplemented!("channel input is not supported yet"),
+        }
+    }
+}
+
+type OutputReader = Reader<ValuePayload>;
+
+type OutputWriter = Writer<ValuePayload>;
+
+struct RetryCounter {
+    max_num_retries_allowed: usize,
+    retry_count: usize,
+}
+
+impl RetryCounter {
+    fn new(max_num_retries_allowed: usize) -> Self {
+        Self {
+            max_num_retries_allowed,
+            retry_count: max_num_retries_allowed,
+        }
+    }
+
+    fn retry(&mut self) -> usize {
+        if self.retry_count == 0 {
+            // In practice, this is possible if the total number of task instances creates are
+            // greater than the number of retries allowed.
+            return 0;
+        }
+        let num_retries_left = self.retry_count;
+        self.retry_count -= 1;
+        num_retries_left
+    }
+
+    fn reset(&mut self) {
+        self.retry_count = self.max_num_retries_allowed;
     }
 }

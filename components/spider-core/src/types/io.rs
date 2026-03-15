@@ -13,6 +13,4 @@ pub enum TaskInput {
 }
 
 /// Represents an output of a task.
-pub enum TaskOutput {
-    ValuePayload(Vec<u8>),
-}
+pub type TaskOutput = Vec<u8>;
