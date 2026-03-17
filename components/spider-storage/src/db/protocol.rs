@@ -212,9 +212,13 @@ pub trait InternalJobOrchestration {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn set_job_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
-    /// Finishes job execution by
-    /// * Writing job outputs
-    /// * Setting job state to `CommitReady` if the job has a `commit` task, `Succeeded` otherwise.
+    /// Marks a job as ready for commit.
+    ///
+    /// A job is ready to commit if all its tasks have been completed successfully. The job outputs
+    /// will be persisted in the database. The job will move to:
+    ///
+    /// * [`JobState::CommitReady`] if the job has a commit task.
+    /// * [`JobState::Succeeded`] otherwise.
     ///
     /// # Parameters
     ///
@@ -223,22 +227,19 @@ pub trait InternalJobOrchestration {
     ///
     /// # Returns
     ///
-    /// The new state of the job on success. Must be
-    ///
-    /// * [`JobState::CommitReady`] if the job has a `commit` task.
-    /// * [`JobState::Succeeded`] otherwise.
+    /// The new state of the job on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CommitReady`
-    ///   or `Succeeded` is invalid.
+    /// * [`DbError::InvalidJobStateTransition`] if the current job state is not
+    ///   [`JobState::Running`].
     /// * [`DbError::ValueSerializationFailure`] if the `job_outputs` serialization fails.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn finish_job(
+    async fn commit_ready(
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
