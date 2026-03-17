@@ -51,7 +51,7 @@ pub trait ExternalJobOrchestration {
     /// This function assumes that the `task_graph` and `job_inputs` are consistent.
     ///
     /// TODO: Fix this when #284 is addressed.
-    async fn register_job(
+    async fn register(
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: Arc<TaskGraph>,
@@ -75,11 +75,8 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn start_job(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-    ) -> Result<(), DbError>;
+    async fn start(&self, resource_group_id: ResourceGroupId, job_id: JobId)
+    -> Result<(), DbError>;
 
     /// Cancels a job.
     ///
@@ -103,7 +100,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn cancel_job(
+    async fn cancel(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -129,7 +126,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_state(
+    async fn get_state(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -157,7 +154,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * [`DbError::ValueDeserializationFailure`] if the job outputs deserialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_outputs(
+    async fn get_outputs(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -184,7 +181,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Failed`] state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_error(
+    async fn get_error(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -210,13 +207,86 @@ pub trait InternalJobOrchestration {
     ///   invalid.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn set_job_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
+    async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
-    /// Deletes jobs that are in terminal states for a certain duration.
+    /// Commits the job outputs.
+    ///
+    /// A job is ready to commit if all its tasks have been completed successfully. The job outputs
+    /// will be persisted in the database. The job will move to:
+    ///
+    /// * [`JobState::CommitReady`] if the job has a commit task.
+    /// * [`JobState::Succeeded`] otherwise.
     ///
     /// # Parameters
     ///
-    /// * `timeout` - The duration after which jobs in terminal states should be deleted.
+    /// * `job_id` - The ID of the job.
+    /// * `job_outputs` - The outputs of the job.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the current job state is not
+    ///   [`JobState::Running`].
+    /// * [`DbError::ValueSerializationFailure`] if the `job_outputs` serialization fails.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn commit_outputs(
+        &self,
+        job_id: JobId,
+        job_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, DbError>;
+
+    /// Cancels the job.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the job on success, which must be one of:
+    ///
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
+    /// * [`JobState::Cancelled`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is not in a cancellable state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn cancel(&self, job_id: JobId) -> Result<JobState, DbError>;
+
+    /// Fails job execution.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    /// * `error_message` - The error message explaining the failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is already in a terminal state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn fail(&self, job_id: JobId, error_message: String) -> Result<(), DbError>;
+
+    /// Deletes all expired terminated jobs.
+    ///
+    /// # Parameters
+    ///
+    /// * `expire_after` - The duration after termination which a job is considered expired.
     ///
     /// # Returns
     ///
@@ -228,7 +298,10 @@ pub trait InternalJobOrchestration {
     ///
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn delete_jobs(&self, timeout: std::time::Duration) -> Result<Vec<JobId>, DbError>;
+    async fn delete_expired_terminated_jobs(
+        &self,
+        expire_after: std::time::Duration,
+    ) -> Result<Vec<JobId>, DbError>;
 
     /// Resets all started jobs that are in non-terminal states.
     ///
@@ -242,7 +315,7 @@ pub trait InternalJobOrchestration {
     ///
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError>;
+    async fn reset_all(&self) -> Result<Vec<JobId>, DbError>;
 }
 
 /// Defines the storage interface for resource group management in the database.
@@ -267,7 +340,7 @@ pub trait ResourceGroupManagement {
     ///   exists.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn add_resource_group(
+    async fn add(
         &self,
         external_resource_group_id: String,
         password: String,
@@ -287,7 +360,7 @@ pub trait ResourceGroupManagement {
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * [`DbError::InvalidPassword`] if the password is incorrect.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn verify_resource_group(
+    async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
         password: String,
@@ -305,8 +378,5 @@ pub trait ResourceGroupManagement {
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn delete_resource_group(
-        &self,
-        resource_group_id: ResourceGroupId,
-    ) -> Result<(), DbError>;
+    async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError>;
 }
