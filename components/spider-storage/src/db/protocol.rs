@@ -16,10 +16,10 @@ use crate::db::error::DbError;
 ///
 /// * [`ExternalJobOrchestration`]
 /// * [`InternalJobOrchestration`]
-/// * [`ResourceGroupStorage`]
+/// * [`ResourceGroupManagement`]
 #[async_trait]
 pub trait DbStorage:
-    ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupStorage {
+    ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupManagement {
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
@@ -42,12 +42,16 @@ pub trait ExternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
+    /// * [`DbError::TaskGraphSerializationFailure`] if the `task_graph` serialization fails.
+    /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     ///
     /// # Note
     ///
     /// This function assumes that the `task_graph` and `job_inputs` are consistent.
-    async fn register_job(
+    ///
+    /// TODO: Fix this when #284 is addressed.
+    async fn register(
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: Arc<TaskGraph>,
@@ -65,21 +69,20 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn start_job(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-    ) -> Result<(), DbError>;
+    async fn start(&self, resource_group_id: ResourceGroupId, job_id: JobId)
+    -> Result<(), DbError>;
 
     /// Cancels a job.
     ///
     /// The cancelled job will move to:
-    /// * [`JobState::CleanupReady`] if the job has a `cleanup` function.
+    ///
+    /// * [`JobState::CleanupReady`] if the job has a cleanup function.
     /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
@@ -91,12 +94,13 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or cannot cancel the
-    ///   job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn cancel_job(
+    async fn cancel(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -117,11 +121,12 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_state(
+    async fn get_state(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -142,12 +147,14 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`] state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * [`DbError::ValueDeserializationFailure`] if the job outputs deserialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_outputs(
+    async fn get_outputs(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
@@ -168,19 +175,20 @@ pub trait ExternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or does not have
-    ///   access to the job.
+    /// * [`DbError::InvalidAccess`] if the `resource_group_id` does not exist or is not the owner
+    ///   of the job.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Failed`] state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_error(
+    async fn get_error(
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
     ) -> Result<String, DbError>;
 }
 
-/// Defines the internal storage interface for job storage in database.
+/// Defines the internal storage interface for job storage in the database.
 #[async_trait]
 pub trait InternalJobOrchestration {
     /// Sets the state of a job.
@@ -188,30 +196,97 @@ pub trait InternalJobOrchestration {
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
-    /// * `old_state` - The expected old state of the job. If `None`, the state will be updated
-    ///   regardless of the current state.
-    /// * `new_state` - The new state to set for the job.
+    /// * `state` - The new state to set for the job.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::InvalidJobStateTransition`] if the current state of the job does not match any
-    ///   of the states in `old_state` (if `old_state` is not `None`).
+    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `state` is
+    ///   invalid.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn set_job_state(
-        &self,
-        job_id: JobId,
-        old_state: Option<&[JobState]>,
-        new_state: JobState,
-    ) -> Result<(), DbError>;
+    async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
-    /// Deletes jobs that are in terminal states for a certain duration.
+    /// Commits the job outputs.
+    ///
+    /// A job is ready to commit if all its tasks have been completed successfully. The job outputs
+    /// will be persisted in the database. The job will move to:
+    ///
+    /// * [`JobState::CommitReady`] if the job has a commit task.
+    /// * [`JobState::Succeeded`] otherwise.
     ///
     /// # Parameters
     ///
-    /// * `timeout` - The duration after which jobs in terminal states should be deleted.
+    /// * `job_id` - The ID of the job.
+    /// * `job_outputs` - The outputs of the job.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the current job state is not
+    ///   [`JobState::Running`].
+    /// * [`DbError::ValueSerializationFailure`] if the `job_outputs` serialization fails.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn commit_outputs(
+        &self,
+        job_id: JobId,
+        job_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, DbError>;
+
+    /// Cancels the job.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the job on success, which must be one of:
+    ///
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
+    /// * [`JobState::Cancelled`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is not in a cancellable state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn cancel(&self, job_id: JobId) -> Result<JobState, DbError>;
+
+    /// Fails job execution.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    /// * `error_message` - The error message explaining the failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is already in a terminal state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn fail(&self, job_id: JobId, error_message: String) -> Result<(), DbError>;
+
+    /// Deletes all expired terminated jobs.
+    ///
+    /// # Parameters
+    ///
+    /// * `expire_after` - The duration after termination which a job is considered expired.
     ///
     /// # Returns
     ///
@@ -221,26 +296,17 @@ pub trait InternalJobOrchestration {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn delete_jobs(&self, timeout: std::time::Duration) -> Result<Vec<JobId>, DbError>;
-
-    /// Resets all started jobs that are in non-terminal states.
-    ///
-    /// # Returns
-    ///
-    /// The IDs of the reset jobs on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
-    async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError>;
+    async fn delete_expired_terminated_jobs(
+        &self,
+        expire_after: std::time::Duration,
+    ) -> Result<Vec<JobId>, DbError>;
 }
 
-/// Defines the storage interface for resource group management in database.
+/// Defines the storage interface for resource group management in the database.
 #[async_trait]
-pub trait ResourceGroupStorage {
+pub trait ResourceGroupManagement {
     /// Adds a resource group to the database.
     ///
     /// # Parameters
@@ -258,8 +324,9 @@ pub trait ResourceGroupStorage {
     ///
     /// * [`DbError::ResourceGroupAlreadyExists`] if the `external_resource_group_id` already
     ///   exists.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn add_resource_group(
+    async fn add(
         &self,
         external_resource_group_id: String,
         password: String,
@@ -279,7 +346,7 @@ pub trait ResourceGroupStorage {
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * [`DbError::InvalidPassword`] if the password is incorrect.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn verify_resource_group(
+    async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
         password: String,
@@ -297,8 +364,5 @@ pub trait ResourceGroupStorage {
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn delete_resource_group(
-        &self,
-        resource_group_id: ResourceGroupId,
-    ) -> Result<(), DbError>;
+    async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError>;
 }
