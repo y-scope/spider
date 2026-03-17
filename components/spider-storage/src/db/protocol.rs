@@ -302,20 +302,6 @@ pub trait InternalJobOrchestration {
         &self,
         expire_after: std::time::Duration,
     ) -> Result<Vec<JobId>, DbError>;
-
-    /// Resets all started jobs that are in non-terminal states.
-    ///
-    /// # Returns
-    ///
-    /// The IDs of the reset jobs on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn reset_all(&self) -> Result<Vec<JobId>, DbError>;
 }
 
 /// Defines the storage interface for resource group management in the database.
