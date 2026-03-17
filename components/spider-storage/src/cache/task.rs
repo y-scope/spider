@@ -32,7 +32,7 @@ impl TaskGraph {
     }
 
     pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, RejectionError> {
-        let mut outputs = Vec::with_capacity(self.outputs.len());
+        let mut outputs: Vec<TaskOutput> = Vec::with_capacity(self.outputs.len());
         for output_reader in &self.outputs {
             let output_guard = output_reader.read().await;
             if let Some(output) = &*output_guard {
@@ -42,6 +42,14 @@ impl TaskGraph {
             }
         }
         Ok(outputs)
+    }
+
+    pub fn has_commit_task(&self) -> bool {
+        self.commit_task.is_some()
+    }
+
+    pub fn has_cleanup_task(&self) -> bool {
+        self.cleanup_task.is_some()
     }
 
     pub fn get_commit_task(&self) -> Option<SharedTerminationTaskControlBlock> {

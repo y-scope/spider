@@ -8,6 +8,7 @@ use spider_core::{
 pub enum CacheError {
     Internal(InternalError),
     Rejection(RejectionError),
+    DbError(crate::db::DbError),
 }
 
 /// Enums for all internal errors. When these error happens, it is considered that the system is in
@@ -48,6 +49,9 @@ pub enum InternalError {
     #[error("job outputs are not ready")]
     JobOutputsNotReady,
 
+    #[error("job terminated unexpectedly")]
+    JobTerminatedUnexpectedly,
+
     #[error("failed to send scheduling context into the channel")]
     TokioSendError(#[from] tokio::sync::mpsc::error::SendError<(JobId, TaskIndex)>),
 
@@ -81,6 +85,9 @@ pub enum RejectionError {
     #[error("job is no longer in the cleanup-ready state: {0}")]
     JobNoLongerCleanupReady(JobState),
 
+    #[error("job is already in a terminal state: {0}")]
+    JobAlreadyTerminated(JobState),
+
     #[error("the number of living task instances has reached the upper limit")]
     TaskInstanceLimitExceeded,
 
@@ -91,5 +98,11 @@ pub enum RejectionError {
 impl From<RejectionError> for CacheError {
     fn from(e: RejectionError) -> Self {
         CacheError::Rejection(e)
+    }
+}
+
+impl From<crate::db::DbError> for CacheError {
+    fn from(e: crate::db::DbError) -> Self {
+        CacheError::DbError(e)
     }
 }
