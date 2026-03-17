@@ -1,4 +1,5 @@
 use spider_core::{
+    job::JobState,
     task::{TaskIndex, TaskState},
     types::id::JobId,
 };
@@ -29,6 +30,24 @@ pub enum InternalError {
     #[error("task graph corrupted: {0}")]
     TaskGraphCorrupted(String),
 
+    #[error("job has no been started")]
+    JobNotStarted,
+
+    #[error("job does not have a commit task")]
+    JobNoCommit,
+
+    #[error("job does not have a cleanup task")]
+    JobNoCleanup,
+
+    #[error("unexpected job state: current {current}, expected {expected}")]
+    UnexpectedJobState {
+        current: JobState,
+        expected: JobState,
+    },
+
+    #[error("job outputs are not ready")]
+    JobOutputsNotReady,
+
     #[error("failed to send scheduling context into the channel")]
     TokioSendError(#[from] tokio::sync::mpsc::error::SendError<(JobId, TaskIndex)>),
 
@@ -52,6 +71,15 @@ pub enum RejectionError {
 
     #[error("task is already in a terminal state: {0:?}")]
     TaskAlreadyTerminated(TaskState),
+
+    #[error("job is no longer in the running state: {0}")]
+    JobNoLongerRunning(JobState),
+
+    #[error("job is no longer in the commit-ready state: {0}")]
+    JobNoLongerCommitReady(JobState),
+
+    #[error("job is no longer in the cleanup-ready state: {0}")]
+    JobNoLongerCleanupReady(JobState),
 
     #[error("the number of living task instances has reached the upper limit")]
     TaskInstanceLimitExceeded,

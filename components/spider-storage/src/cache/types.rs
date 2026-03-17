@@ -49,7 +49,7 @@ pub struct TdlContext {
 pub struct ExecutionContext {
     pub task_instance_id: TaskInstanceId,
     pub tdl_context: TdlContext,
-    pub inputs: Vec<TaskInput>,
+    pub inputs: Option<Vec<TaskInput>>,
 }
 
 #[derive(Serialize, Clone)]

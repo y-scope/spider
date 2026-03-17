@@ -72,7 +72,7 @@ impl SharedTaskControlBlock {
             let execution_context = ExecutionContext {
                 task_instance_id,
                 tdl_context: tcb.base.tdl_context.clone(),
-                inputs,
+                inputs: Some(inputs),
             };
             Ok(execution_context)
         };
@@ -169,29 +169,29 @@ pub struct SharedTerminationTaskControlBlock {
 }
 
 impl SharedTerminationTaskControlBlock {
-    pub fn register_termination_task_instance(
+    pub async fn register_termination_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
     ) -> Result<TdlContext, CacheError> {
-        let mut tcb = self.inner.blocking_lock();
+        let mut tcb = self.inner.lock().await;
         tcb.base.register_task_instance(task_instance_id)?;
         Ok(tcb.base.tdl_context.clone())
     }
 
-    pub fn complete_termination_task_instance(
+    pub async fn complete_termination_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
     ) -> Result<(), CacheError> {
-        let mut tcb = self.inner.blocking_lock();
+        let mut tcb = self.inner.lock().await;
         tcb.base.complete_task_instance(task_instance_id)
     }
 
-    pub fn fail_termination_task_instance(
+    pub async fn fail_termination_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
         error_message: String,
     ) -> Result<TaskState, CacheError> {
-        let mut tcb = self.inner.blocking_lock();
+        let mut tcb = self.inner.lock().await;
         tcb.base
             .fail_task_instance(task_instance_id, error_message)
             .map_err(CacheError::from)
