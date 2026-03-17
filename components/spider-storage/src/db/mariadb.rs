@@ -104,7 +104,7 @@ impl MariaDbStorage {
 }
 #[async_trait]
 impl ExternalJobOrchestration for MariaDbStorage {
-    async fn register_job(
+    async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
         _task_graph: Arc<TaskGraph>,
@@ -113,7 +113,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
         todo!()
     }
 
-    async fn start_job(
+    async fn start(
         &self,
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
@@ -121,7 +121,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
         todo!()
     }
 
-    async fn cancel_job(
+    async fn cancel(
         &self,
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
@@ -129,7 +129,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
         todo!()
     }
 
-    async fn get_job_state(
+    async fn get_state(
         &self,
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
@@ -137,7 +137,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
         todo!()
     }
 
-    async fn get_job_outputs(
+    async fn get_outputs(
         &self,
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
@@ -145,7 +145,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
         todo!()
     }
 
-    async fn get_job_error(
+    async fn get_error(
         &self,
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
@@ -156,22 +156,41 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorage {
-    async fn set_job_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
+    async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
         todo!()
     }
 
-    async fn delete_jobs(&self, _timeout: Duration) -> Result<Vec<JobId>, DbError> {
+    async fn commit_outputs(
+        &self,
+        _job_id: JobId,
+        _job_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, DbError> {
         todo!()
     }
 
-    async fn reset_jobs(&self) -> Result<Vec<JobId>, DbError> {
+    async fn cancel(&self, _job_id: JobId) -> Result<JobState, DbError> {
+        todo!()
+    }
+
+    async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
+        todo!()
+    }
+
+    async fn delete_expired_terminated_jobs(
+        &self,
+        _expire_after: Duration,
+    ) -> Result<Vec<JobId>, DbError> {
+        todo!()
+    }
+
+    async fn reset_all(&self) -> Result<Vec<JobId>, DbError> {
         todo!()
     }
 }
 
 #[async_trait]
 impl ResourceGroupManagement for MariaDbStorage {
-    async fn add_resource_group(
+    async fn add(
         &self,
         _external_resource_group_id: String,
         _password: String,
@@ -179,7 +198,7 @@ impl ResourceGroupManagement for MariaDbStorage {
         todo!()
     }
 
-    async fn verify_resource_group(
+    async fn verify(
         &self,
         _resource_group_id: ResourceGroupId,
         _password: String,
@@ -187,10 +206,7 @@ impl ResourceGroupManagement for MariaDbStorage {
         todo!()
     }
 
-    async fn delete_resource_group(
-        &self,
-        _resource_group_id: ResourceGroupId,
-    ) -> Result<(), DbError> {
+    async fn delete(&self, _resource_group_id: ResourceGroupId) -> Result<(), DbError> {
         todo!()
     }
 }
