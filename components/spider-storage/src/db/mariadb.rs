@@ -182,10 +182,6 @@ impl InternalJobOrchestration for MariaDbStorage {
     ) -> Result<Vec<JobId>, DbError> {
         todo!()
     }
-
-    async fn reset_all(&self) -> Result<Vec<JobId>, DbError> {
-        todo!()
-    }
 }
 
 #[async_trait]
