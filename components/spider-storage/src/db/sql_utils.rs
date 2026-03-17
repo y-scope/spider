@@ -2,6 +2,7 @@ use std::{fmt::Display, str::FromStr};
 
 use spider_core::{job::JobState, types::id::ResourceGroupId};
 use strum::IntoEnumIterator;
+use uuid::Uuid;
 
 use crate::db::DbError;
 
@@ -15,29 +16,19 @@ pub fn sql_enum_values<T: IntoEnumIterator + Display>() -> String {
         .join(",")
 }
 
-/// Returns a comma-separated list of SQL-quoted strings for use in `IN (...)` clauses,
-/// e.g. `'Succeeded','Failed','Cancelled'`.
-pub fn sql_quoted_list<T: Display>(values: &[T]) -> String {
-    values
-        .iter()
-        .map(|s| format!("'{s}'"))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
 /// Validates that the `resource_group_id` column from a job row matches the expected value.
 ///
 /// # Errors
 ///
 /// * [`DbError::InvalidAccess`] if the resource group IDs do not match.
-/// * [`DbError::DataIntegrity`] if the UUID column is invalid.
+/// * [`DbError::CorruptedDbState`] if the UUID column is invalid.
 pub fn validate_resource_group_access(
     rg_id_str: &str,
     expected: ResourceGroupId,
 ) -> Result<(), DbError> {
-    let actual: ResourceGroupId = rg_id_str.parse().map_err(|e: uuid::Error| {
-        DbError::DataIntegrity(format!("invalid resource group UUID: {e}"))
-    })?;
+    let actual_uuid = Uuid::parse_str(rg_id_str)
+        .map_err(|e| DbError::CorruptedDbState(format!("invalid resource group UUID: {e}")))?;
+    let actual = ResourceGroupId::from(actual_uuid);
     if actual != expected {
         return Err(DbError::InvalidAccess(expected));
     }
@@ -48,10 +39,10 @@ pub fn validate_resource_group_access(
 ///
 /// # Errors
 ///
-/// * [`DbError::DataIntegrity`] if the state string is not a valid [`JobState`] variant.
+/// * [`DbError::CorruptedDbState`] if the state string is not a valid [`JobState`] variant.
 pub fn parse_job_state(state_str: &str) -> Result<JobState, DbError> {
     JobState::from_str(state_str)
-        .map_err(|e| DbError::DataIntegrity(format!("invalid job state: {e}")))
+        .map_err(|e| DbError::CorruptedDbState(format!("invalid job state: {e}")))
 }
 
 /// Converts a JDBC `MariaDB` URL to a sqlx-compatible `MySQL` URL.
@@ -67,14 +58,16 @@ pub fn parse_job_state(state_str: &str) -> Result<JobState, DbError> {
 ///
 /// # Errors
 ///
-/// Returns [`DbError::DataIntegrity`] if the URL is malformed or missing required parameters.
+/// Returns [`DbError::CorruptedDbState`] if the URL is malformed or missing required parameters.
 pub fn jdbc_url_to_sqlx(jdbc_url: &str) -> Result<String, DbError> {
     let rest = jdbc_url.strip_prefix("jdbc:mariadb://").ok_or_else(|| {
-        DbError::DataIntegrity("JDBC URL must start with 'jdbc:mariadb://'".to_string())
+        DbError::CorruptedDbState("JDBC URL must start with 'jdbc:mariadb://'".to_string())
     })?;
 
     let (host_port_db, query) = rest.split_once('?').ok_or_else(|| {
-        DbError::DataIntegrity("JDBC URL must contain query parameters after '?'".to_string())
+        DbError::CorruptedDbState(
+            "JDBC URL must contain query parameters after '?'".to_string(),
+        )
     })?;
 
     let params: Vec<(&str, &str)> = query.split('&').filter_map(|p| p.split_once('=')).collect();
@@ -83,14 +76,16 @@ pub fn jdbc_url_to_sqlx(jdbc_url: &str) -> Result<String, DbError> {
         .iter()
         .find(|(k, _)| *k == "user")
         .map(|(_, v)| *v)
-        .ok_or_else(|| DbError::DataIntegrity("JDBC URL missing 'user' parameter".to_string()))?;
+        .ok_or_else(|| {
+            DbError::CorruptedDbState("JDBC URL missing 'user' parameter".to_string())
+        })?;
 
     let password = params
         .iter()
         .find(|(k, _)| *k == "password")
         .map(|(_, v)| *v)
         .ok_or_else(|| {
-            DbError::DataIntegrity("JDBC URL missing 'password' parameter".to_string())
+            DbError::CorruptedDbState("JDBC URL missing 'password' parameter".to_string())
         })?;
 
     Ok(format!("mysql://{user}:{password}@{host_port_db}"))

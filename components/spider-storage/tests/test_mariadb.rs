@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use spider_core::{
     job::JobState,
-    task::{TaskDescriptor, TaskGraph},
+    task::TaskGraph,
     types::id::{Id, JobId, ResourceGroupId},
 };
 use spider_storage::db::{
     DbError,
     ExternalJobOrchestration,
     MariaDbStorage,
-    ResourceGroupStorage,
+    ResourceGroupManagement,
     sql_utils,
 };
 use sqlx::MySqlPool;
@@ -38,83 +38,30 @@ async fn setup() -> MariaDbStorage {
 async fn create_test_resource_group(storage: &MariaDbStorage) -> ResourceGroupId {
     let external_id = uuid::Uuid::new_v4().to_string();
     storage
-        .add_resource_group(external_id, "test-password".to_string())
+        .add(external_id, "test-password".to_string())
         .await
-        .expect("add_resource_group should succeed")
+        .expect("add should succeed")
 }
 
 fn minimal_task_graph() -> TaskGraph {
     TaskGraph::default()
 }
 
-fn task_graph_with_cleanup() -> TaskGraph {
-    let mut graph = TaskGraph::default();
-    graph.set_cleanup_task(TaskDescriptor {
-        tdl_package: "cleanup_pkg".to_string(),
-        tdl_function: "cleanup_fn".to_string(),
-        inputs: vec![],
-        outputs: vec![],
-        input_sources: None,
-    });
-    graph
-}
-
-fn task_graph_with_commit_and_cleanup() -> TaskGraph {
-    let mut graph = TaskGraph::default();
-    graph.set_commit_task(TaskDescriptor {
-        tdl_package: "commit_pkg".to_string(),
-        tdl_function: "commit_fn".to_string(),
-        inputs: vec![],
-        outputs: vec![],
-        input_sources: None,
-    });
-    graph.set_cleanup_task(TaskDescriptor {
-        tdl_package: "cleanup_pkg".to_string(),
-        tdl_function: "cleanup_fn".to_string(),
-        inputs: vec![],
-        outputs: vec![],
-        input_sources: None,
-    });
-    graph
-}
-
 #[tokio::test]
 #[ignore = "requires MariaDB via SPIDER_STORAGE_URL"]
-async fn test_register_job_without_commit_cleanup() {
+async fn test_register_job() {
     let storage = setup().await;
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register_job(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
         .await
-        .expect("register_job should succeed");
+        .expect("register should succeed");
 
     let state = storage
-        .get_job_state(rg_id, job_id)
+        .get_state(rg_id, job_id)
         .await
-        .expect("get_job_state should succeed");
-    assert_eq!(state, JobState::Ready);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB via SPIDER_STORAGE_URL"]
-async fn test_register_job_with_commit_and_cleanup() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register_job(
-            copy_rg(&rg_id),
-            Arc::new(task_graph_with_commit_and_cleanup()),
-            vec![],
-        )
-        .await
-        .expect("register_job should succeed");
-
-    let state = storage
-        .get_job_state(rg_id, job_id)
-        .await
-        .expect("get_job_state should succeed");
+        .expect("get_state should succeed");
     assert_eq!(state, JobState::Ready);
 }
 
@@ -125,7 +72,7 @@ async fn test_register_job_invalid_resource_group() {
     let fake_rg_id = ResourceGroupId::new();
 
     let result = storage
-        .register_job(fake_rg_id, Arc::new(minimal_task_graph()), vec![])
+        .register(fake_rg_id, Arc::new(minimal_task_graph()), vec![])
         .await;
 
     assert!(
@@ -136,57 +83,28 @@ async fn test_register_job_invalid_resource_group() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB via SPIDER_STORAGE_URL"]
-async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register_job(copy_rg(&rg_id), Arc::new(task_graph_with_cleanup()), vec![])
-        .await
-        .expect("register_job should succeed");
-
-    storage
-        .start_job(copy_rg(&rg_id), copy_job(&job_id))
-        .await
-        .expect("start_job should succeed");
-
-    storage
-        .cancel_job(copy_rg(&rg_id), copy_job(&job_id))
-        .await
-        .expect("cancel_job should succeed");
-
-    let state = storage
-        .get_job_state(rg_id, job_id)
-        .await
-        .expect("get_job_state should succeed");
-    assert_eq!(state, JobState::CleanupReady);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB via SPIDER_STORAGE_URL"]
 async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let storage = setup().await;
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register_job(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
         .await
-        .expect("register_job should succeed");
+        .expect("register should succeed");
 
     storage
-        .start_job(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_rg(&rg_id), copy_job(&job_id))
         .await
-        .expect("start_job should succeed");
+        .expect("start should succeed");
 
-    storage
-        .cancel_job(copy_rg(&rg_id), copy_job(&job_id))
+    ExternalJobOrchestration::cancel(&storage, copy_rg(&rg_id), copy_job(&job_id))
         .await
-        .expect("cancel_job should succeed");
+        .expect("cancel should succeed");
 
     let state = storage
-        .get_job_state(rg_id, job_id)
+        .get_state(rg_id, job_id)
         .await
-        .expect("get_job_state should succeed");
+        .expect("get_state should succeed");
     assert_eq!(state, JobState::Cancelled);
 }
 
@@ -197,19 +115,19 @@ async fn test_start_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register_job(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
         .await
-        .expect("register_job should succeed");
+        .expect("register should succeed");
 
     storage
-        .start_job(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_rg(&rg_id), copy_job(&job_id))
         .await
-        .expect("start_job should succeed");
+        .expect("start should succeed");
 
     let state = storage
-        .get_job_state(rg_id, job_id)
+        .get_state(rg_id, job_id)
         .await
-        .expect("get_job_state should succeed");
+        .expect("get_state should succeed");
     assert_eq!(state, JobState::Running);
 }
 
@@ -220,16 +138,16 @@ async fn test_start_job_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register_job(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
         .await
-        .expect("register_job should succeed");
+        .expect("register should succeed");
 
     storage
-        .start_job(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_rg(&rg_id), copy_job(&job_id))
         .await
-        .expect("start_job should succeed");
+        .expect("start should succeed");
 
-    let result = storage.start_job(rg_id, job_id).await;
+    let result = storage.start(rg_id, job_id).await;
     assert!(
         matches!(result, Err(DbError::UnexpectedJobState { .. })),
         "expected UnexpectedJobState, got {result:?}"
