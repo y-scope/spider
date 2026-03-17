@@ -282,11 +282,11 @@ pub trait InternalJobOrchestration {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn fail(&self, job_id: JobId, error_message: String) -> Result<(), DbError>;
 
-    /// Deletes jobs that are in terminal states for a certain duration.
+    /// Deletes all expired terminated jobs.
     ///
     /// # Parameters
     ///
-    /// * `timeout` - The duration after which jobs in terminal states should be deleted.
+    /// * `expire_after` - The duration after termination which a job is considered expired.
     ///
     /// # Returns
     ///
@@ -298,7 +298,10 @@ pub trait InternalJobOrchestration {
     ///
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn delete_all(&self, timeout: std::time::Duration) -> Result<Vec<JobId>, DbError>;
+    async fn delete_expired_terminated_jobs(
+        &self,
+        expire_after: std::time::Duration,
+    ) -> Result<Vec<JobId>, DbError>;
 
     /// Resets all started jobs that are in non-terminal states.
     ///
