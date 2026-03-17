@@ -244,7 +244,7 @@ pub trait InternalJobOrchestration {
         job_outputs: Vec<TaskOutput>,
     ) -> Result<JobState, DbError>;
 
-    /// Cancels job execution.
+    /// Cancels the job.
     ///
     /// # Parameters
     ///
@@ -252,9 +252,9 @@ pub trait InternalJobOrchestration {
     ///
     /// # Returns
     ///
-    /// The new state of the job on success. Must be
+    /// The new state of the job on success, which must be one of:
     ///
-    /// * [`JobState::CleanupReady`] if the job has a `cleanup` task.
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
     /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Errors
@@ -262,8 +262,7 @@ pub trait InternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `CleanupReady`
-    ///   or `Cancelled` is invalid.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is not in a cancellable state.
     /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
@@ -281,8 +280,7 @@ pub trait InternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `Failed` is
-    ///   invalid.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is already in a terminal state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn fail_job(&self, job_id: JobId, error_message: String) -> Result<(), DbError>;
