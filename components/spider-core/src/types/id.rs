@@ -50,7 +50,7 @@ pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 pub enum TaskIdMarker {}
 pub type TaskId = Id<TaskIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobIdMarker {}
 pub type JobId = Id<JobIdMarker>;
 

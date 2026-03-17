@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use spider_core::{
     job::JobState,
@@ -15,7 +15,7 @@ use crate::{
             CacheError,
             InternalError,
             RejectionError,
-            RejectionError::{JobNoLongerCleanupReady, JobNoLongerCommitReady, JobNoLongerRunning},
+            RejectionError::{JobNoLongerCleanupReady, JobNoLongerCommitReady},
         },
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock, TaskGraph},
         types::{ExecutionContext, TaskId},
@@ -140,8 +140,66 @@ impl<
     pub async fn complete_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
-        task_id: TaskId,
+        task_index: TaskIndex,
         task_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, CacheError> {
+        let job = self.job.read().await;
+        if job.state == JobState::Ready {
+            return Err(InternalError::JobNotStarted.into());
+        }
+        if !job.state.is_running() {
+            return Err(RejectionError::JobNoLongerRunning(job.state).into());
+        }
+        let tcb = job
+            .task_graph
+            .get_task(task_index)
+            .ok_or(InternalError::TaskIndexOutOfBound)?;
+        let ready_task_ids = tcb.complete_task_instance(task_instance_id, task_outputs).await?;
+        let num_incompleted_task = job.num_incompleted_tasks.fetch_sub(1, Ordering::Relaxed);
+        if !ready_task_ids.is_empty() {
+            if num_incompleted_task == 0 {
+                return Err(
+                    InternalError::TaskGraphCorrupted(
+                        "no incompleted tasks while new ready task IDs are generated".to_owned()
+                    ).into());
+            }
+            self.ready_queue_connector
+                .send_task_ready(self.id.clone(), ready_task_ids)
+                .await?;
+            return Ok(job.state);
+        }
+        if num_incompleted_task != 0 {
+            return Ok(job.state);
+        }
+        drop(job);
+
+        let job_state = self.commit_job_outputs().await?;
+        if matches!(job_state, JobState::CommitReady) {
+            self.ready_queue_connector.send_commit_ready(self.id.clone()).await?;
+        }
+        Ok(job_state)
+    }
+
+    pub async fn commit_job_outputs(&self) -> Result<JobState, CacheError> {
+        let mut job = self.job.write().await;
+        if !job.state.is_running() {
+            return Err(RejectionError::JobNoLongerRunning(job.state).into());
+        }
+        let outputs = job.task_graph.get_outputs().await.map_err(|_| InternalError::JobOutputsNotReady)?;
+
+        Ok(job.state)
+    }
+
+    pub async fn complete_commit_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, CacheError> {
+        todo!("Implement this!")
+    }
+
+    pub async fn complete_cleanup_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
     ) -> Result<JobState, CacheError> {
         todo!("Implement this!")
     }
@@ -158,7 +216,7 @@ impl<
 struct Job {
     state: JobState,
     task_graph: TaskGraph,
-    num_unfinished_tasks: AtomicUsize,
+    num_incompleted_tasks: AtomicUsize,
 }
 
 #[async_trait::async_trait]
