@@ -207,7 +207,7 @@ pub trait InternalJobOrchestration {
     ///   invalid.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn set_job_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
+    async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError>;
 
     /// Commits the job outputs.
     ///
