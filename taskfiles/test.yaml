@@ -19,24 +19,28 @@ tasks:
       - task: "mariadb-storage-task-executor"
         vars:
           STORAGE_TASK: "spider-wolf-unit-tests-executor"
+          INIT_DB_SCRIPT: "tools/scripts/mariadb/wolf/init_db.py"
 
   cpp-integration:
     cmds:
       - task: "mariadb-storage-task-executor"
         vars:
           STORAGE_TASK: "spider-wolf-integration-tests-executor"
+          INIT_DB_SCRIPT: "tools/scripts/mariadb/wolf/init_db.py"
 
   spider-py-unit-tests:
     cmds:
       - task: "mariadb-storage-task-executor"
         vars:
           STORAGE_TASK: "spider-py-unit-tests-executor"
+          INIT_DB_SCRIPT: "tools/scripts/mariadb/wolf/init_db.py"
 
   rust-unit-tests:
     cmds:
       - task: "mariadb-storage-task-executor"
         vars:
           STORAGE_TASK: "spider-huntsman-unit-tests-executor"
+          INIT_DB_SCRIPT: "tools/scripts/mariadb/huntsman/init_db.py"
 
   build-unit-test:
     internal: true
@@ -87,7 +91,7 @@ tasks:
       MARIADB_PORT:
         sh: "tools/scripts/get_free_port.py"
     requires:
-      vars: ["STORAGE_TASK"]
+      vars: ["STORAGE_TASK", "INIT_DB_SCRIPT"]
     dir: "{{.ROOT_DIR}}"
     cmds:
       - |-
@@ -101,7 +105,7 @@ tasks:
           {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
           --name "{{.MARIADB_CONTAINER_NAME}}"
       - |-
-        tools/scripts/mariadb/wolf/init_db.py \
+        {{.INIT_DB_SCRIPT}} \
         --port "{{.MARIADB_PORT}}" \
         --database "{{.G_MARIADB_DATABASE}}" \
         --username "{{.G_MARIADB_USERNAME}}" \
