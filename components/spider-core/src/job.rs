@@ -30,8 +30,9 @@ impl JobState {
     /// # Returns
     ///
     /// Whether the job is in [`JobState::Running`] state.
+    #[must_use]
     pub const fn is_running(&self) -> bool {
-        return matches!(self, Self::Running);
+        matches!(self, Self::Running)
     }
 
     /// # Returns

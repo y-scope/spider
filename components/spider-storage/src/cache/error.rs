@@ -5,15 +5,17 @@ use spider_core::{
 };
 
 /// Enums for all possible errors that can happen in the cache.
+#[derive(Debug)]
 pub enum CacheError {
     Internal(InternalError),
     Rejection(RejectionError),
     DbError(crate::db::DbError),
 }
 
-/// Enums for all internal errors. When these error happens, it is considered that the system is in
-/// an inconsistent state and cannot continue to service requests. A restart is needed to recover
-/// the cache from the storage.
+/// Enums for all internal errors.
+///
+/// When these error happens, it is considered that the system is in an inconsistent state and
+/// cannot continue to service requests. A restart is needed to recover the cache from the storage.
 #[derive(thiserror::Error, Debug)]
 pub enum InternalError {
     #[error("task output already written by a previous successful task instance")]
@@ -61,13 +63,15 @@ pub enum InternalError {
 
 impl From<InternalError> for CacheError {
     fn from(e: InternalError) -> Self {
-        CacheError::Internal(e)
+        Self::Internal(e)
     }
 }
 
-/// Enums for all rejection errors. When these error happens, it is considered that the request is
-/// valid, but cannot be processed due to the current state of the cache. These errors should be
-/// forwarded to the client for notification.
+/// Enums for all rejection errors.
+///
+/// When these error happens, it is considered that the request is valid, but cannot be processed
+/// due to the current state of the cache. These errors should be forwarded to the client for
+/// notification.
 #[derive(thiserror::Error, Debug)]
 pub enum RejectionError {
     #[error("task instance ID is not registered")]
@@ -97,12 +101,12 @@ pub enum RejectionError {
 
 impl From<RejectionError> for CacheError {
     fn from(e: RejectionError) -> Self {
-        CacheError::Rejection(e)
+        Self::Rejection(e)
     }
 }
 
 impl From<crate::db::DbError> for CacheError {
     fn from(e: crate::db::DbError) -> Self {
-        CacheError::DbError(e)
+        Self::DbError(e)
     }
 }

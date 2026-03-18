@@ -14,7 +14,6 @@ use crate::{
     cache::{
         error::{
             CacheError,
-            CacheError::Internal,
             InternalError,
             RejectionError,
             RejectionError::{JobNoLongerCleanupReady, JobNoLongerCommitReady},
@@ -25,6 +24,7 @@ use crate::{
     db::InternalJobOrchestration,
 };
 
+#[allow(dead_code)]
 pub struct JobControlBlock<
     ReadyQueueSenderType: ReadyQueueConnector,
     DbConnectorType: InternalJobOrchestration,
@@ -44,6 +44,24 @@ impl<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
+    pub(super) const fn new(
+        id: JobId,
+        owner_id: ResourceGroupId,
+        job: RwJob,
+        ready_queue_connector: ReadyQueueSenderType,
+        db_connector: DbConnectorType,
+        task_instance_pool_connector: TaskInstancePoolConnectorType,
+    ) -> Self {
+        Self {
+            id,
+            owner_id,
+            job,
+            ready_queue_connector,
+            db_connector,
+            task_instance_pool_connector,
+        }
+    }
+
     pub async fn create_task_instance(
         &self,
         task_id: TaskId,
@@ -83,25 +101,24 @@ impl<
                 ExecutionContext {
                     task_instance_id,
                     tdl_context,
-                    // TODO: Question, what's the input for the commit task?
                     inputs: None,
                 }
             }
 
             TaskId::Cleanup => {
                 let job = self.job.read_if_cleanup_ready().await?;
-                let commit_tcb = job
+                let cleanup_tcb = job
                     .task_graph
-                    .get_commit_task()
-                    .ok_or(InternalError::JobNoCommit)?;
+                    .get_cleanup_task()
+                    .ok_or(InternalError::JobNoCleanup)?;
                 let task_instance_id = self
                     .task_instance_pool_connector
                     .get_next_available_task_instance_id();
-                let tdl_context = commit_tcb
+                let tdl_context = cleanup_tcb
                     .register_termination_task_instance(task_instance_id)
                     .await?;
                 self.task_instance_pool_connector
-                    .register_termination_task_instance(task_instance_id, commit_tcb)
+                    .register_termination_task_instance(task_instance_id, cleanup_tcb)
                     .await?;
                 ExecutionContext {
                     task_instance_id,
@@ -128,8 +145,10 @@ impl<
         let ready_task_ids = tcb
             .complete_task_instance(task_instance_id, task_outputs)
             .await?;
-        let num_incompleted_task = job.num_incompleted_tasks.fetch_sub(1, Ordering::Relaxed);
+        let num_incompleted_task = job.num_incompleted_tasks.fetch_sub(1, Ordering::Relaxed) - 1;
 
+        // NOTE: `fetch_sub` returns the previous value, so `num_incompleted_task` is the count
+        // *before* decrementing. The new count is `num_incompleted_task - 1`.
         if !ready_task_ids.is_empty() {
             if num_incompleted_task == 0 {
                 return Err(InternalError::TaskGraphCorrupted(
@@ -253,7 +272,7 @@ impl<
                     return Ok(job.state);
                 }
             }
-        };
+        }
 
         let mut job = self.job.write_if_non_terminated().await.map_err(|e| {
             match &e {
@@ -288,6 +307,7 @@ impl<
         Ok(job.state)
     }
 
+    #[allow(clippy::unused_async, dead_code)]
     async fn cancel(&self) -> Result<JobState, CacheError> {
         todo!(
             "Implement this. The job table must be locked for write, and the state of all tasks \
@@ -297,23 +317,39 @@ impl<
     }
 }
 
-struct Job {
-    state: JobState,
-    task_graph: TaskGraph,
-    num_incompleted_tasks: AtomicUsize,
+pub(super) struct Job {
+    pub(super) state: JobState,
+    pub(super) task_graph: TaskGraph,
+    pub(super) num_incompleted_tasks: AtomicUsize,
 }
 
-struct RwJob {
+impl Job {
+    pub(super) const fn new(state: JobState, task_graph: TaskGraph, num_tasks: usize) -> Self {
+        Self {
+            state,
+            task_graph,
+            num_incompleted_tasks: AtomicUsize::new(num_tasks),
+        }
+    }
+}
+
+pub(super) struct RwJob {
     inner: RwLock<Job>,
 }
 
 impl RwJob {
+    pub(super) fn new(job: Job) -> Self {
+        Self {
+            inner: RwLock::new(job),
+        }
+    }
+
     async fn read_checked(
         &self,
         check: fn(&Job) -> Result<(), CacheError>,
     ) -> Result<RwLockReadGuard<'_, Job>, CacheError> {
         let guard = self.inner.read().await;
-        check(&*guard)?;
+        check(&guard)?;
         Ok(guard)
     }
 
@@ -322,7 +358,7 @@ impl RwJob {
         check: fn(&Job) -> Result<(), CacheError>,
     ) -> Result<RwLockWriteGuard<'_, Job>, CacheError> {
         let guard = self.inner.write().await;
-        check(&*guard)?;
+        check(&guard)?;
         Ok(guard)
     }
 
@@ -358,6 +394,7 @@ impl RwJob {
         self.inner.read().await.task_graph.has_commit_task()
     }
 
+    #[allow(dead_code)]
     pub async fn has_cleanup_task(&self) -> bool {
         self.inner.read().await.task_graph.has_cleanup_task()
     }

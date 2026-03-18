@@ -5,10 +5,10 @@ use serde::{
     de::{self, MapAccess, Visitor},
     ser::{SerializeMap, SerializeSeq, Serializer},
 };
-use strum::{EnumCount, IntoEnumIterator};
-use strum_macros::{EnumCount, EnumIter};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
-use crate::task::{DataTypeDescriptor, Error};
+use crate::task::{DataTypeDescriptor, Error, ExecutionPolicy};
 
 /// A unique identifier for a task within a task graph, assigned based on insertion order.
 ///
@@ -51,6 +51,7 @@ pub struct Task {
     child_indices: Vec<TaskIndex>,
     input_dep_indices: Vec<DataflowDependencyIndex>,
     output_dep_indices: Vec<DataflowDependencyIndex>,
+    execution_policy: ExecutionPolicy,
 }
 
 impl Task {
@@ -117,6 +118,11 @@ impl Task {
         self.tdl_function.as_str()
     }
 
+    #[must_use]
+    pub const fn get_execution_policy(&self) -> &ExecutionPolicy {
+        &self.execution_policy
+    }
+
     const fn new(
         idx: TaskIndex,
         tdl_package: String,
@@ -124,6 +130,7 @@ impl Task {
         input_dep_indices: Vec<DataflowDependencyIndex>,
         output_dep_indices: Vec<DataflowDependencyIndex>,
         parent_indices: Vec<TaskIndex>,
+        execution_policy: ExecutionPolicy,
     ) -> Self {
         Self {
             idx,
@@ -133,6 +140,7 @@ impl Task {
             child_indices: Vec::new(),
             input_dep_indices,
             output_dep_indices,
+            execution_policy,
         }
     }
 
@@ -232,6 +240,22 @@ pub struct TaskDescriptor {
     /// * `None`: All inputs are graph inputs (i.e., external inputs with no source tasks). This
     ///   indicates the task is an input task to the graph.
     pub input_sources: Option<Vec<TaskInputOutputIndex>>,
+
+    /// The execution policy for this task.
+    pub execution_policy: ExecutionPolicy,
+}
+
+/// A descriptor for a termination task (commit or cleanup) that runs after the main task graph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminationTaskDescriptor {
+    /// The TDL package containing the termination task function.
+    pub tdl_package: String,
+
+    /// The TDL function name for the termination task.
+    pub tdl_function: String,
+
+    /// The execution policy for this termination task.
+    pub execution_policy: ExecutionPolicy,
 }
 
 /// An in-memory representation of a directed acyclic graph (DAG) of tasks and their dependencies.
@@ -239,6 +263,8 @@ pub struct TaskDescriptor {
 pub struct TaskGraph {
     dataflow_deps: Vec<DataflowDependency>,
     tasks: Vec<Task>,
+    commit_task: Option<TerminationTaskDescriptor>,
+    cleanup_task: Option<TerminationTaskDescriptor>,
 }
 
 impl TaskGraph {
@@ -341,6 +367,7 @@ impl TaskGraph {
             input_dep_indices,
             output_dep_indices,
             parent_indices,
+            task_descriptor.execution_policy,
         ));
         Ok(task_idx)
     }
@@ -389,6 +416,39 @@ impl TaskGraph {
     #[must_use]
     pub const fn get_num_tasks(&self) -> usize {
         self.tasks.len()
+    }
+
+    #[must_use]
+    pub fn get_tasks(&self) -> &[Task] {
+        &self.tasks
+    }
+
+    #[must_use]
+    pub fn get_dataflow_dep(&self, index: DataflowDependencyIndex) -> Option<&DataflowDependency> {
+        self.dataflow_deps.get(index)
+    }
+
+    #[must_use]
+    pub const fn get_num_dataflow_deps(&self) -> usize {
+        self.dataflow_deps.len()
+    }
+
+    #[must_use]
+    pub const fn get_commit_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.commit_task.as_ref()
+    }
+
+    #[must_use]
+    pub const fn get_cleanup_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.cleanup_task.as_ref()
+    }
+
+    pub fn set_commit_task(&mut self, descriptor: TerminationTaskDescriptor) {
+        self.commit_task = Some(descriptor);
+    }
+
+    pub fn set_cleanup_task(&mut self, descriptor: TerminationTaskDescriptor) {
+        self.cleanup_task = Some(descriptor);
     }
 
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
@@ -598,6 +658,7 @@ impl TaskGraph {
                 inputs,
                 outputs,
                 input_sources,
+                execution_policy: task.execution_policy.clone(),
             };
             sequence.serialize_element(&task_descriptor)?;
         }
@@ -610,7 +671,15 @@ impl Serialize for TaskGraph {
         &self,
         serializer: SerializerImpl,
     ) -> Result<SerializerImpl::Ok, SerializerImpl::Error> {
-        let mut map = serializer.serialize_map(Some(SerializableTaskGraphField::COUNT))?;
+        // Count required fields (schema_version + tasks) plus optional fields.
+        let mut num_fields = 2;
+        if self.commit_task.is_some() {
+            num_fields += 1;
+        }
+        if self.cleanup_task.is_some() {
+            num_fields += 1;
+        }
+        let mut map = serializer.serialize_map(Some(num_fields))?;
         // Iterate the field enum to ensure all fields are serialized and only once.
         for field in SerializableTaskGraphField::iter() {
             match field {
@@ -622,6 +691,22 @@ impl Serialize for TaskGraph {
                     SerializableTaskGraphField::SchemaVersion.as_str(),
                     TASK_GRAPH_SCHEMA_VERSION,
                 )?,
+                SerializableTaskGraphField::CommitTask => {
+                    if let Some(commit_task) = &self.commit_task {
+                        map.serialize_entry(
+                            SerializableTaskGraphField::CommitTask.as_str(),
+                            commit_task,
+                        )?;
+                    }
+                }
+                SerializableTaskGraphField::CleanupTask => {
+                    if let Some(cleanup_task) = &self.cleanup_task {
+                        map.serialize_entry(
+                            SerializableTaskGraphField::CleanupTask.as_str(),
+                            cleanup_task,
+                        )?;
+                    }
+                }
             }
         }
 
@@ -650,11 +735,13 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
     });
 
 /// Fields of a serializable task graph.
-#[derive(Deserialize, EnumIter, EnumCount)]
+#[derive(Deserialize, EnumIter)]
 #[serde(field_identifier, rename_all = "snake_case")]
 enum SerializableTaskGraphField {
     SchemaVersion,
     Tasks,
+    CommitTask,
+    CleanupTask,
 }
 
 impl SerializableTaskGraphField {
@@ -662,6 +749,8 @@ impl SerializableTaskGraphField {
         match self {
             Self::SchemaVersion => "schema_version",
             Self::Tasks => "tasks",
+            Self::CommitTask => "commit_task",
+            Self::CleanupTask => "cleanup_task",
         }
     }
 }
@@ -685,6 +774,8 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
     ) -> Result<TaskGraph, MapAccessImpl::Error> {
         let mut schema_version_raw: Option<String> = None;
         let mut tasks_result: Option<Result<Vec<TaskDescriptor>, _>> = None;
+        let mut commit_task: Option<TerminationTaskDescriptor> = None;
+        let mut cleanup_task: Option<TerminationTaskDescriptor> = None;
 
         while let Some(key) = map.next_key::<SerializableTaskGraphField>()? {
             match key {
@@ -705,6 +796,22 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
                     // To enforce version checking before deserializing tasks, we capture the result
                     // but defer the dispatching.
                     tasks_result = Some(map.next_value());
+                }
+                SerializableTaskGraphField::CommitTask => {
+                    if commit_task.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::CommitTask.as_str(),
+                        ));
+                    }
+                    commit_task = Some(map.next_value()?);
+                }
+                SerializableTaskGraphField::CleanupTask => {
+                    if cleanup_task.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::CleanupTask.as_str(),
+                        ));
+                    }
+                    cleanup_task = Some(map.next_value()?);
                 }
             }
         }
@@ -742,6 +849,9 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
                 )));
             }
         }
+
+        graph.commit_task = commit_task;
+        graph.cleanup_task = cleanup_task;
 
         Ok(graph)
     }
@@ -912,6 +1022,7 @@ mod tests {
                 inputs: vec![int32_type.clone(), float64_type.clone()],
                 outputs: vec![int64_type.clone(), bool_type.clone()],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_0 insertion should succeed");
 
@@ -924,6 +1035,7 @@ mod tests {
                 inputs: vec![bytes_type.clone()],
                 outputs: vec![list_int32_type.clone(), bytes_type.clone()],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_1 insertion should succeed");
 
@@ -939,6 +1051,7 @@ mod tests {
                     task_idx: 0,
                     position: 0,
                 }]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_2 insertion should succeed");
 
@@ -960,6 +1073,7 @@ mod tests {
                         position: 1,
                     },
                 ]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_3 insertion should succeed");
 
@@ -981,6 +1095,7 @@ mod tests {
                         position: 0,
                     },
                 ]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_4 insertion should succeed");
 
@@ -996,6 +1111,7 @@ mod tests {
                     task_idx: 3,
                     position: 0,
                 }]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_5 insertion should succeed");
 
@@ -1030,6 +1146,7 @@ mod tests {
                         position: 1,
                     },
                 ]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_6 insertion should succeed");
 
@@ -1045,6 +1162,7 @@ mod tests {
                     task_idx: 5,
                     position: 1,
                 }]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_7 insertion should succeed");
 
@@ -1066,6 +1184,7 @@ mod tests {
                         position: 0,
                     },
                 ]),
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_8 insertion should succeed");
 
@@ -1078,6 +1197,7 @@ mod tests {
                 inputs: vec![],
                 outputs: vec![],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_9 insertion should succeed");
 
@@ -1867,6 +1987,7 @@ mod tests {
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone(), bool_type.clone()],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_0 insertion should succeed");
 
@@ -1888,6 +2009,7 @@ mod tests {
                     position: 1,
                 },
             ]),
+            execution_policy: ExecutionPolicy::default(),
         }));
 
         // Attempt to create task_1 with 1 input but 0 input sources (mismatched count)
@@ -1897,6 +2019,7 @@ mod tests {
             inputs: vec![float64_type],
             outputs: vec![int32_type.clone()],
             input_sources: Some(vec![]),
+            execution_policy: ExecutionPolicy::default(),
         }));
 
         // Attempt to create task_1 with 0 input but 1 input sources (mismatched count)
@@ -1909,6 +2032,7 @@ mod tests {
                 task_idx: 0,
                 position: 0,
             }]),
+            execution_policy: ExecutionPolicy::default(),
         }));
 
         // Verify graph state is unchanged
@@ -1936,6 +2060,7 @@ mod tests {
                 inputs: vec![],
                 outputs: vec![int32_type.clone()],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_0 insertion should succeed");
 
@@ -1948,6 +2073,7 @@ mod tests {
             inputs: vec![],
             outputs: vec![int32_type],
             input_sources: Some(vec![]),
+            execution_policy: ExecutionPolicy::default(),
         }));
     }
 
@@ -1969,6 +2095,7 @@ mod tests {
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type, bool_type],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_0 insertion should succeed");
 
@@ -1984,6 +2111,7 @@ mod tests {
                 task_idx: 0,
                 position: 0,
             }]),
+            execution_policy: ExecutionPolicy::default(),
         }));
     }
 
@@ -2003,6 +2131,7 @@ mod tests {
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone()],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_0 insertion should succeed");
 
@@ -2018,6 +2147,7 @@ mod tests {
                 task_idx: 5,
                 position: 0,
             }]),
+            execution_policy: ExecutionPolicy::default(),
         }));
     }
 
@@ -2038,6 +2168,7 @@ mod tests {
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone(), bool_type],
                 input_sources: None,
+                execution_policy: ExecutionPolicy::default(),
             })
             .expect("task_0 insertion should succeed");
 
@@ -2053,6 +2184,7 @@ mod tests {
                 task_idx: 0,
                 position: 2,
             }]),
+            execution_policy: ExecutionPolicy::default(),
         }));
     }
 

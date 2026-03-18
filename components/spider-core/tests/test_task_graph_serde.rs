@@ -141,7 +141,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           }
         }
       ],
-      "input_sources": null
+      "input_sources": null,
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -169,7 +173,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           }
         }
       ],
-      "input_sources": null
+      "input_sources": null,
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -209,7 +217,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 0,
           "position": 0
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -253,7 +265,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 0,
           "position": 1
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -306,7 +322,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 1,
           "position": 0
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -339,7 +359,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 3,
           "position": 0
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -396,7 +420,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 4,
           "position": 1
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -424,7 +452,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 5,
           "position": 1
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
@@ -463,14 +495,22 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
           "task_idx": 1,
           "position": 0
         }
-      ]
+      ],
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     },
     {
       "tdl_package": "test_pkg",
       "tdl_function": "fn_10",
       "inputs": [],
       "outputs": [],
-      "input_sources": null
+      "input_sources": null,
+      "execution_policy": {
+        "max_num_instances": 1,
+        "max_num_retries": 0
+      }
     }
   ]
 }"#;

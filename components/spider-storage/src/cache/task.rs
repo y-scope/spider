@@ -1,29 +1,23 @@
-use std::{
-    collections::{HashMap, HashSet},
-    future::Ready,
-    sync::{Arc, atomic::AtomicUsize},
-};
+use std::{collections::HashSet, sync::Arc};
 
-use serde::Serialize;
 use spider_core::{
-    job::JobState,
-    task::{DataflowDependencyIndex, Task, TaskIndex, TaskState},
+    task::{TaskIndex, TaskState},
     types::{
-        id::{JobId, TaskInstanceId},
+        id::TaskInstanceId,
         io::{TaskInput, TaskOutput},
     },
 };
 
 use crate::cache::{
-    error::{CacheError, CacheError::Internal, InternalError, RejectionError},
+    error::{CacheError, InternalError, RejectionError},
     types::{ExecutionContext, Reader, TdlContext, Writer},
 };
 
 pub struct TaskGraph {
-    tasks: Vec<SharedTaskControlBlock>,
-    outputs: Vec<OutputReader>,
-    commit_task: Option<SharedTerminationTaskControlBlock>,
-    cleanup_task: Option<SharedTerminationTaskControlBlock>,
+    pub(super) tasks: Vec<SharedTaskControlBlock>,
+    pub(super) outputs: Vec<OutputReader>,
+    pub(super) commit_task: Option<SharedTerminationTaskControlBlock>,
+    pub(super) cleanup_task: Option<SharedTerminationTaskControlBlock>,
 }
 
 impl TaskGraph {
@@ -38,17 +32,18 @@ impl TaskGraph {
             if let Some(output) = &*output_guard {
                 outputs.push(output.clone());
             } else {
-                return Err(RejectionError::TaskOutputNotReady.into());
+                return Err(RejectionError::TaskOutputNotReady);
             }
         }
         Ok(outputs)
     }
 
-    pub fn has_commit_task(&self) -> bool {
+    pub const fn has_commit_task(&self) -> bool {
         self.commit_task.is_some()
     }
 
-    pub fn has_cleanup_task(&self) -> bool {
+    #[allow(dead_code)]
+    pub const fn has_cleanup_task(&self) -> bool {
         self.cleanup_task.is_some()
     }
 
@@ -67,6 +62,20 @@ pub struct SharedTaskControlBlock {
 }
 
 impl SharedTaskControlBlock {
+    pub(super) fn new(inner: TaskControlBlock) -> Self {
+        Self {
+            inner: Arc::new(tokio::sync::Mutex::new(inner)),
+        }
+    }
+
+    /// Attempts to lock the inner mutex without blocking. Only intended for use during
+    /// construction when no contention is possible.
+    pub(super) fn try_lock_for_construction(
+        &self,
+    ) -> Result<tokio::sync::MutexGuard<'_, TaskControlBlock>, ()> {
+        self.inner.try_lock().map_err(|_| ())
+    }
+
     pub async fn register_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -177,6 +186,12 @@ pub struct SharedTerminationTaskControlBlock {
 }
 
 impl SharedTerminationTaskControlBlock {
+    pub(super) fn new(inner: TerminationTaskControlBlock) -> Self {
+        Self {
+            inner: Arc::new(tokio::sync::Mutex::new(inner)),
+        }
+    }
+
     pub async fn register_termination_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -211,12 +226,12 @@ impl SharedTerminationTaskControlBlock {
     }
 }
 
-struct BaseTaskControlBlock {
-    state: TaskState,
-    tdl_context: TdlContext,
-    instance_ids: HashSet<TaskInstanceId>,
-    max_num_instances: usize,
-    retry_counter: RetryCounter,
+pub(super) struct BaseTaskControlBlock {
+    pub(super) state: TaskState,
+    pub(super) tdl_context: TdlContext,
+    pub(super) instance_ids: HashSet<TaskInstanceId>,
+    pub(super) max_num_instances: usize,
+    pub(super) retry_counter: RetryCounter,
 }
 
 impl BaseTaskControlBlock {
@@ -258,14 +273,14 @@ impl BaseTaskControlBlock {
         error_message: String,
     ) -> Result<TaskState, RejectionError> {
         if !self.instance_ids.remove(&task_instance_id) {
-            return Err(RejectionError::InvalidTaskInstanceId.into());
+            return Err(RejectionError::InvalidTaskInstanceId);
         }
         if self.state.is_terminal() {
-            return Err(RejectionError::TaskAlreadyTerminated(self.state.clone()).into());
+            return Err(RejectionError::TaskAlreadyTerminated(self.state.clone()));
         }
 
         if self.retry_counter.retry() == 0 {
-            self.state = if self.instance_ids.len() == 0 {
+            self.state = if self.instance_ids.is_empty() {
                 TaskState::Running
             } else {
                 TaskState::Ready
@@ -285,14 +300,14 @@ impl BaseTaskControlBlock {
     }
 }
 
-struct TaskControlBlock {
-    base: BaseTaskControlBlock,
-    index: TaskIndex,
-    num_parents: usize,
-    num_unfinished_parents: usize,
-    inputs: Vec<InputReader>,
-    outputs: Vec<OutputWriter>,
-    children: Vec<SharedTaskControlBlock>,
+pub(super) struct TaskControlBlock {
+    pub(super) base: BaseTaskControlBlock,
+    pub(super) index: TaskIndex,
+    pub(super) num_parents: usize,
+    pub(super) num_unfinished_parents: usize,
+    pub(super) inputs: Vec<InputReader>,
+    pub(super) outputs: Vec<OutputWriter>,
+    pub(super) children: Vec<SharedTaskControlBlock>,
 }
 
 impl TaskControlBlock {
@@ -329,16 +344,17 @@ impl TaskControlBlock {
     }
 }
 
-struct TerminationTaskControlBlock {
-    base: BaseTaskControlBlock,
+pub(super) struct TerminationTaskControlBlock {
+    pub(super) base: BaseTaskControlBlock,
 }
 
-type ValuePayload = Option<Vec<u8>>;
+pub(super) type ValuePayload = Option<Vec<u8>>;
 
 #[derive(Clone)]
-struct Channel {}
+pub(super) struct Channel {}
 
-enum InputReader {
+#[allow(dead_code)]
+pub(super) enum InputReader {
     Value(Reader<ValuePayload>),
     Channel(Channel),
 }
@@ -346,7 +362,7 @@ enum InputReader {
 impl InputReader {
     async fn read_as_task_input(&self) -> Result<TaskInput, CacheError> {
         match self {
-            InputReader::Value(value_payload) => {
+            Self::Value(value_payload) => {
                 let value_guard = value_payload.read().await;
                 if let Some(value) = &*value_guard {
                     Ok(TaskInput::ValuePayload(value.clone()))
@@ -354,29 +370,29 @@ impl InputReader {
                     Err(InternalError::TaskInputNotReady.into())
                 }
             }
-            InputReader::Channel(_) => unimplemented!("channel input is not supported yet"),
+            Self::Channel(_) => unimplemented!("channel input is not supported yet"),
         }
     }
 }
 
-type OutputReader = Reader<ValuePayload>;
+pub(super) type OutputReader = Reader<ValuePayload>;
 
-type OutputWriter = Writer<ValuePayload>;
+pub(super) type OutputWriter = Writer<ValuePayload>;
 
-struct RetryCounter {
+pub(super) struct RetryCounter {
     max_num_retries_allowed: usize,
     retry_count: usize,
 }
 
 impl RetryCounter {
-    fn new(max_num_retries_allowed: usize) -> Self {
+    pub(super) const fn new(max_num_retries_allowed: usize) -> Self {
         Self {
             max_num_retries_allowed,
             retry_count: max_num_retries_allowed,
         }
     }
 
-    fn retry(&mut self) -> usize {
+    const fn retry(&mut self) -> usize {
         if self.retry_count == 0 {
             // In practice, this is possible if the total number of task instances creates are
             // greater than the number of retries allowed.
@@ -387,7 +403,7 @@ impl RetryCounter {
         num_retries_left
     }
 
-    fn reset(&mut self) {
+    const fn reset(&mut self) {
         self.retry_count = self.max_num_retries_allowed;
     }
 }

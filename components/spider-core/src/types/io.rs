@@ -7,7 +7,7 @@ pub struct Value {}
 pub struct Data {}
 
 /// Represents an input of a task.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum TaskInput {
     ValuePayload(Vec<u8>),
 }

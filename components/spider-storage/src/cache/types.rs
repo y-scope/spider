@@ -15,8 +15,8 @@ pub struct Reader<Type> {
 }
 
 impl<Type> Reader<Type> {
-    pub fn new(inner: Shared<Type>) -> Reader<Type> {
-        Reader { inner }
+    pub const fn new(inner: Shared<Type>) -> Self {
+        Self { inner }
     }
 
     pub async fn read(&self) -> RwLockReadGuard<'_, Type> {
@@ -30,8 +30,8 @@ pub struct Writer<Type> {
 }
 
 impl<Type> Writer<Type> {
-    pub fn new(inner: Shared<Type>) -> Writer<Type> {
-        Writer { inner }
+    pub const fn new(inner: Shared<Type>) -> Self {
+        Self { inner }
     }
 
     pub async fn write(&self) -> RwLockWriteGuard<'_, Type> {
@@ -41,8 +41,8 @@ impl<Type> Writer<Type> {
 
 #[derive(Serialize, Clone)]
 pub struct TdlContext {
-    package: String,
-    func: String,
+    pub(super) package: String,
+    pub(super) func: String,
 }
 
 #[derive(Serialize)]
