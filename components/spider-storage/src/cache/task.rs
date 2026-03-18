@@ -279,7 +279,7 @@ impl BaseTaskControlBlock {
             return Err(RejectionError::TaskAlreadyTerminated(self.state.clone()));
         }
 
-        if self.retry_counter.retry() == 0 {
+        if self.retry_counter.retry() != 0 {
             self.state = if self.instance_ids.is_empty() {
                 TaskState::Running
             } else {
