@@ -1,6 +1,7 @@
 mod task_graph;
 mod type_descriptor;
 
+use serde::{Deserialize, Serialize};
 pub use task_graph::*;
 use thiserror::Error;
 pub use type_descriptor::*;
@@ -24,8 +25,9 @@ pub enum Error {
 }
 
 /// Enum for all possible states of a task.
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum TaskState {
-    PENDING,
+    Pending,
     Ready,
     Running,
     Succeeded,
@@ -33,5 +35,31 @@ pub enum TaskState {
     Cancelled,
 }
 
+impl TaskState {
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
+        matches!(self, Self::Succeeded | Self::Failed(_) | Self::Cancelled)
+    }
+}
+
 /// Represents metadata associated with a task.
 pub struct TaskMetadata {}
+
+/// Execution policy for a task, controlling concurrency and retry behavior.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionPolicy {
+    /// The maximum number of concurrent instances allowed for this task.
+    pub max_num_instances: usize,
+
+    /// The maximum number of retries allowed for this task on failure.
+    pub max_num_retries: usize,
+}
+
+impl Default for ExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            max_num_instances: 1,
+            max_num_retries: 0,
+        }
+    }
+}

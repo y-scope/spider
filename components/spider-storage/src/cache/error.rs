@@ -1,0 +1,112 @@
+use spider_core::{
+    job::JobState,
+    task::{TaskIndex, TaskState},
+    types::id::JobId,
+};
+
+/// Enums for all possible errors that can happen in the cache.
+#[derive(Debug)]
+pub enum CacheError {
+    Internal(InternalError),
+    Rejection(RejectionError),
+    DbError(crate::db::DbError),
+}
+
+/// Enums for all internal errors.
+///
+/// When these error happens, it is considered that the system is in an inconsistent state and
+/// cannot continue to service requests. A restart is needed to recover the cache from the storage.
+#[derive(thiserror::Error, Debug)]
+pub enum InternalError {
+    #[error("task output already written by a previous successful task instance")]
+    TaskOutputDuplicateWrite,
+
+    #[error("task input not ready when attempting to register a task instance")]
+    TaskInputNotReady,
+
+    #[error("out-of-bound task access detected")]
+    TaskIndexOutOfBound,
+
+    #[error("task not ready when attempting to register a task instance")]
+    TaskNotReady,
+
+    #[error("task graph corrupted: {0}")]
+    TaskGraphCorrupted(String),
+
+    #[error("job has no been started")]
+    JobNotStarted,
+
+    #[error("job does not have a commit task")]
+    JobNoCommit,
+
+    #[error("job does not have a cleanup task")]
+    JobNoCleanup,
+
+    #[error("unexpected job state: current {current}, expected {expected}")]
+    UnexpectedJobState {
+        current: JobState,
+        expected: JobState,
+    },
+
+    #[error("job outputs are not ready")]
+    JobOutputsNotReady,
+
+    #[error("job terminated unexpectedly")]
+    JobTerminatedUnexpectedly,
+
+    #[error("failed to send scheduling context into the channel")]
+    TokioSendError(#[from] tokio::sync::mpsc::error::SendError<(JobId, TaskIndex)>),
+
+    #[error("task outputs length mismatch: expected {0}, got {1}")]
+    TaskOutputsLengthMismatch(usize, usize),
+}
+
+impl From<InternalError> for CacheError {
+    fn from(e: InternalError) -> Self {
+        Self::Internal(e)
+    }
+}
+
+/// Enums for all rejection errors.
+///
+/// When these error happens, it is considered that the request is valid, but cannot be processed
+/// due to the current state of the cache. These errors should be forwarded to the client for
+/// notification.
+#[derive(thiserror::Error, Debug)]
+pub enum RejectionError {
+    #[error("task instance ID is not registered")]
+    InvalidTaskInstanceId,
+
+    #[error("task is already in a terminal state: {0:?}")]
+    TaskAlreadyTerminated(TaskState),
+
+    #[error("job is no longer in the running state: {0}")]
+    JobNoLongerRunning(JobState),
+
+    #[error("job is no longer in the commit-ready state: {0}")]
+    JobNoLongerCommitReady(JobState),
+
+    #[error("job is no longer in the cleanup-ready state: {0}")]
+    JobNoLongerCleanupReady(JobState),
+
+    #[error("job is already in a terminal state: {0}")]
+    JobAlreadyTerminated(JobState),
+
+    #[error("the number of living task instances has reached the upper limit")]
+    TaskInstanceLimitExceeded,
+
+    #[error("task output not ready")]
+    TaskOutputNotReady,
+}
+
+impl From<RejectionError> for CacheError {
+    fn from(e: RejectionError) -> Self {
+        Self::Rejection(e)
+    }
+}
+
+impl From<crate::db::DbError> for CacheError {
+    fn from(e: crate::db::DbError) -> Self {
+        Self::DbError(e)
+    }
+}

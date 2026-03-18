@@ -9,7 +9,11 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1.89"
-serde = { version = "1.0" }
-spider-core = { path = "../spider-core" }
+serde = { version = "1.0.228", features = ["derive"] }
 sqlx = "0.8.6"
+spider-core = { path = "../spider-core" }
 thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync"] }
+
+[dev-dependencies]
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync", "macros"] }

@@ -29,6 +29,14 @@ impl JobState {
 
     /// # Returns
     ///
+    /// Whether the job is in [`JobState::Running`] state.
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
+        matches!(self, Self::Running)
+    }
+
+    /// # Returns
+    ///
     /// Whether the state transition `from` -> `to` is valid.
     #[must_use]
     pub const fn is_valid_transition(from: Self, to: Self) -> bool {
