@@ -2,17 +2,14 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DataEnum, DeriveInput};
 
-pub fn derive_quoted_enum_str(input: &mut DeriveInput) -> syn::Result<TokenStream> {
+pub fn derive_quoted_enum_str(input: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
 
-    let values = match &input.data {
-        Data::Enum(DataEnum { variants, .. }) => variants,
-        _ => {
-            return Err(syn::Error::new_spanned(
-                &input.ident,
-                "`QuotedEnumStr` can only be applied to an enum",
-            ));
-        }
+    let Data::Enum(DataEnum {variants: values, .. }) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "`QuotedEnumStr` can only be derived for enums",
+        ))
     };
 
     let value_strings: Vec<String> = values.iter().map(|v| v.ident.to_string()).collect();
@@ -21,7 +18,7 @@ pub fn derive_quoted_enum_str(input: &mut DeriveInput) -> syn::Result<TokenStrea
 
     let expanded = quote! {
         impl #name {
-            pub fn variant_names() -> &'static str {
+            pub const fn quoted_enum_str() -> &'static str {
                 #joined
             }
         }
