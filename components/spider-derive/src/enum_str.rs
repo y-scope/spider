@@ -17,7 +17,7 @@ pub fn derive_quoted_enum_str(input: &DeriveInput) -> syn::Result<TokenStream> {
 
     let value_strings: Vec<String> = values
         .iter()
-        .map(|v| format!("'{value_str}'", value_str = v.ident.to_string()))
+        .map(|v| format!("'{value_str}'", value_str = v.ident))
         .collect();
 
     let joined = value_strings.join(", ");
