@@ -1,8 +1,12 @@
+use spider_derive::QuotedEnumStr;
+
 /// Represents a job in the Spider scheduling framework.
 pub struct Job {}
 
 /// Enum for all possible states of a job.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display, strum_macros::EnumIter)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display, strum_macros::EnumIter, QuotedEnumStr,
+)]
 pub enum JobState {
     Ready,
     Running,

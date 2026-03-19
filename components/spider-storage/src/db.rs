@@ -1,7 +1,6 @@
 mod error;
 mod mariadb;
 mod protocol;
-mod sql_utils;
 
 pub use error::DbError;
 pub use mariadb::MariaDbStorage;

@@ -1124,6 +1124,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "spider-derive",
  "strum",
  "strum_macros",
  "thiserror",

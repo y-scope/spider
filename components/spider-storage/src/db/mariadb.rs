@@ -12,7 +12,6 @@ use spider_core::{
 };
 use sqlx::MySqlPool;
 
-use super::sql_utils;
 use crate::db::{
     DbError,
     ExternalJobOrchestration,
@@ -38,8 +37,8 @@ CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
 }
 
 #[must_use]
-fn jobs_creation_query() -> String {
-    format!(
+const fn jobs_creation_query() -> &'static str {
+    formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   id UUID NOT NULL DEFAULT UUID_v7(),
@@ -62,7 +61,7 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
 );",
-        state_enum = sql_utils::sql_enum_values::<JobState>()
+        state_enum = JobState::quoted_enum_str()
     )
 }
 
@@ -95,7 +94,7 @@ impl MariaDbStorage {
             .execute(&self.pool)
             .await?;
 
-        sqlx::query(jobs_creation_query().as_str())
+        sqlx::query(jobs_creation_query())
             .execute(&self.pool)
             .await?;
 
