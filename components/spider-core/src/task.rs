@@ -21,6 +21,9 @@ pub enum Error {
 
     #[error("Invalid task inputs: {0}")]
     InvalidTaskInputs(String),
+
+    #[error("Invalid execution policy: {0}")]
+    InvalidExecutionPolicy(String),
 }
 
 /// Enum for all possible states of a task.

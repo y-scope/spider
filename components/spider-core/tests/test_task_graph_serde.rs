@@ -109,8 +109,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
   "schema_version": "0.1.0",
   "tasks": [
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_1",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_1"},
       "inputs": [
         {
           "Value": {
@@ -144,8 +143,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       "input_sources": null
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_2",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_2"},
       "inputs": [
         {
           "Value": {
@@ -172,8 +170,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       "input_sources": null
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_3",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_3"},
       "inputs": [
         {
           "Value": {
@@ -212,8 +209,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_4",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_4"},
       "inputs": [
         {
           "Value": {
@@ -256,8 +252,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_5",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_5"},
       "inputs": [
         {
           "Value": {
@@ -309,8 +304,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_6",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_6"},
       "inputs": [
         {
           "Value": {
@@ -342,8 +336,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_7",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_7"},
       "inputs": [
         {
           "Value": {
@@ -399,8 +392,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_8",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_8"},
       "inputs": [
         {
           "Value": {
@@ -427,8 +419,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_9",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_9"},
       "inputs": [
         {
           "Value": {
@@ -466,8 +457,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_10",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_10"},
       "inputs": [],
       "outputs": [],
       "input_sources": null

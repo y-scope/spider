@@ -35,18 +35,71 @@ pub struct TaskInputOutputIndex {
     pub position: usize,
 }
 
+/// The TDL context for a task, containing the package name and task function name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TdlContext {
+    /// The TDL package containing the task function to execute.
+    pub package: String,
+
+    /// The TDL function name to execute within the package.
+    pub task_func: String,
+}
+
+/// Execution policy for a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionPolicy {
+    /// The maximum number of retry attempts for a task in case of failure.
+    ///
+    /// Default to 0.
+    pub max_num_retry: u32,
+
+    /// The maximum number of concurrent task instances allowed for a task.
+    ///
+    /// Default to 1.
+    pub max_num_instances: u32,
+}
+
+impl Default for ExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            max_num_retry: 0,
+            max_num_instances: 1,
+        }
+    }
+}
+
+impl ExecutionPolicy {
+    /// Validates the execution policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::InvalidExecutionPolicy`] if `max_num_instances` is 0 (i.e., no task instance can
+    ///   be executed).
+    fn validate(&self) -> Result<(), Error> {
+        if self.max_num_instances == 0 {
+            return Err(Error::InvalidExecutionPolicy(
+                "`max_num_instances` must be greater than 0".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// An in-memory representation of a task within a task graph.
 ///
 /// This structure maintains:
 ///
-/// * TDL information (including package name and task function name).
+/// * TDL context (including package name and task function name).
+/// * Execution policy (e.g., retry and concurrency settings).
 /// * Task inputs and outputs, represented as data-flow dependencies (positionally).
 /// * Parent and child tasks which imply control-flow dependencies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     idx: TaskIndex,
-    tdl_package: String,
-    tdl_function: String,
+    tdl_context: TdlContext,
+    execution_policy: ExecutionPolicy,
     parent_indices: Vec<TaskIndex>,
     child_indices: Vec<TaskIndex>,
     input_dep_indices: Vec<DataflowDependencyIndex>,
@@ -108,27 +161,22 @@ impl Task {
     }
 
     #[must_use]
-    pub const fn get_tdl_package(&self) -> &str {
-        self.tdl_package.as_str()
+    pub const fn get_tdl_context(&self) -> &TdlContext {
+        &self.tdl_context
     }
 
-    #[must_use]
-    pub const fn get_tdl_function(&self) -> &str {
-        self.tdl_function.as_str()
-    }
-
-    const fn new(
+    fn new(
         idx: TaskIndex,
-        tdl_package: String,
-        tdl_function: String,
+        tdl_context: TdlContext,
+        execution_policy: Option<ExecutionPolicy>,
         input_dep_indices: Vec<DataflowDependencyIndex>,
         output_dep_indices: Vec<DataflowDependencyIndex>,
         parent_indices: Vec<TaskIndex>,
     ) -> Self {
         Self {
             idx,
-            tdl_package,
-            tdl_function,
+            tdl_context,
+            execution_policy: execution_policy.unwrap_or_default(),
             parent_indices,
             child_indices: Vec::new(),
             input_dep_indices,
@@ -213,11 +261,14 @@ impl DataflowDependency {
 ///   that can be replayed during deserialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskDescriptor {
-    /// The TDL package containing the task function to execute.
-    pub tdl_package: String,
+    /// The TDL context containing the package name and task function name.
+    pub tdl_context: TdlContext,
 
-    /// The TDL function name to execute within the package.
-    pub tdl_function: String,
+    /// The execution policy for the task.
+    ///
+    /// Defaults to `None` for using the default execution policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<ExecutionPolicy>,
 
     /// The data types of the task's positional inputs, in order.
     pub inputs: Vec<DataTypeDescriptor>,
@@ -336,8 +387,8 @@ impl TaskGraph {
 
         self.tasks.push(Task::new(
             task_idx,
-            task_descriptor.tdl_package,
-            task_descriptor.tdl_function,
+            task_descriptor.tdl_context,
+            task_descriptor.execution_policy,
             input_dep_indices,
             output_dep_indices,
             parent_indices,
@@ -592,9 +643,14 @@ impl TaskGraph {
                         .collect(),
                 )
             };
+            let execution_policy = if task.execution_policy == ExecutionPolicy::default() {
+                None
+            } else {
+                Some(task.execution_policy.clone())
+            };
             let task_descriptor = TaskDescriptor {
-                tdl_package: task.tdl_package.clone(),
-                tdl_function: task.tdl_function.clone(),
+                tdl_context: task.tdl_context.clone(),
+                execution_policy,
                 inputs,
                 outputs,
                 input_sources,
@@ -907,8 +963,11 @@ mod tests {
 
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone(), float64_type.clone()],
                 outputs: vec![int64_type.clone(), bool_type.clone()],
                 input_sources: None,
@@ -919,8 +978,11 @@ mod tests {
 
         let task_1_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_2".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_2".to_string(),
+                },
                 inputs: vec![bytes_type.clone()],
                 outputs: vec![list_int32_type.clone(), bytes_type.clone()],
                 input_sources: None,
@@ -931,8 +993,11 @@ mod tests {
 
         let task_2_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_3".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_3".to_string(),
+                },
                 inputs: vec![int64_type.clone()],
                 outputs: vec![map_type.clone(), struct_type.clone()],
                 input_sources: Some(vec![TaskInputOutputIndex {
@@ -946,8 +1011,11 @@ mod tests {
 
         let task_3_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_4".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_4".to_string(),
+                },
                 inputs: vec![map_type.clone(), bool_type.clone()],
                 outputs: vec![int32_type.clone()],
                 input_sources: Some(vec![
@@ -967,8 +1035,11 @@ mod tests {
 
         let task_4_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_5".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_5".to_string(),
+                },
                 inputs: vec![map_type.clone(), list_int32_type.clone()],
                 outputs: vec![float32_type.clone(), bytes_type.clone()],
                 input_sources: Some(vec![
@@ -988,8 +1059,11 @@ mod tests {
 
         let task_5_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_6".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_6".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![bool_type.clone(), list_bytes_type.clone()],
                 input_sources: Some(vec![TaskInputOutputIndex {
@@ -1003,8 +1077,11 @@ mod tests {
 
         let task_6_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_7".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_7".to_string(),
+                },
                 inputs: vec![
                     list_bytes_type.clone(),
                     list_bytes_type.clone(),
@@ -1037,8 +1114,11 @@ mod tests {
 
         let task_7_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_8".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_8".to_string(),
+                },
                 inputs: vec![list_bytes_type.clone()],
                 outputs: vec![float64_type.clone()],
                 input_sources: Some(vec![TaskInputOutputIndex {
@@ -1052,8 +1132,11 @@ mod tests {
 
         let task_8_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_9".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_9".to_string(),
+                },
                 inputs: vec![bytes_type.clone(), list_int32_type.clone()],
                 outputs: vec![int32_type.clone()],
                 input_sources: Some(vec![
@@ -1073,8 +1156,11 @@ mod tests {
 
         let task_9_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_10".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_10".to_string(),
+                },
                 inputs: vec![],
                 outputs: vec![],
                 input_sources: None,
@@ -1086,8 +1172,13 @@ mod tests {
         // Validate task_0
         let task_0 = graph.get_task(0).expect("task_0 should exist");
         assert_eq!(task_0.get_index(), 0);
-        assert_eq!(task_0.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_0.get_tdl_function(), "fn_1");
+        assert_eq!(
+            *task_0.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_1".to_string(),
+            }
+        );
         assert_eq!(task_0.get_num_parents(), 0);
         assert_eq!(task_0.get_num_children(), 2);
         assert!(task_0.is_input_task(), "task_0 should be an input task");
@@ -1102,8 +1193,13 @@ mod tests {
         // Validate task_1
         let task_1 = graph.get_task(1).expect("task_1 should exist");
         assert_eq!(task_1.get_index(), 1);
-        assert_eq!(task_1.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_1.get_tdl_function(), "fn_2");
+        assert_eq!(
+            *task_1.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            }
+        );
         assert_eq!(task_1.get_num_parents(), 0);
         assert_eq!(task_1.get_num_children(), 2);
         assert!(task_1.is_input_task(), "task_1 should be an input task");
@@ -1118,8 +1214,13 @@ mod tests {
         // Validate task_2
         let task_2 = graph.get_task(2).expect("task_2 should exist");
         assert_eq!(task_2.get_index(), 2);
-        assert_eq!(task_2.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_2.get_tdl_function(), "fn_3");
+        assert_eq!(
+            *task_2.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_3".to_string(),
+            }
+        );
         assert_eq!(task_2.get_num_parents(), 1);
         assert_eq!(task_2.get_parent_indices(), &vec![0]);
         assert_eq!(task_2.get_num_children(), 2);
@@ -1138,8 +1239,13 @@ mod tests {
         // Validate task_3
         let task_3 = graph.get_task(3).expect("task_3 should exist");
         assert_eq!(task_3.get_index(), 3);
-        assert_eq!(task_3.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_3.get_tdl_function(), "fn_4");
+        assert_eq!(
+            *task_3.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_4".to_string(),
+            }
+        );
         assert_eq!(task_3.get_num_parents(), 2);
         assert_eq!(task_3.get_parent_indices(), &vec![0, 2]);
         assert_eq!(task_3.get_num_children(), 1);
@@ -1158,8 +1264,13 @@ mod tests {
         // Validate task_4
         let task_4 = graph.get_task(4).expect("task_4 should exist");
         assert_eq!(task_4.get_index(), 4);
-        assert_eq!(task_4.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_4.get_tdl_function(), "fn_5");
+        assert_eq!(
+            *task_4.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_5".to_string(),
+            }
+        );
         assert_eq!(task_4.get_num_parents(), 2);
         assert_eq!(task_4.get_parent_indices(), &vec![1, 2]);
         assert_eq!(task_4.get_num_children(), 1);
@@ -1178,8 +1289,13 @@ mod tests {
         // Validate task_5
         let task_5 = graph.get_task(5).expect("task_5 should exist");
         assert_eq!(task_5.get_index(), 5);
-        assert_eq!(task_5.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_5.get_tdl_function(), "fn_6");
+        assert_eq!(
+            *task_5.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_6".to_string(),
+            }
+        );
         assert_eq!(task_5.get_num_parents(), 1);
         assert_eq!(task_5.get_parent_indices(), &vec![3]);
         assert_eq!(task_5.get_num_children(), 2);
@@ -1198,8 +1314,13 @@ mod tests {
         // Validate task_6
         let task_6 = graph.get_task(6).expect("task_6 should exist");
         assert_eq!(task_6.get_index(), 6);
-        assert_eq!(task_6.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_6.get_tdl_function(), "fn_7");
+        assert_eq!(
+            *task_6.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_7".to_string(),
+            }
+        );
         assert_eq!(task_6.get_num_parents(), 2);
         assert_eq!(task_6.get_parent_indices(), &vec![4, 5]);
         assert_eq!(task_6.get_num_children(), 0);
@@ -1214,8 +1335,13 @@ mod tests {
         // Validate task_7
         let task_7 = graph.get_task(7).expect("task_7 should exist");
         assert_eq!(task_7.get_index(), 7);
-        assert_eq!(task_7.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_7.get_tdl_function(), "fn_8");
+        assert_eq!(
+            *task_7.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_8".to_string(),
+            }
+        );
         assert_eq!(task_7.get_num_parents(), 1);
         assert_eq!(task_7.get_parent_indices(), &vec![5]);
         assert_eq!(task_7.get_num_children(), 0);
@@ -1230,8 +1356,13 @@ mod tests {
         // Validate task_8
         let task_8 = graph.get_task(8).expect("task_8 should exist");
         assert_eq!(task_8.get_index(), 8);
-        assert_eq!(task_8.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_8.get_tdl_function(), "fn_9");
+        assert_eq!(
+            *task_8.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_9".to_string(),
+            }
+        );
         assert_eq!(task_8.get_num_parents(), 1);
         assert_eq!(task_8.get_parent_indices(), &vec![1]);
         assert_eq!(task_8.get_num_children(), 0);
@@ -1246,8 +1377,13 @@ mod tests {
         // Validate task_9
         let task_9 = graph.get_task(9).expect("task_9 should exist");
         assert_eq!(task_9.get_index(), 9);
-        assert_eq!(task_9.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_9.get_tdl_function(), "fn_10");
+        assert_eq!(
+            *task_9.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_10".to_string(),
+            }
+        );
         assert_eq!(task_9.get_num_parents(), 0);
         assert_eq!(task_9.get_parent_indices(), &Vec::<TaskIndex>::new());
         assert_eq!(task_9.get_num_children(), 0);
@@ -1862,8 +1998,11 @@ mod tests {
         // Create task_0 with 2 outputs
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone(), bool_type.clone()],
                 input_sources: None,
@@ -1874,8 +2013,11 @@ mod tests {
 
         // Attempt to create task_1 with 3 inputs but only 2 input sources (mismatched count)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type.clone(), bool_type, int32_type.clone()],
             outputs: vec![int32_type.clone()],
             input_sources: Some(vec![
@@ -1892,8 +2034,11 @@ mod tests {
 
         // Attempt to create task_1 with 1 input but 0 input sources (mismatched count)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type],
             outputs: vec![int32_type.clone()],
             input_sources: Some(vec![]),
@@ -1901,8 +2046,11 @@ mod tests {
 
         // Attempt to create task_1 with 0 input but 1 input sources (mismatched count)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -1931,8 +2079,11 @@ mod tests {
         // Create task_0 with a single Int32 output
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![],
                 outputs: vec![int32_type.clone()],
                 input_sources: None,
@@ -1943,8 +2094,11 @@ mod tests {
 
         // Attempt to create task_1 with no input but the source is not `None`
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![],
             outputs: vec![int32_type],
             input_sources: Some(vec![]),
@@ -1964,8 +2118,11 @@ mod tests {
         // Create task_0 with Float64 and Boolean outputs
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type, bool_type],
                 input_sources: None,
@@ -1976,8 +2133,11 @@ mod tests {
 
         // Attempt to create task_1 with Bytes input but the source is Float64 (type mismatch)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![bytes_type],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -1998,8 +2158,11 @@ mod tests {
         // Create task_0
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone()],
                 input_sources: None,
@@ -2010,8 +2173,11 @@ mod tests {
 
         // Attempt to create task_1 with the source referencing non-existent task_5
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -2033,8 +2199,11 @@ mod tests {
         // Create task_0 with 2 outputs (positions 0 and 1)
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone(), bool_type],
                 input_sources: None,
@@ -2045,8 +2214,11 @@ mod tests {
 
         // Attempt to create task_1 with the source referencing non-existent output position 2
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
