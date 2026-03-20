@@ -6,7 +6,7 @@ use serde::{
     ser::{SerializeMap, SerializeSeq, Serializer},
 };
 use strum::{EnumCount, IntoEnumIterator};
-use strum_macros::{EnumCount, EnumIter};
+use strum_macros::{AsRefStr, EnumCount, EnumIter};
 
 use crate::task::{DataTypeDescriptor, Error};
 
@@ -285,11 +285,27 @@ pub struct TaskDescriptor {
     pub input_sources: Option<Vec<TaskInputOutputIndex>>,
 }
 
+/// A self-contained descriptor of a termination task that captures all information needed for a
+/// termination task creation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminationTaskDescriptor {
+    /// The TDL context containing the package name and task function name.
+    pub tdl_context: TdlContext,
+
+    /// The execution policy for the task.
+    ///
+    /// Defaults to `None` for using the default execution policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<ExecutionPolicy>,
+}
+
 /// An in-memory representation of a directed acyclic graph (DAG) of tasks and their dependencies.
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct TaskGraph {
     dataflow_deps: Vec<DataflowDependency>,
     tasks: Vec<Task>,
+    commit_task: Option<TerminationTaskDescriptor>,
+    cleanup_task: Option<TerminationTaskDescriptor>,
 }
 
 impl TaskGraph {
@@ -321,6 +337,39 @@ impl TaskGraph {
     /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
     pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
         rmp_serde::from_slice(bytes).map_err(Into::into)
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// An empty task graph with optional termination tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ExecutionPolicy::validate`]'s return values on failure.
+    pub fn new(
+        commit_task: Option<TerminationTaskDescriptor>,
+        cleanup_task: Option<TerminationTaskDescriptor>,
+    ) -> Result<Self, Error> {
+        if let Some(ref task) = commit_task
+            && let Some(ref policy) = task.execution_policy
+        {
+            policy.validate()?;
+        }
+        if let Some(ref task) = cleanup_task
+            && let Some(ref policy) = task.execution_policy
+        {
+            policy.validate()?;
+        }
+        Ok(Self {
+            dataflow_deps: Vec::new(),
+            tasks: Vec::new(),
+            commit_task,
+            cleanup_task,
+        })
     }
 
     /// Serializes the task graph into JSON format.
@@ -363,8 +412,13 @@ impl TaskGraph {
     ///
     /// Returns an error if:
     ///
+    /// * Forwards [`ExecutionPolicy::validate`]'s return values on failure.
     /// * Forwards [`Self::compute_and_update_dependencies_from_inputs`]'s return values on failure.
     pub fn insert_task(&mut self, task_descriptor: TaskDescriptor) -> Result<TaskIndex, Error> {
+        if let Some(execution_policy) = &task_descriptor.execution_policy {
+            execution_policy.validate()?;
+        }
+
         let task_idx = self.get_next_task_index();
         let (input_dep_indices, parent_indices) = self
             .compute_and_update_dependencies_from_inputs(
@@ -671,12 +725,20 @@ impl Serialize for TaskGraph {
         for field in SerializableTaskGraphField::iter() {
             match field {
                 SerializableTaskGraphField::Tasks => map.serialize_entry(
-                    SerializableTaskGraphField::Tasks.as_str(),
+                    SerializableTaskGraphField::Tasks.as_ref(),
                     &TaskDescriptorSequence { graph: self },
                 )?,
                 SerializableTaskGraphField::SchemaVersion => map.serialize_entry(
-                    SerializableTaskGraphField::SchemaVersion.as_str(),
+                    SerializableTaskGraphField::SchemaVersion.as_ref(),
                     TASK_GRAPH_SCHEMA_VERSION,
+                )?,
+                SerializableTaskGraphField::CommitTask => map.serialize_entry(
+                    SerializableTaskGraphField::CommitTask.as_ref(),
+                    &self.commit_task,
+                )?,
+                SerializableTaskGraphField::CleanupTask => map.serialize_entry(
+                    SerializableTaskGraphField::CleanupTask.as_ref(),
+                    &self.cleanup_task,
                 )?,
             }
         }
@@ -706,20 +768,14 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
     });
 
 /// Fields of a serializable task graph.
-#[derive(Deserialize, EnumIter, EnumCount)]
+#[derive(Deserialize, EnumIter, EnumCount, AsRefStr)]
 #[serde(field_identifier, rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 enum SerializableTaskGraphField {
     SchemaVersion,
     Tasks,
-}
-
-impl SerializableTaskGraphField {
-    const fn as_str(&self) -> &'static str {
-        match self {
-            Self::SchemaVersion => "schema_version",
-            Self::Tasks => "tasks",
-        }
-    }
+    CommitTask,
+    CleanupTask,
 }
 
 /// Visitor for deserializing a task graph from a map.
@@ -729,8 +785,8 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
     type Value = TaskGraph;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let names: Vec<&'static str> = SerializableTaskGraphField::iter()
-            .map(|field| field.as_str())
+        let names: Vec<String> = SerializableTaskGraphField::iter()
+            .map(|field| field.as_ref().to_string())
             .collect();
         write!(f, "a map with fields: {}", names.join(","))
     }
@@ -741,13 +797,15 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
     ) -> Result<TaskGraph, MapAccessImpl::Error> {
         let mut schema_version_raw: Option<String> = None;
         let mut tasks_result: Option<Result<Vec<TaskDescriptor>, _>> = None;
+        let mut commit_task_result: Option<Result<Option<TerminationTaskDescriptor>, _>> = None;
+        let mut cleanup_task_result: Option<Result<Option<TerminationTaskDescriptor>, _>> = None;
 
         while let Some(key) = map.next_key::<SerializableTaskGraphField>()? {
             match key {
                 SerializableTaskGraphField::SchemaVersion => {
                     if schema_version_raw.is_some() {
                         return Err(de::Error::duplicate_field(
-                            SerializableTaskGraphField::SchemaVersion.as_str(),
+                            SerializableTaskGraphField::SchemaVersion.as_ref(),
                         ));
                     }
                     schema_version_raw = Some(map.next_value()?);
@@ -755,21 +813,37 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
                 SerializableTaskGraphField::Tasks => {
                     if tasks_result.is_some() {
                         return Err(de::Error::duplicate_field(
-                            SerializableTaskGraphField::Tasks.as_str(),
+                            SerializableTaskGraphField::Tasks.as_ref(),
                         ));
                     }
                     // To enforce version checking before deserializing tasks, we capture the result
                     // but defer the dispatching.
                     tasks_result = Some(map.next_value());
                 }
+                SerializableTaskGraphField::CommitTask => {
+                    if commit_task_result.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::CommitTask.as_ref(),
+                        ));
+                    }
+                    commit_task_result = Some(map.next_value());
+                }
+                SerializableTaskGraphField::CleanupTask => {
+                    if cleanup_task_result.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::CleanupTask.as_ref(),
+                        ));
+                    }
+                    cleanup_task_result = Some(map.next_value());
+                }
             }
         }
 
         let schema_version_raw = schema_version_raw.ok_or_else(|| {
-            de::Error::missing_field(SerializableTaskGraphField::SchemaVersion.as_str())
+            de::Error::missing_field(SerializableTaskGraphField::SchemaVersion.as_ref())
         })?;
         let tasks_result = tasks_result
-            .ok_or_else(|| de::Error::missing_field(SerializableTaskGraphField::Tasks.as_str()))?;
+            .ok_or_else(|| de::Error::missing_field(SerializableTaskGraphField::Tasks.as_ref()))?;
 
         let schema_version = Version::parse(&schema_version_raw).map_err(|error| {
             de::Error::custom(format!(
@@ -784,7 +858,17 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
             )));
         }
 
-        let mut graph = TaskGraph::default();
+        let commit_task = commit_task_result.ok_or_else(|| {
+            de::Error::missing_field(SerializableTaskGraphField::CommitTask.as_ref())
+        })??;
+        let cleanup_task = cleanup_task_result.ok_or_else(|| {
+            de::Error::missing_field(SerializableTaskGraphField::CleanupTask.as_ref())
+        })??;
+        let mut graph = TaskGraph::new(commit_task, cleanup_task).map_err(|error| {
+            de::Error::custom(format!(
+                "failed to create task graph during deserialization: {error}"
+            ))
+        })?;
         for (idx, task_descriptor) in tasks_result?.into_iter().enumerate() {
             let inserted_idx = graph.insert_task(task_descriptor).map_err(|error| {
                 de::Error::custom(format!(
@@ -2228,6 +2312,60 @@ mod tests {
         }));
     }
 
+    /// Tests that [`TaskGraph::new`] validates the execution policy of termination tasks.
+    #[test]
+    fn test_new_invalid_termination_task_execution_policy() {
+        let invalid_policy = Some(ExecutionPolicy {
+            max_num_retry: 0,
+            max_num_instances: 0,
+        });
+
+        // Invalid commit task execution policy
+        assert_invalid_execution_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: invalid_policy.clone(),
+            }),
+            None,
+        ));
+
+        // Invalid cleanup task execution policy
+        assert_invalid_execution_policy(&TaskGraph::new(
+            None,
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "cleanup_fn".to_string(),
+                },
+                execution_policy: invalid_policy,
+            }),
+        ));
+    }
+
+    /// Tests that [`TaskGraph::insert_task`] validates the execution policy.
+    #[test]
+    fn test_insert_task_invalid_execution_policy() {
+        let mut graph = TaskGraph::default();
+        let int32_type = DataTypeDescriptor::Value(ValueTypeDescriptor::int32());
+
+        assert_invalid_execution_policy(&graph.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_1".to_string(),
+            },
+            execution_policy: Some(ExecutionPolicy {
+                max_num_retry: 0,
+                max_num_instances: 0,
+            }),
+            inputs: vec![int32_type.clone()],
+            outputs: vec![int32_type],
+            input_sources: None,
+        }));
+    }
+
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidTaskInputs`].
@@ -2235,6 +2373,16 @@ mod tests {
         match result {
             Err(Error::InvalidTaskInputs(_)) => (),
             _ => panic!("Expected InvalidTaskInputs error, got: {result:?}"),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// If the result is not [`Error::InvalidExecutionPolicy`].
+    fn assert_invalid_execution_policy<T: Debug>(result: &Result<T, Error>) {
+        match result {
+            Err(Error::InvalidExecutionPolicy(_)) => (),
+            _ => panic!("Expected InvalidExecutionPolicy error, got: {result:?}"),
         }
     }
 }
