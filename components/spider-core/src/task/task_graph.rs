@@ -45,6 +45,72 @@ pub struct TdlContext {
     pub task_func: String,
 }
 
+/// The minimum allowed timeout value in milliseconds.
+const MIN_TIMEOUT_MS: u64 = 100;
+
+/// Timeout policy for a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimeoutPolicy {
+    /// The soft timeout for the task, in milliseconds. If the task execution exceeds this
+    /// duration, Spider may create a new task instance to mitigate potential blocking or
+    /// stalled executions.
+    ///
+    /// Default to 150,000ms (2.5 minutes).
+    ///
+    /// Must be greater than or equal to [`MIN_TIMEOUT_MS`].
+    pub soft_timeout_ms: u64,
+
+    /// The hard timeout for the task, in milliseconds. If the task execution exceeds this
+    /// duration, the task will be terminated and considered failed.
+    ///
+    /// Default to 300,000ms (5 minutes).
+    ///
+    /// Must be greater than or equal to [`MIN_TIMEOUT_MS`].
+    ///
+    /// Must be greater than `soft_timeout_ms`.
+    pub hard_timeout_ms: u64,
+}
+
+impl TimeoutPolicy {
+    /// Validates the timeout policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::InvalidTimeoutPolicy`] if:
+    ///   * `soft_timeout_ms` is less than [`MIN_TIMEOUT_MS`].
+    ///   * `hard_timeout_ms` is less than [`MIN_TIMEOUT_MS`].
+    ///   * `hard_timeout_ms` is less than or equal to `soft_timeout_ms`.
+    fn validate(&self) -> Result<(), Error> {
+        if self.soft_timeout_ms < MIN_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`soft_timeout_ms` must be >= {MIN_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.hard_timeout_ms < MIN_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`hard_timeout_ms` must be >= {MIN_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.hard_timeout_ms <= self.soft_timeout_ms {
+            return Err(Error::InvalidTimeoutPolicy(
+                "`hard_timeout_ms` must be greater than `soft_timeout_ms`".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for TimeoutPolicy {
+    fn default() -> Self {
+        Self {
+            soft_timeout_ms: 150_000,
+            hard_timeout_ms: 300_000,
+        }
+    }
+}
+
 /// Execution policy for a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionPolicy {
@@ -57,15 +123,10 @@ pub struct ExecutionPolicy {
     ///
     /// Default to 1.
     pub max_num_instances: u32,
-}
 
-impl Default for ExecutionPolicy {
-    fn default() -> Self {
-        Self {
-            max_num_retry: 0,
-            max_num_instances: 1,
-        }
-    }
+    /// The timeout policy for task execution.
+    #[serde(default)]
+    pub timeout_policy: TimeoutPolicy,
 }
 
 impl ExecutionPolicy {
@@ -77,13 +138,24 @@ impl ExecutionPolicy {
     ///
     /// * [`Error::InvalidExecutionPolicy`] if `max_num_instances` is 0 (i.e., no task instance can
     ///   be executed).
+    /// * Forwards [`TimeoutPolicy::validate`]'s return values on failure.
     fn validate(&self) -> Result<(), Error> {
         if self.max_num_instances == 0 {
             return Err(Error::InvalidExecutionPolicy(
                 "`max_num_instances` must be greater than 0".to_owned(),
             ));
         }
-        Ok(())
+        self.timeout_policy.validate()
+    }
+}
+
+impl Default for ExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            max_num_retry: 0,
+            max_num_instances: 1,
+            timeout_policy: TimeoutPolicy::default(),
+        }
     }
 }
 
@@ -2318,6 +2390,7 @@ mod tests {
         let invalid_policy = Some(ExecutionPolicy {
             max_num_retry: 0,
             max_num_instances: 0,
+            timeout_policy: TimeoutPolicy::default(),
         });
 
         // Invalid commit task execution policy
@@ -2345,6 +2418,67 @@ mod tests {
         ));
     }
 
+    /// Tests that [`TaskGraph::new`] validates the timeout policy of termination tasks.
+    #[test]
+    fn test_new_invalid_termination_task_timeout_policy() {
+        // soft_timeout_ms < MIN_TIMEOUT_MS
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: MIN_TIMEOUT_MS - 1,
+                        hard_timeout_ms: 300_000,
+                    },
+                }),
+            }),
+            None,
+        ));
+
+        // hard_timeout_ms < MIN_TIMEOUT_MS
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            None,
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "cleanup_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: 150_000,
+                        hard_timeout_ms: MIN_TIMEOUT_MS - 1,
+                    },
+                }),
+            }),
+        ));
+
+        // hard_timeout_ms == soft_timeout_ms
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: 1000,
+                        hard_timeout_ms: 1000,
+                    },
+                }),
+            }),
+            None,
+        ));
+    }
+
     /// Tests that [`TaskGraph::insert_task`] validates the execution policy.
     #[test]
     fn test_insert_task_invalid_execution_policy() {
@@ -2359,6 +2493,32 @@ mod tests {
             execution_policy: Some(ExecutionPolicy {
                 max_num_retry: 0,
                 max_num_instances: 0,
+                timeout_policy: TimeoutPolicy::default(),
+            }),
+            inputs: vec![int32_type.clone()],
+            outputs: vec![int32_type],
+            input_sources: None,
+        }));
+    }
+
+    /// Tests that [`TaskGraph::insert_task`] validates the timeout policy.
+    #[test]
+    fn test_insert_task_invalid_timeout_policy() {
+        let mut graph = TaskGraph::default();
+        let int32_type = DataTypeDescriptor::Value(ValueTypeDescriptor::int32());
+
+        assert_invalid_timeout_policy(&graph.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_1".to_string(),
+            },
+            execution_policy: Some(ExecutionPolicy {
+                max_num_retry: 0,
+                max_num_instances: 1,
+                timeout_policy: TimeoutPolicy {
+                    soft_timeout_ms: MIN_TIMEOUT_MS - 1,
+                    hard_timeout_ms: 300_000,
+                },
             }),
             inputs: vec![int32_type.clone()],
             outputs: vec![int32_type],
@@ -2372,7 +2532,7 @@ mod tests {
     fn assert_invalid_task_inputs<T: Debug>(result: &Result<T, Error>) {
         match result {
             Err(Error::InvalidTaskInputs(_)) => (),
-            _ => panic!("Expected InvalidTaskInputs error, got: {result:?}"),
+            _ => panic!("expected InvalidTaskInputs error, got: {result:?}"),
         }
     }
 
@@ -2382,7 +2542,17 @@ mod tests {
     fn assert_invalid_execution_policy<T: Debug>(result: &Result<T, Error>) {
         match result {
             Err(Error::InvalidExecutionPolicy(_)) => (),
-            _ => panic!("Expected InvalidExecutionPolicy error, got: {result:?}"),
+            _ => panic!("expected InvalidExecutionPolicy error, got: {result:?}"),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// If the result is not [`Error::InvalidTimeoutPolicy`].
+    fn assert_invalid_timeout_policy<T: Debug>(result: &Result<T, Error>) {
+        match result {
+            Err(Error::InvalidTimeoutPolicy(_)) => (),
+            _ => panic!("expected InvalidTimeoutPolicy error, got: {result:?}"),
         }
     }
 }

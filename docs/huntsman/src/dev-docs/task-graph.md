@@ -143,6 +143,12 @@ Spider defines execution policies at the task level, providing the following par
 * **Maximum number of concurrent task instances**: The maximum number of task instances that may run
   concurrently. Spider may create multiple instances of the same task to mitigate potential blocking
   or stalled executions.
+* **Timeout policy**: Defines time-based controls for task execution. The policy includes two
+  thresholds:
+  * **Soft timeout**: When a task exceeds the soft timeout, Spider may schedule an additional
+    instance of the task to run in parallel, subject to the concurrency limit.
+  * **Hard timeout**: When a task exceeds the hard timeout, Spider marks the execution as failed and
+    triggers the failure-handling process (e.g., retries or termination).
 
 ## Implementation requirements
 

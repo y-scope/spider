@@ -115,7 +115,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
   "schema_version": "0.1.0",
   "commit_task": {
     "tdl_context": {"package": "test_pkg", "task_func": "commit_fn"},
-    "execution_policy": {"max_num_retry": 1, "max_num_instances": 1}
+    "execution_policy": {
+      "max_num_retry": 1,
+      "max_num_instances": 1,
+      "timeout_policy": {"soft_timeout_ms": 150000, "hard_timeout_ms": 300000}
+    }
   },
   "cleanup_task": {
     "tdl_context": {"package": "test_pkg", "task_func": "cleanup_fn"}
@@ -123,7 +127,11 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
   "tasks": [
     {
       "tdl_context": {"package": "test_pkg", "task_func": "fn_1"},
-      "execution_policy": {"max_num_retry": 3, "max_num_instances": 2},
+      "execution_policy": {
+        "max_num_retry": 3,
+        "max_num_instances": 2,
+        "timeout_policy": {"soft_timeout_ms": 200000, "hard_timeout_ms": 600000}
+      },
       "inputs": [
         {
           "Value": {
