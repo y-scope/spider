@@ -48,6 +48,9 @@ pub struct TdlContext {
 /// The minimum allowed timeout value in milliseconds.
 const MIN_TIMEOUT_MS: u64 = 100;
 
+/// The maximum allowed timeout value in milliseconds.
+const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
+
 /// Timeout policy for a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeoutPolicy {
@@ -57,7 +60,7 @@ pub struct TimeoutPolicy {
     ///
     /// Default to 150,000ms (2.5 minutes).
     ///
-    /// Must be greater than or equal to [`MIN_TIMEOUT_MS`].
+    /// Must be within the range of [[`MIN_TIMEOUT_MS`], [`MAX_TIMEOUT_MS`]] (inclusive).
     pub soft_timeout_ms: u64,
 
     /// The hard timeout for the task, in milliseconds. If the task execution exceeds this
@@ -68,6 +71,8 @@ pub struct TimeoutPolicy {
     /// Must be greater than or equal to [`MIN_TIMEOUT_MS`].
     ///
     /// Must be greater than `soft_timeout_ms`.
+    ///
+    /// Must be smaller than or equal to [`MAX_TIMEOUT_MS`].
     pub hard_timeout_ms: u64,
 }
 
@@ -88,9 +93,19 @@ impl TimeoutPolicy {
                 "`soft_timeout_ms` must be >= {MIN_TIMEOUT_MS}ms"
             )));
         }
+        if self.soft_timeout_ms > MAX_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`soft_timeout_ms` must be <= {MAX_TIMEOUT_MS}ms"
+            )));
+        }
         if self.hard_timeout_ms < MIN_TIMEOUT_MS {
             return Err(Error::InvalidTimeoutPolicy(format!(
                 "`hard_timeout_ms` must be >= {MIN_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.hard_timeout_ms > MAX_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`hard_timeout_ms` must be <= {MAX_TIMEOUT_MS}ms"
             )));
         }
         if self.hard_timeout_ms <= self.soft_timeout_ms {
@@ -2472,6 +2487,25 @@ mod tests {
                     timeout_policy: TimeoutPolicy {
                         soft_timeout_ms: 1000,
                         hard_timeout_ms: 1000,
+                    },
+                }),
+            }),
+            None,
+        ));
+
+        // hard_timeout_ms > MAX_TIMEOUT_MS
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: 1000,
+                        hard_timeout_ms: MAX_TIMEOUT_MS + 1,
                     },
                 }),
             }),
