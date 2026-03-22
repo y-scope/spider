@@ -15,18 +15,18 @@ import mariadb  # type: ignore [import-not-found]
 _TABLE_CREATORS = [
     """
     CREATE TABLE IF NOT EXISTS `resource_groups` (
-      id UUID NOT NULL DEFAULT UUID_v7(),
-      external_id VARCHAR(256) NOT NULL,
-      password VARCHAR(2048) NOT NULL,
+      `id` UUID NOT NULL DEFAULT UUID_v7(),
+      `external_id` VARCHAR(256) NOT NULL,
+      `password` VARCHAR(2048) NOT NULL,
       PRIMARY KEY (`id`),
       UNIQUE INDEX `external_resource_group_id` (`external_id`)
     );
     """,
     """
     CREATE TABLE IF NOT EXISTS `jobs` (
-      id UUID NOT NULL DEFAULT UUID_v7(),
-      resource_group_id UUID NOT NULL,
-      state ENUM(
+      `id` UUID NOT NULL DEFAULT UUID_v7(),
+      `resource_group_id` UUID NOT NULL,
+      `state` ENUM(
         'Ready',
         'Running',
         'CommitReady',
@@ -35,19 +35,19 @@ _TABLE_CREATORS = [
         'Failed',
         'Cancelled'
       ) NOT NULL DEFAULT 'Ready',
-      serialized_task_graph LONGTEXT NOT NULL,
-      serialized_job_inputs LONGTEXT NOT NULL,
-      serialized_job_outputs LONGTEXT,
-      error_message LONGTEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      ended_at TIMESTAMP,
-      max_num_retries INT UNSIGNED NOT NULL DEFAULT 0,
-      num_retries INT UNSIGNED NOT NULL DEFAULT 0,
-      commit_tdl_package VARCHAR(512),
-      commit_tdl_function VARCHAR(512),
-      cleanup_tdl_package VARCHAR(512),
-      cleanup_tdl_function VARCHAR(512),
+      `serialized_task_graph` LONGTEXT NOT NULL,
+      `serialized_job_inputs` LONGTEXT NOT NULL,
+      `serialized_job_outputs` LONGTEXT,
+      `error_message` LONGTEXT,
+      `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      `ended_at` TIMESTAMP,
+      `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+      `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+      `commit_tdl_package` VARCHAR(512),
+      `commit_tdl_function` VARCHAR(512),
+      `cleanup_tdl_package` VARCHAR(512),
+      `cleanup_tdl_function` VARCHAR(512),
       PRIMARY KEY (`id`),
       CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
         REFERENCES `resource_groups` (`id`)
