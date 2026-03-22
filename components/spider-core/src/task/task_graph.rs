@@ -252,6 +252,11 @@ impl Task {
         &self.tdl_context
     }
 
+    #[must_use]
+    pub const fn get_execution_policy(&self) -> &ExecutionPolicy {
+        &self.execution_policy
+    }
+
     fn new(
         idx: TaskIndex,
         tdl_context: TdlContext,
