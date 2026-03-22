@@ -16,7 +16,7 @@ pub fn derive_quoted_enum_str(input: &DeriveInput) -> syn::Result<TokenStream> {
         .iter()
         .map(|v| format!("'{variant}'", variant = v.ident))
         .collect::<Vec<String>>()
-        .join(",");
+        .join(", ");
 
     let expanded = quote! {
         impl #enum_type_name {
