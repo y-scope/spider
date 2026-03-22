@@ -24,6 +24,6 @@ impl PartialEq for Single {
 
 #[test]
 fn test_quoted_enum_str() {
-    assert_eq!(Color::quoted_enum_str(), "'Red', 'Green', 'Blue'");
+    assert_eq!(Color::quoted_enum_str(), "'Red','Green','Blue'");
     assert_eq!(Single::quoted_enum_str(), "'Only'");
 }
