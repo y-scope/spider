@@ -8,18 +8,14 @@ enum Color {
     Blue,
 }
 
-#[test]
-fn variant_names_returns_comma_separated_names() {
-    assert_eq!(Color::quoted_enum_str(), "'Red', 'Green', 'Blue'");
-}
-
 #[allow(dead_code)]
 #[derive(QuotedEnumStr)]
 enum Single {
-    Only,
+    Only(i32),
 }
 
 #[test]
-fn single_variant() {
+fn quoted_enum_str() {
+    assert_eq!(Color::quoted_enum_str(), "'Red', 'Green', 'Blue'");
     assert_eq!(Single::quoted_enum_str(), "'Only'");
 }

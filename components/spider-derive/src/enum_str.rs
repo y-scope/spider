@@ -3,10 +3,10 @@ use quote::quote;
 use syn::{Data, DataEnum, DeriveInput};
 
 pub fn derive_quoted_enum_str(input: &DeriveInput) -> syn::Result<TokenStream> {
-    let name = &input.ident;
+    let enum_type_name = &input.ident;
 
     let Data::Enum(DataEnum {
-        variants: values, ..
+        variants, ..
     }) = &input.data
     else {
         return Err(syn::Error::new_spanned(
@@ -15,17 +15,15 @@ pub fn derive_quoted_enum_str(input: &DeriveInput) -> syn::Result<TokenStream> {
         ));
     };
 
-    let value_strings: Vec<String> = values
+    let joined_quoted_enum_str: String = variants
         .iter()
-        .map(|v| format!("'{value_str}'", value_str = v.ident))
-        .collect();
-
-    let joined = value_strings.join(", ");
+        .map(|v| format!("'{variant}'", variant = v.ident))
+        .collect::<Vec<String>>().join(",");
 
     let expanded = quote! {
-        impl #name {
+        impl #enum_type_name {
             pub const fn quoted_enum_str() -> &'static str {
-                #joined
+                #joined_quoted_enum_str
             }
         }
     };
