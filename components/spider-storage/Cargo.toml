@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1.89"
-serde = { version = "1.0" }
+serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
 sqlx = "0.8.6"
 thiserror = "2.0.18"
