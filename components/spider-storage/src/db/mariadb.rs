@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use const_format::formatcp;
+use secrecy::ExposeSecret;
 use spider_core::{
     job::JobState,
     task::TaskGraph,
@@ -13,13 +14,15 @@ use spider_core::{
 use sqlx::{MySqlPool, Row};
 use uuid::Uuid;
 
-use super::sql_utils;
-use crate::db::{
-    DbError,
-    ExternalJobOrchestration,
-    InternalJobOrchestration,
-    ResourceGroupManagement,
-    error::ExpectedStates,
+use crate::{
+    config::DatabaseConfig,
+    db::{
+        DbError,
+        ExternalJobOrchestration,
+        InternalJobOrchestration,
+        ResourceGroupManagement,
+        error::ExpectedStates,
+    },
 };
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
@@ -30,9 +33,9 @@ const fn resource_groups_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
-  id UUID NOT NULL DEFAULT UUID_v7(),
-  external_id VARCHAR(256) NOT NULL,
-  password VARCHAR(2048) NOT NULL,
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `external_id` VARCHAR(256) NOT NULL,
+  `password` VARCHAR(2048) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE INDEX `external_resource_group_id` (`external_id`)
 );"
@@ -40,31 +43,29 @@ CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
 }
 
 #[must_use]
-fn jobs_creation_query() -> String {
-    format!(
+const fn jobs_creation_query() -> &'static str {
+    formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
-  id UUID NOT NULL DEFAULT UUID_v7(),
-  resource_group_id UUID NOT NULL,
-  state ENUM({state_enum}) NOT NULL DEFAULT 'Ready',
-  serialized_task_graph LONGTEXT NOT NULL,
-  serialized_job_inputs LONGTEXT NOT NULL,
-  serialized_job_outputs LONGTEXT,
-  error_message LONGTEXT,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  ended_at TIMESTAMP,
-  max_num_retries INT UNSIGNED NOT NULL DEFAULT 0,
-  num_retries INT UNSIGNED NOT NULL DEFAULT 0,
-  commit_tdl_package VARCHAR(512),
-  commit_tdl_function VARCHAR(512),
-  cleanup_tdl_package VARCHAR(512),
-  cleanup_tdl_function VARCHAR(512),
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `resource_group_id` UUID NOT NULL,
+  `state` {state_enum} NOT NULL DEFAULT {default_state},
+  `serialized_task_graph` LONGTEXT NOT NULL,
+  `serialized_job_inputs` LONGTEXT NOT NULL,
+  `serialized_job_outputs` LONGTEXT,
+  `error_message` LONGTEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `ended_at` TIMESTAMP,
+  `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+  `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
 );",
-        state_enum = sql_utils::sql_enum_values::<JobState>()
+        state_enum = JobState::as_mysql_enum_decl(),
+        default_state = JobState::Ready.as_quoted_str(),
     )
 }
 
@@ -84,36 +85,77 @@ fn parse_resource_group_id(id_str: &str) -> Result<ResourceGroupId, DbError> {
         })
 }
 
+fn validate_resource_group_access(
+    rg_id_str: &str,
+    expected: ResourceGroupId,
+) -> Result<(), DbError> {
+    let actual_uuid = Uuid::parse_str(rg_id_str)
+        .map_err(|e| DbError::CorruptedDbState(format!("invalid resource group UUID: {e}")))?;
+    let actual = ResourceGroupId::from(actual_uuid);
+    if actual != expected {
+        return Err(DbError::InvalidAccess(expected));
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
-pub struct MariaDbStorage {
+pub struct MariaDbStorageConnector {
     pool: MySqlPool,
 }
 
-impl MariaDbStorage {
-    #[must_use]
-    pub const fn new(pool: MySqlPool) -> Self {
-        Self { pool }
-    }
-}
-
-impl MariaDbStorage {
-    /// Initializes the database by creating necessary tables if they do not exist.
+impl MariaDbStorageConnector {
+    /// Connects to database and initializes tables.
     ///
-    /// Note: `MariaDB` does not support transactions for DDL statements. All DDL statements are
-    /// automatically committed. Thus, this function executes each table creation query separately,
-    /// and does not provide atomicity guarantees.
+    /// # Parameters
+    ///
+    /// * `config` - Database configuration parameters.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `MariaDbStorageConnector` if connection and initialization succeed.
     ///
     /// # Errors
     ///
     /// Returns an error if
     ///
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
-    pub async fn initialize(&self) -> Result<(), DbError> {
+    pub async fn connect_and_initialize(config: &DatabaseConfig) -> Result<Self, DbError> {
+        let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
+            .host(&config.host)
+            .port(config.port)
+            .database(&config.name)
+            .username(&config.username)
+            .password(config.password.expose_secret());
+
+        let pool = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(config.max_connections)
+            .connect_with(mysql_options)
+            .await?;
+
+        let connector = Self { pool };
+        connector.initialize().await?;
+        Ok(connector)
+    }
+
+    /// Initializes the database by creating necessary tables if they do not exist.
+    ///
+    /// # NOTE
+    ///
+    /// `MariaDB` does not support transactions for DDL statements. All DDL statements are
+    /// automatically committed. Thus, this function executes each table creation query separately,
+    /// and does not provide atomicity guarantees.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards a [`sqlx::query::Query::execute`]'s return values on failure.
+    async fn initialize(&self) -> Result<(), DbError> {
         sqlx::query(resource_groups_creation_query())
             .execute(&self.pool)
             .await?;
 
-        sqlx::query(jobs_creation_query().as_str())
+        sqlx::query(jobs_creation_query())
             .execute(&self.pool)
             .await?;
 
@@ -122,7 +164,7 @@ impl MariaDbStorage {
 }
 
 #[async_trait]
-impl ExternalJobOrchestration for MariaDbStorage {
+impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
@@ -131,8 +173,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`, `commit_tdl_package`, `commit_tdl_function`, \
-             `cleanup_tdl_package`, `cleanup_tdl_function`) VALUES (?, ?, ?, ?, ?, ?, ?) \
+             `serialized_job_inputs`) VALUES (?, ?, ?) \
              RETURNING CAST(`id` AS CHAR) AS `id`;",
             table = JOBS_TABLE_NAME,
         );
@@ -149,10 +190,6 @@ impl ExternalJobOrchestration for MariaDbStorage {
             .bind(&rg_id_str)
             .bind(serialized_task_graph)
             .bind(serialized_job_inputs)
-            .bind(None::<String>)
-            .bind(None::<String>)
-            .bind(None::<String>)
-            .bind(None::<String>)
             .fetch_one(&self.pool)
             .await;
 
@@ -186,15 +223,14 @@ impl ExternalJobOrchestration for MariaDbStorage {
         let mut tx = self.pool.begin().await?;
         let job_id_str = job_id.as_uuid_ref().to_string();
 
-        let row: Option<(String, String)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState, String)> = sqlx::query_as(SELECT_QUERY)
             .bind(&job_id_str)
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state_str, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
-        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
-        let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Ready {
             return Err(DbError::UnexpectedJobState {
                 current: state,
@@ -203,7 +239,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
         }
 
         sqlx::query(UPDATE_QUERY)
-            .bind(JobState::Running.to_string())
+            .bind(JobState::Running)
             .bind(&job_id_str)
             .execute(&mut *tx)
             .await?;
@@ -216,10 +252,11 @@ impl ExternalJobOrchestration for MariaDbStorage {
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
+        new_state: JobState,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR), `cleanup_tdl_package` FROM \
-             `{table}` WHERE `id` = ? FOR UPDATE;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ? \
+             FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_STATE_QUERY: &str = formatcp!(
@@ -234,16 +271,14 @@ impl ExternalJobOrchestration for MariaDbStorage {
         let mut tx = self.pool.begin().await?;
         let job_id_str = job_id.as_uuid_ref().to_string();
 
-        let row: Option<(String, String, Option<String>)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState, String)> = sqlx::query_as(SELECT_QUERY)
             .bind(&job_id_str)
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state_str, rg_id_str, cleanup_tdl_package) =
-            row.ok_or(DbError::JobNotFound(job_id))?;
-        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
-        let state = sql_utils::parse_job_state(&state_str)?;
         if state.is_terminal() {
             return Err(DbError::UnexpectedJobState {
                 current: state,
@@ -256,15 +291,15 @@ impl ExternalJobOrchestration for MariaDbStorage {
             });
         }
 
-        if cleanup_tdl_package.is_some() {
-            sqlx::query(UPDATE_STATE_QUERY)
-                .bind(JobState::CleanupReady.to_string())
+        if new_state.is_terminal() {
+            sqlx::query(UPDATE_STATE_AND_END_QUERY)
+                .bind(new_state)
                 .bind(&job_id_str)
                 .execute(&mut *tx)
                 .await?;
         } else {
-            sqlx::query(UPDATE_STATE_AND_END_QUERY)
-                .bind(JobState::Cancelled.to_string())
+            sqlx::query(UPDATE_STATE_QUERY)
+                .bind(new_state)
                 .bind(&job_id_str)
                 .execute(&mut *tx)
                 .await?;
@@ -284,15 +319,15 @@ impl ExternalJobOrchestration for MariaDbStorage {
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(String, String)> = sqlx::query_as(QUERY)
+        let row: Option<(JobState, String)> = sqlx::query_as(QUERY)
             .bind(job_id.as_uuid_ref().to_string())
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state_str, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
-        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
-        sql_utils::parse_job_state(&state_str)
+        Ok(state)
     }
 
     async fn get_outputs(
@@ -308,16 +343,15 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
         let job_id_str = job_id.as_uuid_ref().to_string();
 
-        let row: Option<(String, String, Option<String>)> = sqlx::query_as(QUERY)
+        let row: Option<(JobState, String, Option<String>)> = sqlx::query_as(QUERY)
             .bind(&job_id_str)
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state_str, rg_id_str, serialized_outputs) =
+        let (state, rg_id_str, serialized_outputs) =
             row.ok_or(DbError::JobNotFound(job_id))?;
-        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
-        let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
                 current: state,
@@ -348,15 +382,14 @@ impl ExternalJobOrchestration for MariaDbStorage {
 
         let job_id_str = job_id.as_uuid_ref().to_string();
 
-        let row: Option<(String, String, Option<String>)> = sqlx::query_as(QUERY)
+        let row: Option<(JobState, String, Option<String>)> = sqlx::query_as(QUERY)
             .bind(&job_id_str)
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state_str, rg_id_str, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
-        sql_utils::validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_str, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
-        let state = sql_utils::parse_job_state(&state_str)?;
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
                 current: state,
@@ -374,7 +407,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
 }
 
 #[async_trait]
-impl InternalJobOrchestration for MariaDbStorage {
+impl InternalJobOrchestration for MariaDbStorageConnector {
     async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
@@ -388,13 +421,12 @@ impl InternalJobOrchestration for MariaDbStorage {
         let job_id_str = job_id.as_uuid_ref().to_string();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(String,)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
             .bind(&job_id_str)
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (current_state_str,) = row.ok_or(DbError::JobNotFound(job_id))?;
-        let current_state = sql_utils::parse_job_state(&current_state_str)?;
+        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
         if !JobState::is_valid_transition(current_state, state) {
             return Err(DbError::InvalidJobStateTransition {
@@ -404,7 +436,7 @@ impl InternalJobOrchestration for MariaDbStorage {
         }
 
         sqlx::query(UPDATE_QUERY)
-            .bind(state.to_string())
+            .bind(state)
             .bind(&job_id_str)
             .execute(&mut *tx)
             .await?;
@@ -417,9 +449,10 @@ impl InternalJobOrchestration for MariaDbStorage {
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
-    ) -> Result<JobState, DbError> {
+        new_state: JobState,
+    ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, `commit_tdl_package` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_SUCCEEDED_QUERY: &str = formatcp!(
@@ -435,49 +468,46 @@ impl InternalJobOrchestration for MariaDbStorage {
         let job_id_str = job_id.as_uuid_ref().to_string();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(String, Option<String>)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
             .bind(&job_id_str)
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state_str, commit_tdl_package) = row.ok_or(DbError::JobNotFound(job_id))?;
-        let current_state = sql_utils::parse_job_state(&state_str)?;
+        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
         if current_state != JobState::Running {
             return Err(DbError::InvalidJobStateTransition {
                 from: current_state,
-                to: JobState::CommitReady,
+                to: new_state,
             });
         }
 
         let serialized_outputs =
             serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
 
-        let new_state = if commit_tdl_package.is_some() {
-            sqlx::query(UPDATE_COMMIT_READY_QUERY)
-                .bind(JobState::CommitReady.to_string())
-                .bind(&serialized_outputs)
-                .bind(&job_id_str)
-                .execute(&mut *tx)
-                .await?;
-            JobState::CommitReady
-        } else {
+        if new_state.is_terminal() {
             sqlx::query(UPDATE_SUCCEEDED_QUERY)
-                .bind(JobState::Succeeded.to_string())
+                .bind(new_state)
                 .bind(&serialized_outputs)
                 .bind(&job_id_str)
                 .execute(&mut *tx)
                 .await?;
-            JobState::Succeeded
-        };
+        } else {
+            sqlx::query(UPDATE_COMMIT_READY_QUERY)
+                .bind(new_state)
+                .bind(&serialized_outputs)
+                .bind(&job_id_str)
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
-        Ok(new_state)
+        Ok(())
     }
 
-    async fn cancel(&self, job_id: JobId) -> Result<JobState, DbError> {
+    async fn cancel(&self, job_id: JobId, new_state: JobState) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, `cleanup_tdl_package` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_STATE_QUERY: &str = formatcp!(
@@ -492,39 +522,36 @@ impl InternalJobOrchestration for MariaDbStorage {
         let job_id_str = job_id.as_uuid_ref().to_string();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(String, Option<String>)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
             .bind(&job_id_str)
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state_str, cleanup_tdl_package) = row.ok_or(DbError::JobNotFound(job_id))?;
-        let current_state = sql_utils::parse_job_state(&state_str)?;
+        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
         if current_state.is_terminal() {
             return Err(DbError::InvalidJobStateTransition {
                 from: current_state,
-                to: JobState::Cancelled,
+                to: new_state,
             });
         }
 
-        let new_state = if cleanup_tdl_package.is_some() {
-            sqlx::query(UPDATE_STATE_QUERY)
-                .bind(JobState::CleanupReady.to_string())
-                .bind(&job_id_str)
-                .execute(&mut *tx)
-                .await?;
-            JobState::CleanupReady
-        } else {
+        if new_state.is_terminal() {
             sqlx::query(UPDATE_STATE_AND_END_QUERY)
-                .bind(JobState::Cancelled.to_string())
+                .bind(new_state)
                 .bind(&job_id_str)
                 .execute(&mut *tx)
                 .await?;
-            JobState::Cancelled
-        };
+        } else {
+            sqlx::query(UPDATE_STATE_QUERY)
+                .bind(new_state)
+                .bind(&job_id_str)
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
-        Ok(new_state)
+        Ok(())
     }
 
     async fn fail(&self, job_id: JobId, error_message: String) -> Result<(), DbError> {
@@ -541,13 +568,12 @@ impl InternalJobOrchestration for MariaDbStorage {
         let job_id_str = job_id.as_uuid_ref().to_string();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(String,)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
             .bind(&job_id_str)
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state_str,) = row.ok_or(DbError::JobNotFound(job_id))?;
-        let current_state = sql_utils::parse_job_state(&state_str)?;
+        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
         if !JobState::is_valid_transition(current_state, JobState::Failed) {
             return Err(DbError::InvalidJobStateTransition {
@@ -557,7 +583,7 @@ impl InternalJobOrchestration for MariaDbStorage {
         }
 
         sqlx::query(UPDATE_QUERY)
-            .bind(JobState::Failed.to_string())
+            .bind(JobState::Failed)
             .bind(&error_message)
             .bind(&job_id_str)
             .execute(&mut *tx)
@@ -610,7 +636,7 @@ impl InternalJobOrchestration for MariaDbStorage {
 }
 
 #[async_trait]
-impl ResourceGroupManagement for MariaDbStorage {
+impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn add(
         &self,
         external_resource_group_id: String,

@@ -113,6 +113,43 @@ conditions holds:
 * The task is an input task, or
 * All parent tasks of the task have completed successfully.
 
+### Termination tasks
+
+Termination Tasks
+
+Spider provides a built-in mechanism that enables users to execute custom logic after a task graph
+finishes execution. This mechanism defines two types of post-execution stages:
+
+Commit stage: Automatically executed when all tasks in the task graph complete successfully.
+Cleanup stage: Automatically executed when the task graph execution is cancelled, or can be
+manually triggered after a failed execution.
+
+We refer to these stages collectively as termination tasks. Termination tasks do not produce
+outputs or accept explicit inputs. Instead:
+
+Commit tasks can access the inputs of input tasks and the outputs of output tasks.
+Cleanup tasks can only access the inputs of input tasks, as they must not assume any
+successful execution state within the task graph.
+
+Spider assumes that all termination tasks are idempotent. User implementations must adhere to
+this requirement to avoid undefined behavior.
+
+### Execution policy
+
+Spider defines execution policies at the task level, providing the following parameters:
+
+* **Maximum number of retries**: The maximum number of retry attempts allowed for a task after a
+  reported failure.
+* **Maximum number of concurrent task instances**: The maximum number of task instances that may run
+  concurrently. Spider may create multiple instances of the same task to mitigate potential blocking
+  or stalled executions.
+* **Timeout policy**: Defines time-based controls for task execution. The policy includes two
+  thresholds:
+  * **Soft timeout**: When a task exceeds the soft timeout, Spider may schedule an additional
+    instance of the task to run in parallel, subject to the concurrency limit.
+  * **Hard timeout**: When a task exceeds the hard timeout, Spider marks the execution as failed and
+    triggers the failure-handling process (e.g., retries or termination).
+
 ## Implementation requirements
 
 :::{warning} 🚧 This section is still under construction. :::
