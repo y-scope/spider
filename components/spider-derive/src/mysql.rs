@@ -62,6 +62,10 @@ pub fn derive_mysql_enum(input: &DeriveInput) -> syn::Result<TokenStream> {
             fn type_info() -> sqlx::mysql::MySqlTypeInfo {
                 <str as sqlx::Type<sqlx::MySql>>::type_info()
             }
+
+            fn compatible(ty: &sqlx::mysql::MySqlTypeInfo) -> bool {
+                <str as sqlx::Type<sqlx::MySql>>::compatible(ty)
+            }
         }
 
         impl<'q> sqlx::Encode<'q, sqlx::MySql> for #enum_type_name {
