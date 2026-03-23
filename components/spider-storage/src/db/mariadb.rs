@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use const_format::formatcp;
+use secrecy::ExposeSecret;
 use spider_core::{
     job::JobState,
     task::TaskGraph,
@@ -12,22 +13,48 @@ use spider_core::{
 };
 use sqlx::MySqlPool;
 
-use crate::db::{
-    DbError,
-    ExternalJobOrchestration,
-    InternalJobOrchestration,
-    ResourceGroupManagement,
+use crate::{
+    config::DatabaseConfig,
+    db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, ResourceGroupManagement},
 };
 
 #[derive(Clone)]
-pub struct MariaDbStorage {
+pub struct MariaDbStorageConnector {
     pool: MySqlPool,
 }
 
-impl MariaDbStorage {
-    #[must_use]
-    pub const fn new(pool: MySqlPool) -> Self {
-        Self { pool }
+impl MariaDbStorageConnector {
+    /// Connects to database and initializes tables.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - Database configuration parameters.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `MariaDbStorageConnector` if connection and initialization succeed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if
+    ///
+    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    pub async fn connect_and_initialize(config: &DatabaseConfig) -> Result<Self, DbError> {
+        let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
+            .host(&config.host)
+            .port(config.port)
+            .database(&config.name)
+            .username(&config.username)
+            .password(config.password.expose_secret());
+
+        let pool = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(config.max_connections)
+            .connect_with(mysql_options)
+            .await?;
+
+        let connector = Self { pool };
+        connector.initialize().await?;
+        Ok(connector)
     }
 
     /// Initializes the database by creating necessary tables if they do not exist.
@@ -41,7 +68,7 @@ impl MariaDbStorage {
     /// Returns an error if
     ///
     /// * Forwards a [`sqlx::error::Error`] if database operation fails.
-    pub async fn initialize(&self) -> Result<(), DbError> {
+    async fn initialize(&self) -> Result<(), DbError> {
         sqlx::query(resource_groups_creation_query())
             .execute(&self.pool)
             .await?;
@@ -54,7 +81,7 @@ impl MariaDbStorage {
     }
 }
 #[async_trait]
-impl ExternalJobOrchestration for MariaDbStorage {
+impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
@@ -106,7 +133,7 @@ impl ExternalJobOrchestration for MariaDbStorage {
 }
 
 #[async_trait]
-impl InternalJobOrchestration for MariaDbStorage {
+impl InternalJobOrchestration for MariaDbStorageConnector {
     async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
         todo!()
     }
@@ -136,7 +163,7 @@ impl InternalJobOrchestration for MariaDbStorage {
 }
 
 #[async_trait]
-impl ResourceGroupManagement for MariaDbStorage {
+impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn add(
         &self,
         _external_resource_group_id: String,

@@ -10,8 +10,8 @@ path = "src/lib.rs"
 [dependencies]
 async-trait = "0.1.89"
 const_format = "0.2.35"
+secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.228" }
 spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
-strum = "0.27.2"
 thiserror = "2.0.18"
