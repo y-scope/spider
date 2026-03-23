@@ -16,11 +16,17 @@ pub enum Error {
     #[error("`rmp_serde::decode::Error`: {0}")]
     RmpSerdeDecodeError(#[from] rmp_serde::decode::Error),
 
-    #[error("Invalid struct name: {0}")]
+    #[error("invalid struct name: {0}")]
     InvalidStructName(String),
 
-    #[error("Invalid task inputs: {0}")]
+    #[error("invalid task inputs: {0}")]
     InvalidTaskInputs(String),
+
+    #[error("invalid execution policy: {0}")]
+    InvalidExecutionPolicy(String),
+
+    #[error("invalid timeout policy: {0}")]
+    InvalidTimeoutPolicy(String),
 }
 
 /// Enum for all possible states of a task.

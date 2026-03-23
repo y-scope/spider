@@ -41,7 +41,8 @@ fn test_invalid_schema_version() {
         serde_json::Value::Number(123.into()),
     ];
     for invalid_version in invalid_versions {
-        let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+        let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON)
+            .expect("TASK_GRAPH_IN_JSON should be valid JSON");
         task_graph["schema_version"] = serde_json::json!(invalid_version);
         assert!(TaskGraph::from_json(&task_graph.to_string()).is_err());
     }
@@ -49,7 +50,8 @@ fn test_invalid_schema_version() {
 
 #[test]
 fn test_incompatible_schema_version() {
-    let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+    let mut task_graph: serde_json::Value =
+        serde_json::from_str(TASK_GRAPH_IN_JSON).expect("TASK_GRAPH_IN_JSON should be valid JSON");
     // The major version is large enough that we are unlikely to use
     task_graph["schema_version"] = serde_json::json!("100000.0.0");
     assert!(TaskGraph::from_json(&task_graph.to_string()).is_err());
@@ -57,7 +59,8 @@ fn test_incompatible_schema_version() {
 
 #[test]
 fn test_invalid_task_descriptor() {
-    let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+    let mut task_graph: serde_json::Value =
+        serde_json::from_str(TASK_GRAPH_IN_JSON).expect("TASK_GRAPH_IN_JSON should be valid JSON");
     // Remove the first task descriptor, which makes the task graph invalid since other tasks depend
     // on the output of the first task.
     task_graph["tasks"]
@@ -69,9 +72,10 @@ fn test_invalid_task_descriptor() {
 
 #[test]
 fn test_missing_fields() {
-    let expected_fields = vec!["schema_version", "tasks"];
+    let expected_fields = vec!["schema_version", "tasks", "commit_task", "cleanup_task"];
     for field in expected_fields {
-        let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON).unwrap();
+        let mut task_graph: serde_json::Value = serde_json::from_str(TASK_GRAPH_IN_JSON)
+            .expect("TASK_GRAPH_IN_JSON should be valid JSON");
         task_graph
             .as_object_mut()
             .expect("task graph should be an object")
@@ -92,7 +96,9 @@ fn test_schema_version_check_priority() {
           "company": "yscope"
           }
         ],
-        "schema_version": "1000000.0.0"
+        "schema_version": "1000000.0.0",
+        "commit_task": null,
+        "cleanup_task": null
     }"#;
     match TaskGraph::from_json(TASK_GRAPH_WITH_INCOMPATIBLE_VERSION_AND_TASKS) {
         Ok(_) => panic!("deserialization should fail"),
@@ -107,10 +113,25 @@ fn test_schema_version_check_priority() {
 
 const TASK_GRAPH_IN_JSON: &str = r#"{
   "schema_version": "0.1.0",
+  "commit_task": {
+    "tdl_context": {"package": "test_pkg", "task_func": "commit_fn"},
+    "execution_policy": {
+      "max_num_retry": 1,
+      "max_num_instances": 1,
+      "timeout_policy": {"soft_timeout_ms": 150000, "hard_timeout_ms": 300000}
+    }
+  },
+  "cleanup_task": {
+    "tdl_context": {"package": "test_pkg", "task_func": "cleanup_fn"}
+  },
   "tasks": [
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_1",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_1"},
+      "execution_policy": {
+        "max_num_retry": 3,
+        "max_num_instances": 2,
+        "timeout_policy": {"soft_timeout_ms": 200000, "hard_timeout_ms": 600000}
+      },
       "inputs": [
         {
           "Value": {
@@ -144,8 +165,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       "input_sources": null
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_2",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_2"},
       "inputs": [
         {
           "Value": {
@@ -172,8 +192,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       "input_sources": null
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_3",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_3"},
       "inputs": [
         {
           "Value": {
@@ -212,8 +231,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_4",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_4"},
       "inputs": [
         {
           "Value": {
@@ -256,8 +274,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_5",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_5"},
       "inputs": [
         {
           "Value": {
@@ -309,8 +326,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_6",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_6"},
       "inputs": [
         {
           "Value": {
@@ -342,8 +358,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_7",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_7"},
       "inputs": [
         {
           "Value": {
@@ -399,8 +414,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_8",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_8"},
       "inputs": [
         {
           "Value": {
@@ -427,8 +441,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_9",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_9"},
       "inputs": [
         {
           "Value": {
@@ -466,8 +479,7 @@ const TASK_GRAPH_IN_JSON: &str = r#"{
       ]
     },
     {
-      "tdl_package": "test_pkg",
-      "tdl_function": "fn_10",
+      "tdl_context": {"package": "test_pkg", "task_func": "fn_10"},
       "inputs": [],
       "outputs": [],
       "input_sources": null
