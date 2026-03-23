@@ -44,13 +44,10 @@ _TABLE_CREATORS = [
       `ended_at` TIMESTAMP,
       `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
       `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
-      `commit_tdl_package` VARCHAR(512),
-      `commit_tdl_function` VARCHAR(512),
-      `cleanup_tdl_package` VARCHAR(512),
-      `cleanup_tdl_function` VARCHAR(512),
       PRIMARY KEY (`id`),
       CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
         REFERENCES `resource_groups` (`id`)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
     );
     """,
 ]
