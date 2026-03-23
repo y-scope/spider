@@ -75,9 +75,7 @@ impl MariaDbStorage {
     pub const fn new(pool: MySqlPool) -> Self {
         Self { pool }
     }
-}
 
-impl MariaDbStorage {
     /// Initializes the database by creating necessary tables if they do not exist.
     ///
     /// Note: `MariaDB` does not support transactions for DDL statements. All DDL statements are
