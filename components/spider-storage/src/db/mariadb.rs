@@ -19,50 +19,6 @@ use crate::db::{
     ResourceGroupManagement,
 };
 
-const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
-const JOBS_TABLE_NAME: &str = "jobs";
-
-#[must_use]
-const fn resource_groups_creation_query() -> &'static str {
-    formatcp!(
-        r"
-CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
-  `external_id` VARCHAR(256) NOT NULL,
-  `password` VARCHAR(2048) NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE INDEX `external_resource_group_id` (`external_id`)
-);"
-    )
-}
-
-#[must_use]
-const fn jobs_creation_query() -> &'static str {
-    formatcp!(
-        r"
-CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
-  `resource_group_id` UUID NOT NULL,
-  `state` {state_enum} NOT NULL DEFAULT {default_state},
-  `serialized_task_graph` LONGTEXT NOT NULL,
-  `serialized_job_inputs` LONGTEXT NOT NULL,
-  `serialized_job_outputs` LONGTEXT,
-  `error_message` LONGTEXT,
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `ended_at` TIMESTAMP,
-  `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
-  `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
-    REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
-    ON UPDATE RESTRICT ON DELETE RESTRICT
-);",
-        state_enum = JobState::as_mysql_enum_decl(),
-        default_state = JobState::Ready.as_quoted_str(),
-    )
-}
-
 #[derive(Clone)]
 pub struct MariaDbStorage {
     pool: MySqlPool,
@@ -200,4 +156,48 @@ impl ResourceGroupManagement for MariaDbStorage {
     async fn delete(&self, _resource_group_id: ResourceGroupId) -> Result<(), DbError> {
         todo!()
     }
+}
+
+const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
+const JOBS_TABLE_NAME: &str = "jobs";
+
+#[must_use]
+const fn resource_groups_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `external_id` VARCHAR(256) NOT NULL,
+  `password` VARCHAR(2048) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `external_resource_group_id` (`external_id`)
+);"
+    )
+}
+
+#[must_use]
+const fn jobs_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `resource_group_id` UUID NOT NULL,
+  `state` {state_enum} NOT NULL DEFAULT {default_state},
+  `serialized_task_graph` LONGTEXT NOT NULL,
+  `serialized_job_inputs` LONGTEXT NOT NULL,
+  `serialized_job_outputs` LONGTEXT,
+  `error_message` LONGTEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `ended_at` TIMESTAMP,
+  `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+  `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
+    REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);",
+        state_enum = JobState::as_mysql_enum_decl(),
+        default_state = JobState::Ready.as_quoted_str(),
+    )
 }
