@@ -43,7 +43,7 @@ const fn jobs_creation_query() -> &'static str {
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `id` UUID NOT NULL DEFAULT UUID_v7(),
   `resource_group_id` UUID NOT NULL,
-  `state` ENUM({state_enum}) NOT NULL DEFAULT 'Ready',
+  `state` {state_enum} NOT NULL DEFAULT {default_state},
   `serialized_task_graph` LONGTEXT NOT NULL,
   `serialized_job_inputs` LONGTEXT NOT NULL,
   `serialized_job_outputs` LONGTEXT,
@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT
 );",
-        state_enum = JobState::quoted_enum_str()
+        state_enum = JobState::as_mysql_enum_decl(),
+        default_state = JobState::Ready.as_quoted_str(),
     )
 }
 

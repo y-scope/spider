@@ -12,3 +12,6 @@ proc-macro = true
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 syn = "2.0.117"
+
+[dev-dependencies]
+sqlx = { version = "0.8.6", features = ["mysql"] }
