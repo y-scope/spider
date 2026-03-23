@@ -79,9 +79,7 @@ fn parse_resource_group_id(id_str: &str) -> Result<ResourceGroupId, DbError> {
     Uuid::parse_str(id_str)
         .map(ResourceGroupId::from)
         .map_err(|e| {
-            DbError::CorruptedDbState(format!(
-                "invalid resource group UUID from database: {e}"
-            ))
+            DbError::CorruptedDbState(format!("invalid resource group UUID from database: {e}"))
         })
 }
 
@@ -173,8 +171,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`) VALUES (?, ?, ?) \
-             RETURNING CAST(`id` AS CHAR) AS `id`;",
+             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING CAST(`id` AS CHAR) AS `id`;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -255,8 +252,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         new_state: JobState,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ? \
-             FOR UPDATE;",
+            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ? FOR \
+             UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_STATE_QUERY: &str = formatcp!(
@@ -348,8 +345,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, rg_id_str, serialized_outputs) =
-            row.ok_or(DbError::JobNotFound(job_id))?;
+        let (state, rg_id_str, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
         validate_resource_group_access(&rg_id_str, resource_group_id)?;
 
         if state != JobState::Succeeded {
@@ -456,8 +452,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_SUCCEEDED_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, \
-             `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, `ended_at` = \
+             CURRENT_TIMESTAMP WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_COMMIT_READY_QUERY: &str = formatcp!(
@@ -482,8 +478,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let serialized_outputs =
-            serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
+        let serialized_outputs = serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
 
         if new_state.is_terminal() {
             sqlx::query(UPDATE_SUCCEEDED_QUERY)
@@ -560,8 +555,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `error_message` = ?, \
-             `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            "UPDATE `{table}` SET `state` = ?, `error_message` = ?, `ended_at` = \
+             CURRENT_TIMESTAMP WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -599,13 +594,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS CHAR) FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND \
-             `ended_at` < NOW() - INTERVAL ? SECOND;",
+             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND;",
             table = JOBS_TABLE_NAME,
         );
         const DELETE_QUERY: &str = formatcp!(
-            "DELETE FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND \
+            "DELETE FROM `{table}` WHERE `state` IN ('Succeeded','Failed','Cancelled') AND \
              `ended_at` < NOW() - INTERVAL ? SECOND;",
             table = JOBS_TABLE_NAME,
         );
@@ -643,8 +636,8 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         password: String,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) \
-             RETURNING CAST(`id` AS CHAR) AS `id`;",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING CAST(`id` \
+             AS CHAR) AS `id`;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
