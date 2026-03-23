@@ -6,7 +6,7 @@ use serde::{
     ser::{SerializeMap, SerializeSeq, Serializer},
 };
 use strum::{EnumCount, IntoEnumIterator};
-use strum_macros::{EnumCount, EnumIter};
+use strum_macros::{AsRefStr, EnumCount, EnumIter};
 
 use crate::task::{DataTypeDescriptor, Error};
 
@@ -35,18 +35,158 @@ pub struct TaskInputOutputIndex {
     pub position: usize,
 }
 
+/// The TDL context for a task, containing the package name and task function name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TdlContext {
+    /// The TDL package containing the task function to execute.
+    pub package: String,
+
+    /// The TDL function name to execute within the package.
+    pub task_func: String,
+}
+
+/// The minimum allowed timeout value in milliseconds.
+const MIN_TIMEOUT_MS: u64 = 100;
+
+/// The maximum allowed timeout value in milliseconds.
+const MAX_TIMEOUT_MS: u64 = 1000 * 60 * 60 * 24; // 24 hours
+
+/// Timeout policy for a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimeoutPolicy {
+    /// The soft timeout for the task, in milliseconds. If the task execution exceeds this
+    /// duration, Spider may create a new task instance to mitigate potential blocking or
+    /// stalled executions.
+    ///
+    /// Default to 150,000ms (2.5 minutes).
+    ///
+    /// Must be within the range of [[`MIN_TIMEOUT_MS`], [`MAX_TIMEOUT_MS`]] (inclusive).
+    pub soft_timeout_ms: u64,
+
+    /// The hard timeout for the task, in milliseconds. If the task execution exceeds this
+    /// duration, the task will be terminated and considered failed.
+    ///
+    /// Default to 300,000ms (5 minutes).
+    ///
+    /// Must be greater than or equal to [`MIN_TIMEOUT_MS`].
+    ///
+    /// Must be greater than `soft_timeout_ms`.
+    ///
+    /// Must be smaller than or equal to [`MAX_TIMEOUT_MS`].
+    pub hard_timeout_ms: u64,
+}
+
+impl TimeoutPolicy {
+    /// Validates the timeout policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::InvalidTimeoutPolicy`] if:
+    ///   * `soft_timeout_ms` is less than [`MIN_TIMEOUT_MS`].
+    ///   * `hard_timeout_ms` is less than [`MIN_TIMEOUT_MS`].
+    ///   * `hard_timeout_ms` is less than or equal to `soft_timeout_ms`.
+    fn validate(&self) -> Result<(), Error> {
+        if self.soft_timeout_ms < MIN_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`soft_timeout_ms` must be >= {MIN_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.soft_timeout_ms > MAX_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`soft_timeout_ms` must be <= {MAX_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.hard_timeout_ms < MIN_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`hard_timeout_ms` must be >= {MIN_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.hard_timeout_ms > MAX_TIMEOUT_MS {
+            return Err(Error::InvalidTimeoutPolicy(format!(
+                "`hard_timeout_ms` must be <= {MAX_TIMEOUT_MS}ms"
+            )));
+        }
+        if self.hard_timeout_ms <= self.soft_timeout_ms {
+            return Err(Error::InvalidTimeoutPolicy(
+                "`hard_timeout_ms` must be greater than `soft_timeout_ms`".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for TimeoutPolicy {
+    fn default() -> Self {
+        Self {
+            soft_timeout_ms: 150_000,
+            hard_timeout_ms: 300_000,
+        }
+    }
+}
+
+/// Execution policy for a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionPolicy {
+    /// The maximum number of retry attempts for a task in case of failure.
+    ///
+    /// Default to 0.
+    pub max_num_retry: u32,
+
+    /// The maximum number of concurrent task instances allowed for a task.
+    ///
+    /// Default to 1.
+    pub max_num_instances: u32,
+
+    /// The timeout policy for task execution.
+    #[serde(default)]
+    pub timeout_policy: TimeoutPolicy,
+}
+
+impl ExecutionPolicy {
+    /// Validates the execution policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::InvalidExecutionPolicy`] if `max_num_instances` is 0 (i.e., no task instance can
+    ///   be executed).
+    /// * Forwards [`TimeoutPolicy::validate`]'s return values on failure.
+    fn validate(&self) -> Result<(), Error> {
+        if self.max_num_instances == 0 {
+            return Err(Error::InvalidExecutionPolicy(
+                "`max_num_instances` must be greater than 0".to_owned(),
+            ));
+        }
+        self.timeout_policy.validate()
+    }
+}
+
+impl Default for ExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            max_num_retry: 0,
+            max_num_instances: 1,
+            timeout_policy: TimeoutPolicy::default(),
+        }
+    }
+}
+
 /// An in-memory representation of a task within a task graph.
 ///
 /// This structure maintains:
 ///
-/// * TDL information (including package name and task function name).
+/// * TDL context (including package name and task function name).
+/// * Execution policy (e.g., retry and concurrency settings).
 /// * Task inputs and outputs, represented as data-flow dependencies (positionally).
 /// * Parent and child tasks which imply control-flow dependencies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     idx: TaskIndex,
-    tdl_package: String,
-    tdl_function: String,
+    tdl_context: TdlContext,
+    execution_policy: ExecutionPolicy,
     parent_indices: Vec<TaskIndex>,
     child_indices: Vec<TaskIndex>,
     input_dep_indices: Vec<DataflowDependencyIndex>,
@@ -108,27 +248,27 @@ impl Task {
     }
 
     #[must_use]
-    pub const fn get_tdl_package(&self) -> &str {
-        self.tdl_package.as_str()
+    pub const fn get_tdl_context(&self) -> &TdlContext {
+        &self.tdl_context
     }
 
     #[must_use]
-    pub const fn get_tdl_function(&self) -> &str {
-        self.tdl_function.as_str()
+    pub const fn get_execution_policy(&self) -> &ExecutionPolicy {
+        &self.execution_policy
     }
 
-    const fn new(
+    fn new(
         idx: TaskIndex,
-        tdl_package: String,
-        tdl_function: String,
+        tdl_context: TdlContext,
+        execution_policy: Option<ExecutionPolicy>,
         input_dep_indices: Vec<DataflowDependencyIndex>,
         output_dep_indices: Vec<DataflowDependencyIndex>,
         parent_indices: Vec<TaskIndex>,
     ) -> Self {
         Self {
             idx,
-            tdl_package,
-            tdl_function,
+            tdl_context,
+            execution_policy: execution_policy.unwrap_or_default(),
             parent_indices,
             child_indices: Vec::new(),
             input_dep_indices,
@@ -213,11 +353,14 @@ impl DataflowDependency {
 ///   that can be replayed during deserialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskDescriptor {
-    /// The TDL package containing the task function to execute.
-    pub tdl_package: String,
+    /// The TDL context containing the package name and task function name.
+    pub tdl_context: TdlContext,
 
-    /// The TDL function name to execute within the package.
-    pub tdl_function: String,
+    /// The execution policy for the task.
+    ///
+    /// Defaults to `None` for using the default execution policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<ExecutionPolicy>,
 
     /// The data types of the task's positional inputs, in order.
     pub inputs: Vec<DataTypeDescriptor>,
@@ -234,11 +377,27 @@ pub struct TaskDescriptor {
     pub input_sources: Option<Vec<TaskInputOutputIndex>>,
 }
 
+/// A self-contained descriptor of a termination task that captures all information needed for a
+/// termination task creation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminationTaskDescriptor {
+    /// The TDL context containing the package name and task function name.
+    pub tdl_context: TdlContext,
+
+    /// The execution policy for the task.
+    ///
+    /// Defaults to `None` for using the default execution policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<ExecutionPolicy>,
+}
+
 /// An in-memory representation of a directed acyclic graph (DAG) of tasks and their dependencies.
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct TaskGraph {
     dataflow_deps: Vec<DataflowDependency>,
     tasks: Vec<Task>,
+    commit_task: Option<TerminationTaskDescriptor>,
+    cleanup_task: Option<TerminationTaskDescriptor>,
 }
 
 impl TaskGraph {
@@ -270,6 +429,39 @@ impl TaskGraph {
     /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
     pub fn from_msgpack(bytes: &[u8]) -> Result<Self, Error> {
         rmp_serde::from_slice(bytes).map_err(Into::into)
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// An empty task graph with optional termination tasks on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ExecutionPolicy::validate`]'s return values on failure.
+    pub fn new(
+        commit_task: Option<TerminationTaskDescriptor>,
+        cleanup_task: Option<TerminationTaskDescriptor>,
+    ) -> Result<Self, Error> {
+        if let Some(ref task) = commit_task
+            && let Some(ref policy) = task.execution_policy
+        {
+            policy.validate()?;
+        }
+        if let Some(ref task) = cleanup_task
+            && let Some(ref policy) = task.execution_policy
+        {
+            policy.validate()?;
+        }
+        Ok(Self {
+            dataflow_deps: Vec::new(),
+            tasks: Vec::new(),
+            commit_task,
+            cleanup_task,
+        })
     }
 
     /// Serializes the task graph into JSON format.
@@ -312,8 +504,13 @@ impl TaskGraph {
     ///
     /// Returns an error if:
     ///
+    /// * Forwards [`ExecutionPolicy::validate`]'s return values on failure.
     /// * Forwards [`Self::compute_and_update_dependencies_from_inputs`]'s return values on failure.
     pub fn insert_task(&mut self, task_descriptor: TaskDescriptor) -> Result<TaskIndex, Error> {
+        if let Some(execution_policy) = &task_descriptor.execution_policy {
+            execution_policy.validate()?;
+        }
+
         let task_idx = self.get_next_task_index();
         let (input_dep_indices, parent_indices) = self
             .compute_and_update_dependencies_from_inputs(
@@ -336,8 +533,8 @@ impl TaskGraph {
 
         self.tasks.push(Task::new(
             task_idx,
-            task_descriptor.tdl_package,
-            task_descriptor.tdl_function,
+            task_descriptor.tdl_context,
+            task_descriptor.execution_policy,
             input_dep_indices,
             output_dep_indices,
             parent_indices,
@@ -592,9 +789,14 @@ impl TaskGraph {
                         .collect(),
                 )
             };
+            let execution_policy = if task.execution_policy == ExecutionPolicy::default() {
+                None
+            } else {
+                Some(task.execution_policy.clone())
+            };
             let task_descriptor = TaskDescriptor {
-                tdl_package: task.tdl_package.clone(),
-                tdl_function: task.tdl_function.clone(),
+                tdl_context: task.tdl_context.clone(),
+                execution_policy,
                 inputs,
                 outputs,
                 input_sources,
@@ -615,12 +817,20 @@ impl Serialize for TaskGraph {
         for field in SerializableTaskGraphField::iter() {
             match field {
                 SerializableTaskGraphField::Tasks => map.serialize_entry(
-                    SerializableTaskGraphField::Tasks.as_str(),
+                    SerializableTaskGraphField::Tasks.as_ref(),
                     &TaskDescriptorSequence { graph: self },
                 )?,
                 SerializableTaskGraphField::SchemaVersion => map.serialize_entry(
-                    SerializableTaskGraphField::SchemaVersion.as_str(),
+                    SerializableTaskGraphField::SchemaVersion.as_ref(),
                     TASK_GRAPH_SCHEMA_VERSION,
+                )?,
+                SerializableTaskGraphField::CommitTask => map.serialize_entry(
+                    SerializableTaskGraphField::CommitTask.as_ref(),
+                    &self.commit_task,
+                )?,
+                SerializableTaskGraphField::CleanupTask => map.serialize_entry(
+                    SerializableTaskGraphField::CleanupTask.as_ref(),
+                    &self.cleanup_task,
                 )?,
             }
         }
@@ -650,20 +860,14 @@ static TASK_GRAPH_SCHEMA_COMPATIBLE_VERSION_REQUIREMENT: std::sync::LazyLock<Ver
     });
 
 /// Fields of a serializable task graph.
-#[derive(Deserialize, EnumIter, EnumCount)]
+#[derive(Deserialize, EnumIter, EnumCount, AsRefStr)]
 #[serde(field_identifier, rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 enum SerializableTaskGraphField {
     SchemaVersion,
     Tasks,
-}
-
-impl SerializableTaskGraphField {
-    const fn as_str(&self) -> &'static str {
-        match self {
-            Self::SchemaVersion => "schema_version",
-            Self::Tasks => "tasks",
-        }
-    }
+    CommitTask,
+    CleanupTask,
 }
 
 /// Visitor for deserializing a task graph from a map.
@@ -673,8 +877,8 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
     type Value = TaskGraph;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let names: Vec<&'static str> = SerializableTaskGraphField::iter()
-            .map(|field| field.as_str())
+        let names: Vec<String> = SerializableTaskGraphField::iter()
+            .map(|field| field.as_ref().to_string())
             .collect();
         write!(f, "a map with fields: {}", names.join(","))
     }
@@ -685,13 +889,15 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
     ) -> Result<TaskGraph, MapAccessImpl::Error> {
         let mut schema_version_raw: Option<String> = None;
         let mut tasks_result: Option<Result<Vec<TaskDescriptor>, _>> = None;
+        let mut commit_task_result: Option<Result<Option<TerminationTaskDescriptor>, _>> = None;
+        let mut cleanup_task_result: Option<Result<Option<TerminationTaskDescriptor>, _>> = None;
 
         while let Some(key) = map.next_key::<SerializableTaskGraphField>()? {
             match key {
                 SerializableTaskGraphField::SchemaVersion => {
                     if schema_version_raw.is_some() {
                         return Err(de::Error::duplicate_field(
-                            SerializableTaskGraphField::SchemaVersion.as_str(),
+                            SerializableTaskGraphField::SchemaVersion.as_ref(),
                         ));
                     }
                     schema_version_raw = Some(map.next_value()?);
@@ -699,21 +905,37 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
                 SerializableTaskGraphField::Tasks => {
                     if tasks_result.is_some() {
                         return Err(de::Error::duplicate_field(
-                            SerializableTaskGraphField::Tasks.as_str(),
+                            SerializableTaskGraphField::Tasks.as_ref(),
                         ));
                     }
                     // To enforce version checking before deserializing tasks, we capture the result
                     // but defer the dispatching.
                     tasks_result = Some(map.next_value());
                 }
+                SerializableTaskGraphField::CommitTask => {
+                    if commit_task_result.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::CommitTask.as_ref(),
+                        ));
+                    }
+                    commit_task_result = Some(map.next_value());
+                }
+                SerializableTaskGraphField::CleanupTask => {
+                    if cleanup_task_result.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            SerializableTaskGraphField::CleanupTask.as_ref(),
+                        ));
+                    }
+                    cleanup_task_result = Some(map.next_value());
+                }
             }
         }
 
         let schema_version_raw = schema_version_raw.ok_or_else(|| {
-            de::Error::missing_field(SerializableTaskGraphField::SchemaVersion.as_str())
+            de::Error::missing_field(SerializableTaskGraphField::SchemaVersion.as_ref())
         })?;
         let tasks_result = tasks_result
-            .ok_or_else(|| de::Error::missing_field(SerializableTaskGraphField::Tasks.as_str()))?;
+            .ok_or_else(|| de::Error::missing_field(SerializableTaskGraphField::Tasks.as_ref()))?;
 
         let schema_version = Version::parse(&schema_version_raw).map_err(|error| {
             de::Error::custom(format!(
@@ -728,7 +950,17 @@ impl<'deserializer_lifetime> Visitor<'deserializer_lifetime> for TaskGraphVisito
             )));
         }
 
-        let mut graph = TaskGraph::default();
+        let commit_task = commit_task_result.ok_or_else(|| {
+            de::Error::missing_field(SerializableTaskGraphField::CommitTask.as_ref())
+        })??;
+        let cleanup_task = cleanup_task_result.ok_or_else(|| {
+            de::Error::missing_field(SerializableTaskGraphField::CleanupTask.as_ref())
+        })??;
+        let mut graph = TaskGraph::new(commit_task, cleanup_task).map_err(|error| {
+            de::Error::custom(format!(
+                "failed to create task graph during deserialization: {error}"
+            ))
+        })?;
         for (idx, task_descriptor) in tasks_result?.into_iter().enumerate() {
             let inserted_idx = graph.insert_task(task_descriptor).map_err(|error| {
                 de::Error::custom(format!(
@@ -907,8 +1139,11 @@ mod tests {
 
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone(), float64_type.clone()],
                 outputs: vec![int64_type.clone(), bool_type.clone()],
                 input_sources: None,
@@ -919,8 +1154,11 @@ mod tests {
 
         let task_1_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_2".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_2".to_string(),
+                },
                 inputs: vec![bytes_type.clone()],
                 outputs: vec![list_int32_type.clone(), bytes_type.clone()],
                 input_sources: None,
@@ -931,8 +1169,11 @@ mod tests {
 
         let task_2_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_3".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_3".to_string(),
+                },
                 inputs: vec![int64_type.clone()],
                 outputs: vec![map_type.clone(), struct_type.clone()],
                 input_sources: Some(vec![TaskInputOutputIndex {
@@ -946,8 +1187,11 @@ mod tests {
 
         let task_3_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_4".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_4".to_string(),
+                },
                 inputs: vec![map_type.clone(), bool_type.clone()],
                 outputs: vec![int32_type.clone()],
                 input_sources: Some(vec![
@@ -967,8 +1211,11 @@ mod tests {
 
         let task_4_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_5".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_5".to_string(),
+                },
                 inputs: vec![map_type.clone(), list_int32_type.clone()],
                 outputs: vec![float32_type.clone(), bytes_type.clone()],
                 input_sources: Some(vec![
@@ -988,8 +1235,11 @@ mod tests {
 
         let task_5_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_6".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_6".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![bool_type.clone(), list_bytes_type.clone()],
                 input_sources: Some(vec![TaskInputOutputIndex {
@@ -1003,8 +1253,11 @@ mod tests {
 
         let task_6_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_7".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_7".to_string(),
+                },
                 inputs: vec![
                     list_bytes_type.clone(),
                     list_bytes_type.clone(),
@@ -1037,8 +1290,11 @@ mod tests {
 
         let task_7_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_8".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_8".to_string(),
+                },
                 inputs: vec![list_bytes_type.clone()],
                 outputs: vec![float64_type.clone()],
                 input_sources: Some(vec![TaskInputOutputIndex {
@@ -1052,8 +1308,11 @@ mod tests {
 
         let task_8_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_9".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_9".to_string(),
+                },
                 inputs: vec![bytes_type.clone(), list_int32_type.clone()],
                 outputs: vec![int32_type.clone()],
                 input_sources: Some(vec![
@@ -1073,8 +1332,11 @@ mod tests {
 
         let task_9_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_10".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_10".to_string(),
+                },
                 inputs: vec![],
                 outputs: vec![],
                 input_sources: None,
@@ -1086,8 +1348,13 @@ mod tests {
         // Validate task_0
         let task_0 = graph.get_task(0).expect("task_0 should exist");
         assert_eq!(task_0.get_index(), 0);
-        assert_eq!(task_0.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_0.get_tdl_function(), "fn_1");
+        assert_eq!(
+            *task_0.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_1".to_string(),
+            }
+        );
         assert_eq!(task_0.get_num_parents(), 0);
         assert_eq!(task_0.get_num_children(), 2);
         assert!(task_0.is_input_task(), "task_0 should be an input task");
@@ -1102,8 +1369,13 @@ mod tests {
         // Validate task_1
         let task_1 = graph.get_task(1).expect("task_1 should exist");
         assert_eq!(task_1.get_index(), 1);
-        assert_eq!(task_1.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_1.get_tdl_function(), "fn_2");
+        assert_eq!(
+            *task_1.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            }
+        );
         assert_eq!(task_1.get_num_parents(), 0);
         assert_eq!(task_1.get_num_children(), 2);
         assert!(task_1.is_input_task(), "task_1 should be an input task");
@@ -1118,8 +1390,13 @@ mod tests {
         // Validate task_2
         let task_2 = graph.get_task(2).expect("task_2 should exist");
         assert_eq!(task_2.get_index(), 2);
-        assert_eq!(task_2.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_2.get_tdl_function(), "fn_3");
+        assert_eq!(
+            *task_2.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_3".to_string(),
+            }
+        );
         assert_eq!(task_2.get_num_parents(), 1);
         assert_eq!(task_2.get_parent_indices(), &vec![0]);
         assert_eq!(task_2.get_num_children(), 2);
@@ -1138,8 +1415,13 @@ mod tests {
         // Validate task_3
         let task_3 = graph.get_task(3).expect("task_3 should exist");
         assert_eq!(task_3.get_index(), 3);
-        assert_eq!(task_3.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_3.get_tdl_function(), "fn_4");
+        assert_eq!(
+            *task_3.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_4".to_string(),
+            }
+        );
         assert_eq!(task_3.get_num_parents(), 2);
         assert_eq!(task_3.get_parent_indices(), &vec![0, 2]);
         assert_eq!(task_3.get_num_children(), 1);
@@ -1158,8 +1440,13 @@ mod tests {
         // Validate task_4
         let task_4 = graph.get_task(4).expect("task_4 should exist");
         assert_eq!(task_4.get_index(), 4);
-        assert_eq!(task_4.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_4.get_tdl_function(), "fn_5");
+        assert_eq!(
+            *task_4.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_5".to_string(),
+            }
+        );
         assert_eq!(task_4.get_num_parents(), 2);
         assert_eq!(task_4.get_parent_indices(), &vec![1, 2]);
         assert_eq!(task_4.get_num_children(), 1);
@@ -1178,8 +1465,13 @@ mod tests {
         // Validate task_5
         let task_5 = graph.get_task(5).expect("task_5 should exist");
         assert_eq!(task_5.get_index(), 5);
-        assert_eq!(task_5.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_5.get_tdl_function(), "fn_6");
+        assert_eq!(
+            *task_5.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_6".to_string(),
+            }
+        );
         assert_eq!(task_5.get_num_parents(), 1);
         assert_eq!(task_5.get_parent_indices(), &vec![3]);
         assert_eq!(task_5.get_num_children(), 2);
@@ -1198,8 +1490,13 @@ mod tests {
         // Validate task_6
         let task_6 = graph.get_task(6).expect("task_6 should exist");
         assert_eq!(task_6.get_index(), 6);
-        assert_eq!(task_6.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_6.get_tdl_function(), "fn_7");
+        assert_eq!(
+            *task_6.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_7".to_string(),
+            }
+        );
         assert_eq!(task_6.get_num_parents(), 2);
         assert_eq!(task_6.get_parent_indices(), &vec![4, 5]);
         assert_eq!(task_6.get_num_children(), 0);
@@ -1214,8 +1511,13 @@ mod tests {
         // Validate task_7
         let task_7 = graph.get_task(7).expect("task_7 should exist");
         assert_eq!(task_7.get_index(), 7);
-        assert_eq!(task_7.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_7.get_tdl_function(), "fn_8");
+        assert_eq!(
+            *task_7.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_8".to_string(),
+            }
+        );
         assert_eq!(task_7.get_num_parents(), 1);
         assert_eq!(task_7.get_parent_indices(), &vec![5]);
         assert_eq!(task_7.get_num_children(), 0);
@@ -1230,8 +1532,13 @@ mod tests {
         // Validate task_8
         let task_8 = graph.get_task(8).expect("task_8 should exist");
         assert_eq!(task_8.get_index(), 8);
-        assert_eq!(task_8.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_8.get_tdl_function(), "fn_9");
+        assert_eq!(
+            *task_8.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_9".to_string(),
+            }
+        );
         assert_eq!(task_8.get_num_parents(), 1);
         assert_eq!(task_8.get_parent_indices(), &vec![1]);
         assert_eq!(task_8.get_num_children(), 0);
@@ -1246,8 +1553,13 @@ mod tests {
         // Validate task_9
         let task_9 = graph.get_task(9).expect("task_9 should exist");
         assert_eq!(task_9.get_index(), 9);
-        assert_eq!(task_9.get_tdl_package(), TEST_PACKAGE);
-        assert_eq!(task_9.get_tdl_function(), "fn_10");
+        assert_eq!(
+            *task_9.get_tdl_context(),
+            TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_10".to_string(),
+            }
+        );
         assert_eq!(task_9.get_num_parents(), 0);
         assert_eq!(task_9.get_parent_indices(), &Vec::<TaskIndex>::new());
         assert_eq!(task_9.get_num_children(), 0);
@@ -1862,8 +2174,11 @@ mod tests {
         // Create task_0 with 2 outputs
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone(), bool_type.clone()],
                 input_sources: None,
@@ -1874,8 +2189,11 @@ mod tests {
 
         // Attempt to create task_1 with 3 inputs but only 2 input sources (mismatched count)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type.clone(), bool_type, int32_type.clone()],
             outputs: vec![int32_type.clone()],
             input_sources: Some(vec![
@@ -1892,8 +2210,11 @@ mod tests {
 
         // Attempt to create task_1 with 1 input but 0 input sources (mismatched count)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type],
             outputs: vec![int32_type.clone()],
             input_sources: Some(vec![]),
@@ -1901,8 +2222,11 @@ mod tests {
 
         // Attempt to create task_1 with 0 input but 1 input sources (mismatched count)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -1931,8 +2255,11 @@ mod tests {
         // Create task_0 with a single Int32 output
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![],
                 outputs: vec![int32_type.clone()],
                 input_sources: None,
@@ -1943,8 +2270,11 @@ mod tests {
 
         // Attempt to create task_1 with no input but the source is not `None`
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![],
             outputs: vec![int32_type],
             input_sources: Some(vec![]),
@@ -1964,8 +2294,11 @@ mod tests {
         // Create task_0 with Float64 and Boolean outputs
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type, bool_type],
                 input_sources: None,
@@ -1976,8 +2309,11 @@ mod tests {
 
         // Attempt to create task_1 with Bytes input but the source is Float64 (type mismatch)
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![bytes_type],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -1998,8 +2334,11 @@ mod tests {
         // Create task_0
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone()],
                 input_sources: None,
@@ -2010,8 +2349,11 @@ mod tests {
 
         // Attempt to create task_1 with the source referencing non-existent task_5
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -2033,8 +2375,11 @@ mod tests {
         // Create task_0 with 2 outputs (positions 0 and 1)
         let task_0_idx = graph
             .insert_task(TaskDescriptor {
-                tdl_package: TEST_PACKAGE.to_string(),
-                tdl_function: "fn_1".to_string(),
+                execution_policy: None,
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "fn_1".to_string(),
+                },
                 inputs: vec![int32_type.clone()],
                 outputs: vec![float64_type.clone(), bool_type],
                 input_sources: None,
@@ -2045,8 +2390,11 @@ mod tests {
 
         // Attempt to create task_1 with the source referencing non-existent output position 2
         assert_invalid_task_inputs(&graph.insert_task(TaskDescriptor {
-            tdl_package: TEST_PACKAGE.to_string(),
-            tdl_function: "fn_2".to_string(),
+            execution_policy: None,
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_2".to_string(),
+            },
             inputs: vec![float64_type],
             outputs: vec![int32_type],
             input_sources: Some(vec![TaskInputOutputIndex {
@@ -2056,13 +2404,194 @@ mod tests {
         }));
     }
 
+    /// Tests that [`TaskGraph::new`] validates the execution policy of termination tasks.
+    #[test]
+    fn test_new_invalid_termination_task_execution_policy() {
+        let invalid_policy = Some(ExecutionPolicy {
+            max_num_retry: 0,
+            max_num_instances: 0,
+            timeout_policy: TimeoutPolicy::default(),
+        });
+
+        // Invalid commit task execution policy
+        assert_invalid_execution_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: invalid_policy.clone(),
+            }),
+            None,
+        ));
+
+        // Invalid cleanup task execution policy
+        assert_invalid_execution_policy(&TaskGraph::new(
+            None,
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "cleanup_fn".to_string(),
+                },
+                execution_policy: invalid_policy,
+            }),
+        ));
+    }
+
+    /// Tests that [`TaskGraph::new`] validates the timeout policy of termination tasks.
+    #[test]
+    fn test_new_invalid_termination_task_timeout_policy() {
+        // soft_timeout_ms < MIN_TIMEOUT_MS
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: MIN_TIMEOUT_MS - 1,
+                        hard_timeout_ms: 300_000,
+                    },
+                }),
+            }),
+            None,
+        ));
+
+        // hard_timeout_ms < MIN_TIMEOUT_MS
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            None,
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "cleanup_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: 150_000,
+                        hard_timeout_ms: MIN_TIMEOUT_MS - 1,
+                    },
+                }),
+            }),
+        ));
+
+        // hard_timeout_ms == soft_timeout_ms
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: 1000,
+                        hard_timeout_ms: 1000,
+                    },
+                }),
+            }),
+            None,
+        ));
+
+        // hard_timeout_ms > MAX_TIMEOUT_MS
+        assert_invalid_timeout_policy(&TaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: TEST_PACKAGE.to_string(),
+                    task_func: "commit_fn".to_string(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry: 0,
+                    max_num_instances: 1,
+                    timeout_policy: TimeoutPolicy {
+                        soft_timeout_ms: 1000,
+                        hard_timeout_ms: MAX_TIMEOUT_MS + 1,
+                    },
+                }),
+            }),
+            None,
+        ));
+    }
+
+    /// Tests that [`TaskGraph::insert_task`] validates the execution policy.
+    #[test]
+    fn test_insert_task_invalid_execution_policy() {
+        let mut graph = TaskGraph::default();
+        let int32_type = DataTypeDescriptor::Value(ValueTypeDescriptor::int32());
+
+        assert_invalid_execution_policy(&graph.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_1".to_string(),
+            },
+            execution_policy: Some(ExecutionPolicy {
+                max_num_retry: 0,
+                max_num_instances: 0,
+                timeout_policy: TimeoutPolicy::default(),
+            }),
+            inputs: vec![int32_type.clone()],
+            outputs: vec![int32_type],
+            input_sources: None,
+        }));
+    }
+
+    /// Tests that [`TaskGraph::insert_task`] validates the timeout policy.
+    #[test]
+    fn test_insert_task_invalid_timeout_policy() {
+        let mut graph = TaskGraph::default();
+        let int32_type = DataTypeDescriptor::Value(ValueTypeDescriptor::int32());
+
+        assert_invalid_timeout_policy(&graph.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: TEST_PACKAGE.to_string(),
+                task_func: "fn_1".to_string(),
+            },
+            execution_policy: Some(ExecutionPolicy {
+                max_num_retry: 0,
+                max_num_instances: 1,
+                timeout_policy: TimeoutPolicy {
+                    soft_timeout_ms: MIN_TIMEOUT_MS - 1,
+                    hard_timeout_ms: 300_000,
+                },
+            }),
+            inputs: vec![int32_type.clone()],
+            outputs: vec![int32_type],
+            input_sources: None,
+        }));
+    }
+
     /// # Panics
     ///
     /// If the result is not [`Error::InvalidTaskInputs`].
     fn assert_invalid_task_inputs<T: Debug>(result: &Result<T, Error>) {
         match result {
             Err(Error::InvalidTaskInputs(_)) => (),
-            _ => panic!("Expected InvalidTaskInputs error, got: {result:?}"),
+            _ => panic!("expected InvalidTaskInputs error, got: {result:?}"),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// If the result is not [`Error::InvalidExecutionPolicy`].
+    fn assert_invalid_execution_policy<T: Debug>(result: &Result<T, Error>) {
+        match result {
+            Err(Error::InvalidExecutionPolicy(_)) => (),
+            _ => panic!("expected InvalidExecutionPolicy error, got: {result:?}"),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// If the result is not [`Error::InvalidTimeoutPolicy`].
+    fn assert_invalid_timeout_policy<T: Debug>(result: &Result<T, Error>) {
+        match result {
+            Err(Error::InvalidTimeoutPolicy(_)) => (),
+            _ => panic!("expected InvalidTimeoutPolicy error, got: {result:?}"),
         }
     }
 }

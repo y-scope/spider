@@ -80,15 +80,16 @@ pub trait ExternalJobOrchestration {
 
     /// Cancels a job.
     ///
-    /// The cancelled job will move to:
+    /// The caller specifies the target state via `new_state`:
     ///
-    /// * [`JobState::CleanupReady`] if the job has a cleanup function.
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
     /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the job.
     /// * `job_id` - The ID of the job.
+    /// * `new_state` - The target state (`Cancelled` or `CleanupReady`).
     ///
     /// # Errors
     ///
@@ -104,6 +105,7 @@ pub trait ExternalJobOrchestration {
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
+        new_state: JobState,
     ) -> Result<(), DbError>;
 
     /// Gets the state of a job.
@@ -212,7 +214,7 @@ pub trait InternalJobOrchestration {
     /// Commits the job outputs.
     ///
     /// A job is ready to commit if all its tasks have been completed successfully. The job outputs
-    /// will be persisted in the database. The job will move to:
+    /// will be persisted in the database. The caller specifies the target state via `new_state`:
     ///
     /// * [`JobState::CommitReady`] if the job has a commit task.
     /// * [`JobState::Succeeded`] otherwise.
@@ -221,10 +223,7 @@ pub trait InternalJobOrchestration {
     ///
     /// * `job_id` - The ID of the job.
     /// * `job_outputs` - The outputs of the job.
-    ///
-    /// # Returns
-    ///
-    /// The new state of the job on success.
+    /// * `new_state` - The target state (`Succeeded` or `CommitReady`).
     ///
     /// # Errors
     ///
@@ -240,20 +239,20 @@ pub trait InternalJobOrchestration {
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
-    ) -> Result<JobState, DbError>;
+        new_state: JobState,
+    ) -> Result<(), DbError>;
 
     /// Cancels the job.
+    ///
+    /// The caller specifies the target state via `new_state`:
+    ///
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
+    /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
-    ///
-    /// # Returns
-    ///
-    /// The new state of the job on success, which must be one of:
-    ///
-    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
-    /// * [`JobState::Cancelled`] otherwise.
+    /// * `new_state` - The target state (`Cancelled` or `CleanupReady`).
     ///
     /// # Errors
     ///
@@ -263,7 +262,7 @@ pub trait InternalJobOrchestration {
     /// * [`DbError::InvalidJobStateTransition`] if the job is not in a cancellable state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn cancel(&self, job_id: JobId) -> Result<JobState, DbError>;
+    async fn cancel(&self, job_id: JobId, new_state: JobState) -> Result<(), DbError>;
 
     /// Fails job execution.
     ///
