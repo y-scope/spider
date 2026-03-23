@@ -59,15 +59,17 @@ impl MariaDbStorageConnector {
 
     /// Initializes the database by creating necessary tables if they do not exist.
     ///
-    /// Note: `MariaDB` does not support transactions for DDL statements. All DDL statements are
+    /// # NOTE
+    ///
+    /// `MariaDB` does not support transactions for DDL statements. All DDL statements are
     /// automatically committed. Thus, this function executes each table creation query separately,
     /// and does not provide atomicity guarantees.
     ///
     /// # Errors
     ///
-    /// Returns an error if
+    /// Returns an error if:
     ///
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards a [`sqlx::query::Query::execute`]'s return values on failure.
     async fn initialize(&self) -> Result<(), DbError> {
         sqlx::query(resource_groups_creation_query())
             .execute(&self.pool)
