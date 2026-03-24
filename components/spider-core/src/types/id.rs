@@ -40,6 +40,11 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     pub const fn as_uuid_ref(&self) -> &Uuid {
         &self.0
     }
+
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        self.0.as_bytes()
+    }
 }
 
 impl<TypeMarker: Debug + PartialEq + Eq> FromStr for Id<TypeMarker> {

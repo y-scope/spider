@@ -69,29 +69,25 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
     )
 }
 
-fn parse_job_id(id_str: &str) -> Result<JobId, DbError> {
-    Uuid::parse_str(id_str)
+fn job_id_from_bytes(bytes: &[u8]) -> Result<JobId, DbError> {
+    Uuid::from_slice(bytes)
         .map(JobId::from)
         .map_err(|e| DbError::CorruptedDbState(format!("invalid job UUID from database: {e}")))
 }
 
-fn parse_resource_group_id(id_str: &str) -> Result<ResourceGroupId, DbError> {
-    Uuid::parse_str(id_str)
+fn resource_group_id_from_bytes(bytes: &[u8]) -> Result<ResourceGroupId, DbError> {
+    Uuid::from_slice(bytes)
         .map(ResourceGroupId::from)
         .map_err(|e| {
-            DbError::CorruptedDbState(format!(
-                "invalid resource group UUID from database: {e}"
-            ))
+            DbError::CorruptedDbState(format!("invalid resource group UUID from database: {e}"))
         })
 }
 
 fn validate_resource_group_access(
-    rg_id_str: &str,
+    rg_id_bytes: &[u8],
     expected: ResourceGroupId,
 ) -> Result<(), DbError> {
-    let actual_uuid = Uuid::parse_str(rg_id_str)
-        .map_err(|e| DbError::CorruptedDbState(format!("invalid resource group UUID: {e}")))?;
-    let actual = ResourceGroupId::from(actual_uuid);
+    let actual = resource_group_id_from_bytes(rg_id_bytes)?;
     if actual != expected {
         return Err(DbError::InvalidAccess(expected));
     }
@@ -173,12 +169,9 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`) VALUES (?, ?, ?) \
-             RETURNING CAST(`id` AS CHAR) AS `id`;",
+             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING CAST(`id` AS BINARY(16)) AS `id`;",
             table = JOBS_TABLE_NAME,
         );
-
-        let rg_id_str = resource_group_id.as_uuid_ref().to_string();
 
         let serialized_task_graph = task_graph
             .to_json()
@@ -187,7 +180,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             serde_json::to_string(&job_inputs).map_err(DbError::value_ser)?;
 
         let result = sqlx::query(INSERT_QUERY)
-            .bind(&rg_id_str)
+            .bind(resource_group_id.as_bytes().as_slice())
             .bind(serialized_task_graph)
             .bind(serialized_job_inputs)
             .fetch_one(&self.pool)
@@ -195,8 +188,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
         match result {
             Ok(row) => {
-                let id_str: String = row.get(0);
-                parse_job_id(&id_str)
+                let id_bytes: Vec<u8> = row.get(0);
+                job_id_from_bytes(&id_bytes)
             }
             Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
                 Err(DbError::ResourceGroupNotFound(resource_group_id))
@@ -211,8 +204,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_id: JobId,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ? FOR \
-             UPDATE;",
+            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
+             ? FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_QUERY: &str = formatcp!(
@@ -220,16 +213,16 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
+        let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
-        let job_id_str = job_id.as_uuid_ref().to_string();
 
-        let row: Option<(JobState, String)> = sqlx::query_as(SELECT_QUERY)
-            .bind(&job_id_str)
+        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(SELECT_QUERY)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_bytes) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
         if state != JobState::Ready {
             return Err(DbError::UnexpectedJobState {
@@ -240,7 +233,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
         sqlx::query(UPDATE_QUERY)
             .bind(JobState::Running)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .execute(&mut *tx)
             .await?;
 
@@ -255,8 +248,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         new_state: JobState,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ? \
-             FOR UPDATE;",
+            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
+             ? FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_STATE_QUERY: &str = formatcp!(
@@ -268,16 +261,16 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
+        let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
-        let job_id_str = job_id.as_uuid_ref().to_string();
 
-        let row: Option<(JobState, String)> = sqlx::query_as(SELECT_QUERY)
-            .bind(&job_id_str)
+        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(SELECT_QUERY)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
 
-        let (state, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_bytes) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
         if state.is_terminal() {
             return Err(DbError::UnexpectedJobState {
@@ -294,13 +287,13 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if new_state.is_terminal() {
             sqlx::query(UPDATE_STATE_AND_END_QUERY)
                 .bind(new_state)
-                .bind(&job_id_str)
+                .bind(job_id_bytes.as_slice())
                 .execute(&mut *tx)
                 .await?;
         } else {
             sqlx::query(UPDATE_STATE_QUERY)
                 .bind(new_state)
-                .bind(&job_id_str)
+                .bind(job_id_bytes.as_slice())
                 .execute(&mut *tx)
                 .await?;
         }
@@ -315,17 +308,18 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_id: JobId,
     ) -> Result<JobState, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR) FROM `{table}` WHERE `id` = ?;",
+            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
+             ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, String)> = sqlx::query_as(QUERY)
-            .bind(job_id.as_uuid_ref().to_string())
+        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(QUERY)
+            .bind(job_id.as_bytes().as_slice())
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, rg_id_str) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_bytes) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
         Ok(state)
     }
@@ -336,21 +330,20 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR), `serialized_job_outputs` FROM \
-             `{table}` WHERE `id` = ?;",
+            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)), `serialized_job_outputs` \
+             FROM `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let job_id_str = job_id.as_uuid_ref().to_string();
+        let job_id_bytes = *job_id.as_bytes();
 
-        let row: Option<(JobState, String, Option<String>)> = sqlx::query_as(QUERY)
-            .bind(&job_id_str)
+        let row: Option<(JobState, Vec<u8>, Option<String>)> = sqlx::query_as(QUERY)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, rg_id_str, serialized_outputs) =
-            row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_bytes, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
@@ -361,7 +354,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
         let outputs_str = serialized_outputs.ok_or_else(|| {
             DbError::CorruptedDbState(format!(
-                "job `{job_id_str}` succeeded but has no serialized outputs"
+                "job `{}` succeeded but has no serialized outputs",
+                Uuid::from_bytes(job_id_bytes)
             ))
         })?;
         let outputs: Vec<TaskOutput> =
@@ -375,20 +369,20 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_id: JobId,
     ) -> Result<String, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS CHAR), `error_message` FROM `{table}` \
-             WHERE `id` = ?;",
+            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)), `error_message` FROM \
+             `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let job_id_str = job_id.as_uuid_ref().to_string();
+        let job_id_bytes = *job_id.as_bytes();
 
-        let row: Option<(JobState, String, Option<String>)> = sqlx::query_as(QUERY)
-            .bind(&job_id_str)
+        let row: Option<(JobState, Vec<u8>, Option<String>)> = sqlx::query_as(QUERY)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, rg_id_str, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(&rg_id_str, resource_group_id)?;
+        let (state, rg_id_bytes, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
+        validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
@@ -399,7 +393,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
         let message = error_message.ok_or_else(|| {
             DbError::CorruptedDbState(format!(
-                "job `{job_id_str}` failed but has no error message"
+                "job `{}` failed but has no error message",
+                Uuid::from_bytes(job_id_bytes)
             ))
         })?;
         Ok(message)
@@ -418,11 +413,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let job_id_str = job_id.as_uuid_ref().to_string();
+        let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
         let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -437,7 +432,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
         sqlx::query(UPDATE_QUERY)
             .bind(state)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .execute(&mut *tx)
             .await?;
 
@@ -456,8 +451,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_SUCCEEDED_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, \
-             `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, `ended_at` = \
+             CURRENT_TIMESTAMP WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_COMMIT_READY_QUERY: &str = formatcp!(
@@ -465,11 +460,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let job_id_str = job_id.as_uuid_ref().to_string();
+        let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
         let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -482,21 +477,20 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let serialized_outputs =
-            serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
+        let serialized_outputs = serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
 
         if new_state.is_terminal() {
             sqlx::query(UPDATE_SUCCEEDED_QUERY)
                 .bind(new_state)
                 .bind(&serialized_outputs)
-                .bind(&job_id_str)
+                .bind(job_id_bytes.as_slice())
                 .execute(&mut *tx)
                 .await?;
         } else {
             sqlx::query(UPDATE_COMMIT_READY_QUERY)
                 .bind(new_state)
                 .bind(&serialized_outputs)
-                .bind(&job_id_str)
+                .bind(job_id_bytes.as_slice())
                 .execute(&mut *tx)
                 .await?;
         }
@@ -519,11 +513,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let job_id_str = job_id.as_uuid_ref().to_string();
+        let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
         let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -539,13 +533,13 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         if new_state.is_terminal() {
             sqlx::query(UPDATE_STATE_AND_END_QUERY)
                 .bind(new_state)
-                .bind(&job_id_str)
+                .bind(job_id_bytes.as_slice())
                 .execute(&mut *tx)
                 .await?;
         } else {
             sqlx::query(UPDATE_STATE_QUERY)
                 .bind(new_state)
-                .bind(&job_id_str)
+                .bind(job_id_bytes.as_slice())
                 .execute(&mut *tx)
                 .await?;
         }
@@ -560,16 +554,16 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
         const UPDATE_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `error_message` = ?, \
-             `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            "UPDATE `{table}` SET `state` = ?, `error_message` = ?, `ended_at` = \
+             CURRENT_TIMESTAMP WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let job_id_str = job_id.as_uuid_ref().to_string();
+        let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
         let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -585,7 +579,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         sqlx::query(UPDATE_QUERY)
             .bind(JobState::Failed)
             .bind(&error_message)
-            .bind(&job_id_str)
+            .bind(job_id_bytes.as_slice())
             .execute(&mut *tx)
             .await?;
 
@@ -598,14 +592,12 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         expire_after: Duration,
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT CAST(`id` AS CHAR) FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND \
-             `ended_at` < NOW() - INTERVAL ? SECOND;",
+            "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
+             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND;",
             table = JOBS_TABLE_NAME,
         );
         const DELETE_QUERY: &str = formatcp!(
-            "DELETE FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND \
+            "DELETE FROM `{table}` WHERE `state` IN ('Succeeded','Failed','Cancelled') AND \
              `ended_at` < NOW() - INTERVAL ? SECOND;",
             table = JOBS_TABLE_NAME,
         );
@@ -613,14 +605,14 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         let timeout_secs = expire_after.as_secs();
         let mut tx = self.pool.begin().await?;
 
-        let rows: Vec<(String,)> = sqlx::query_as(SELECT_QUERY)
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(SELECT_QUERY)
             .bind(timeout_secs)
             .fetch_all(&mut *tx)
             .await?;
 
         let mut job_ids: Vec<JobId> = Vec::with_capacity(rows.len());
-        for (id_str,) in &rows {
-            job_ids.push(parse_job_id(id_str)?);
+        for (id_bytes,) in &rows {
+            job_ids.push(job_id_from_bytes(id_bytes)?);
         }
 
         if !job_ids.is_empty() {
@@ -643,8 +635,8 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         password: String,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) \
-             RETURNING CAST(`id` AS CHAR) AS `id`;",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING CAST(`id` \
+             AS BINARY(16)) AS `id`;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
@@ -656,8 +648,8 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 
         match result {
             Ok(row) => {
-                let id_str: String = row.get(0);
-                parse_resource_group_id(&id_str)
+                let id_bytes: Vec<u8> = row.get(0);
+                resource_group_id_from_bytes(&id_bytes)
             }
             Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => Err(
                 DbError::ResourceGroupAlreadyExists(external_resource_group_id),
@@ -677,7 +669,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         );
 
         let row: Option<(String,)> = sqlx::query_as(QUERY)
-            .bind(resource_group_id.as_uuid_ref().to_string())
+            .bind(resource_group_id.as_bytes().as_slice())
             .fetch_optional(&self.pool)
             .await?;
 
@@ -700,16 +692,15 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let rg_id_str = resource_group_id.as_uuid_ref().to_string();
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(DELETE_JOBS_QUERY)
-            .bind(&rg_id_str)
+            .bind(resource_group_id.as_bytes().as_slice())
             .execute(&mut *tx)
             .await?;
 
         let result = sqlx::query(DELETE_RG_QUERY)
-            .bind(&rg_id_str)
+            .bind(resource_group_id.as_bytes().as_slice())
             .execute(&mut *tx)
             .await?;
 
