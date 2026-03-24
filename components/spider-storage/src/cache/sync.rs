@@ -24,14 +24,6 @@ impl<Type: Send + Sync> Reader<Type> {
     pub async fn read(&self) -> RwLockReadGuard<'_, Type> {
         self.inner.read().await
     }
-
-    /// # Returns
-    ///
-    /// A guard that allows read access to the shared data. The guard will be released when it goes
-    /// out of scope.
-    pub fn blocking_read(&self) -> RwLockReadGuard<'_, Type> {
-        self.inner.blocking_read()
-    }
 }
 
 /// A writer for shared data in the cache.
@@ -52,13 +44,5 @@ impl<Type: Send + Sync> Writer<Type> {
     /// out of scope.
     pub async fn write(&self) -> RwLockWriteGuard<'_, Type> {
         self.inner.write().await
-    }
-
-    /// # Returns
-    ///
-    /// A guard that allows write access to the shared data. The guard will be released when it goes
-    /// out of scope.
-    pub fn blocking_write(&self) -> RwLockWriteGuard<'_, Type> {
-        self.inner.blocking_write()
     }
 }
