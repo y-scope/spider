@@ -559,14 +559,11 @@ impl TaskGraph {
     /// that these indices are sorted in ascending order.
     #[must_use]
     pub fn get_task_graph_input_indices(&self) -> Vec<DataflowDependencyIndex> {
-        let mut indices = Vec::new();
-        for task in &self.tasks {
-            if !task.is_input_task() {
-                continue;
-            }
-            indices.extend(task.input_dep_indices.clone());
-        }
-        indices
+        self.tasks
+            .iter()
+            .filter(|task| task.is_input_task())
+            .flat_map(|task| task.input_dep_indices.clone())
+            .collect()
     }
 
     /// # Returns
@@ -575,14 +572,11 @@ impl TaskGraph {
     /// guaranteed that these indices are sorted in ascending order.
     #[must_use]
     pub fn get_task_graph_output_indices(&self) -> Vec<DataflowDependencyIndex> {
-        let mut indices = Vec::new();
-        for task in &self.tasks {
-            if !task.is_output_task() {
-                continue;
-            }
-            indices.extend(task.output_dep_indices.clone());
-        }
-        indices
+        self.tasks
+            .iter()
+            .filter(|task| task.is_output_task())
+            .flat_map(|task| task.output_dep_indices.clone())
+            .collect()
     }
 
     /// Retrieves a reference to the specified task input as a data-flow dependency.

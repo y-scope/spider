@@ -32,7 +32,7 @@ pub enum InternalError {
     #[error("task outputs length mismatch: expected {0}, got {1}")]
     TaskOutputsLengthMismatch(usize, usize),
 
-    #[error("A single-source task output has already been written")]
+    #[error("a single-source task output has already been written")]
     TaskOutputAlreadyWritten,
 
     #[error("task graph corrupted: {0}")]

@@ -70,7 +70,7 @@ impl TaskGraph {
                 inputs.len(),
             ));
         }
-        for (deps_index, input) in task_graph_input_indices.into_iter().zip(inputs.into_iter()) {
+        for (deps_index, input) in task_graph_input_indices.into_iter().zip(inputs) {
             let dataflow_dep = dataflow_dep_buffer.get(deps_index).ok_or_else(|| {
                 InternalError::TaskGraphCorrupted(
                     "dataflow dependency index out-of-range".to_owned(),
