@@ -46,7 +46,6 @@ use syn::{DeriveInput, parse_macro_input};
 ///   error) if the database contains a value that does not match any variant name.
 ///
 /// # Example
-///
 #[proc_macro_derive(MySqlEnum)]
 pub fn derive_mysql_enum(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
