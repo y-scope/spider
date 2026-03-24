@@ -17,7 +17,7 @@ use crate::{
     config::DatabaseConfig,
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, ResourceGroupManagement},
 };
-
+/// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
     pool: MySqlPool,
@@ -26,19 +26,16 @@ pub struct MariaDbStorageConnector {
 impl MariaDbStorageConnector {
     /// Connects to database and initializes tables.
     ///
-    /// # Parameters
-    ///
-    /// * `config` - Database configuration parameters.
-    ///
     /// # Returns
     ///
-    /// A new instance of `MariaDbStorageConnector` if connection and initialization succeed.
+    /// A newly created [`MariaDbStorageConnector`] instance for connection on success.
     ///
     /// # Errors
     ///
-    /// Returns an error if
+    /// Returns an error if:
     ///
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
+    /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
+    /// * Forwards [`Self::initialize`]'s return values on failure.
     pub async fn connect_and_initialize(config: &DatabaseConfig) -> Result<Self, DbError> {
         let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
             .host(&config.host)
@@ -69,7 +66,7 @@ impl MariaDbStorageConnector {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards a [`sqlx::query::Query::execute`]'s return values on failure.
+    /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
     async fn initialize(&self) -> Result<(), DbError> {
         sqlx::query(resource_groups_creation_query())
             .execute(&self.pool)
@@ -82,6 +79,7 @@ impl MariaDbStorageConnector {
         Ok(())
     }
 }
+
 #[async_trait]
 impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(

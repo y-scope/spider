@@ -8,7 +8,7 @@ pub fn derive_mysql_enum(input: &DeriveInput) -> syn::Result<TokenStream> {
     let Data::Enum(DataEnum { variants, .. }) = &input.data else {
         return Err(syn::Error::new_spanned(
             &input.ident,
-            "`QuotedEnumStr` can only be derived for enums",
+            "`MySqlEnum` can only be derived for enums",
         ));
     };
 
