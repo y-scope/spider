@@ -68,7 +68,20 @@ impl DbError {
 }
 
 #[derive(Debug)]
-pub struct ExpectedStates(pub Vec<JobState>);
+pub struct ExpectedStates(Vec<JobState>);
+
+impl ExpectedStates {
+    /// Creates a new `ExpectedStates` from a non-empty list of states.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `states` is empty.
+    #[must_use]
+    pub fn new(states: Vec<JobState>) -> Self {
+        assert!(!states.is_empty(), "ExpectedStates must contain at least one state");
+        Self(states)
+    }
+}
 
 impl Display for ExpectedStates {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

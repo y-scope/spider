@@ -1163,6 +1163,7 @@ dependencies = [
  "serde_json",
  "spider-core",
  "sqlx",
+ "subtle",
  "thiserror",
  "tokio",
  "uuid",
