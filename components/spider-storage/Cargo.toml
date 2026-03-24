@@ -11,7 +11,7 @@ path = "src/lib.rs"
 async-trait = "0.1.89"
 const_format = "0.2.35"
 secrecy = { version = "0.10.3", features = ["serde"] }
-serde = { version = "1.0.228" }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
