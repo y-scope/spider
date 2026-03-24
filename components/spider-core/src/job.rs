@@ -38,6 +38,12 @@ impl CancelTarget {
     }
 }
 
+impl From<CancelTarget> for JobState {
+    fn from(target: CancelTarget) -> Self {
+        target.into_job_state()
+    }
+}
+
 /// The valid target states when committing job outputs.
 ///
 /// * [`CommitTarget::CommitReady`] — the job has a commit task to run.
@@ -56,6 +62,12 @@ impl CommitTarget {
             Self::CommitReady => JobState::CommitReady,
             Self::Succeeded => JobState::Succeeded,
         }
+    }
+}
+
+impl From<CommitTarget> for JobState {
+    fn from(target: CommitTarget) -> Self {
+        target.into_job_state()
     }
 }
 

@@ -71,15 +71,19 @@ impl DbError {
 pub struct ExpectedStates(Vec<JobState>);
 
 impl ExpectedStates {
-    /// Creates a new `ExpectedStates` from a non-empty list of states.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `states` is empty.
+    /// Creates a new `ExpectedStates` guaranteed to contain at least one state.
     #[must_use]
-    pub fn new(states: Vec<JobState>) -> Self {
-        assert!(!states.is_empty(), "ExpectedStates must contain at least one state");
+    pub fn new(first: JobState, rest: Vec<JobState>) -> Self {
+        let mut states = Vec::with_capacity(1 + rest.len());
+        states.push(first);
+        states.extend(rest);
         Self(states)
+    }
+
+    /// Returns the expected states.
+    #[must_use]
+    pub fn states(&self) -> &[JobState] {
+        &self.0
     }
 }
 

@@ -23,6 +23,7 @@ use crate::{
     config::DatabaseConfig,
     db::{
         DbError,
+        DbStorage,
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
@@ -235,7 +236,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Ready {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates::new(vec![JobState::Ready]),
+                expected: ExpectedStates::new(JobState::Ready, vec![]),
             });
         }
 
@@ -352,7 +353,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates::new(vec![JobState::Succeeded]),
+                expected: ExpectedStates::new(JobState::Succeeded, vec![]),
             });
         }
 
@@ -391,7 +392,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates::new(vec![JobState::Failed]),
+                expected: ExpectedStates::new(JobState::Failed, vec![]),
             });
         }
 
@@ -416,6 +417,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
+        const UPDATE_TERMINAL_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
 
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
@@ -434,11 +439,19 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        sqlx::query(UPDATE_QUERY)
-            .bind(state)
-            .bind(job_id_bytes.as_slice())
-            .execute(&mut *tx)
-            .await?;
+        if state.is_terminal() {
+            sqlx::query(UPDATE_TERMINAL_QUERY)
+                .bind(state)
+                .bind(job_id_bytes.as_slice())
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query(UPDATE_QUERY)
+                .bind(state)
+                .bind(job_id_bytes.as_slice())
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
         Ok(())
@@ -475,7 +488,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
         let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
-        if current_state != JobState::Running {
+        if !JobState::is_valid_transition(current_state, new_state) {
             return Err(DbError::InvalidJobStateTransition {
                 from: current_state,
                 to: new_state,
@@ -603,11 +616,6 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
              FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
-        const DELETE_QUERY: &str = formatcp!(
-            "DELETE FROM `{table}` WHERE `state` IN ('Succeeded','Failed','Cancelled') AND \
-             `ended_at` < NOW() - INTERVAL ? SECOND;",
-            table = JOBS_TABLE_NAME,
-        );
 
         let timeout_secs = expire_after.as_secs();
         let mut tx = self.pool.begin().await?;
@@ -623,10 +631,17 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         }
 
         if !job_ids.is_empty() {
-            sqlx::query(DELETE_QUERY)
-                .bind(timeout_secs)
-                .execute(&mut *tx)
-                .await?;
+            let placeholders = std::iter::repeat_n("?", job_ids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let delete_query =
+                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
+
+            let mut query = sqlx::query(&delete_query);
+            for job_id in &job_ids {
+                query = query.bind(job_id.as_bytes().as_slice());
+            }
+            query.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -698,6 +713,9 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         }
     }
 
+    /// Force-deletes the resource group and **all** its jobs, including those in non-terminal
+    /// states (e.g. `Running`, `CommitReady`, `CleanupReady`). The caller is responsible for
+    /// ensuring that no jobs are actively being processed before calling this method.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError> {
         const DELETE_JOBS_QUERY: &str = formatcp!(
             "DELETE FROM `{table}` WHERE `resource_group_id` = ?;",
@@ -728,3 +746,5 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         Ok(())
     }
 }
+
+impl DbStorage for MariaDbStorageConnector {}
