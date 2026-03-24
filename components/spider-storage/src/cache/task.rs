@@ -205,7 +205,7 @@ impl SharedTaskControlBlock {
             let mut ready_child_indices = Vec::new();
             for child in &tcb.children {
                 let mut child_tcb = child.inner.lock().await;
-                if child_tcb.num_parents == 0 {
+                if child_tcb.num_unfinished_parents == 0 {
                     return Err(InternalError::TaskGraphCorrupted(
                         "child task has no unfinished parents remaining when processing parent \
                          completion"
