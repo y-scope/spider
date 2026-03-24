@@ -37,6 +37,9 @@ pub enum InternalError {
 
     #[error("task graph corrupted: {0}")]
     TaskGraphCorrupted(String),
+
+    #[error("task graph input size mismatch: expected {0}, got {1}")]
+    TaskGraphInputsSizeMismatch(usize, usize),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

@@ -3,17 +3,17 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Reader-writer lock for shared data in the cache.
-pub type Rw<Type> = Arc<RwLock<Type>>;
+pub type SharedRw<Type> = Arc<RwLock<Type>>;
 
 /// A reader for shared data in the cache.
 #[derive(Clone)]
 pub struct Reader<Type: Send + Sync> {
-    inner: Rw<Type>,
+    inner: Arc<RwLock<Type>>,
 }
 
 impl<Type: Send + Sync> Reader<Type> {
     /// Factory function.
-    pub const fn new(inner: Rw<Type>) -> Self {
+    pub const fn new(inner: SharedRw<Type>) -> Self {
         Self { inner }
     }
 
@@ -24,17 +24,25 @@ impl<Type: Send + Sync> Reader<Type> {
     pub async fn read(&self) -> RwLockReadGuard<'_, Type> {
         self.inner.read().await
     }
+
+    /// # Returns
+    ///
+    /// A guard that allows read access to the shared data. The guard will be released when it goes
+    /// out of scope.
+    pub fn blocking_read(&self) -> RwLockReadGuard<'_, Type> {
+        self.inner.blocking_read()
+    }
 }
 
 /// A writer for shared data in the cache.
 #[derive(Clone)]
 pub struct Writer<Type: Send + Sync> {
-    inner: Rw<Type>,
+    inner: Arc<RwLock<Type>>,
 }
 
 impl<Type: Send + Sync> Writer<Type> {
     /// Factory function.
-    pub const fn new(inner: Rw<Type>) -> Self {
+    pub const fn new(inner: SharedRw<Type>) -> Self {
         Self { inner }
     }
 

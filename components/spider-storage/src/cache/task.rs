@@ -5,18 +5,132 @@ use std::{
 };
 
 use spider_core::{
-    task::{Task, TaskIndex, TaskState, TdlContext, TimeoutPolicy},
+    task::{
+        Task,
+        TaskGraph as SubmittedTaskGraph,
+        TaskIndex,
+        TaskState,
+        TdlContext,
+        TimeoutPolicy,
+    },
     types::{
         id::TaskInstanceId,
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
+use tokio::sync::RwLock;
 
 use crate::cache::{
     error::{CacheError, InternalError, StaleStateError},
-    io::{InputReader, OutputWriter, ValuePayload},
-    sync::{Reader, Rw, Writer},
+    io::{InputReader, OutputReader, OutputWriter, ValuePayload},
+    sync::{Reader, SharedRw, Writer},
 };
+
+/// Represents the task graph in the cache as a collection of TCBs.
+pub struct TaskGraph {
+    tasks: Vec<SharedTaskControlBlock>,
+    outputs: Vec<OutputReader>,
+}
+
+impl TaskGraph {
+    /// Factory function.
+    ///
+    /// Creates a new task graph from a submitted task graph and the input task inputs.
+    ///
+    /// # Returns
+    ///
+    /// The created task graph instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskGraphCorrupted`] if:
+    ///   * Any dataflow deps' index is out-of-range.
+    ///   * Any task index is out-of-range.
+    /// * [`InternalError::TaskGraphInputsSizeMismatch`] if the number of provided inputs does not
+    ///   match the task graph’s expected number of inputs.
+    /// * Forwards [`SharedTaskControlBlock::create`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal TCB buffer is corrupted.
+    pub fn create(
+        submitted_task_graph: &SubmittedTaskGraph,
+        inputs: Vec<TaskInput>,
+    ) -> Result<Self, InternalError> {
+        let dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
+            .get_num_dataflow_deps())
+            .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
+            .collect();
+        let task_graph_input_indices = submitted_task_graph.get_task_graph_input_indices();
+        if inputs.len() != task_graph_input_indices.len() {
+            return Err(InternalError::TaskGraphInputsSizeMismatch(
+                task_graph_input_indices.len(),
+                inputs.len(),
+            ));
+        }
+        for (deps_index, input) in task_graph_input_indices.into_iter().zip(inputs.into_iter()) {
+            let dataflow_dep = dataflow_dep_buffer.get(deps_index).ok_or_else(|| {
+                InternalError::TaskGraphCorrupted(
+                    "dataflow dependency index out-of-range".to_owned(),
+                )
+            })?;
+            *dataflow_dep.blocking_write() = match input {
+                TaskInput::ValuePayload(value) => Some(value),
+            }
+        }
+
+        let outputs: Vec<_> = submitted_task_graph
+            .get_task_graph_output_indices()
+            .into_iter()
+            .map(|output_index| {
+                let dataflow_dep = dataflow_dep_buffer.get(output_index).ok_or_else(|| {
+                    InternalError::TaskGraphCorrupted(
+                        "dataflow dependency index out-of-range".to_owned(),
+                    )
+                })?;
+
+                Ok(OutputReader::new(dataflow_dep.clone()))
+            })
+            .collect::<Result<_, InternalError>>()?;
+
+        let num_tasks = submitted_task_graph.get_num_tasks();
+        let mut tcb_buffer = HashMap::new();
+        for task_index in (0..num_tasks).rev() {
+            let task = submitted_task_graph.get_task(task_index).ok_or_else(|| {
+                InternalError::TaskGraphCorrupted("task index out-of-range".to_owned())
+            })?;
+            let tcb = SharedTaskControlBlock::create(task, &tcb_buffer, &dataflow_dep_buffer)?;
+            tcb_buffer.insert(task.get_index(), tcb);
+        }
+
+        let mut tasks = Vec::new();
+        for task_index in 0..num_tasks {
+            tasks.push(
+                tcb_buffer
+                    .get(&task_index)
+                    .expect("task index should always be valid")
+                    .clone(),
+            );
+        }
+
+        Ok(Self { tasks, outputs })
+    }
+
+    /// # Returns
+    ///
+    /// The TCB of the given task index if it exists, `None` otherwise.
+    #[must_use]
+    pub fn get_task_control_block(&self, task_index: TaskIndex) -> Option<SharedTaskControlBlock> {
+        self.tasks.get(task_index).cloned()
+    }
+
+    #[must_use]
+    pub const fn get_outputs(&self) -> &Vec<OutputReader> {
+        &self.outputs
+    }
+}
 
 /// A shareable control block for a task in the task graph, defining thread-safe operations to
 /// manipulate task execution state.
@@ -181,8 +295,6 @@ impl SharedTaskControlBlock {
     /// * All input and output dependency indices of the task must be valid indices in the dataflow
     ///   deps buffer.
     ///
-    /// # TODO
-    ///
     /// Change the visibility of this method to `pub(crate)` after the task graph construction logic
     /// is implemented.
     ///
@@ -197,10 +309,11 @@ impl SharedTaskControlBlock {
     /// * [`InternalError::TaskGraphCorrupted`] if any of the following happens:
     ///   * The child TCB is not found in the TCB buffer.
     ///   * An input or output dependency index is out of range in the dataflow deps buffer.
-    pub fn create(
+    ///   * Any input task has an unset input, or any non-input task has an input set.
+    fn create(
         task: &Task,
         tcb_buffer: &HashMap<TaskIndex, Self>,
-        dataflow_dep_buffer: &[Rw<ValuePayload>],
+        dataflow_dep_buffer: &[SharedRw<ValuePayload>],
     ) -> Result<Self, InternalError> {
         let index = task.get_index();
         let num_parents = task.get_parent_indices().len();
@@ -226,6 +339,7 @@ impl SharedTaskControlBlock {
             children.push(child_tcb);
         }
 
+        let is_input_task = task.is_input_task();
         let mut input_readers = Vec::new();
         for input_dep_index in task.get_input_dep_indices() {
             let reader = Reader::new(
@@ -238,6 +352,13 @@ impl SharedTaskControlBlock {
                     })?
                     .clone(),
             );
+
+            let has_value_payload = reader.blocking_read().is_some();
+            if (is_input_task && !has_value_payload) || (!is_input_task && has_value_payload) {
+                return Err(InternalError::TaskGraphCorrupted(
+                    "dataflow deps initialization corrupted".to_owned(),
+                ));
+            }
             input_readers.push(InputReader::Value(reader));
         }
 
