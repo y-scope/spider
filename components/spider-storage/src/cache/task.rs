@@ -606,9 +606,9 @@ impl TaskControlBlockBase {
 
         if self.retry_counter.retry() != 0 {
             self.state = if self.instance_pool.is_empty() {
-                TaskState::Running
-            } else {
                 TaskState::Ready
+            } else {
+                TaskState::Running
             };
         } else {
             self.state = TaskState::Failed(error_message);
