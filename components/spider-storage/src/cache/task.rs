@@ -885,8 +885,7 @@ mod tests {
     ///
     /// # Returns
     ///
-    /// A cache [`TaskGraph`] with 4 tasks at indices 0 (A), 1 (B), 2 (C),
-    /// 3 (D).
+    /// A cache [`TaskGraph`] with 4 tasks at indices 0 (A), 1 (B), 2 (C), 3 (D).
     async fn build_diamond_task_graph(input_a: Vec<u8>, input_b: Vec<u8>) -> TaskGraph {
         let submitted = SubmittedTaskGraph::from_json(
             r#"{
