@@ -26,6 +26,10 @@ pub struct MariaDbStorageConnector {
 impl MariaDbStorageConnector {
     /// Connects to database and initializes tables.
     ///
+    /// # Parameters
+    ///
+    /// * `config`: Database configuration parameters for connecting to the database.
+    ///
     /// # Returns
     ///
     /// A newly created [`MariaDbStorageConnector`] instance for connection on success.
@@ -36,7 +40,7 @@ impl MariaDbStorageConnector {
     ///
     /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
     /// * Forwards [`Self::initialize`]'s return values on failure.
-    pub async fn connect_and_initialize(config: &DatabaseConfig) -> Result<Self, DbError> {
+    pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
             .host(&config.host)
             .port(config.port)
