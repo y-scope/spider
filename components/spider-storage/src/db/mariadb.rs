@@ -11,7 +11,7 @@ use spider_core::{
         io::{TaskInput, TaskOutput},
     },
 };
-use sqlx::{mysql::MySqlDatabaseError, MySqlPool, Row};
+use sqlx::{MySqlPool, Row, mysql::MySqlDatabaseError};
 use uuid::Uuid;
 
 /// `MySQL` error number for foreign key constraint violation.
@@ -612,8 +612,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND \
-             FOR UPDATE;",
+             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND FOR \
+             UPDATE;",
             table = JOBS_TABLE_NAME,
         );
 
