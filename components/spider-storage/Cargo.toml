@@ -15,3 +15,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync"] }
+
+[dev-dependencies]
+tokio = { version = "1.49.0", features = ["macros"] }
