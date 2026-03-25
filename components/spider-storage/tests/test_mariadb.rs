@@ -19,11 +19,11 @@ use spider_storage::{
 
 /// Copies an `Id` (the marker enums don't derive Copy, so we go through the UUID).
 const fn copy_rg(id: &ResourceGroupId) -> ResourceGroupId {
-    Id::from_uuid(*id.as_uuid_ref())
+    Id::from(*id.as_uuid_ref())
 }
 
 const fn copy_job(id: &JobId) -> JobId {
-    Id::from_uuid(*id.as_uuid_ref())
+    Id::from(*id.as_uuid_ref())
 }
 
 async fn setup() -> MariaDbStorageConnector {
