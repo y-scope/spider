@@ -26,6 +26,7 @@ use crate::{
     },
 };
 
+/// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
     pool: MySqlPool,
@@ -36,18 +37,19 @@ impl MariaDbStorageConnector {
     ///
     /// # Parameters
     ///
-    /// * `config` - Database configuration parameters.
+    /// * `config`: Database configuration parameters for connecting to the database.
     ///
     /// # Returns
     ///
-    /// A new instance of `MariaDbStorageConnector` if connection and initialization succeed.
+    /// A newly created [`MariaDbStorageConnector`] instance for connection on success.
     ///
     /// # Errors
     ///
-    /// Returns an error if
+    /// Returns an error if:
     ///
-    /// * Forwards a [`sqlx::error::Error`] if database operation fails.
-    pub async fn connect_and_initialize(config: &DatabaseConfig) -> Result<Self, DbError> {
+    /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
+    /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
+    pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
             .host(&config.host)
             .port(config.port)
@@ -61,7 +63,17 @@ impl MariaDbStorageConnector {
             .await?;
 
         let connector = Self { pool };
-        connector.initialize().await?;
+
+        // MariaDB does not support transactions for DDL statements. All DDL statements are
+        // automatically committed. Thus, each table creation query is executed separately, and
+        // atomicity is not guaranteed.
+        sqlx::query(resource_groups_creation_query())
+            .execute(&connector.pool)
+            .await?;
+        sqlx::query(jobs_creation_query())
+            .execute(&connector.pool)
+            .await?;
+
         Ok(connector)
     }
 }
@@ -722,31 +734,4 @@ fn validate_resource_group_access(
         return Err(DbError::InvalidAccess(expected));
     }
     Ok(())
-}
-
-impl MariaDbStorageConnector {
-    /// Initializes the database by creating necessary tables if they do not exist.
-    ///
-    /// # NOTE
-    ///
-    /// `MariaDB` does not support transactions for DDL statements. All DDL statements are
-    /// automatically committed. Thus, this function executes each table creation query separately,
-    /// and does not provide atomicity guarantees.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards a [`sqlx::query::Query::execute`]'s return values on failure.
-    async fn initialize(&self) -> Result<(), DbError> {
-        sqlx::query(resource_groups_creation_query())
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(jobs_creation_query())
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
-    }
 }
