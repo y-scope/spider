@@ -9,9 +9,11 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1.89"
+const_format = "0.2.35"
+secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
-sqlx = "0.8.6"
+sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync"] }
 
