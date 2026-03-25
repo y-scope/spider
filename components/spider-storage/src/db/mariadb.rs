@@ -125,20 +125,10 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         resource_group_id: ResourceGroupId,
         job_id: JobId,
     ) -> Result<(), DbError> {
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
-             ? FOR UPDATE;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(SELECT_JOB_STATE_AND_RG_FOR_UPDATE)
             .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
@@ -153,7 +143,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        sqlx::query(UPDATE_QUERY)
+        sqlx::query(UPDATE_JOB_STATE)
             .bind(JobState::Running)
             .bind(job_id_bytes.as_slice())
             .execute(&mut *tx)
@@ -169,25 +159,11 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_id: JobId,
         target: CancelTarget,
     ) -> Result<(), DbError> {
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
-             ? FOR UPDATE;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_STATE_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_STATE_AND_END_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-
         let new_state = target.into_job_state();
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(SELECT_QUERY)
+        let row: Option<(JobState, Vec<u8>)> = sqlx::query_as(SELECT_JOB_STATE_AND_RG_FOR_UPDATE)
             .bind(job_id_bytes.as_slice())
             .fetch_optional(&mut *tx)
             .await?;
@@ -195,26 +171,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         let (state, rg_id_bytes) = row.ok_or(DbError::JobNotFound(job_id))?;
         validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
-        if !JobState::is_valid_transition(state, new_state) {
-            return Err(DbError::InvalidJobStateTransition {
-                from: state,
-                to: new_state,
-            });
-        }
-
-        if new_state.is_terminal() {
-            sqlx::query(UPDATE_STATE_AND_END_QUERY)
-                .bind(new_state)
-                .bind(job_id_bytes.as_slice())
-                .execute(&mut *tx)
-                .await?;
-        } else {
-            sqlx::query(UPDATE_STATE_QUERY)
-                .bind(new_state)
-                .bind(job_id_bytes.as_slice())
-                .execute(&mut *tx)
-                .await?;
-        }
+        transition_job_state(&mut tx, &job_id_bytes, state, new_state).await?;
 
         tx.commit().await?;
         Ok(())
@@ -322,49 +279,11 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorageConnector {
     async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError> {
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_TERMINAL_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(job_id_bytes.as_slice())
-            .fetch_optional(&mut *tx)
-            .await?;
-
-        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
-
-        if !JobState::is_valid_transition(current_state, state) {
-            return Err(DbError::InvalidJobStateTransition {
-                from: current_state,
-                to: state,
-            });
-        }
-
-        if state.is_terminal() {
-            sqlx::query(UPDATE_TERMINAL_QUERY)
-                .bind(state)
-                .bind(job_id_bytes.as_slice())
-                .execute(&mut *tx)
-                .await?;
-        } else {
-            sqlx::query(UPDATE_QUERY)
-                .bind(state)
-                .bind(job_id_bytes.as_slice())
-                .execute(&mut *tx)
-                .await?;
-        }
+        let current_state = fetch_job_state_for_update(&mut tx, &job_id_bytes, job_id).await?;
+        transition_job_state(&mut tx, &job_id_bytes, current_state, state).await?;
 
         tx.commit().await?;
         Ok(())
@@ -376,10 +295,6 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         job_outputs: Vec<TaskOutput>,
         target: CommitTarget,
     ) -> Result<(), DbError> {
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
-            table = JOBS_TABLE_NAME,
-        );
         const UPDATE_SUCCEEDED_QUERY: &str = formatcp!(
             "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, `ended_at` = \
              CURRENT_TIMESTAMP WHERE `id` = ?;",
@@ -394,12 +309,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(job_id_bytes.as_slice())
-            .fetch_optional(&mut *tx)
-            .await?;
-
-        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
+        let current_state = fetch_job_state_for_update(&mut tx, &job_id_bytes, job_id).await?;
 
         if !JobState::is_valid_transition(current_state, new_state) {
             return Err(DbError::InvalidJobStateTransition {
@@ -431,60 +341,18 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     }
 
     async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_STATE_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-        const UPDATE_STATE_AND_END_QUERY: &str = formatcp!(
-            "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-
         let new_state = target.into_job_state();
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(job_id_bytes.as_slice())
-            .fetch_optional(&mut *tx)
-            .await?;
-
-        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
-
-        if !JobState::is_valid_transition(current_state, new_state) {
-            return Err(DbError::InvalidJobStateTransition {
-                from: current_state,
-                to: new_state,
-            });
-        }
-
-        if new_state.is_terminal() {
-            sqlx::query(UPDATE_STATE_AND_END_QUERY)
-                .bind(new_state)
-                .bind(job_id_bytes.as_slice())
-                .execute(&mut *tx)
-                .await?;
-        } else {
-            sqlx::query(UPDATE_STATE_QUERY)
-                .bind(new_state)
-                .bind(job_id_bytes.as_slice())
-                .execute(&mut *tx)
-                .await?;
-        }
+        let current_state = fetch_job_state_for_update(&mut tx, &job_id_bytes, job_id).await?;
+        transition_job_state(&mut tx, &job_id_bytes, current_state, new_state).await?;
 
         tx.commit().await?;
         Ok(())
     }
 
     async fn fail(&self, job_id: JobId, error_message: String) -> Result<(), DbError> {
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
-            table = JOBS_TABLE_NAME,
-        );
         const UPDATE_QUERY: &str = formatcp!(
             "UPDATE `{table}` SET `state` = ?, `error_message` = ?, `ended_at` = \
              CURRENT_TIMESTAMP WHERE `id` = ?;",
@@ -494,12 +362,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState,)> = sqlx::query_as(SELECT_QUERY)
-            .bind(job_id_bytes.as_slice())
-            .fetch_optional(&mut *tx)
-            .await?;
-
-        let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
+        let current_state = fetch_job_state_for_update(&mut tx, &job_id_bytes, job_id).await?;
 
         if !JobState::is_valid_transition(current_state, JobState::Failed) {
             return Err(DbError::InvalidJobStateTransition {
@@ -667,6 +530,24 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
 
+const SELECT_JOB_STATE_FOR_UPDATE: &str = formatcp!(
+    "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+    table = JOBS_TABLE_NAME,
+);
+const SELECT_JOB_STATE_AND_RG_FOR_UPDATE: &str = formatcp!(
+    "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = ? FOR \
+     UPDATE;",
+    table = JOBS_TABLE_NAME,
+);
+const UPDATE_JOB_STATE: &str = formatcp!(
+    "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
+    table = JOBS_TABLE_NAME,
+);
+const UPDATE_JOB_STATE_AND_END: &str = formatcp!(
+    "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+    table = JOBS_TABLE_NAME,
+);
+
 #[must_use]
 const fn resource_groups_creation_query() -> &'static str {
     formatcp!(
@@ -706,6 +587,50 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
         state_enum = JobState::as_mysql_enum_decl(),
         default_state = JobState::Ready.as_quoted_str(),
     )
+}
+
+async fn fetch_job_state_for_update(
+    tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    job_id_bytes: &[u8; 16],
+    job_id: JobId,
+) -> Result<JobState, DbError> {
+    let row: Option<(JobState,)> = sqlx::query_as(SELECT_JOB_STATE_FOR_UPDATE)
+        .bind(job_id_bytes.as_slice())
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    let (state,) = row.ok_or(DbError::JobNotFound(job_id))?;
+    Ok(state)
+}
+
+async fn transition_job_state(
+    tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    job_id_bytes: &[u8; 16],
+    current_state: JobState,
+    new_state: JobState,
+) -> Result<(), DbError> {
+    if !JobState::is_valid_transition(current_state, new_state) {
+        return Err(DbError::InvalidJobStateTransition {
+            from: current_state,
+            to: new_state,
+        });
+    }
+
+    if new_state.is_terminal() {
+        sqlx::query(UPDATE_JOB_STATE_AND_END)
+            .bind(new_state)
+            .bind(job_id_bytes.as_slice())
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query(UPDATE_JOB_STATE)
+            .bind(new_state)
+            .bind(job_id_bytes.as_slice())
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    Ok(())
 }
 
 fn job_id_from_bytes(bytes: &[u8]) -> Result<JobId, DbError> {

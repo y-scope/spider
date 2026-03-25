@@ -352,7 +352,7 @@ pub trait ResourceGroupManagement {
     ) -> Result<(), DbError>;
 
     /// Deletes a resource group from the database.
-    /// 
+    ///
     /// This function deletes all jobs belonging to the resource group before deleting the resource
     /// groups.
     ///
