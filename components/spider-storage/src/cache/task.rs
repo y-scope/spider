@@ -11,6 +11,7 @@ use spider_core::{
         TaskIndex,
         TaskState,
         TdlContext,
+        TerminationTaskDescriptor,
         TimeoutPolicy,
     },
     types::{
@@ -30,6 +31,8 @@ use crate::cache::{
 pub struct TaskGraph {
     tasks: Vec<SharedTaskControlBlock>,
     outputs: Vec<OutputReader>,
+    commit_task: Option<SharedTerminationTaskControlBlock>,
+    cleanup_task: Option<SharedTerminationTaskControlBlock>,
 }
 
 impl TaskGraph {
@@ -116,7 +119,20 @@ impl TaskGraph {
             );
         }
 
-        Ok(Self { tasks, outputs })
+        let commit_task = submitted_task_graph
+            .get_commit_task_descriptor()
+            .map(SharedTerminationTaskControlBlock::create);
+
+        let cleanup_task = submitted_task_graph
+            .get_cleanup_task_descriptor()
+            .map(SharedTerminationTaskControlBlock::create);
+
+        Ok(Self {
+            tasks,
+            outputs,
+            commit_task,
+            cleanup_task,
+        })
     }
 
     /// # Returns
@@ -125,6 +141,22 @@ impl TaskGraph {
     #[must_use]
     pub fn get_task_control_block(&self, task_index: TaskIndex) -> Option<SharedTaskControlBlock> {
         self.tasks.get(task_index).cloned()
+    }
+
+    /// # Returns
+    ///
+    /// The TCB of the commit task if it exists, `None` otherwise.
+    #[must_use]
+    pub fn get_commit_task_control_block(&self) -> Option<SharedTerminationTaskControlBlock> {
+        self.commit_task.clone()
+    }
+
+    /// # Returns
+    ///
+    /// The TCB of the cleanup task if it exists, `None` otherwise.
+    #[must_use]
+    pub fn get_cleanup_task_control_block(&self) -> Option<SharedTerminationTaskControlBlock> {
+        self.cleanup_task.clone()
     }
 
     #[must_use]
@@ -296,9 +328,6 @@ impl SharedTaskControlBlock {
     /// * All input and output dependency indices of the task must be valid indices in the dataflow
     ///   deps buffer.
     ///
-    /// Change the visibility of this method to `pub(crate)` after the task graph construction logic
-    /// is implemented.
-    ///
     /// # Returns
     ///
     /// A newly created instance of [`SharedTaskControlBlock`] on success.
@@ -397,6 +426,119 @@ impl SharedTaskControlBlock {
         Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(tcb)),
         })
+    }
+}
+
+/// A shareable control block for a termination task in the task graph, defining thread-safe
+/// operations to manipulate task execution state.
+#[derive(Clone)]
+pub struct SharedTerminationTaskControlBlock {
+    inner: Arc<tokio::sync::Mutex<TerminationTaskControlBlock>>,
+}
+
+impl SharedTerminationTaskControlBlock {
+    /// Registers a new task instance to the control block.
+    ///
+    /// # Returns
+    ///
+    /// A tuple on success, containing:
+    ///
+    /// * The TDL context of the termination task.
+    /// * The timeout policy of the termination task.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TaskControlBlockBase::register_task_instance`]'s return values on failure.
+    pub async fn register_task_instance(
+        &self,
+        instance_id: TaskInstanceId,
+    ) -> Result<(TdlContext, TimeoutPolicy), CacheError> {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.register_task_instance(instance_id)?;
+        Ok((
+            tcb.base.tdl_context.clone(),
+            tcb.base.timeout_policy.clone(),
+        ))
+    }
+
+    /// Marks a task instance as succeeded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TaskControlBlockBase::succeed_task_instance`]'s return values on failure.
+    pub async fn succeed_task_instance(
+        &self,
+        instance_id: TaskInstanceId,
+    ) -> Result<(), CacheError> {
+        self.inner
+            .lock()
+            .await
+            .base
+            .succeed_task_instance(instance_id)
+    }
+
+    /// Marks a task instance as failed.
+    ///
+    /// # Returns
+    ///
+    /// The new state of the task after the failure is processed, forwarded from
+    /// [`TaskControlBlockBase::fail_task_instance`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TaskControlBlockBase::fail_task_instance`]'s return values on failure.
+    pub async fn fail_task_instance(
+        &self,
+        instance_id: TaskInstanceId,
+        error_message: String,
+    ) -> Result<TaskState, CacheError> {
+        self.inner
+            .lock()
+            .await
+            .base
+            .fail_task_instance(instance_id, error_message)
+    }
+
+    /// Forcefully removes a task instance from the instance pool.
+    ///
+    /// # Returns
+    ///
+    /// Forwards [`TaskControlBlockBase::force_remove_task_instance`]'s return values.
+    pub async fn force_remove_task_instance(&self, instance_id: TaskInstanceId) -> bool {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.force_remove_task_instance(instance_id)
+    }
+
+    /// Private factory function for creating a new termination task control block from a task
+    /// descriptor.
+    ///
+    /// # Returns
+    ///
+    /// A newly created instance of [`SharedTerminationTaskControlBlock`] on success.
+    fn create(termination_task_descriptor: &TerminationTaskDescriptor) -> Self {
+        let execution_policy = termination_task_descriptor
+            .execution_policy
+            .clone()
+            .unwrap_or_default();
+        let tcb = TerminationTaskControlBlock {
+            base: TaskControlBlockBase {
+                state: TaskState::Ready,
+                tdl_context: termination_task_descriptor.tdl_context.clone(),
+                instance_pool: InstancePool::create(execution_policy.max_num_instances as usize),
+                retry_counter: RetryCounter::new(execution_policy.max_num_retry as usize),
+                timeout_policy: execution_policy.timeout_policy,
+            },
+        };
+
+        Self {
+            inner: Arc::new(tokio::sync::Mutex::new(tcb)),
+        }
     }
 }
 
@@ -709,9 +851,18 @@ impl TaskControlBlock {
     }
 }
 
+/// The control block for a termination task in the task graph.
+///
+/// Operations defined in this struct are not thread-safe. It requires upper-level synchronization
+/// to ensure that concurrent operations on the same task are properly serialized.
+struct TerminationTaskControlBlock {
+    base: TaskControlBlockBase,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
+        future::Future,
         hash::{BuildHasher, Hasher, RandomState},
         sync::{
             Arc,
@@ -724,6 +875,7 @@ mod tests {
         ExecutionPolicy,
         TaskDescriptor,
         TaskGraph as SubmittedTaskGraph,
+        TerminationTaskDescriptor,
         ValueTypeDescriptor,
     };
 
@@ -746,25 +898,40 @@ mod tests {
         hasher.finish().to_ne_bytes()[..4].to_vec()
     }
 
-    /// Spawns `count` concurrent tasks that each wait on the barrier, then register a new instance
-    /// on the given TCB.
+    /// Spawns `count` concurrent tasks that each wait on the barrier, then call `register` with a
+    /// fresh instance ID.
+    ///
+    /// This is generic over the registration closure, allowing it to work with both
+    /// [`SharedTaskControlBlock`] and [`SharedTerminationTaskControlBlock`] despite their different
+    /// `register_task_instance` return types.
+    ///
+    /// # Type Parameters
+    ///
+    /// * [`RegisterFuncType`] - An async function type that takes a `TaskInstanceId` and returns
+    ///   future that resolves to the registration result type.
+    /// * [`FutureType`] - The future type returned by the registration function.
+    /// * [`ReturnType`] - The type of the registration result returned by the future.
     ///
     /// # Returns
     ///
-    /// A vector of join handles, each resolving to the registration result.
-    fn spawn_concurrent_registrations(
-        tcb: &SharedTaskControlBlock,
+    /// A vector of join handles, each resolving to a registration result.
+    fn spawn_concurrent_registrations<RegisterFuncType, FutureType, ReturnType>(
         barrier: &Arc<tokio::sync::Barrier>,
         count: usize,
-    ) -> Vec<tokio::task::JoinHandle<Result<ExecutionContext, CacheError>>> {
+        register: RegisterFuncType,
+    ) -> Vec<tokio::task::JoinHandle<ReturnType>>
+    where
+        RegisterFuncType: Fn(TaskInstanceId) -> FutureType + Send + Clone + 'static,
+        FutureType: Future<Output = ReturnType> + Send + 'static,
+        ReturnType: Send + 'static, {
         (0..count)
             .map(|_| {
-                let tcb = tcb.clone();
                 let barrier = barrier.clone();
+                let register = register.clone();
                 tokio::spawn(async move {
                     barrier.wait().await;
                     let id = next_instance_id();
-                    tcb.register_task_instance(id).await
+                    register(id).await
                 })
             })
             .collect()
@@ -859,6 +1026,39 @@ mod tests {
         TaskGraph::create(&submitted, inputs)
             .await
             .expect("cache task graph creation should succeed")
+    }
+
+    /// Builds a [`SharedTerminationTaskControlBlock`] with configurable execution policy by
+    /// creating a [`TaskGraph`] with a commit task and extracting the commit TCB.
+    ///
+    /// # Returns
+    ///
+    /// A [`SharedTerminationTaskControlBlock`] configured with the given execution policy.
+    async fn build_termination_tcb(
+        max_num_instances: u32,
+        max_num_retry: u32,
+    ) -> SharedTerminationTaskControlBlock {
+        let submitted = SubmittedTaskGraph::new(
+            Some(TerminationTaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "test_commit_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy {
+                    max_num_retry,
+                    max_num_instances,
+                    ..ExecutionPolicy::default()
+                }),
+            }),
+            None,
+        )
+        .expect("task graph with commit task should be created");
+        let task_graph = TaskGraph::create(&submitted, vec![])
+            .await
+            .expect("cache task graph creation should succeed");
+        task_graph
+            .get_commit_task_control_block()
+            .expect("commit task should exist")
     }
 
     /// Builds a cache [`TaskGraph`] with a diamond-shaped structure.
@@ -1056,186 +1256,271 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn concurrent_registration_up_to_limit() {
-        const MAX_NUM_INSTANCES: u32 = 10;
-        let task_graph = build_task_graph_with_single_tcb(MAX_NUM_INSTANCES, 0, 1, 1).await;
-        let tcb = task_graph
-            .get_task_control_block(0)
-            .expect("task 0 should exist");
-
-        let barrier = Arc::new(tokio::sync::Barrier::new(MAX_NUM_INSTANCES as usize));
-        let handles = spawn_concurrent_registrations(&tcb, &barrier, MAX_NUM_INSTANCES as usize);
-
-        for handle in handles {
-            let result = handle.await.expect("task should not panic");
-            assert!(
-                result.is_ok(),
-                "all registrations should succeed, got: {result:?}"
-            );
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn concurrent_registration_exceeding_limit() {
-        const MAX_NUM_INSTANCES: u32 = 10;
-        const NUM_INSTANCES_TO_EXCEED_LIMIT: u32 = 6;
-        const NUM_REGISTRATIONS: usize =
-            (MAX_NUM_INSTANCES + NUM_INSTANCES_TO_EXCEED_LIMIT) as usize;
-        let task_graph = build_task_graph_with_single_tcb(MAX_NUM_INSTANCES, 0, 1, 1).await;
-        let tcb = task_graph
-            .get_task_control_block(0)
-            .expect("task 0 should exist");
-
-        let barrier = Arc::new(tokio::sync::Barrier::new(NUM_REGISTRATIONS));
-        let handles = spawn_concurrent_registrations(&tcb, &barrier, NUM_REGISTRATIONS);
-
-        let mut successes = 0u32;
-        let mut limit_exceeded = 0u32;
-        for handle in handles {
-            let result = handle.await.expect("task should not panic");
-            match result {
-                Ok(_) => successes += 1,
-                Err(CacheError::StaleState(StaleStateError::TaskInstanceLimitExceeded)) => {
-                    limit_exceeded += 1;
-                }
-                Err(e) => panic!("unexpected error: {e:?}"),
-            }
-        }
-        assert_eq!(
-            successes, MAX_NUM_INSTANCES,
-            "exactly {MAX_NUM_INSTANCES} registrations should succeed"
-        );
-        assert_eq!(
-            limit_exceeded, NUM_INSTANCES_TO_EXCEED_LIMIT,
-            "exactly {NUM_INSTANCES_TO_EXCEED_LIMIT} should be rejected as limit exceeded"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn registration_after_termination() {
-        const NUM_REGISTRATION_ATTEMPTS: usize = 10;
-        let task_graph = build_task_graph_with_single_tcb(1, 0, 1, 1).await;
-        let tcb = task_graph
-            .get_task_control_block(0)
-            .expect("task 0 should exist");
-
-        // Register and succeed one instance to terminate the task.
-        let id = next_instance_id();
-        tcb.register_task_instance(id)
-            .await
-            .expect("first registration should succeed");
-        tcb.succeed_task_instance(id, vec![vec![0u8; 4]])
-            .await
-            .expect("succeed should work");
-
-        // All subsequent registrations should be rejected.
-        let barrier = Arc::new(tokio::sync::Barrier::new(NUM_REGISTRATION_ATTEMPTS));
-        let handles = spawn_concurrent_registrations(&tcb, &barrier, NUM_REGISTRATION_ATTEMPTS);
-
-        for handle in handles {
-            let result = handle.await.expect("task should not panic");
-            assert!(
-                matches!(
-                    result,
-                    Err(CacheError::StaleState(
-                        StaleStateError::TaskAlreadyTerminated(_)
-                    ))
-                ),
-                "registration after termination should return `TaskAlreadyTerminated`, got: \
-                 {result:?}"
-            );
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn fail_first_instance_then_succeed_new() {
-        let task_graph = build_task_graph_with_single_tcb(1, 1, 1, 1).await;
-        let tcb = task_graph
-            .get_task_control_block(0)
-            .expect("task 0 should exist");
-
-        // Register and fail instance A.
-        let id_a = next_instance_id();
-        tcb.register_task_instance(id_a)
-            .await
-            .expect("registration A should succeed");
-        let state_after_fail = tcb
-            .fail_task_instance(id_a, "test failure".to_owned())
-            .await
-            .expect("fail A should succeed");
-        assert!(
-            !state_after_fail.is_terminal(),
-            "state after fail with retries remaining should be non-terminal, got: \
-             {state_after_fail:?}"
-        );
-
-        // Register and succeed instance B.
-        let id_b = next_instance_id();
-        tcb.register_task_instance(id_b)
-            .await
-            .expect("registration B should succeed after A failed");
-        tcb.succeed_task_instance(id_b, vec![vec![0u8; 4]])
-            .await
-            .expect("succeed B should work");
-    }
-
-    /// Registers two instances, fails the first (exhausting retries), then verifies:
+    /// Generates a suite of registration, failure, and termination tests for a TCB type.
     ///
-    /// * The failed instance can no longer succeed (`InvalidTaskInstanceId`).
-    /// * The surviving instance is also rejected (`TaskAlreadyTerminated`) because the task itself
-    ///   has entered a terminal `Failed` state.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn fail_instance_then_reject_stale_and_surviving() {
-        let task_graph = build_task_graph_with_single_tcb(2, 0, 1, 1).await;
-        let tcb = task_graph
-            .get_task_control_block(0)
-            .expect("task 0 should exist");
+    /// Both [`SharedTaskControlBlock`] and [`SharedTerminationTaskControlBlock`] share the same
+    /// underlying [`TaskControlBlockBase`] state machine, so the registration and failure semantics
+    /// are identical. This macro captures the shared test logic and parametrizes the three points
+    /// where the two types diverge:
+    ///
+    /// * **`build_tcb`** — how to construct the TCB with a given execution policy.
+    /// * **`succeed`** — how to call `succeed_task_instance` (the regular TCB requires output
+    ///   payloads, while the termination TCB does not).
+    ///
+    /// `register_task_instance` and `fail_task_instance` share the same call signature across both
+    /// types, so they are called directly inside the macro body. The differing return types of
+    /// `register_task_instance` are handled by [`spawn_concurrent_registrations`]'s generic
+    /// closure parameter.
+    ///
+    /// # Generated tests
+    ///
+    /// * `concurrent_registration_up_to_limit`
+    /// * `concurrent_registration_exceeding_limit`
+    /// * `registration_after_termination`
+    /// * `fail_first_instance_then_succeed_new`
+    /// * `fail_instance_then_reject_stale_and_surviving`
+    macro_rules! registration_test_suite {
+        (
+            build_tcb($max_instances:ident, $max_retry:ident) => $build_tcb:expr,
+            succeed($s_tcb:ident, $s_id:ident) => $succeed:expr $(,)?
+        ) => {
+            #[tokio::test(flavor = "multi_thread")]
+            async fn concurrent_registration_up_to_limit() {
+                const MAX_NUM_INSTANCES: u32 = 10;
+                let tcb = {
+                    let ($max_instances, $max_retry) = (MAX_NUM_INSTANCES, 0u32);
+                    $build_tcb
+                };
 
-        // Register two instances.
-        let id_a = next_instance_id();
-        let id_b = next_instance_id();
-        tcb.register_task_instance(id_a)
-            .await
-            .expect("registration A should succeed");
-        tcb.register_task_instance(id_b)
-            .await
-            .expect("registration B should succeed");
+                let barrier = Arc::new(tokio::sync::Barrier::new(MAX_NUM_INSTANCES as usize));
+                let register = {
+                    let tcb = tcb.clone();
+                    move |id: TaskInstanceId| {
+                        let tcb = tcb.clone();
+                        async move { tcb.register_task_instance(id).await }
+                    }
+                };
+                let handles =
+                    spawn_concurrent_registrations(&barrier, MAX_NUM_INSTANCES as usize, register);
 
-        // Fail instance A with no retries available.
-        let state_after_fail = tcb
-            .fail_task_instance(id_a, "fatal failure".to_owned())
-            .await
-            .expect("fail A should succeed");
-        assert!(
-            matches!(state_after_fail, TaskState::Failed(_)),
-            "state should be Failed with no retries remaining, got: {state_after_fail:?}"
-        );
+                for handle in handles {
+                    let result = handle.await.expect("task should not panic");
+                    assert!(
+                        result.is_ok(),
+                        "all registrations should succeed, got: {result:?}"
+                    );
+                }
+            }
 
-        // Attempting to succeed the already-failed instance should be rejected.
-        let result = tcb.succeed_task_instance(id_a, vec![vec![0u8; 4]]).await;
-        assert!(
-            matches!(
-                result,
-                Err(CacheError::StaleState(
-                    StaleStateError::InvalidTaskInstanceId
-                ))
-            ),
-            "succeed on failed instance should return `InvalidTaskInstanceId`, got: {result:?}"
-        );
+            #[tokio::test(flavor = "multi_thread")]
+            async fn concurrent_registration_exceeding_limit() {
+                const MAX_NUM_INSTANCES: u32 = 10;
+                const NUM_INSTANCES_TO_EXCEED_LIMIT: u32 = 6;
+                const NUM_REGISTRATIONS: usize =
+                    (MAX_NUM_INSTANCES + NUM_INSTANCES_TO_EXCEED_LIMIT) as usize;
+                let tcb = {
+                    let ($max_instances, $max_retry) = (MAX_NUM_INSTANCES, 0u32);
+                    $build_tcb
+                };
 
-        // Attempting to succeed the surviving instance should also be rejected because the task is
-        // already in a terminal Failed state.
-        let result = tcb.succeed_task_instance(id_b, vec![vec![0u8; 4]]).await;
-        assert!(
-            matches!(
-                result,
-                Err(CacheError::StaleState(
-                    StaleStateError::TaskAlreadyTerminated(_)
-                ))
-            ),
-            "succeed on surviving instance should return `TaskAlreadyTerminated`, got: {result:?}"
-        );
+                let barrier = Arc::new(tokio::sync::Barrier::new(NUM_REGISTRATIONS));
+                let register = {
+                    let tcb = tcb.clone();
+                    move |id: TaskInstanceId| {
+                        let tcb = tcb.clone();
+                        async move { tcb.register_task_instance(id).await }
+                    }
+                };
+                let handles = spawn_concurrent_registrations(&barrier, NUM_REGISTRATIONS, register);
+
+                let mut successes = 0u32;
+                let mut limit_exceeded = 0u32;
+                for handle in handles {
+                    let result = handle.await.expect("task should not panic");
+                    match result {
+                        Ok(_) => successes += 1,
+                        Err(CacheError::StaleState(StaleStateError::TaskInstanceLimitExceeded)) => {
+                            limit_exceeded += 1;
+                        }
+                        Err(e) => panic!("unexpected error: {e:?}"),
+                    }
+                }
+                assert_eq!(
+                    successes, MAX_NUM_INSTANCES,
+                    "exactly {MAX_NUM_INSTANCES} registrations should succeed"
+                );
+                assert_eq!(
+                    limit_exceeded, NUM_INSTANCES_TO_EXCEED_LIMIT,
+                    "exactly {NUM_INSTANCES_TO_EXCEED_LIMIT} should be rejected as limit exceeded"
+                );
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn registration_after_termination() {
+                const NUM_REGISTRATION_ATTEMPTS: usize = 10;
+                let tcb = {
+                    let ($max_instances, $max_retry) = (1u32, 0u32);
+                    $build_tcb
+                };
+
+                // Register and succeed one instance to terminate the task.
+                let id = next_instance_id();
+                tcb.register_task_instance(id)
+                    .await
+                    .expect("first registration should succeed");
+                {
+                    let ($s_tcb, $s_id) = (&tcb, id);
+                    $succeed
+                }
+                .expect("succeed should work");
+
+                // All subsequent registrations should be rejected.
+                let barrier = Arc::new(tokio::sync::Barrier::new(NUM_REGISTRATION_ATTEMPTS));
+                let register = {
+                    let tcb = tcb.clone();
+                    move |id: TaskInstanceId| {
+                        let tcb = tcb.clone();
+                        async move { tcb.register_task_instance(id).await }
+                    }
+                };
+                let handles =
+                    spawn_concurrent_registrations(&barrier, NUM_REGISTRATION_ATTEMPTS, register);
+
+                for handle in handles {
+                    let result = handle.await.expect("task should not panic");
+                    assert!(
+                        matches!(
+                            result,
+                            Err(CacheError::StaleState(
+                                StaleStateError::TaskAlreadyTerminated(_)
+                            ))
+                        ),
+                        "registration after termination should return `TaskAlreadyTerminated`, \
+                         got: {result:?}"
+                    );
+                }
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn fail_first_instance_then_succeed_new() {
+                let tcb = {
+                    let ($max_instances, $max_retry) = (1u32, 1u32);
+                    $build_tcb
+                };
+
+                // Register and fail instance A.
+                let id_a = next_instance_id();
+                tcb.register_task_instance(id_a)
+                    .await
+                    .expect("registration A should succeed");
+                let state_after_fail = tcb
+                    .fail_task_instance(id_a, "test failure".to_owned())
+                    .await
+                    .expect("fail A should succeed");
+                assert!(
+                    !state_after_fail.is_terminal(),
+                    "state after fail with retries remaining should be non-terminal, got: \
+                     {state_after_fail:?}"
+                );
+
+                // Register and succeed instance B.
+                let id_b = next_instance_id();
+                tcb.register_task_instance(id_b)
+                    .await
+                    .expect("registration B should succeed after A failed");
+                {
+                    let ($s_tcb, $s_id) = (&tcb, id_b);
+                    $succeed
+                }
+                .expect("succeed B should work");
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            async fn fail_instance_then_reject_stale_and_surviving() {
+                let tcb = {
+                    let ($max_instances, $max_retry) = (2u32, 0u32);
+                    $build_tcb
+                };
+
+                // Register two instances.
+                let id_a = next_instance_id();
+                let id_b = next_instance_id();
+                tcb.register_task_instance(id_a)
+                    .await
+                    .expect("registration A should succeed");
+                tcb.register_task_instance(id_b)
+                    .await
+                    .expect("registration B should succeed");
+
+                // Fail instance A with no retries available.
+                let state_after_fail = tcb
+                    .fail_task_instance(id_a, "fatal failure".to_owned())
+                    .await
+                    .expect("fail A should succeed");
+                assert!(
+                    matches!(state_after_fail, TaskState::Failed(_)),
+                    "state should be Failed with no retries remaining, got: {state_after_fail:?}"
+                );
+
+                // Attempting to succeed the already-failed instance should be rejected.
+                let result = {
+                    let ($s_tcb, $s_id) = (&tcb, id_a);
+                    $succeed
+                };
+                assert!(
+                    matches!(
+                        result,
+                        Err(CacheError::StaleState(
+                            StaleStateError::InvalidTaskInstanceId
+                        ))
+                    ),
+                    "succeed on failed instance should return `InvalidTaskInstanceId`, got: \
+                     {result:?}"
+                );
+
+                // Attempting to succeed the surviving instance should also be rejected
+                // because the task is already in a terminal Failed state.
+                let result = {
+                    let ($s_tcb, $s_id) = (&tcb, id_b);
+                    $succeed
+                };
+                assert!(
+                    matches!(
+                        result,
+                        Err(CacheError::StaleState(
+                            StaleStateError::TaskAlreadyTerminated(_)
+                        ))
+                    ),
+                    "succeed on surviving instance should return `TaskAlreadyTerminated`, got: \
+                     {result:?}"
+                );
+            }
+        };
+    }
+
+    mod task_control_block {
+        use super::*;
+
+        registration_test_suite! {
+            build_tcb(max_instances, max_retry) => {
+                let task_graph =
+                    build_task_graph_with_single_tcb(max_instances, max_retry, 1, 1).await;
+                task_graph
+                    .get_task_control_block(0)
+                    .expect("task 0 should exist")
+            },
+            succeed(tcb, id) => tcb.succeed_task_instance(id, vec![vec![0u8; 4]]).await,
+        }
+    }
+
+    mod termination_task_control_block {
+        use super::*;
+
+        registration_test_suite! {
+            build_tcb(max_instances, max_retry) =>
+                build_termination_tcb(max_instances, max_retry).await,
+            succeed(tcb, id) => tcb.succeed_task_instance(id).await,
+        }
     }
 
     #[tokio::test]
