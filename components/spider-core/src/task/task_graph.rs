@@ -553,6 +553,32 @@ impl TaskGraph {
         self.tasks.get(index)
     }
 
+    /// # Returns
+    ///
+    /// A vector of data-flow dependency indices that are inputs to the task graph. It is guaranteed
+    /// that these indices are sorted in ascending order.
+    #[must_use]
+    pub fn get_task_graph_input_indices(&self) -> Vec<DataflowDependencyIndex> {
+        self.tasks
+            .iter()
+            .filter(|task| task.is_input_task())
+            .flat_map(|task| task.input_dep_indices.clone())
+            .collect()
+    }
+
+    /// # Returns
+    ///
+    /// A vector of data-flow dependency indices that are outputs of the task graph. It is
+    /// guaranteed that these indices are sorted in ascending order.
+    #[must_use]
+    pub fn get_task_graph_output_indices(&self) -> Vec<DataflowDependencyIndex> {
+        self.tasks
+            .iter()
+            .filter(|task| task.is_output_task())
+            .flat_map(|task| task.output_dep_indices.clone())
+            .collect()
+    }
+
     /// Retrieves a reference to the specified task input as a data-flow dependency.
     ///
     /// # Returns
@@ -586,6 +612,11 @@ impl TaskGraph {
     #[must_use]
     pub const fn get_num_tasks(&self) -> usize {
         self.tasks.len()
+    }
+
+    #[must_use]
+    pub const fn get_num_dataflow_deps(&self) -> usize {
+        self.dataflow_deps.len()
     }
 
     /// Computes the input data-flow dependencies and parent task indices for a task based on its
