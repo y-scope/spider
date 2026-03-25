@@ -626,9 +626,6 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         }
     }
 
-    /// Force-deletes the resource group and **all** its jobs, including those in non-terminal
-    /// states (e.g. `Running`, `CommitReady`, `CleanupReady`). The caller is responsible for
-    /// ensuring that no jobs are actively being processed before calling this method.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError> {
         const DELETE_JOBS_QUERY: &str = formatcp!(
             "DELETE FROM `{table}` WHERE `resource_group_id` = ?;",
