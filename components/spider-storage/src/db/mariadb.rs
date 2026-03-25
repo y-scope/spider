@@ -14,11 +14,6 @@ use spider_core::{
 use sqlx::{MySqlPool, Row, mysql::MySqlDatabaseError};
 use uuid::Uuid;
 
-/// `MySQL` error number for foreign key constraint violation.
-const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
-/// `MySQL` error number for duplicate entry.
-const MYSQL_ER_DUP_ENTRY: u16 = 1062;
-
 use crate::{
     config::DatabaseConfig,
     db::{
@@ -30,75 +25,6 @@ use crate::{
         error::ExpectedStates,
     },
 };
-
-const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
-const JOBS_TABLE_NAME: &str = "jobs";
-
-#[must_use]
-const fn resource_groups_creation_query() -> &'static str {
-    formatcp!(
-        r"
-CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
-  `external_id` VARCHAR(256) NOT NULL,
-  `password` VARCHAR(2048) NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE INDEX `external_resource_group_id` (`external_id`)
-);"
-    )
-}
-
-#[must_use]
-const fn jobs_creation_query() -> &'static str {
-    formatcp!(
-        r"
-CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
-  `resource_group_id` UUID NOT NULL,
-  `state` {state_enum} NOT NULL DEFAULT {default_state},
-  `serialized_task_graph` LONGTEXT NOT NULL,
-  `serialized_job_inputs` LONGTEXT NOT NULL,
-  `serialized_job_outputs` LONGTEXT,
-  `error_message` LONGTEXT,
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `ended_at` TIMESTAMP,
-  `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
-  `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
-    REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
-    ON UPDATE RESTRICT ON DELETE RESTRICT
-);",
-        state_enum = JobState::as_mysql_enum_decl(),
-        default_state = JobState::Ready.as_quoted_str(),
-    )
-}
-
-fn job_id_from_bytes(bytes: &[u8]) -> Result<JobId, DbError> {
-    Uuid::from_slice(bytes)
-        .map(JobId::from_uuid)
-        .map_err(|e| DbError::CorruptedDbState(format!("invalid job UUID from database: {e}")))
-}
-
-fn resource_group_id_from_bytes(bytes: &[u8]) -> Result<ResourceGroupId, DbError> {
-    Uuid::from_slice(bytes)
-        .map(ResourceGroupId::from_uuid)
-        .map_err(|e| {
-            DbError::CorruptedDbState(format!("invalid resource group UUID from database: {e}"))
-        })
-}
-
-fn validate_resource_group_access(
-    rg_id_bytes: &[u8],
-    expected: ResourceGroupId,
-) -> Result<(), DbError> {
-    let actual = resource_group_id_from_bytes(rg_id_bytes)?;
-    if actual != expected {
-        return Err(DbError::InvalidAccess(expected));
-    }
-    Ok(())
-}
 
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
@@ -137,31 +63,6 @@ impl MariaDbStorageConnector {
         let connector = Self { pool };
         connector.initialize().await?;
         Ok(connector)
-    }
-
-    /// Initializes the database by creating necessary tables if they do not exist.
-    ///
-    /// # NOTE
-    ///
-    /// `MariaDB` does not support transactions for DDL statements. All DDL statements are
-    /// automatically committed. Thus, this function executes each table creation query separately,
-    /// and does not provide atomicity guarantees.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards a [`sqlx::query::Query::execute`]'s return values on failure.
-    async fn initialize(&self) -> Result<(), DbError> {
-        sqlx::query(resource_groups_creation_query())
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query(jobs_creation_query())
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
     }
 }
 
@@ -236,7 +137,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Ready {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates::new(JobState::Ready, vec![]),
+                expected: ExpectedStates(vec![JobState::Ready]),
             });
         }
 
@@ -353,7 +254,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates::new(JobState::Succeeded, vec![]),
+                expected: ExpectedStates(vec![JobState::Succeeded]),
             });
         }
 
@@ -392,7 +293,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates::new(JobState::Failed, vec![]),
+                expected: ExpectedStates(vec![JobState::Failed]),
             });
         }
 
@@ -748,3 +649,104 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 }
 
 impl DbStorage for MariaDbStorageConnector {}
+
+/// `MySQL` error number for foreign key constraint violation.
+const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
+/// `MySQL` error number for duplicate entry.
+const MYSQL_ER_DUP_ENTRY: u16 = 1062;
+
+const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
+const JOBS_TABLE_NAME: &str = "jobs";
+
+#[must_use]
+const fn resource_groups_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `external_id` VARCHAR(256) NOT NULL,
+  `password` VARCHAR(2048) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `external_resource_group_id` (`external_id`)
+);"
+    )
+}
+
+#[must_use]
+const fn jobs_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `resource_group_id` UUID NOT NULL,
+  `state` {state_enum} NOT NULL DEFAULT {default_state},
+  `serialized_task_graph` LONGTEXT NOT NULL,
+  `serialized_job_inputs` LONGTEXT NOT NULL,
+  `serialized_job_outputs` LONGTEXT,
+  `error_message` LONGTEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `ended_at` TIMESTAMP,
+  `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+  `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
+    REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);",
+        state_enum = JobState::as_mysql_enum_decl(),
+        default_state = JobState::Ready.as_quoted_str(),
+    )
+}
+
+fn job_id_from_bytes(bytes: &[u8]) -> Result<JobId, DbError> {
+    Uuid::from_slice(bytes)
+        .map(JobId::from)
+        .map_err(|e| DbError::CorruptedDbState(format!("invalid job UUID from database: {e}")))
+}
+
+fn resource_group_id_from_bytes(bytes: &[u8]) -> Result<ResourceGroupId, DbError> {
+    Uuid::from_slice(bytes)
+        .map(ResourceGroupId::from)
+        .map_err(|e| {
+            DbError::CorruptedDbState(format!("invalid resource group UUID from database: {e}"))
+        })
+}
+
+fn validate_resource_group_access(
+    rg_id_bytes: &[u8],
+    expected: ResourceGroupId,
+) -> Result<(), DbError> {
+    let actual = resource_group_id_from_bytes(rg_id_bytes)?;
+    if actual != expected {
+        return Err(DbError::InvalidAccess(expected));
+    }
+    Ok(())
+}
+
+impl MariaDbStorageConnector {
+    /// Initializes the database by creating necessary tables if they do not exist.
+    ///
+    /// # NOTE
+    ///
+    /// `MariaDB` does not support transactions for DDL statements. All DDL statements are
+    /// automatically committed. Thus, this function executes each table creation query separately,
+    /// and does not provide atomicity guarantees.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards a [`sqlx::query::Query::execute`]'s return values on failure.
+    async fn initialize(&self) -> Result<(), DbError> {
+        sqlx::query(resource_groups_creation_query())
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query(jobs_creation_query())
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+}

@@ -4,9 +4,7 @@ use spider_derive::MySqlEnum;
 pub struct Job {}
 
 /// Enum for all possible states of a job.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display, strum_macros::EnumIter, MySqlEnum,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display, MySqlEnum)]
 pub enum JobState {
     Ready,
     Running,
