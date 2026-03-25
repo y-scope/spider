@@ -4,20 +4,26 @@ use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
-    job::JobState,
+    job::{CancelTarget, CommitTarget, JobState},
     task::TaskGraph,
     types::{
         id::{JobId, ResourceGroupId},
         io::{TaskInput, TaskOutput},
     },
 };
-use sqlx::{MySqlPool, Row};
+use sqlx::{mysql::MySqlDatabaseError, MySqlPool, Row};
 use uuid::Uuid;
+
+/// `MySQL` error number for foreign key constraint violation.
+const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
+/// `MySQL` error number for duplicate entry.
+const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 use crate::{
     config::DatabaseConfig,
     db::{
         DbError,
+        DbStorage,
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
@@ -71,13 +77,13 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 
 fn job_id_from_bytes(bytes: &[u8]) -> Result<JobId, DbError> {
     Uuid::from_slice(bytes)
-        .map(JobId::from)
+        .map(JobId::from_uuid)
         .map_err(|e| DbError::CorruptedDbState(format!("invalid job UUID from database: {e}")))
 }
 
 fn resource_group_id_from_bytes(bytes: &[u8]) -> Result<ResourceGroupId, DbError> {
     Uuid::from_slice(bytes)
-        .map(ResourceGroupId::from)
+        .map(ResourceGroupId::from_uuid)
         .map_err(|e| {
             DbError::CorruptedDbState(format!("invalid resource group UUID from database: {e}"))
         })
@@ -191,7 +197,10 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                 let id_bytes: Vec<u8> = row.get(0);
                 job_id_from_bytes(&id_bytes)
             }
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => {
+            Err(sqlx::Error::Database(e))
+                if e.try_downcast_ref::<MySqlDatabaseError>()
+                    .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_FK_CONSTRAINT) =>
+            {
                 Err(DbError::ResourceGroupNotFound(resource_group_id))
             }
             Err(e) => Err(e.into()),
@@ -227,7 +236,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Ready {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates(vec![JobState::Ready]),
+                expected: ExpectedStates::new(JobState::Ready, vec![]),
             });
         }
 
@@ -245,7 +254,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         &self,
         resource_group_id: ResourceGroupId,
         job_id: JobId,
-        new_state: JobState,
+        target: CancelTarget,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
@@ -261,6 +270,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
+        let new_state = target.into_job_state();
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
@@ -272,15 +282,10 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         let (state, rg_id_bytes) = row.ok_or(DbError::JobNotFound(job_id))?;
         validate_resource_group_access(&rg_id_bytes, resource_group_id)?;
 
-        if state.is_terminal() {
-            return Err(DbError::UnexpectedJobState {
-                current: state,
-                expected: ExpectedStates(vec![
-                    JobState::Ready,
-                    JobState::Running,
-                    JobState::CommitReady,
-                    JobState::CleanupReady,
-                ]),
+        if !JobState::is_valid_transition(state, new_state) {
+            return Err(DbError::InvalidJobStateTransition {
+                from: state,
+                to: new_state,
             });
         }
 
@@ -348,7 +353,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates(vec![JobState::Succeeded]),
+                expected: ExpectedStates::new(JobState::Succeeded, vec![]),
             });
         }
 
@@ -387,7 +392,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
                 current: state,
-                expected: ExpectedStates(vec![JobState::Failed]),
+                expected: ExpectedStates::new(JobState::Failed, vec![]),
             });
         }
 
@@ -412,6 +417,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
+        const UPDATE_TERMINAL_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
 
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
@@ -430,11 +439,19 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        sqlx::query(UPDATE_QUERY)
-            .bind(state)
-            .bind(job_id_bytes.as_slice())
-            .execute(&mut *tx)
-            .await?;
+        if state.is_terminal() {
+            sqlx::query(UPDATE_TERMINAL_QUERY)
+                .bind(state)
+                .bind(job_id_bytes.as_slice())
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query(UPDATE_QUERY)
+                .bind(state)
+                .bind(job_id_bytes.as_slice())
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
         Ok(())
@@ -444,7 +461,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
-        new_state: JobState,
+        target: CommitTarget,
     ) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
@@ -460,6 +477,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
+        let new_state = target.into_job_state();
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
@@ -470,7 +488,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
         let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
-        if current_state != JobState::Running {
+        if !JobState::is_valid_transition(current_state, new_state) {
             return Err(DbError::InvalidJobStateTransition {
                 from: current_state,
                 to: new_state,
@@ -499,7 +517,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         Ok(())
     }
 
-    async fn cancel(&self, job_id: JobId, new_state: JobState) -> Result<(), DbError> {
+    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
             table = JOBS_TABLE_NAME,
@@ -513,6 +531,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
+        let new_state = target.into_job_state();
         let job_id_bytes = *job_id.as_bytes();
         let mut tx = self.pool.begin().await?;
 
@@ -523,7 +542,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
         let (current_state,) = row.ok_or(DbError::JobNotFound(job_id))?;
 
-        if current_state.is_terminal() {
+        if !JobState::is_valid_transition(current_state, new_state) {
             return Err(DbError::InvalidJobStateTransition {
                 from: current_state,
                 to: new_state,
@@ -593,12 +612,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND;",
-            table = JOBS_TABLE_NAME,
-        );
-        const DELETE_QUERY: &str = formatcp!(
-            "DELETE FROM `{table}` WHERE `state` IN ('Succeeded','Failed','Cancelled') AND \
-             `ended_at` < NOW() - INTERVAL ? SECOND;",
+             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND \
+             FOR UPDATE;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -616,10 +631,17 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         }
 
         if !job_ids.is_empty() {
-            sqlx::query(DELETE_QUERY)
-                .bind(timeout_secs)
-                .execute(&mut *tx)
-                .await?;
+            let placeholders = std::iter::repeat_n("?", job_ids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let delete_query =
+                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
+
+            let mut query = sqlx::query(&delete_query);
+            for job_id in &job_ids {
+                query = query.bind(job_id.as_bytes().as_slice());
+            }
+            query.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -651,9 +673,14 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
                 let id_bytes: Vec<u8> = row.get(0);
                 resource_group_id_from_bytes(&id_bytes)
             }
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23000") => Err(
-                DbError::ResourceGroupAlreadyExists(external_resource_group_id),
-            ),
+            Err(sqlx::Error::Database(e))
+                if e.try_downcast_ref::<MySqlDatabaseError>()
+                    .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
+            {
+                Err(DbError::ResourceGroupAlreadyExists(
+                    external_resource_group_id,
+                ))
+            }
             Err(e) => Err(e.into()),
         }
     }
@@ -675,13 +702,20 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 
         match row {
             None => Err(DbError::ResourceGroupNotFound(resource_group_id)),
-            Some((stored_password,)) if stored_password != password => {
-                Err(DbError::InvalidPassword(resource_group_id))
+            Some((stored_password,)) => {
+                use subtle::ConstantTimeEq;
+                if stored_password.as_bytes().ct_eq(password.as_bytes()).into() {
+                    Ok(())
+                } else {
+                    Err(DbError::InvalidPassword(resource_group_id))
+                }
             }
-            Some(_) => Ok(()),
         }
     }
 
+    /// Force-deletes the resource group and **all** its jobs, including those in non-terminal
+    /// states (e.g. `Running`, `CommitReady`, `CleanupReady`). The caller is responsible for
+    /// ensuring that no jobs are actively being processed before calling this method.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError> {
         const DELETE_JOBS_QUERY: &str = formatcp!(
             "DELETE FROM `{table}` WHERE `resource_group_id` = ?;",
@@ -712,3 +746,5 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         Ok(())
     }
 }
+
+impl DbStorage for MariaDbStorageConnector {}

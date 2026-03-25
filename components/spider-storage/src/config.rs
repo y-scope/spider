@@ -1,6 +1,7 @@
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
+/// Configuration parameters for connecting to the database.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DatabaseConfig {
     pub host: String,

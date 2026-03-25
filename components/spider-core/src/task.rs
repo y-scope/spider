@@ -30,13 +30,28 @@ pub enum Error {
 }
 
 /// Enum for all possible states of a task.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TaskState {
-    PENDING,
+    Pending,
     Ready,
     Running,
     Succeeded,
     Failed(String),
     Cancelled,
+}
+
+impl TaskState {
+    /// # Returns
+    ///
+    /// Whether the state is a terminal state. Terminal states include:
+    ///
+    /// * [`TaskState::Succeeded`]
+    /// * [`TaskState::Failed`]
+    /// * [`TaskState::Cancelled`]
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
+        matches!(self, Self::Succeeded | Self::Failed(..) | Self::Cancelled)
+    }
 }
 
 /// Represents metadata associated with a task.

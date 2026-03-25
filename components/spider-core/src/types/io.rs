@@ -1,13 +1,24 @@
-/// Represents a value object.
-pub struct Value {}
+use serde::{Deserialize, Serialize};
 
-/// Represents a data object.
-pub struct Data {}
+use crate::{
+    task::{TdlContext, TimeoutPolicy},
+    types::id::TaskInstanceId,
+};
 
 /// Represents an input of a task.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct TaskInput {}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum TaskInput {
+    ValuePayload(Vec<u8>),
+}
 
 /// Represents an output of a task.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct TaskOutput {}
+pub type TaskOutput = Vec<u8>;
+
+/// The execution context for a task instance.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecutionContext {
+    pub task_instance_id: TaskInstanceId,
+    pub tdl_context: TdlContext,
+    pub timeout_policy: TimeoutPolicy,
+    pub inputs: Vec<TaskInput>,
+}

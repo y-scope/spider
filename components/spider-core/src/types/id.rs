@@ -32,7 +32,7 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     }
 
     #[must_use]
-    pub const fn from(uid: Uuid) -> Self {
+    pub const fn from_uuid(uid: Uuid) -> Self {
         Self(uid, PhantomData)
     }
 
@@ -51,7 +51,7 @@ impl<TypeMarker: Debug + PartialEq + Eq> FromStr for Id<TypeMarker> {
     type Err = uuid::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Uuid::parse_str(s).map(Self::from)
+        Uuid::parse_str(s).map(Self::from_uuid)
     }
 }
 
@@ -79,9 +79,7 @@ pub type WorkerId = Id<WorkerIdMarker>;
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TaskInstanceIdMarker {}
-pub type TaskInstanceId = Id<TaskInstanceIdMarker>;
+pub type TaskInstanceId = u64;
 
 /// Represents a signed ID.
 ///
@@ -135,8 +133,6 @@ pub type SignedJobId = SignedId<JobIdMarker>;
 
 pub type SignedTaskId = SignedId<TaskIdMarker>;
 
-pub type SignedTaskInstanceId = SignedId<TaskInstanceIdMarker>;
-
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
@@ -147,7 +143,7 @@ mod tests {
     fn test_id_basic() {
         let id = TaskId::new();
         let underlying_uuid = id.as_uuid_ref().to_owned();
-        assert_eq!(id, TaskId::from(underlying_uuid));
+        assert_eq!(id, TaskId::from_uuid(underlying_uuid));
 
         assert_ne!(TypeId::of::<TaskId>(), TypeId::of::<JobId>());
     }
