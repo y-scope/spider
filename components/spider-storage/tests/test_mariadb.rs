@@ -43,9 +43,9 @@ async fn setup() -> MariaDbStorageConnector {
         password: SecretString::from(password),
         max_connections: 5,
     };
-    MariaDbStorageConnector::connect_and_initialize(&config)
+    MariaDbStorageConnector::connect(&config)
         .await
-        .expect("connect_and_initialize failed")
+        .expect("connect failed")
 }
 
 async fn create_test_resource_group(storage: &MariaDbStorageConnector) -> ResourceGroupId {
