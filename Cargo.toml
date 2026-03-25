@@ -2,5 +2,6 @@
 resolver = "3"
 members = [
   "components/spider-core",
+  "components/spider-derive",
   "components/spider-storage",
 ]
