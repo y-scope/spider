@@ -836,6 +836,16 @@ impl TaskGraph {
         }
         Ok(())
     }
+
+    #[must_use]
+    pub const fn get_commit_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.commit_task.as_ref()
+    }
+
+    #[must_use]
+    pub const fn get_cleanup_task_descriptor(&self) -> Option<&TerminationTaskDescriptor> {
+        self.cleanup_task.as_ref()
+    }
 }
 
 impl Serialize for TaskGraph {
