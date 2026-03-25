@@ -184,10 +184,10 @@ impl SharedTaskControlBlock {
     /// Returns an error if:
     ///
     /// * [`InternalError::TaskGraphCorrupted`] if:
-    ///   * Attempts to mark a parent of a child task as completed, but the child task's unfinished
-    ///     parent counter is already 0.
-    ///   * Attempt to update a child task after parent completion, but the child task is already in
-    ///     a terminal state.
+    ///   * Attempting to mark a parent of a child task as completed, but the child task's
+    ///     unfinished parent counter is already 0.
+    ///   * Attempting to update a child task after parent completion, but the child task is already
+    ///     in a terminal state.
     /// * Forwards [`TaskControlBlockBase::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`TaskControlBlock::write_outputs`]'s return values on failure.
     pub async fn succeed_task_instance(
