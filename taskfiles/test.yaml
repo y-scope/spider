@@ -74,7 +74,7 @@ tasks:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
 
-  # A generic wrapper that runs the given task with a wolf MariaDB storage backend.
+  # A generic wrapper that runs the given task with a MariaDB storage backend for Spider Wolf.
   #
   # @param {string} STORAGE_TASK The task to execute. The task must accept no parameters other than
   # `SPIDER_STORAGE_URL`, which is set to the MariaDB instance URL.
