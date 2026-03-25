@@ -190,11 +190,11 @@ async fn test_get_outputs_succeeded_job() {
         .await
         .expect("start should succeed");
 
-    let outputs = vec![vec![]];
+    let outputs = vec![vec![1, 2, 3]];
     InternalJobOrchestration::commit_outputs(
         &storage,
         copy_job(&job_id),
-        outputs,
+        outputs.clone(),
         CommitTarget::Succeeded,
     )
     .await
@@ -204,7 +204,7 @@ async fn test_get_outputs_succeeded_job() {
         .get_outputs(rg_id, job_id)
         .await
         .expect("get_outputs should succeed");
-    assert_eq!(retrieved.len(), 1);
+    assert_eq!(retrieved, outputs);
 }
 
 #[tokio::test]
@@ -335,8 +335,8 @@ async fn test_cancel_already_terminal() {
     )
     .await;
     assert!(
-        matches!(result, Err(DbError::UnexpectedJobState { .. })),
-        "expected UnexpectedJobState, got {result:?}"
+        matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
+        "expected InvalidJobStateTransition, got {result:?}"
     );
 }
 
@@ -734,7 +734,16 @@ async fn test_delete_resource_group() {
     let storage = setup().await;
     let rg_id = create_test_resource_group(&storage).await;
 
-    storage.delete(rg_id).await.expect("delete should succeed");
+    storage
+        .delete(copy_rg(&rg_id))
+        .await
+        .expect("delete should succeed");
+
+    let result = storage.verify(rg_id, "test-password".to_string()).await;
+    assert!(
+        matches!(result, Err(DbError::ResourceGroupNotFound(_))),
+        "expected ResourceGroupNotFound after delete, got {result:?}"
+    );
 }
 
 #[tokio::test]
@@ -764,5 +773,56 @@ async fn test_delete_nonexistent_resource_group() {
     assert!(
         matches!(result, Err(DbError::ResourceGroupNotFound(_))),
         "expected ResourceGroupNotFound, got {result:?}"
+    );
+}
+
+// ─── InvalidAccess (cross-tenant rejection) ─────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_get_state_invalid_access() {
+    let storage = setup().await;
+    let rg_a = create_test_resource_group(&storage).await;
+    let rg_b = create_test_resource_group(&storage).await;
+
+    let job_id = storage
+        .register(copy_rg(&rg_a), Arc::new(minimal_task_graph()), vec![])
+        .await
+        .expect("register should succeed");
+
+    let result = storage.get_state(rg_b, job_id).await;
+    assert!(
+        matches!(result, Err(DbError::InvalidAccess(_))),
+        "expected InvalidAccess, got {result:?}"
+    );
+}
+
+// ─── JobNotFound ─────────────────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_start_job_not_found() {
+    let storage = setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let fake_job_id = JobId::new();
+
+    let result = storage.start(rg_id, fake_job_id).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_set_state_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result =
+        InternalJobOrchestration::set_state(&storage, fake_job_id, JobState::Running).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
     );
 }
