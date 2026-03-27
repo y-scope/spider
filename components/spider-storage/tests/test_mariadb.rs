@@ -69,7 +69,7 @@ async fn test_register_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -87,7 +87,7 @@ async fn test_register_job_invalid_resource_group() {
     let fake_rg_id = ResourceGroupId::new();
 
     let result = storage
-        .register(fake_rg_id, Arc::new(minimal_task_graph()), vec![])
+        .register(fake_rg_id, Arc::new(minimal_task_graph()), vec![].as_slice())
         .await;
 
     assert!(
@@ -103,7 +103,7 @@ async fn test_start_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -126,7 +126,7 @@ async fn test_start_job_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -149,7 +149,7 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -181,7 +181,7 @@ async fn test_get_outputs_succeeded_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -214,7 +214,7 @@ async fn test_get_outputs_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -232,7 +232,7 @@ async fn test_get_error_failed_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -259,7 +259,7 @@ async fn test_get_error_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -277,7 +277,7 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -309,7 +309,7 @@ async fn test_cancel_already_terminal() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -349,7 +349,7 @@ async fn test_set_state_valid_transition() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -371,7 +371,7 @@ async fn test_set_state_invalid_transition() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -391,7 +391,7 @@ async fn test_commit_outputs_without_commit_task() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -423,7 +423,7 @@ async fn test_commit_outputs_with_commit_task() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -455,7 +455,7 @@ async fn test_commit_outputs_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -480,7 +480,7 @@ async fn test_internal_cancel_without_cleanup() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -507,7 +507,7 @@ async fn test_internal_cancel_with_cleanup() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -533,7 +533,7 @@ async fn test_internal_cancel_terminal_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -568,7 +568,7 @@ async fn test_fail_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -595,7 +595,7 @@ async fn test_fail_terminal_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -624,7 +624,7 @@ async fn test_delete_expired_terminated_jobs() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -753,7 +753,7 @@ async fn test_delete_resource_group_with_jobs() {
     let rg_id = create_test_resource_group(&storage).await;
 
     storage
-        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_id), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -786,7 +786,7 @@ async fn test_get_state_invalid_access() {
     let rg_b = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(copy_rg(&rg_a), Arc::new(minimal_task_graph()), vec![])
+        .register(copy_rg(&rg_a), Arc::new(minimal_task_graph()), vec![].as_slice())
         .await
         .expect("register should succeed");
 
