@@ -1,5 +1,4 @@
-use spider_core::job::JobState;
-use spider_core::task::TaskState;
+use spider_core::{job::JobState, task::TaskState};
 
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
@@ -49,7 +48,7 @@ pub enum InternalError {
     UnexpectedJobState {
         current: JobState,
         expected: JobState,
-    }
+    },
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
