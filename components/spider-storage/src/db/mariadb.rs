@@ -84,7 +84,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: Arc<TaskGraph>,
-        job_inputs: Vec<TaskInput>,
+        job_inputs: &[TaskInput],
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
