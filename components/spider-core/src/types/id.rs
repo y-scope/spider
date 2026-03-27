@@ -42,10 +42,12 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     }
 
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 16] {
+    pub const fn as_bytes(&self) -> &UuidBytes {
         self.0.as_bytes()
     }
 }
+
+pub type UuidBytes = uuid::Bytes;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResourceGroupIdMarker {}
