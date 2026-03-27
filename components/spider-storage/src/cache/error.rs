@@ -1,3 +1,4 @@
+use spider_core::job::JobState;
 use spider_core::task::TaskState;
 
 /// Enums for all possible errors that can occur in a cache operation.
@@ -40,6 +41,15 @@ pub enum InternalError {
 
     #[error("task graph input size mismatch: expected {0}, got {1}")]
     TaskGraphInputsSizeMismatch(usize, usize),
+
+    #[error("job not started")]
+    JobNotStarted,
+
+    #[error("unexpected job state: current {current}, expected {expected}")]
+    UnexpectedJobState {
+        current: JobState,
+        expected: JobState,
+    }
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
@@ -60,4 +70,16 @@ pub enum StaleStateError {
 
     #[error("the task instance ID is not valid")]
     InvalidTaskInstanceId,
+
+    #[error("job no longer running")]
+    JobNoLongerRunning,
+
+    #[error("job no longer in the commit-ready state")]
+    JobNoLongerCommitReady,
+
+    #[error("job no longer in the cleanup-ready state")]
+    JobNoLongerCleanupReady,
+
+    #[error("job already terminated")]
+    JobAlreadyTerminated(JobState),
 }
