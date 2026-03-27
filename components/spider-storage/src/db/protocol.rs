@@ -55,7 +55,7 @@ pub trait ExternalJobOrchestration {
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: Arc<TaskGraph>,
-        job_inputs: Vec<TaskInput>,
+        job_inputs: &[TaskInput],
     ) -> Result<JobId, DbError>;
 
     /// Starts a job.
