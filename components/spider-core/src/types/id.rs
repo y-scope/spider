@@ -1,6 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
+use sqlx::{Database, encode::IsNull};
 use uuid::Uuid;
 
 /// A generic identifier type that wraps a UUID and a type marker.
@@ -47,29 +48,69 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     }
 }
 
+impl<TypeMarker, DB> sqlx::Type<DB> for Id<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+    DB: Database,
+    Uuid: sqlx::Type<DB>,
+{
+    fn type_info() -> <DB as Database>::TypeInfo {
+        <Uuid as sqlx::Type<DB>>::type_info()
+    }
+
+    fn compatible(ty: &<DB as Database>::TypeInfo) -> bool {
+        <Uuid as sqlx::Type<DB>>::compatible(ty)
+    }
+}
+
+impl<'q, TypeMarker, DB> sqlx::Encode<'q, DB> for Id<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+    DB: Database,
+    Uuid: sqlx::Encode<'q, DB>,
+{
+    fn encode_by_ref(
+        &self,
+        buf: &mut <DB as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, sqlx::error::BoxDynError> {
+        self.0.encode_by_ref(buf)
+    }
+}
+
+impl<'r, TypeMarker, DB> sqlx::Decode<'r, DB> for Id<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+    DB: Database,
+    Uuid: sqlx::Decode<'r, DB>,
+{
+    fn decode(value: <DB as Database>::ValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        Uuid::decode(value).map(|uuid| Self(uuid, PhantomData))
+    }
+}
+
 pub type UuidBytes = uuid::Bytes;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceGroupIdMarker {}
 pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskIdMarker {}
 pub type TaskId = Id<TaskIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobIdMarker {}
 pub type JobId = Id<JobIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataIdMarker {}
 pub type DataId = Id<DataIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerIdMarker {}
 pub type WorkerId = Id<WorkerIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 
