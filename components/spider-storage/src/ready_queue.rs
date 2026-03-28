@@ -7,7 +7,7 @@ use crate::cache::error::InternalError;
 ///
 /// This trait is invoked by the cache layer to enqueue tasks that are ready for scheduling.
 #[async_trait]
-pub trait ReadyQueueConnector: Clone + Send + Sync {
+pub trait ReadyQueueSender: Clone + Send + Sync {
     /// Enqueues a batch of tasks for the specified job which are ready to be scheduled.
     ///
     /// # Parameters

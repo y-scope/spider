@@ -8,6 +8,9 @@ pub enum CacheError {
 
     #[error(transparent)]
     StaleState(#[from] StaleStateError),
+
+    #[error(transparent)]
+    Db(#[from] crate::db::DbError),
 }
 
 /// Enums for all internal errors.
@@ -49,6 +52,18 @@ pub enum InternalError {
         current: JobState,
         expected: JobState,
     },
+
+    #[error("task index out of bound")]
+    TaskIndexOutOfBound,
+
+    #[error("job has no commit task")]
+    UndefinedCommitTask,
+
+    #[error("job has no cleanup task")]
+    UndefinedCleanupTask,
+
+    #[error("job terminated unexpectedly")]
+    UnexpectedJobTermination,
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

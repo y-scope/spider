@@ -42,27 +42,27 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceGroupIdMarker {}
 pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskIdMarker {}
 pub type TaskId = Id<TaskIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobIdMarker {}
 pub type JobId = Id<JobIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataIdMarker {}
 pub type DataId = Id<DataIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerIdMarker {}
 pub type WorkerId = Id<WorkerIdMarker>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 

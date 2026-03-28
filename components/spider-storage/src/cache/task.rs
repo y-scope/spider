@@ -163,6 +163,16 @@ impl TaskGraph {
     pub const fn get_outputs(&self) -> &Vec<OutputReader> {
         &self.outputs
     }
+
+    #[must_use]
+    pub const fn has_commit_task(&self) -> bool {
+        self.commit_task.is_some()
+    }
+
+    #[must_use]
+    pub const fn has_cleanup_task(&self) -> bool {
+        self.cleanup_task.is_some()
+    }
 }
 
 /// A shareable control block for a task in the task graph, defining thread-safe operations to

@@ -43,6 +43,7 @@ impl JobState {
         }
     }
 
+    #[must_use]
     pub const fn is_running(&self) -> bool {
         matches!(self, Self::Running)
     }
