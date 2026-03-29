@@ -26,6 +26,9 @@ use crate::{
 
 /// A shareable control block for a job.
 ///
+/// All mutable state, including the task graph, connectors, and queue sender, is held inside the
+/// underlying [`JobExecutionState`] and protected by [`JobExecutionStateHandle`]'s read-write lock.
+///
 /// # Type Parameters
 ///
 /// * `ReadyQueueSenderType` - The type of the ready queue sender.
@@ -74,22 +77,25 @@ impl<
         task_id: TaskId,
     ) -> Result<ExecutionContext, CacheError> {
         let jcb = &self.inner;
-        let execution_context = match task_id {
+        match task_id {
             TaskId::Index(task_index) => {
                 let job = jcb.job_execution_state.read_running().await?;
                 let tcb = job
                     .task_graph
                     .get_task_control_block(task_index)
                     .ok_or(InternalError::TaskIndexOutOfBound)?;
-                drop(job);
-                let task_instance_id = jcb
+                let task_instance_id = job
                     .task_instance_pool_connector
                     .get_next_available_task_instance_id();
                 let execution_context = tcb.register_task_instance(task_instance_id).await?;
-                jcb.task_instance_pool_connector
+                job.task_instance_pool_connector
                     .register_task_instance(task_instance_id, tcb)
                     .await?;
-                execution_context
+
+                // The lock is intentionally held until just before return so all TCB accesses
+                // observe a consistent state within the lock's scope.
+                drop(job);
+                Ok(execution_context)
             }
 
             TaskId::Commit => {
@@ -98,21 +104,24 @@ impl<
                     .task_graph
                     .get_commit_task_control_block()
                     .ok_or(InternalError::UndefinedCommitTask)?;
-                drop(job);
-                let task_instance_id = jcb
+                let task_instance_id = job
                     .task_instance_pool_connector
                     .get_next_available_task_instance_id();
                 let (tdl_context, timeout_policy) =
                     commit_tcb.register_task_instance(task_instance_id).await?;
-                jcb.task_instance_pool_connector
+                job.task_instance_pool_connector
                     .register_termination_task_instance(task_instance_id, commit_tcb)
                     .await?;
-                ExecutionContext {
+
+                // The lock is intentionally held until just before return so all TCB accesses
+                // observe a consistent state within the lock's scope.
+                drop(job);
+                Ok(ExecutionContext {
                     task_instance_id,
                     tdl_context,
                     timeout_policy,
                     inputs: Vec::new(),
-                }
+                })
             }
 
             TaskId::Cleanup => {
@@ -121,25 +130,26 @@ impl<
                     .task_graph
                     .get_cleanup_task_control_block()
                     .ok_or(InternalError::UndefinedCleanupTask)?;
-                drop(job);
-                let task_instance_id = jcb
+                let task_instance_id = job
                     .task_instance_pool_connector
                     .get_next_available_task_instance_id();
                 let (tdl_context, timeout_policy) =
                     cleanup_tcb.register_task_instance(task_instance_id).await?;
-                jcb.task_instance_pool_connector
+                job.task_instance_pool_connector
                     .register_termination_task_instance(task_instance_id, cleanup_tcb)
                     .await?;
-                ExecutionContext {
+
+                // The lock is intentionally held until just before return so all TCB accesses
+                // observe a consistent state within the lock's scope.
+                drop(job);
+                Ok(ExecutionContext {
                     task_instance_id,
                     tdl_context,
                     timeout_policy,
                     inputs: Vec::new(),
-                }
+                })
             }
-        };
-
-        Ok(execution_context)
+        }
     }
 
     /// Marks the task instance as succeeded.
@@ -160,10 +170,13 @@ impl<
     /// * [`InternalError::UndefinedCommitTask`] if the job should transition to commit-ready but
     ///   has no commit task.
     /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    /// * Forwards [`JobExecutionStateHandle::write_running`]'s return values on failure.
     /// * Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::commit_outputs`]'s return values on failure.
+    /// * Forwards [`OutputReader::read_as_task_output`]'s return values on failure.
+    /// * Forwards [`InternalJobOrchestration::commit_outputs`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
@@ -190,7 +203,7 @@ impl<
                 )
                 .into());
             }
-            jcb.ready_queue_sender
+            job.ready_queue_sender
                 .send_task_ready(jcb.id, ready_task_indices)
                 .await?;
             return Ok(job.state);
@@ -200,14 +213,28 @@ impl<
             return Ok(job.state);
         }
 
+        // Release the read lock prior to acquiring a write lock for committing job outputs.
         drop(job);
-        let job_state = self.commit_outputs().await?;
-        match job_state {
+        let mut job = jcb.job_execution_state.write_running().await?;
+        let mut job_outputs = Vec::new();
+        for output_reader in job.task_graph.get_outputs() {
+            let payload = output_reader
+                .read()
+                .await
+                .as_ref()
+                .ok_or(InternalError::TaskInputNotReady)?
+                .clone();
+            job_outputs.push(payload);
+        }
+
+        job.state = job.db_connector.commit_outputs(jcb.id, job_outputs).await?;
+
+        match job.state {
             JobState::CommitReady => {
-                if !jcb.job_execution_state.has_commit_task().await {
+                if !job.task_graph.has_commit_task() {
                     return Err(InternalError::UndefinedCommitTask.into());
                 }
-                jcb.ready_queue_sender.send_commit_ready(jcb.id).await?;
+                job.ready_queue_sender.send_commit_ready(jcb.id).await?;
             }
             JobState::Succeeded => {}
             other => unreachable!(
@@ -215,7 +242,7 @@ impl<
                 other
             ),
         }
-        Ok(job_state)
+        Ok(job.state)
     }
 
     /// Marks the commit task instance as succeeded and transitions the job to
@@ -245,7 +272,7 @@ impl<
             .ok_or(InternalError::UndefinedCommitTask)?
             .succeed_task_instance(task_instance_id)
             .await?;
-        jcb.db_connector
+        job.db_connector
             .set_state(jcb.id, JobState::Succeeded)
             .await?;
         job.state = JobState::Succeeded;
@@ -280,7 +307,7 @@ impl<
             .ok_or(InternalError::UndefinedCleanupTask)?
             .succeed_task_instance(task_instance_id)
             .await?;
-        jcb.db_connector
+        job.db_connector
             .set_state(jcb.id, JobState::Cancelled)
             .await?;
         job.state = JobState::Cancelled;
@@ -333,7 +360,7 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    jcb.ready_queue_sender
+                    job.ready_queue_sender
                         .send_task_ready(jcb.id, vec![task_index])
                         .await?;
                     return Ok(job.state);
@@ -348,7 +375,7 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    jcb.ready_queue_sender.send_commit_ready(jcb.id).await?;
+                    job.ready_queue_sender.send_commit_ready(jcb.id).await?;
                     return Ok(job.state);
                 }
             }
@@ -361,7 +388,7 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    jcb.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
+                    job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
                     return Ok(job.state);
                 }
             }
@@ -380,52 +407,18 @@ impl<
                 }
                 _ => InternalError::UnexpectedJobTermination.into(),
             })?;
-        jcb.db_connector.fail(jcb.id, error_message).await?;
+        job.db_connector.fail(jcb.id, error_message).await?;
         job.state = JobState::Failed;
         drop(job);
         Ok(JobState::Failed)
     }
-
-    /// Commits the job outputs to the database.
-    ///
-    /// Collects all task graph outputs and persists them via the DB connector.
-    ///
-    /// # Returns
-    ///
-    /// The new [`JobState`] after committing on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`JobExecutionStateHandle::write_running`]'s return values on failure.
-    /// * Forwards [`OutputReader::read_as_task_output`]'s return values on failure.
-    /// * Forwards [`InternalJobOrchestration::commit_outputs`]'s return values on failure.
-    async fn commit_outputs(&self) -> Result<JobState, CacheError> {
-        let mut job = self.inner.job_execution_state.write_running().await?;
-        let mut job_outputs = Vec::new();
-        for output_reader in job.task_graph.get_outputs() {
-            let payload = output_reader
-                .read()
-                .await
-                .as_ref()
-                .ok_or(InternalError::TaskInputNotReady)?
-                .clone();
-            job_outputs.push(payload);
-        }
-
-        let job_state = self
-            .inner
-            .db_connector
-            .commit_outputs(self.inner.id, job_outputs)
-            .await?;
-        job.state = job_state;
-        drop(job);
-        Ok(job_state)
-    }
 }
 
 /// The control block for a job.
+///
+/// This struct holds the immutable identity of a job and a handle to its execution state. All
+/// mutable state and connectors live inside [`JobExecutionState`] and are protected by the
+/// read-write lock in [`JobExecutionStateHandle`].
 ///
 /// # Type Parameters
 ///
@@ -439,33 +432,38 @@ struct JobControlBlock<
 > {
     id: JobId,
     _owner_id: ResourceGroupId,
-    job_execution_state: JobExecutionStateHandle,
-    ready_queue_sender: ReadyQueueSenderType,
-    db_connector: DbConnectorType,
-    task_instance_pool_connector: TaskInstancePoolConnectorType,
+    job_execution_state: JobExecutionStateHandle<
+        ReadyQueueSenderType,
+        DbConnectorType,
+        TaskInstancePoolConnectorType,
+    >,
 }
 
-/// A concurrency-safe handle to a job’s execution state.
+/// A concurrency-safe handle to a job's execution state.
 ///
 /// This type wraps [`JobExecutionState`] in a read-write lock and provides controlled access to it.
 /// All accessors enforce state invariants by validating the underlying job state before returning a
 /// read or write guard.
 ///
-/// This ensures that callers can only observe or mutate the execution state when the job is in a
-/// valid state for the requested operation.
-struct JobExecutionStateHandle {
-    inner: tokio::sync::RwLock<JobExecutionState>,
+/// # Type Parameters
+///
+/// The type parameters are forwarded directly to [`JobExecutionState`] in the same declaration
+/// order. Single-character names are used to:
+///
+/// * Reduce verbosity while preserving consistency with the underlying type.
+/// * Avoid formatting issues, as `rustfmt` does not handle line wrapping well when using more
+///   descriptive type parameter names in this particular struct.
+struct JobExecutionStateHandle<
+    R: ReadyQueueSender,
+    D: InternalJobOrchestration,
+    T: TaskInstancePoolConnector,
+> {
+    inner: tokio::sync::RwLock<JobExecutionState<R, D, T>>,
 }
 
-impl JobExecutionStateHandle {
-    pub async fn has_commit_task(&self) -> bool {
-        self.inner.read().await.task_graph.has_commit_task()
-    }
-
-    pub async fn _has_cleanup_task(&self) -> bool {
-        self.inner.read().await.task_graph.has_cleanup_task()
-    }
-
+impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
+    JobExecutionStateHandle<R, D, T>
+{
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
@@ -475,7 +473,9 @@ impl JobExecutionStateHandle {
     /// Returns an error if:
     ///
     /// * Forwards [`JobExecutionState::ensure_running`]'s return values on failure.
-    async fn read_running(&self) -> Result<RwLockReadGuard<'_, JobExecutionState>, CacheError> {
+    async fn read_running(
+        &self,
+    ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_read(JobExecutionState::ensure_running)
             .await
     }
@@ -489,7 +489,9 @@ impl JobExecutionStateHandle {
     /// Returns an error if:
     ///
     /// * Forwards [`JobExecutionState::ensure_running`]'s return values on failure.
-    async fn write_running(&self) -> Result<RwLockWriteGuard<'_, JobExecutionState>, CacheError> {
+    async fn write_running(
+        &self,
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_write(JobExecutionState::ensure_running)
             .await
     }
@@ -505,7 +507,7 @@ impl JobExecutionStateHandle {
     /// * Forwards [`JobExecutionState::ensure_commit_ready`]'s return values on failure.
     async fn read_commit_ready(
         &self,
-    ) -> Result<RwLockReadGuard<'_, JobExecutionState>, CacheError> {
+    ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_read(JobExecutionState::ensure_commit_ready)
             .await
     }
@@ -521,7 +523,7 @@ impl JobExecutionStateHandle {
     /// * Forwards [`JobExecutionState::ensure_commit_ready`]'s return values on failure.
     async fn write_commit_ready(
         &self,
-    ) -> Result<RwLockWriteGuard<'_, JobExecutionState>, CacheError> {
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_write(JobExecutionState::ensure_commit_ready)
             .await
     }
@@ -537,7 +539,7 @@ impl JobExecutionStateHandle {
     /// * Forwards [`JobExecutionState::ensure_cleanup_ready`]'s return values on failure.
     async fn read_cleanup_ready(
         &self,
-    ) -> Result<RwLockReadGuard<'_, JobExecutionState>, CacheError> {
+    ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_read(JobExecutionState::ensure_cleanup_ready)
             .await
     }
@@ -553,7 +555,7 @@ impl JobExecutionStateHandle {
     /// * Forwards [`JobExecutionState::ensure_cleanup_ready`]'s return values on failure.
     async fn write_cleanup_ready(
         &self,
-    ) -> Result<RwLockWriteGuard<'_, JobExecutionState>, CacheError> {
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_write(JobExecutionState::ensure_cleanup_ready)
             .await
     }
@@ -569,7 +571,7 @@ impl JobExecutionStateHandle {
     /// * Forwards [`JobExecutionState::ensure_non_terminated`]'s return values on failure.
     async fn write_non_terminated(
         &self,
-    ) -> Result<RwLockWriteGuard<'_, JobExecutionState>, CacheError> {
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_write(JobExecutionState::ensure_non_terminated)
             .await
     }
@@ -585,8 +587,8 @@ impl JobExecutionStateHandle {
     /// * Forwards `validator`'s return values on failure.
     async fn validate_and_read(
         &self,
-        validator: fn(&JobExecutionState) -> Result<(), CacheError>,
-    ) -> Result<RwLockReadGuard<'_, JobExecutionState>, CacheError> {
+        validator: fn(&JobExecutionState<R, D, T>) -> Result<(), CacheError>,
+    ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         let guard = self.inner.read().await;
         validator(&guard)?;
         Ok(guard)
@@ -603,8 +605,8 @@ impl JobExecutionStateHandle {
     /// * Forwards `validator`'s return values on failure.
     async fn validate_and_write(
         &self,
-        validator: fn(&JobExecutionState) -> Result<(), CacheError>,
-    ) -> Result<RwLockWriteGuard<'_, JobExecutionState>, CacheError> {
+        validator: fn(&JobExecutionState<R, D, T>) -> Result<(), CacheError>,
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         let guard = self.inner.write().await;
         validator(&guard)?;
         Ok(guard)
@@ -613,16 +615,33 @@ impl JobExecutionStateHandle {
 
 /// Represents the execution state of a job.
 ///
-/// # Note
+/// This struct holds all mutable job state, including the task graph, connectors, and queue sender,
+/// so that concurrent access is synchronized through [`JobExecutionStateHandle`]'s read-write lock.
 ///
-/// This struct doesn't provide synchronization for concurrent access to the underlying task graph.
-struct JobExecutionState {
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `DbConnectorType` - The type of the DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
+struct JobExecutionState<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> {
     state: JobState,
     task_graph: TaskGraph,
     num_incomplete_tasks: AtomicUsize,
+    ready_queue_sender: ReadyQueueSenderType,
+    db_connector: DbConnectorType,
+    task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
-impl JobExecutionState {
+impl<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> JobExecutionState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+{
     /// Ensures that the job is currently in the [`JobState::Running`] state.
     ///
     /// # Errors
