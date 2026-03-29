@@ -5,10 +5,10 @@ use std::sync::{
 
 use spider_core::{
     job::JobState,
-    task::{TaskIndex, TaskState},
+    task::{TaskGraph as SubmittedTaskGraph, TaskIndex, TaskState},
     types::{
         id::{JobId, ResourceGroupId, TaskInstanceId},
-        io::{ExecutionContext, TaskOutput},
+        io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
 use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -50,6 +50,82 @@ impl<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The created [`SharedJobControlBlock`] on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TaskGraph::create`]'s return values on failure.
+    pub async fn create(
+        id: JobId,
+        owner_id: ResourceGroupId,
+        submitted_task_graph: &SubmittedTaskGraph,
+        inputs: Vec<TaskInput>,
+        ready_queue_sender: ReadyQueueSenderType,
+        db_connector: DbConnectorType,
+        task_instance_pool_connector: TaskInstancePoolConnectorType,
+    ) -> Result<Self, CacheError> {
+        let num_incomplete_tasks = AtomicUsize::new(submitted_task_graph.get_num_tasks());
+        let task_graph = TaskGraph::create(submitted_task_graph, inputs).await?;
+        let job_execution_state = JobExecutionState {
+            state: JobState::Ready,
+            task_graph,
+            num_incomplete_tasks,
+            ready_queue_sender,
+            db_connector,
+            task_instance_pool_connector,
+        };
+        Ok(Self {
+            inner: Arc::new(JobControlBlock {
+                id,
+                _owner_id: owner_id,
+                job_execution_state: JobExecutionStateHandle {
+                    inner: tokio::sync::RwLock::new(job_execution_state),
+                },
+            }),
+        })
+    }
+
+    /// Starts the job.
+    ///
+    /// Any tasks in [`TaskState::Ready`] will be enqueued to the ready queue on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionStateHandle::write_ready`]'s return values on failure.
+    /// * Forwards [`InternalJobOrchestration::start`]'s return values on failure.
+    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
+    pub async fn start(&self) -> Result<(), CacheError> {
+        let jcb = &self.inner;
+        let mut job = jcb.job_execution_state.write_ready().await?;
+        job.db_connector.start(jcb.id).await?;
+        job.state = JobState::Running;
+        let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
+        if ready_task_indices.is_empty() {
+            return Err(InternalError::TaskGraphCorrupted(
+                "initial task graph has no ready tasks".to_owned(),
+            )
+            .into());
+        }
+
+        // NOTE: This enqueue is safe because it happens inside the exclusive (write) lock of the
+        // JCB. If it happens to travel fast enough to go into the scheduler and then the executor,
+        // the request from the executor for registering task instances will be blocked until this
+        // method returns.
+        job.ready_queue_sender
+            .send_task_ready(jcb.id, ready_task_indices)
+            .await?;
+        drop(job);
+        Ok(())
+    }
+
     /// Creates a task instance for the given task and registers it in the task instance pool.
     ///
     /// # Returns
@@ -154,11 +230,17 @@ impl<
 
     /// Marks the task instance as succeeded.
     ///
-    /// If all tasks succeed, commits the job outputs and transitions the job state.
+    /// If all tasks have succeeded, commits the job outputs, transitions the job state, and
+    /// enqueues the commit task (if any) to the ready queue. Otherwise, if the completed task
+    /// unblocks any child tasks, those child tasks are enqueued to the ready queue.
     ///
     /// # Returns
     ///
-    /// The current [`JobState`] after the operation on success.
+    /// The current [`JobState`] after the operation on success. Must be one of:
+    ///
+    /// * [`JobState::Running`]
+    /// * [`JobState::CommitReady`]
+    /// * [`JobState::Succeeded`]
     ///
     /// # Errors
     ///
@@ -226,9 +308,7 @@ impl<
                 .clone();
             job_outputs.push(payload);
         }
-
         job.state = job.db_connector.commit_outputs(jcb.id, job_outputs).await?;
-
         match job.state {
             JobState::CommitReady => {
                 if !job.task_graph.has_commit_task() {
@@ -322,7 +402,10 @@ impl<
     ///
     /// # Returns
     ///
-    /// The current [`JobState`] after the operation on success.
+    /// The current [`JobState`] after the operation on success. Must be one of:
+    ///
+    /// * [`JobState::Running`]
+    /// * [`JobState::Failed`]
     ///
     /// # Errors
     ///
@@ -411,6 +494,44 @@ impl<
         job.state = JobState::Failed;
         drop(job);
         Ok(JobState::Failed)
+    }
+
+    /// Cancels the job and enqueues the cleanup task (if any).
+    ///
+    /// # Returns
+    ///
+    /// The current [`JobState`] after the cancellation operation on success. Must be one of:
+    ///
+    /// * [`JobState::CleanupReady`]
+    /// * [`JobState::Cancelled`]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCleanupTask`] if the job should transition to cleanup-ready but
+    ///   has no cleanup task.
+    /// * Forwards [`JobExecutionStateHandle::write_cancellable`]'s return values on failure.
+    /// * Forwards [`InternalJobOrchestration::cancel`]'s return values on failure.
+    /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
+    pub async fn cancel(&self) -> Result<JobState, CacheError> {
+        let jcb = &self.inner;
+        let mut job = jcb.job_execution_state.write_cancellable().await?;
+        job.state = job.db_connector.cancel(jcb.id).await?;
+
+        match job.state {
+            JobState::CleanupReady => {
+                if !job.task_graph.has_cleanup_task() {
+                    return Err(InternalError::UndefinedCleanupTask.into());
+                }
+                job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
+            }
+            JobState::Cancelled => {}
+            other => unreachable!("unexpected job state after cancelling the job: {:?}", other),
+        }
+
+        job.task_graph.cancel_non_terminal().await;
+        Ok(job.state)
     }
 }
 
@@ -578,6 +699,38 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
 
     /// # Returns
     ///
+    /// A writer guard of the underlying job execution state on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionState::ensure_ready`]'s return values on failure.
+    async fn write_ready(
+        &self,
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
+        self.validate_and_write(JobExecutionState::ensure_ready)
+            .await
+    }
+
+    /// # Returns
+    ///
+    /// A writer guard of the underlying job execution state on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionState::ensure_cancellable`]'s return values on failure.
+    async fn write_cancellable(
+        &self,
+    ) -> Result<RwLockWriteGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
+        self.validate_and_write(JobExecutionState::ensure_cancellable)
+            .await
+    }
+
+    /// # Returns
+    ///
     /// A reader guard of the underlying job execution state on success.
     ///
     /// # Errors
@@ -704,6 +857,29 @@ impl<
         Ok(())
     }
 
+    /// Ensures that the job is currently in a cancellable state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StaleStateError::JobCancellationAlreadyRequested`] if job cancellation has already been
+    ///   requested.
+    /// * [`StaleStateError::JobAlreadyCancelled`] if the job is already been cancelled.
+    /// * [`StaleStateError::JobAlreadyTerminated`] if the job has already terminated.
+    fn ensure_cancellable(&self) -> Result<(), CacheError> {
+        if matches!(self.state, JobState::CleanupReady) {
+            return Err(StaleStateError::JobCancellationAlreadyRequested.into());
+        }
+        if matches!(self.state, JobState::Cancelled) {
+            return Err(StaleStateError::JobAlreadyCancelled.into());
+        }
+        if self.state.is_terminal() {
+            return Err(StaleStateError::JobAlreadyTerminated(self.state).into());
+        }
+        Ok(())
+    }
+
     /// Ensures that the job is currently in a non-terminated state.
     ///
     /// # Errors
@@ -714,6 +890,20 @@ impl<
     fn ensure_non_terminated(&self) -> Result<(), CacheError> {
         if self.state.is_terminal() {
             return Err(StaleStateError::JobAlreadyTerminated(self.state).into());
+        }
+        Ok(())
+    }
+
+    /// Ensures that the job is currently in [`JobState::Ready`] state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StaleStateError::JobAlreadyStarted`] if the job has already started.
+    fn ensure_ready(&self) -> Result<(), CacheError> {
+        if !matches!(self.state, JobState::Ready) {
+            return Err(StaleStateError::JobAlreadyStarted.into());
         }
         Ok(())
     }

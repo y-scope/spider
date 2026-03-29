@@ -96,4 +96,13 @@ pub enum StaleStateError {
 
     #[error("job already terminated")]
     JobAlreadyTerminated(JobState),
+
+    #[error("job already requested for cancellation")]
+    JobCancellationAlreadyRequested,
+
+    #[error("job already cancelled")]
+    JobAlreadyCancelled,
+
+    #[error("job already started")]
+    JobAlreadyStarted,
 }

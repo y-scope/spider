@@ -49,6 +49,7 @@ impl TaskGraph {
     /// Returns an error if:
     ///
     /// * [`InternalError::TaskGraphCorrupted`] if:
+    ///   * The task graph has no tasks.
     ///   * Any dataflow deps' index is out-of-range.
     ///   * Any task index is out-of-range.
     /// * [`InternalError::TaskGraphInputsSizeMismatch`] if the number of provided inputs does not
@@ -62,6 +63,12 @@ impl TaskGraph {
         submitted_task_graph: &SubmittedTaskGraph,
         inputs: Vec<TaskInput>,
     ) -> Result<Self, InternalError> {
+        if 0 == submitted_task_graph.get_num_tasks() {
+            return Err(InternalError::TaskGraphCorrupted(
+                "task graph with no task is unsupported".to_owned(),
+            ));
+        }
+
         let dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
             .get_num_dataflow_deps())
             .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
@@ -133,6 +140,30 @@ impl TaskGraph {
             commit_task,
             cleanup_task,
         })
+    }
+
+    /// Marks all TCBs and commit TCB as cancelled, if not terminated.
+    pub async fn cancel_non_terminal(&mut self) {
+        for tcb in &self.tasks {
+            tcb.cancel_non_terminal().await;
+        }
+        if let Some(commit_tcb) = &self.commit_task {
+            commit_tcb.cancel_non_terminal().await;
+        }
+    }
+
+    /// # Returns
+    ///
+    /// A vector of task indices of all TCBs in [`TaskState::Ready`] state.
+    pub async fn get_all_ready_task_indices(&self) -> Vec<TaskIndex> {
+        let mut ready_task_indices = Vec::new();
+        for shared_tcb in &self.tasks {
+            let tcb = shared_tcb.inner.lock().await;
+            if matches!(tcb.base.state, TaskState::Ready) {
+                ready_task_indices.push(tcb.index);
+            }
+        }
+        ready_task_indices
     }
 
     /// # Returns
@@ -326,6 +357,12 @@ impl SharedTaskControlBlock {
         for output_writer in &tcb.outputs {
             *output_writer.write().await = None;
         }
+    }
+
+    /// Marks the TCB state cancelled.
+    pub async fn cancel_non_terminal(&self) {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.cancel_non_terminal();
     }
 
     /// Private factory function for creating a new task control block from a task definition.
@@ -523,6 +560,12 @@ impl SharedTerminationTaskControlBlock {
     pub async fn force_remove_task_instance(&self, instance_id: TaskInstanceId) -> bool {
         let mut tcb = self.inner.lock().await;
         tcb.base.force_remove_task_instance(instance_id)
+    }
+
+    /// Marks the TCB state cancelled.
+    pub async fn cancel_non_terminal(&self) {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.cancel_non_terminal();
     }
 
     /// Private factory function for creating a new termination task control block from a task
@@ -788,6 +831,13 @@ impl TaskControlBlockBase {
             self.state = TaskState::Ready;
         }
         existed
+    }
+
+    /// Cancels if the task is in a non-terminal state.
+    fn cancel_non_terminal(&mut self) {
+        if !self.state.is_terminal() {
+            self.state = TaskState::Cancelled;
+        }
     }
 }
 

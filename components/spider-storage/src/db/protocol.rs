@@ -242,6 +242,22 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
         job_outputs: Vec<TaskOutput>,
     ) -> Result<JobState, DbError>;
 
+    /// Starts the job.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is already started.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn start(&self, job_id: JobId) -> Result<(), DbError>;
+
     /// Cancels the job.
     ///
     /// # Parameters
