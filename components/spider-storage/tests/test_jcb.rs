@@ -454,15 +454,22 @@ struct LatencyRow {
 }
 
 impl LatencyRow {
-    /// Computes a latency row from a slice of duration samples.
+    /// Computes a latency row from a slice of duration samples. Returns a row with zeroes if
+    /// `samples` is empty.
     ///
     /// # Returns
     ///
-    /// * The computed sample results.
-    /// * `None` if `samples` is empty.
-    fn from_samples(operation: &'static str, samples: &mut [Duration]) -> Option<Self> {
+    /// The computed latency row.
+    fn from_samples(operation: &'static str, samples: &mut [Duration]) -> Self {
         if samples.is_empty() {
-            return None;
+            return Self {
+                operation,
+                count: 0,
+                avg_ms: "N/A".to_owned(),
+                p50_ms: "N/A".to_owned(),
+                p95_ms: "N/A".to_owned(),
+                p99_ms: "N/A".to_owned(),
+            };
         }
         samples.sort();
         let count = samples.len();
@@ -472,14 +479,14 @@ impl LatencyRow {
         let p50 = samples[count / 2].as_secs_f64() * 1000.0;
         let p95 = samples[count * 95 / 100].as_secs_f64() * 1000.0;
         let p99 = samples[count * 99 / 100].as_secs_f64() * 1000.0;
-        Some(Self {
+        Self {
             operation,
             count,
             avg_ms: format!("{avg:.3}"),
             p50_ms: format!("{p50:.3}"),
             p95_ms: format!("{p95:.3}"),
             p99_ms: format!("{p99:.3}"),
-        })
+        }
     }
 }
 
@@ -575,7 +582,7 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 
     let rows: Vec<LatencyRow> = candidates
         .into_iter()
-        .filter_map(|(name, samples)| LatencyRow::from_samples(name, samples))
+        .map(|(name, samples)| LatencyRow::from_samples(name, samples))
         .collect();
 
     Table::new(rows).to_string()
