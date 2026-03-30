@@ -64,6 +64,9 @@ pub enum InternalError {
 
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
+
+    #[error("failed to send to the ready queue: {0}")]
+    ReadyQueueSendFailure(String),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

@@ -49,7 +49,6 @@ impl TaskGraph {
     /// Returns an error if:
     ///
     /// * [`InternalError::TaskGraphCorrupted`] if:
-    ///   * The task graph has no tasks.
     ///   * Any dataflow deps' index is out-of-range.
     ///   * Any task index is out-of-range.
     /// * [`InternalError::TaskGraphInputsSizeMismatch`] if the number of provided inputs does not
@@ -63,12 +62,6 @@ impl TaskGraph {
         submitted_task_graph: &SubmittedTaskGraph,
         inputs: Vec<TaskInput>,
     ) -> Result<Self, InternalError> {
-        if 0 == submitted_task_graph.get_num_tasks() {
-            return Err(InternalError::TaskGraphCorrupted(
-                "task graph with no task is unsupported".to_owned(),
-            ));
-        }
-
         let dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
             .get_num_dataflow_deps())
             .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))

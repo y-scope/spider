@@ -60,6 +60,8 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * [`InternalError::TaskGraphCorrupted`] if the given task graph doesn't contain any tasks.
+    ///   The current version of JCB requires the job contains at least one task.
     /// * Forwards [`TaskGraph::create`]'s return values on failure.
     pub async fn create(
         id: JobId,
@@ -71,6 +73,13 @@ impl<
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
         let num_incomplete_tasks = AtomicUsize::new(submitted_task_graph.get_num_tasks());
+        if 0 == submitted_task_graph.get_num_tasks() {
+            return Err(InternalError::TaskGraphCorrupted(
+                "task graph with no task is unsupported".to_owned(),
+            )
+            .into());
+        }
+
         let task_graph = TaskGraph::create(submitted_task_graph, inputs).await?;
         let job_execution_state = JobExecutionState {
             state: JobState::Ready,
