@@ -1,8 +1,11 @@
 mod task_graph_builder;
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use anyhow::bail;
@@ -28,11 +31,29 @@ use spider_storage::{
     ready_queue::ReadyQueueSender,
     task_instance_pool::TaskInstancePoolConnector,
 };
+use tabled::{Table, Tabled};
 use task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph, build_neural_net_task_graph};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
+
+/// Evaluates to the fully-qualified name of the enclosing function, stripping internal suffixes
+/// like `::_f` and `::{{closure}}` that result from the macro expansion and `#[tokio::test]`.
+macro_rules! function_name {
+    () => {{
+        fn _f() {}
+        let name = std::any::type_name_of_val(&_f);
+        let name = name
+            .strip_suffix("::_f")
+            .expect("function_name macro should always find ::_f suffix");
+        name.strip_suffix("::{{closure}}").unwrap_or(name)
+    }};
+}
 
 /// The number of concurrent worker tasks to spawn.
 const NUM_WORKERS: usize = 64;
+
+/// The environment variable that, when set, enables instrumentation output. Its value is the
+/// directory path where the instrumentation file will be written.
+const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 
 /// The concrete JCB type parameterized by the DB connector.
 ///
@@ -45,6 +66,24 @@ type TestJcb<DbConnectorType> =
 /// A handler that generates mock task outputs from an [`ExecutionContext`], which simulates the
 /// execution of a TDL task.
 type TaskOutputHandler = Arc<dyn Fn(&ExecutionContext) -> Vec<TaskOutput> + Send + Sync>;
+
+/// Sender half for instrument samples. Workers send timing data through this channel.
+type InstrumentSender = mpsc::UnboundedSender<InstrumentSample>;
+
+/// A single latency sample collected from a JCB operation.
+///
+/// Each variant carries the elapsed [`Duration`] and a `bool` indicating whether the JCB call
+/// returned `Ok` (`true`) or `Err` (`false`).
+enum InstrumentSample {
+    /// Latency of a [`SharedJobControlBlock::create_task_instance`] call.
+    Registration { elapsed: Duration, ok: bool },
+
+    /// Latency of a [`SharedJobControlBlock::succeed_task_instance`] (or commit/cleanup) call.
+    Success { elapsed: Duration, ok: bool },
+
+    /// Latency of a [`SharedJobControlBlock::fail_task_instance`] call.
+    Failure { elapsed: Duration, ok: bool },
+}
 
 /// A message sent through the mock ready queue.
 ///
@@ -198,6 +237,137 @@ impl TaskInstancePoolConnector for MockTaskInstancePool {
     }
 }
 
+/// Thin wrapper around [`TestJcb`] that optionally records latency samples for each JCB
+/// operation. When `instrument_sender` is `None`, calls are forwarded without any timing
+/// overhead.
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
+#[derive(Clone)]
+struct InstrumentedJcb<DbConnectorType: InternalJobOrchestration> {
+    jcb: TestJcb<DbConnectorType>,
+    instrument_sender: Option<InstrumentSender>,
+}
+
+impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType> {
+    /// Wraps [`SharedJobControlBlock::create_task_instance`] with optional latency recording.
+    async fn create_task_instance(&self, task_id: TaskId) -> Result<ExecutionContext, CacheError> {
+        if let Some(sender) = &self.instrument_sender {
+            let start = Instant::now();
+            let result = self.jcb.create_task_instance(task_id).await;
+            let _ = sender.send(InstrumentSample::Registration {
+                elapsed: start.elapsed(),
+                ok: result.is_ok(),
+            });
+            result
+        } else {
+            self.jcb.create_task_instance(task_id).await
+        }
+    }
+
+    /// Wraps [`SharedJobControlBlock::succeed_task_instance`] with optional latency recording.
+    async fn succeed_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        task_index: TaskIndex,
+        task_outputs: Vec<TaskOutput>,
+    ) -> Result<JobState, CacheError> {
+        if let Some(sender) = &self.instrument_sender {
+            let start = Instant::now();
+            let result = self
+                .jcb
+                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .await;
+            let _ = sender.send(InstrumentSample::Success {
+                elapsed: start.elapsed(),
+                ok: result.is_ok(),
+            });
+            result
+        } else {
+            self.jcb
+                .succeed_task_instance(task_instance_id, task_index, task_outputs)
+                .await
+        }
+    }
+
+    /// Wraps [`SharedJobControlBlock::fail_task_instance`] with optional latency recording.
+    async fn fail_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        task_id: TaskId,
+        error_message: String,
+    ) -> Result<JobState, CacheError> {
+        if let Some(sender) = &self.instrument_sender {
+            let start = Instant::now();
+            let result = self
+                .jcb
+                .fail_task_instance(task_instance_id, task_id, error_message)
+                .await;
+            let _ = sender.send(InstrumentSample::Failure {
+                elapsed: start.elapsed(),
+                ok: result.is_ok(),
+            });
+            result
+        } else {
+            self.jcb
+                .fail_task_instance(task_instance_id, task_id, error_message)
+                .await
+        }
+    }
+
+    /// Wraps [`SharedJobControlBlock::succeed_commit_task_instance`].
+    async fn succeed_commit_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, CacheError> {
+        if let Some(sender) = &self.instrument_sender {
+            let start = Instant::now();
+            let result = self
+                .jcb
+                .succeed_commit_task_instance(task_instance_id)
+                .await;
+            let _ = sender.send(InstrumentSample::Success {
+                elapsed: start.elapsed(),
+                ok: result.is_ok(),
+            });
+            result
+        } else {
+            self.jcb
+                .succeed_commit_task_instance(task_instance_id)
+                .await
+        }
+    }
+
+    /// Wraps [`SharedJobControlBlock::succeed_cleanup_task_instance`].
+    async fn succeed_cleanup_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, CacheError> {
+        if let Some(sender) = &self.instrument_sender {
+            let start = Instant::now();
+            let result = self
+                .jcb
+                .succeed_cleanup_task_instance(task_instance_id)
+                .await;
+            let _ = sender.send(InstrumentSample::Success {
+                elapsed: start.elapsed(),
+                ok: result.is_ok(),
+            });
+            result
+        } else {
+            self.jcb
+                .succeed_cleanup_task_instance(task_instance_id)
+                .await
+        }
+    }
+
+    /// Wraps [`SharedJobControlBlock::cancel`].
+    async fn cancel(&self) -> Result<JobState, CacheError> {
+        self.jcb.cancel().await
+    }
+}
+
 /// Per-worker context. All fields are cheaply cloneable (via `Arc` or built-in `Clone` impls),
 /// so each worker owns its own copy without shared `Arc<WorkerContext>` indirection.
 ///
@@ -210,8 +380,8 @@ struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
     /// serialization.
     receiver: async_channel::Receiver<ReadyMessage>,
 
-    /// The JCB under test.
-    jcb: TestJcb<DbConnectorType>,
+    /// The instrumented JCB under test.
+    jcb: InstrumentedJcb<DbConnectorType>,
 
     /// Watch channel sender — workers send the terminal [`JobState`] when observed.
     terminal_state_sender: watch::Sender<Option<JobState>>,
@@ -266,6 +436,53 @@ enum CancelPolicy {
     Concurrent,
 }
 
+/// A single row in the instrumentation output table.
+#[derive(Tabled)]
+struct LatencyRow {
+    #[tabled(rename = "Operation")]
+    operation: &'static str,
+    #[tabled(rename = "Count")]
+    count: usize,
+    #[tabled(rename = "Avg (ms)")]
+    avg_ms: String,
+    #[tabled(rename = "P50 (ms)")]
+    p50_ms: String,
+    #[tabled(rename = "P95 (ms)")]
+    p95_ms: String,
+    #[tabled(rename = "P99 (ms)")]
+    p99_ms: String,
+}
+
+impl LatencyRow {
+    /// Computes a latency row from a slice of duration samples.
+    ///
+    /// # Returns
+    ///
+    /// * The computed sample results.
+    /// * `None` if `samples` is empty.
+    fn from_samples(operation: &'static str, samples: &mut [Duration]) -> Option<Self> {
+        if samples.is_empty() {
+            return None;
+        }
+        samples.sort();
+        let count = samples.len();
+        let sum: Duration = samples.iter().sum();
+        #[allow(clippy::cast_precision_loss)]
+        let avg = sum.as_secs_f64() * 1000.0 / count as f64;
+        let p50 = samples[count / 2].as_secs_f64() * 1000.0;
+        let p95 = samples[count * 95 / 100].as_secs_f64() * 1000.0;
+        let p99 = samples[count * 99 / 100].as_secs_f64() * 1000.0;
+        Some(Self {
+            operation,
+            count,
+            avg_ms: format!("{avg:.3}"),
+            p50_ms: format!("{p50:.3}"),
+            p95_ms: format!("{p95:.3}"),
+            p99_ms: format!("{p99:.3}"),
+        })
+    }
+}
+
 /// # Returns
 ///
 /// Whether the error is a [`CacheError::StaleState`] variant.
@@ -298,7 +515,6 @@ fn broadcast_if_terminated<DbConnectorType: InternalJobOrchestration>(
     state: JobState,
 ) {
     if state.is_terminal() {
-        // Ignore send errors — the receiver may already have a terminal value.
         let _ = ctx.terminal_state_sender.send(Some(state));
     }
 }
@@ -309,6 +525,90 @@ fn broadcast_if_terminated<DbConnectorType: InternalJobOrchestration>(
 /// output is currently independent of the execution context.
 fn default_output_handler(output_size: usize) -> TaskOutputHandler {
     Arc::new(move |_: &ExecutionContext| -> Vec<TaskOutput> { vec![vec![0u8; output_size]] })
+}
+
+/// Creates an instrument sender/receiver pair if [`INSTRUMENT_OUTPUT_DIR_ENV`] is set.
+///
+/// # Returns
+///
+/// * `Some((sender, receiver))` if the env var is set.
+/// * `None` otherwise.
+fn try_create_instrument_channel()
+-> Option<(InstrumentSender, mpsc::UnboundedReceiver<InstrumentSample>)> {
+    std::env::var(INSTRUMENT_OUTPUT_DIR_ENV)
+        .ok()
+        .map(|_| mpsc::unbounded_channel())
+}
+
+/// Collects instrument samples from the receiver and formats them into a table string using
+/// [`tabled`].
+fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>) -> String {
+    let mut registration_ok = Vec::new();
+    let mut registration_err = Vec::new();
+    let mut success_ok = Vec::new();
+    let mut success_err = Vec::new();
+    let mut failure_ok = Vec::new();
+    let mut failure_err = Vec::new();
+
+    let mut receiver = receiver;
+    while let Ok(sample) = receiver.try_recv() {
+        match sample {
+            InstrumentSample::Registration { elapsed, ok: true } => {
+                registration_ok.push(elapsed);
+            }
+            InstrumentSample::Registration { elapsed, ok: false } => registration_err.push(elapsed),
+            InstrumentSample::Success { elapsed, ok: true } => success_ok.push(elapsed),
+            InstrumentSample::Success { elapsed, ok: false } => success_err.push(elapsed),
+            InstrumentSample::Failure { elapsed, ok: true } => failure_ok.push(elapsed),
+            InstrumentSample::Failure { elapsed, ok: false } => failure_err.push(elapsed),
+        }
+    }
+
+    let candidates: [(&'static str, &mut [Duration]); 6] = [
+        ("Registration (ok)", &mut registration_ok),
+        ("Registration (err)", &mut registration_err),
+        ("Success (ok)", &mut success_ok),
+        ("Success (err)", &mut success_err),
+        ("Failure (ok)", &mut failure_ok),
+        ("Failure (err)", &mut failure_err),
+    ];
+
+    let rows: Vec<LatencyRow> = candidates
+        .into_iter()
+        .filter_map(|(name, samples)| LatencyRow::from_samples(name, samples))
+        .collect();
+
+    Table::new(rows).to_string()
+}
+
+/// Writes the collected instrument results for a test to the output file.
+///
+/// The results are appended to a file named `test_jcb` (derived from this test file) under the
+/// directory specified by [`INSTRUMENT_OUTPUT_DIR_ENV`].
+fn write_instrument_results(test_name: &str, receiver: mpsc::UnboundedReceiver<InstrumentSample>) {
+    let output_dir = std::env::var(INSTRUMENT_OUTPUT_DIR_ENV)
+        .expect("SPIDER_TEST_INSTRUMENT_OUTPUT_DIR should be set when writing results");
+
+    let table = collect_instrument_table(receiver);
+    let output = format!("\n{test_name}\n{table}\n");
+
+    let path = std::path::Path::new(&output_dir).join("test_jcb");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .unwrap_or_else(|e| {
+            panic!(
+                "failed to open instrument output file {}: {e}",
+                path.display()
+            )
+        });
+    std::io::Write::write_all(&mut file, output.as_bytes()).unwrap_or_else(|e| {
+        panic!(
+            "failed to write instrument output to {}: {e}",
+            path.display()
+        )
+    });
 }
 
 /// Runs a single worker that consumes [`ReadyMessage`]s from the shared queue and drives task
@@ -394,7 +694,6 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
     task_index: TaskIndex,
 ) -> Result<(), CacheError> {
     if ctx.always_fail {
-        // In always-fail, every instance fails unconditionally.
         let exec_ctx = ctx
             .jcb
             .create_task_instance(TaskId::Index(task_index))
@@ -417,7 +716,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
         let handles: Vec<_> = (0..2)
             .map(|_| {
                 let jcb = ctx.jcb.clone();
-                let terminal_tx = ctx.terminal_state_sender.clone();
+                let terminal_sender = ctx.terminal_state_sender.clone();
                 tokio::spawn(async move {
                     let exec_ctx = jcb.create_task_instance(TaskId::Index(task_index)).await?;
                     let state = jcb
@@ -428,7 +727,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
                         )
                         .await?;
                     if state.is_terminal() {
-                        let _ = terminal_tx.send(Some(state));
+                        let _ = terminal_sender.send(Some(state));
                     }
                     Ok::<(), CacheError>(())
                 })
@@ -534,15 +833,18 @@ async fn run_workload<
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
     always_fail: bool,
+    instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     // Create mock components.
-    let (tx, rx) = async_channel::unbounded::<ReadyMessage>();
-    let ready_queue_sender = MockReadyQueueSender { sender: tx };
+    let (ready_sender, ready_receiver) = async_channel::unbounded::<ReadyMessage>();
+    let ready_queue_sender = MockReadyQueueSender {
+        sender: ready_sender,
+    };
     let db_connector = db_connector_factory(submitted_task_graph);
     let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.
-    let jcb = SharedJobControlBlock::create(
+    let inner_jcb = SharedJobControlBlock::create(
         JobId::default(),
         ResourceGroupId::default(),
         submitted_task_graph,
@@ -554,7 +856,12 @@ async fn run_workload<
     .await
     .expect("failed to create JCB");
 
-    jcb.start().await.expect("failed to start JCB");
+    inner_jcb.start().await.expect("failed to start JCB");
+
+    let jcb = InstrumentedJcb {
+        jcb: inner_jcb,
+        instrument_sender,
+    };
 
     let (terminal_state_sender, mut terminal_state_receiver) =
         watch::channel::<Option<JobState>>(None);
@@ -564,7 +871,7 @@ async fn run_workload<
     let cleanup_count = Arc::new(AtomicUsize::new(0));
 
     let ctx = WorkerContext {
-        receiver: rx,
+        receiver: ready_receiver,
         jcb: jcb.clone(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
@@ -587,7 +894,6 @@ async fn run_workload<
     let cancel_handle = match cancel_policy {
         CancelPolicy::Never => None,
         CancelPolicy::Immediate => {
-            // Cancel synchronously before workers process any messages.
             match jcb.cancel().await {
                 Ok(state) if state.is_terminal() => {
                     let _ = terminal_state_sender.send(Some(state));
@@ -600,12 +906,12 @@ async fn run_workload<
         }
         CancelPolicy::Concurrent => {
             let jcb_clone = jcb.clone();
-            let tx_clone = terminal_state_sender.clone();
+            let terminal_sender_clone = terminal_state_sender.clone();
             Some(tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 match jcb_clone.cancel().await {
                     Ok(state) if state.is_terminal() => {
-                        let _ = tx_clone.send(Some(state));
+                        let _ = terminal_sender_clone.send(Some(state));
                     }
                     Ok(_) | Err(CacheError::StaleState(_)) => {}
                     Err(e) => panic!("unexpected cancel error: {e:?}"),
@@ -623,8 +929,6 @@ async fn run_workload<
         .borrow()
         .expect("terminal state should be set after wait_for");
 
-    // Signal all workers to exit via the done channel. Ignore the error since all workers might be
-    // closed, meaning that no living receiver.
     let _ = done_sender.send(true);
 
     while let Some(result) = join_set.join_next().await {
@@ -633,7 +937,6 @@ async fn run_workload<
             .expect("worker early returns on error");
     }
 
-    // Await the concurrent cancel task if any.
     if let Some(handle) = cancel_handle {
         handle.await.expect("cancel task should not panic");
     }
@@ -649,13 +952,6 @@ async fn run_workload<
 /// Runs the flat workload (10,000 independent tasks with commit + cleanup) to successful
 /// completion.
 ///
-/// Verifies that:
-///
-/// * The terminal state is [`JobState::Succeeded`].
-/// * All 10,000 tasks were successfully completed.
-/// * The commit task executed exactly once.
-/// * The cleanup task did not execute.
-///
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
@@ -666,6 +962,7 @@ async fn test_flat_success<
     DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
+    instrument_sender: Option<InstrumentSender>,
 ) {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let num_tasks = graph.get_num_tasks();
@@ -676,6 +973,7 @@ async fn test_flat_success<
         CancelPolicy::Never,
         default_output_handler(1024),
         false,
+        instrument_sender,
     )
     .await;
 
@@ -697,27 +995,11 @@ async fn test_flat_success<
 
 /// Cancels the flat workload immediately after starting.
 ///
-/// Verifies that:
-///
-/// * The terminal state is [`JobState::Cancelled`].
-/// * The commit task did not execute.
-/// * The cleanup task executed exactly once.
-///
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
 /// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
 ///   graph.
-///
-/// # NOTE
-///
-/// Since we spawn workers before cancelling the job, there is a chance that when the cancellation
-/// is issued, the commit task has finished. However, this should rarely happen in practice, since:
-///
-/// * It takes a while for workers to consume all tasks, which should give the main coroutine enough
-///   time to cancel the job.
-/// * The underlying ready-queue is FIFO. As long as cleanup-ready message is sent before
-///   commit-ready, the job should be cancellable.
 async fn test_flat_cancel<
     DbConnectorType: InternalJobOrchestration + 'static,
     DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
@@ -732,6 +1014,7 @@ async fn test_flat_cancel<
         CancelPolicy::Immediate,
         default_output_handler(1024),
         false,
+        None,
     )
     .await;
 
@@ -753,12 +1036,6 @@ async fn test_flat_cancel<
 /// Runs the neural-net workload (10 layers x 1,000 tasks, no termination tasks) to successful
 /// completion.
 ///
-/// Verifies that:
-///
-/// * The terminal state is [`JobState::Succeeded`].
-/// * All 10,000 tasks were successfully completed.
-/// * No commit or cleanup tasks executed (since the graph has none).
-///
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
@@ -769,6 +1046,7 @@ async fn test_neural_net_success<
     DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
+    instrument_sender: Option<InstrumentSender>,
 ) {
     let (graph, inputs) = build_neural_net_task_graph();
     let num_tasks = graph.get_num_tasks();
@@ -779,6 +1057,7 @@ async fn test_neural_net_success<
         CancelPolicy::Never,
         default_output_handler(128),
         false,
+        instrument_sender,
     )
     .await;
 
@@ -803,24 +1082,11 @@ async fn test_neural_net_success<
 
 /// Cancels the neural-net workload immediately after starting.
 ///
-/// Verifies that:
-///
-/// * The terminal state is [`JobState::Cancelled`].
-/// * No commit or cleanup tasks executed.
-///
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
 /// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
 ///   graph.
-///
-/// # NOTE
-///
-/// Since we spawn workers before cancelling the job, there is a chance that when the cancellation
-/// is issued, all tasks have finished. However, this should rarely happen in practice, since it
-/// takes a while for workers to consume all tasks (especially when needing to resolve
-/// dependencies), which should give the main coroutine enough time to cancel the job before it
-/// terminates.
 async fn test_neural_net_cancel<
     DbConnectorType: InternalJobOrchestration + 'static,
     DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
@@ -835,6 +1101,7 @@ async fn test_neural_net_cancel<
         CancelPolicy::Immediate,
         default_output_handler(128),
         false,
+        None,
     )
     .await;
 
@@ -875,6 +1142,7 @@ async fn test_always_fail_terminates_job<
         CancelPolicy::Never,
         default_output_handler(128),
         true,
+        None,
     )
     .await;
 
@@ -891,9 +1159,6 @@ async fn test_always_fail_terminates_job<
 
 /// Races task execution against cancellation. A small flat workload (100 tasks with commit +
 /// cleanup) is started and a cancel is issued concurrently after a short delay.
-///
-/// The terminal state must be exactly one of [`JobState::Succeeded`] or [`JobState::Cancelled`]:
-/// no other state is valid.
 ///
 /// # Type Parameters
 ///
@@ -914,6 +1179,7 @@ async fn test_concurrent_success_and_cancel<
         CancelPolicy::Concurrent,
         default_output_handler(128),
         false,
+        None,
     )
     .await;
 
@@ -927,7 +1193,12 @@ async fn test_concurrent_success_and_cancel<
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_flat_success_without_db() {
-    test_flat_success(noop_db_connector).await;
+    let channel = try_create_instrument_channel();
+    let instrument_sender = channel.as_ref().map(|(sender, _)| sender.clone());
+    test_flat_success(noop_db_connector, instrument_sender).await;
+    if let Some((_, receiver)) = channel {
+        write_instrument_results(function_name!(), receiver);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -937,7 +1208,12 @@ async fn test_flat_cancel_without_db() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_neural_net_success_without_db() {
-    test_neural_net_success(noop_db_connector).await;
+    let channel = try_create_instrument_channel();
+    let instrument_sender = channel.as_ref().map(|(sender, _)| sender.clone());
+    test_neural_net_success(noop_db_connector, instrument_sender).await;
+    if let Some((_, receiver)) = channel {
+        write_instrument_results(function_name!(), receiver);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
