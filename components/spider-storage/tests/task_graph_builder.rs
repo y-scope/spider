@@ -13,10 +13,8 @@ use spider_core::{
     types::io::TaskInput,
 };
 
-const TDL_PACKAGE: &str = "test";
-
 /// The submitted task graph type from spider-core.
-type SubmittedTaskGraph = spider_core::task::TaskGraph;
+pub type SubmittedTaskGraph = spider_core::task::TaskGraph;
 
 /// Builds a flat workload of `num_tasks` independent tasks
 ///
@@ -205,3 +203,5 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
 
     (graph, inputs)
 }
+
+const TDL_PACKAGE: &str = "test";

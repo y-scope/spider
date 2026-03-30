@@ -1,31 +1,3 @@
-//! Integration tests for [`SharedJobControlBlock`].
-//!
-//! These tests exercise the full job lifecycle (create → start → execute → terminate) by wiring
-//! the JCB to mock implementations of the three external components it depends on:
-//!
-//! * **[`MockReadyQueueSender`]** — an unbounded MPSC channel that carries [`ReadyMessage`]s.
-//!   Workers share the receiver via `Arc<Mutex<...>>` for MPMC semantics.
-//! * **[`NoopDbConnector`]** — a stateless stub that returns the appropriate [`JobState`]
-//!   transitions based on whether the job has commit/cleanup tasks.
-//! * **[`MockTaskInstancePool`]** — an atomic counter that hands out unique [`TaskInstanceId`]s
-//!   without tracking registrations.
-//!
-//! The test harness ([`run_workload`]) spawns 64 concurrent worker tasks that consume messages
-//! from the ready queue and drive task execution through the JCB. A configurable output handler
-//! ([`TaskOutputHandler`]) generates mock outputs from each task's [`ExecutionContext`], and a
-//! failure injection policy randomly fails first-seen tasks to exercise retry logic.
-//!
-//! # Test cases
-//!
-//! | Test | Workload | Cancellation | Expected terminal state |
-//! |---|---|---|---|
-//! | [`test_flat_success`] | 10k independent tasks | none | `Succeeded` |
-//! | [`test_flat_cancel`] | 10k independent tasks | immediate | `Cancelled` |
-//! | [`test_neural_net_success`] | 10×1000 layered DAG | none | `Succeeded` |
-//! | [`test_neural_net_cancel`] | 10×1000 layered DAG | immediate | `Cancelled` |
-//! | [`test_always_fail_terminates_job`] | 1 task, always fail | none | `Failed` |
-//! | [`test_concurrent_success_and_cancel`] | 100 tasks | concurrent | `Succeeded` or `Cancelled` |
-
 mod task_graph_builder;
 
 use std::sync::{
@@ -56,34 +28,17 @@ use spider_storage::{
     ready_queue::ReadyQueueSender,
     task_instance_pool::TaskInstancePoolConnector,
 };
-use task_graph_builder::{build_flat_task_graph, build_neural_net_task_graph};
+use task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph, build_neural_net_task_graph};
 use tokio::sync::{Mutex, mpsc, watch};
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 /// The number of concurrent worker tasks to spawn.
 const NUM_WORKERS: usize = 64;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/// The submitted task graph type from spider-core.
-type SubmittedTaskGraph = spider_core::task::TaskGraph;
-
 /// The concrete JCB type used throughout these tests.
 type TestJcb = SharedJobControlBlock<MockReadyQueueSender, NoopDbConnector, MockTaskInstancePool>;
 
-/// A handler that generates mock task outputs from an [`ExecutionContext`].
-///
-/// Takes the full execution context (containing `task_instance_id`, `tdl_context`, `inputs`,
-/// `timeout_policy`) and returns a `Vec<TaskOutput>`. This allows tests to:
-///
-/// * Assert input contents by inspecting `exec_ctx.inputs`.
-/// * Vary output generation based on `tdl_context.task_func`.
-/// * Produce outputs of the correct count and size.
+/// A handler that generates mock task outputs from an [`ExecutionContext`], which simulates the
+/// execution of a TDL task.
 type TaskOutputHandler = Arc<dyn Fn(&ExecutionContext) -> Vec<TaskOutput> + Send + Sync>;
 
 /// A message sent through the mock ready queue.
