@@ -859,7 +859,7 @@ impl<
             }
             return Err(UnexpectedJobState {
                 current: self.state,
-                expected: JobState::CommitReady,
+                expected: JobState::CleanupReady,
             }
             .into());
         }
