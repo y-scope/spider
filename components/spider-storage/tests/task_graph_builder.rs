@@ -1,22 +1,3 @@
-//! Reusable task graph builders for integration tests.
-//!
-//! These builders construct [`SubmittedTaskGraph`] instances along with their corresponding job
-//! inputs for use in test harnesses. Each builder returns a `(SubmittedTaskGraph, Vec<TaskInput>)`
-//! pair.
-//!
-//! # Available workloads
-//!
-//! * [`build_flat_task_graph`] — configurable-size independent tasks with optional termination
-//!   tasks.
-//! * [`build_neural_net_task_graph`] — 10 layers × 1,000 tasks in a layered DAG with random
-//!   inter-layer connections.
-//!
-//! # Panics
-//!
-//! All builders panic if the task graph construction fails (e.g., invalid descriptors). This is
-//! intentional — builders are only used in tests where a construction failure indicates a bug in
-//! the test setup, not a recoverable condition.
-
 use rand::{Rng, SeedableRng};
 use spider_core::{
     task::{
@@ -32,18 +13,28 @@ use spider_core::{
     types::io::TaskInput,
 };
 
+const TDL_PACKAGE: &str = "test";
+
 /// The submitted task graph type from spider-core.
 type SubmittedTaskGraph = spider_core::task::TaskGraph;
 
-/// Builds a flat workload of `num_tasks` independent tasks, each with 1 byte-typed input and 1
-/// byte-typed output.
+/// Builds a flat workload of `num_tasks` independent tasks
 ///
-/// # Parameters
+/// # Inputs and Outputs
 ///
-/// * `num_tasks` -- the number of independent tasks to create.
-/// * `payload_size` -- the size (in bytes) of each task's input payload.
-/// * `with_commit` -- whether to include a noop commit termination task.
-/// * `with_cleanup` -- whether to include a noop cleanup termination task.
+/// Each task in the task graph contains a single byte-typed input and a single byte-typed output.
+///
+/// # Execution Policy
+///
+/// * `max_num_retry`: 3
+/// * `max_num_instances`: 2
+///
+/// # TDL Context
+///
+/// * Package: `test`
+/// * Task function: `flat_task`
+/// * Commit task function: `noop_commit`
+/// * Cleanup task function: `noop_cleanup`
 ///
 /// # Returns
 ///
@@ -60,6 +51,10 @@ pub fn build_flat_task_graph(
     with_commit: bool,
     with_cleanup: bool,
 ) -> (SubmittedTaskGraph, Vec<TaskInput>) {
+    const TDL_TASK: &str = "flat_task";
+    const TDL_COMMIT_TASK: &str = "noop_commit";
+    const TDL_CLEANUP_TASK: &str = "noop_cleanup";
+
     let execution_policy = Some(ExecutionPolicy {
         max_num_retry: 3,
         max_num_instances: 2,
@@ -68,8 +63,8 @@ pub fn build_flat_task_graph(
     let commit_task = if with_commit {
         Some(TerminationTaskDescriptor {
             tdl_context: TdlContext {
-                package: "test".to_owned(),
-                task_func: "noop_commit".to_owned(),
+                package: TDL_PACKAGE.to_owned(),
+                task_func: TDL_COMMIT_TASK.to_owned(),
             },
             execution_policy: execution_policy.clone(),
         })
@@ -79,8 +74,8 @@ pub fn build_flat_task_graph(
     let cleanup_task = if with_cleanup {
         Some(TerminationTaskDescriptor {
             tdl_context: TdlContext {
-                package: "test".to_owned(),
-                task_func: "noop_cleanup".to_owned(),
+                package: TDL_PACKAGE.to_owned(),
+                task_func: TDL_CLEANUP_TASK.to_owned(),
             },
             execution_policy: execution_policy.clone(),
         })
@@ -95,8 +90,8 @@ pub fn build_flat_task_graph(
         graph
             .insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
-                    package: "test".to_owned(),
-                    task_func: format!("flat_task_{i}"),
+                    package: TDL_PACKAGE.to_owned(),
+                    task_func: TDL_TASK.to_owned(),
                 },
                 execution_policy: execution_policy.clone(),
                 inputs: vec![bytes_type.clone()],
@@ -113,13 +108,24 @@ pub fn build_flat_task_graph(
     (graph, inputs)
 }
 
-/// Builds a neural-net workload: 10 layers of 1,000 tasks each (10,000 total).
+/// Builds a neural-net workload: 10 layers of 1,000 tasks each (10,000 total), with no commit or
+/// cleanup tasks.
+///
+/// # Inputs and Outputs
 ///
 /// * Layer 0: each task has 25 byte-typed inputs from the graph inputs and 1 byte-typed output.
 /// * Layers 1-9: each task has 25 inputs sourced from random tasks in the previous layer
 ///   (deterministic via seeded RNG) and 1 byte-typed output.
 ///
-/// No commit or cleanup tasks.
+/// # Execution Policy
+///
+/// * `max_num_retry`: 3
+/// * `max_num_instances`: 2
+///
+/// # TDL Context
+///
+/// * Package: `test`
+/// * Task function: `nn_task`
 ///
 /// # Returns
 ///
@@ -131,9 +137,11 @@ pub fn build_flat_task_graph(
 /// Panics if the task graph or any task descriptor fails to construct.
 #[must_use]
 pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
-    let num_layers: usize = 10;
-    let tasks_per_layer: usize = 1_000;
-    let inputs_per_task: usize = 25;
+    const TDL_FUNC: &str = "nn_task";
+    const NUM_LAYERS: usize = 10;
+    const TASKS_PER_LAYER: usize = 1_000;
+    const INPUTS_PER_LAYER: usize = 25;
+    const NUM_GRAPH_INPUTS: usize = TASKS_PER_LAYER * INPUTS_PER_LAYER;
 
     let execution_policy = Some(ExecutionPolicy {
         max_num_retry: 3,
@@ -146,15 +154,15 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
 
     // Layer 0: input tasks (no input_sources).
-    for i in 0..tasks_per_layer {
+    for i in 0..TASKS_PER_LAYER {
         graph
             .insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
-                    package: "test".to_owned(),
-                    task_func: format!("nn_L0_T{i}"),
+                    package: TDL_PACKAGE.to_owned(),
+                    task_func: TDL_FUNC.to_owned(),
                 },
                 execution_policy: execution_policy.clone(),
-                inputs: vec![bytes_type.clone(); inputs_per_task],
+                inputs: vec![bytes_type.clone(); INPUTS_PER_LAYER],
                 outputs: vec![bytes_type.clone()],
                 input_sources: None,
             })
@@ -162,14 +170,14 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     }
 
     // Layers 1-9: each task draws 25 random inputs from the previous layer.
-    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-    for layer in 1..num_layers {
-        let prev_layer_start: TaskIndex = (layer - 1) * tasks_per_layer;
-        for i in 0..tasks_per_layer {
-            let input_sources: Vec<TaskInputOutputIndex> = (0..inputs_per_task)
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+    for layer in 1..NUM_LAYERS {
+        let prev_layer_start: TaskIndex = (layer - 1) * TASKS_PER_LAYER;
+        for i in 0..TASKS_PER_LAYER {
+            let input_sources: Vec<TaskInputOutputIndex> = (0..INPUTS_PER_LAYER)
                 .map(|_| {
                     let src_task: TaskIndex =
-                        prev_layer_start + rng.random_range(0..tasks_per_layer);
+                        prev_layer_start + rng.random_range(0..TASKS_PER_LAYER);
                     TaskInputOutputIndex {
                         task_idx: src_task,
                         position: 0,
@@ -179,11 +187,11 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
             graph
                 .insert_task(TaskDescriptor {
                     tdl_context: TdlContext {
-                        package: "test".to_owned(),
-                        task_func: format!("nn_L{layer}_T{i}"),
+                        package: TDL_PACKAGE.to_owned(),
+                        task_func: TDL_FUNC.to_owned(),
                     },
                     execution_policy: execution_policy.clone(),
-                    inputs: vec![bytes_type.clone(); inputs_per_task],
+                    inputs: vec![bytes_type.clone(); INPUTS_PER_LAYER],
                     outputs: vec![bytes_type.clone()],
                     input_sources: Some(input_sources),
                 })
@@ -191,8 +199,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
         }
     }
 
-    let num_graph_inputs = tasks_per_layer * inputs_per_task;
-    let inputs: Vec<TaskInput> = (0..num_graph_inputs)
+    let inputs: Vec<TaskInput> = (0..NUM_GRAPH_INPUTS)
         .map(|_| TaskInput::ValuePayload(vec![0u8; 128]))
         .collect();
 
