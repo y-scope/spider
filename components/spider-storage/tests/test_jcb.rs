@@ -34,8 +34,13 @@ use tokio::sync::watch;
 /// The number of concurrent worker tasks to spawn.
 const NUM_WORKERS: usize = 64;
 
-/// The concrete JCB type used throughout these tests.
-type TestJcb = SharedJobControlBlock<MockReadyQueueSender, NoopDbConnector, MockTaskInstancePool>;
+/// The concrete JCB type parameterized by the DB connector.
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+type TestJcb<DbConnectorType> =
+    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, MockTaskInstancePool>;
 
 /// A handler that generates mock task outputs from an [`ExecutionContext`], which simulates the
 /// execution of a TDL task.
@@ -195,14 +200,18 @@ impl TaskInstancePoolConnector for MockTaskInstancePool {
 
 /// Per-worker context. All fields are cheaply cloneable (via `Arc` or built-in `Clone` impls),
 /// so each worker owns its own copy without shared `Arc<WorkerContext>` indirection.
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
-struct WorkerContext {
+struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
     /// The MPMC ready-queue receiver. Each clone can concurrently await messages without
     /// serialization.
     receiver: async_channel::Receiver<ReadyMessage>,
 
     /// The JCB under test.
-    jcb: TestJcb,
+    jcb: TestJcb<DbConnectorType>,
 
     /// Watch channel sender — workers send the terminal [`JobState`] when observed.
     terminal_state_sender: watch::Sender<Option<JobState>>,
@@ -267,8 +276,27 @@ const fn is_stale_state(err: &CacheError) -> bool {
     matches!(err, CacheError::StaleState(_))
 }
 
+/// Creates a [`NoopDbConnector`] from the given submitted task graph.
+///
+/// # Returns
+///
+/// The created no-op connector.
+const fn noop_db_connector(submitted_task_graph: &SubmittedTaskGraph) -> NoopDbConnector {
+    NoopDbConnector {
+        has_commit_task: submitted_task_graph.get_commit_task_descriptor().is_some(),
+        has_cleanup_task: submitted_task_graph.get_cleanup_task_descriptor().is_some(),
+    }
+}
+
 /// If `state` is terminal, broadcasts it on the watch channel.
-fn broadcast_if_terminated(ctx: &WorkerContext, state: JobState) {
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
+fn broadcast_if_terminated<DbConnectorType: InternalJobOrchestration>(
+    ctx: &WorkerContext<DbConnectorType>,
+    state: JobState,
+) {
     if state.is_terminal() {
         // Ignore send errors — the receiver may already have a terminal value.
         let _ = ctx.terminal_state_sender.send(Some(state));
@@ -288,6 +316,10 @@ fn default_output_handler(output_size: usize) -> TaskOutputHandler {
 ///
 /// The worker loops until either the done signal fires or the receiver is closed (returns `None`).
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
+///
 /// # Failure injection
 ///
 /// For each task index received, the worker flips a coin:
@@ -303,7 +335,9 @@ fn default_output_handler(output_size: usize) -> TaskOutputHandler {
 /// # Errors
 ///
 /// Forwards all errors that are not [`CacheError::StaleState`].
-async fn run_worker(mut ctx: WorkerContext) -> anyhow::Result<()> {
+async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
+    mut ctx: WorkerContext<DbConnectorType>,
+) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
         let msg = tokio::select! {
@@ -343,17 +377,19 @@ async fn run_worker(mut ctx: WorkerContext) -> anyhow::Result<()> {
 
 /// Processes a single task index to simulate task execution according to the given policy.
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
+///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
-///   failure.
-/// * Forwards [`SharedTerminationTaskControlBlock::succeed_task_instance`]'s return values on
-///   failure.
-/// * Forwards [`SharedTerminationTaskControlBlock::fail_task_instance`]'s return values on failure.
-async fn process_task(
-    ctx: &WorkerContext,
+/// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
+/// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
+/// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
+    ctx: &WorkerContext<DbConnectorType>,
     rng: &mut impl Rng,
     task_index: TaskIndex,
 ) -> Result<(), CacheError> {
@@ -376,7 +412,8 @@ async fn process_task(
     }
 
     if ctx.seen_tasks.insert(task_index, ()).is_none() && rng.random_bool(0.5) {
-        // Failure ingestion
+        // Failure injection: spawn two concurrent coroutines that each register and fail a task
+        // instance, exercising both the retry and concurrent-instance logic.
         let handles: Vec<_> = (0..2)
             .map(|_| {
                 let jcb = ctx.jcb.clone();
@@ -426,13 +463,19 @@ async fn process_task(
 
 /// Processes a commit-ready message: creates a commit task instance and succeeds it.
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
+///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
-async fn process_commit(ctx: &WorkerContext) -> Result<(), CacheError> {
+async fn process_commit<DbConnectorType: InternalJobOrchestration>(
+    ctx: &WorkerContext<DbConnectorType>,
+) -> Result<(), CacheError> {
     let exec_ctx = ctx.jcb.create_task_instance(TaskId::Commit).await?;
     let state = ctx
         .jcb
@@ -445,13 +488,19 @@ async fn process_commit(ctx: &WorkerContext) -> Result<(), CacheError> {
 
 /// Processes a cleanup-ready message: creates a cleanup task instance and succeeds it.
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
+///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
-async fn process_cleanup(ctx: &WorkerContext) -> Result<(), CacheError> {
+async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
+    ctx: &WorkerContext<DbConnectorType>,
+) -> Result<(), CacheError> {
     let exec_ctx = ctx.jcb.create_task_instance(TaskId::Cleanup).await?;
     let state = ctx
         .jcb
@@ -464,26 +513,32 @@ async fn process_cleanup(ctx: &WorkerContext) -> Result<(), CacheError> {
 
 /// Creates a JCB from the given task graph, starts it, spawns workers, and runs to completion.
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorFactoryType` - A factory that creates the DB connector from the submitted task
+///   graph. This allows the caller to defer connector construction until the task graph is
+///   available, avoiding redundant graph builds.
+///
 /// # Returns
 ///
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
-async fn run_workload(
+async fn run_workload<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,
+    db_connector_factory: DbConnectorFactoryType,
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
     always_fail: bool,
 ) -> WorkloadResult {
-    let has_commit_task = submitted_task_graph.get_commit_task_descriptor().is_some();
-    let has_cleanup_task = submitted_task_graph.get_cleanup_task_descriptor().is_some();
-
     // Create mock components.
     let (tx, rx) = async_channel::unbounded::<ReadyMessage>();
     let ready_queue_sender = MockReadyQueueSender { sender: tx };
-    let db_connector = NoopDbConnector {
-        has_commit_task,
-        has_cleanup_task,
-    };
+    let db_connector = db_connector_factory(submitted_task_graph);
     let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.
@@ -600,13 +655,24 @@ async fn run_workload(
 /// * All 10,000 tasks were successfully completed.
 /// * The commit task executed exactly once.
 /// * The cleanup task did not execute.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_flat_success() -> anyhow::Result<()> {
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
+///   graph.
+async fn test_flat_success<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
+    db_connector_factory: DbConnectorFactoryType,
+) {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let num_tasks = graph.get_num_tasks();
     let result = run_workload(
         &graph,
         inputs,
+        db_connector_factory,
         CancelPolicy::Never,
         default_output_handler(1024),
         false,
@@ -627,7 +693,6 @@ async fn test_flat_success() -> anyhow::Result<()> {
         result.cleanup_count, 0,
         "cleanup task should not execute on success"
     );
-    Ok(())
 }
 
 /// Cancels the flat workload immediately after starting.
@@ -638,6 +703,12 @@ async fn test_flat_success() -> anyhow::Result<()> {
 /// * The commit task did not execute.
 /// * The cleanup task executed exactly once.
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
+///   graph.
+///
 /// # NOTE
 ///
 /// Since we spawn workers before cancelling the job, there is a chance that when the cancellation
@@ -647,12 +718,17 @@ async fn test_flat_success() -> anyhow::Result<()> {
 ///   time to cancel the job.
 /// * The underlying ready-queue is FIFO. As long as cleanup-ready message is sent before
 ///   commit-ready, the job should be cancellable.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_flat_cancel() -> anyhow::Result<()> {
+async fn test_flat_cancel<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
+    db_connector_factory: DbConnectorFactoryType,
+) {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let result = run_workload(
         &graph,
         inputs,
+        db_connector_factory,
         CancelPolicy::Immediate,
         default_output_handler(1024),
         false,
@@ -672,10 +748,9 @@ async fn test_flat_cancel() -> anyhow::Result<()> {
         result.cleanup_count, 1,
         "cleanup task should execute once on cancel"
     );
-    Ok(())
 }
 
-/// Runs the neural-net workload (10 layers × 1,000 tasks, no termination tasks) to successful
+/// Runs the neural-net workload (10 layers x 1,000 tasks, no termination tasks) to successful
 /// completion.
 ///
 /// Verifies that:
@@ -683,13 +758,24 @@ async fn test_flat_cancel() -> anyhow::Result<()> {
 /// * The terminal state is [`JobState::Succeeded`].
 /// * All 10,000 tasks were successfully completed.
 /// * No commit or cleanup tasks executed (since the graph has none).
-#[tokio::test(flavor = "multi_thread")]
-async fn test_neural_net_success() -> anyhow::Result<()> {
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
+///   graph.
+async fn test_neural_net_success<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
+    db_connector_factory: DbConnectorFactoryType,
+) {
     let (graph, inputs) = build_neural_net_task_graph();
     let num_tasks = graph.get_num_tasks();
     let result = run_workload(
         &graph,
         inputs,
+        db_connector_factory,
         CancelPolicy::Never,
         default_output_handler(128),
         false,
@@ -713,7 +799,6 @@ async fn test_neural_net_success() -> anyhow::Result<()> {
         result.cleanup_count, 0,
         "no cleanup task in neural-net workload"
     );
-    Ok(())
 }
 
 /// Cancels the neural-net workload immediately after starting.
@@ -723,6 +808,12 @@ async fn test_neural_net_success() -> anyhow::Result<()> {
 /// * The terminal state is [`JobState::Cancelled`].
 /// * No commit or cleanup tasks executed.
 ///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
+///   graph.
+///
 /// # NOTE
 ///
 /// Since we spawn workers before cancelling the job, there is a chance that when the cancellation
@@ -730,12 +821,17 @@ async fn test_neural_net_success() -> anyhow::Result<()> {
 /// takes a while for workers to consume all tasks (especially when needing to resolve
 /// dependencies), which should give the main coroutine enough time to cancel the job before it
 /// terminates.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_neural_net_cancel() -> anyhow::Result<()> {
+async fn test_neural_net_cancel<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
+    db_connector_factory: DbConnectorFactoryType,
+) {
     let (graph, inputs) = build_neural_net_task_graph();
     let result = run_workload(
         &graph,
         inputs,
+        db_connector_factory,
         CancelPolicy::Immediate,
         default_output_handler(128),
         false,
@@ -755,17 +851,27 @@ async fn test_neural_net_cancel() -> anyhow::Result<()> {
         result.cleanup_count, 0,
         "no cleanup task in neural-net workload"
     );
-    Ok(())
 }
 
 /// Runs a job whose tasks always fail (`max_num_retry = 3`, all instances fail). The job should
 /// transition to [`JobState::Failed`] after retries are exhausted.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_always_fail_terminates_job() -> anyhow::Result<()> {
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
+///   graph.
+async fn test_always_fail_terminates_job<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
+    db_connector_factory: DbConnectorFactoryType,
+) {
     let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
     let result = run_workload(
         &graph,
         inputs,
+        db_connector_factory,
         CancelPolicy::Never,
         default_output_handler(128),
         true,
@@ -781,20 +887,30 @@ async fn test_always_fail_terminates_job() -> anyhow::Result<()> {
         result.task_success_count, 0,
         "no tasks should succeed in always-fail mode"
     );
-    Ok(())
 }
 
 /// Races task execution against cancellation. A small flat workload (100 tasks with commit +
 /// cleanup) is started and a cancel is issued concurrently after a short delay.
 ///
-/// The terminal state must be exactly one of [`JobState::Succeeded`] or [`JobState::Cancelled`]: no
-/// other state is valid.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_concurrent_success_and_cancel() -> anyhow::Result<()> {
+/// The terminal state must be exactly one of [`JobState::Succeeded`] or [`JobState::Cancelled`]:
+/// no other state is valid.
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation.
+/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
+///   graph.
+async fn test_concurrent_success_and_cancel<
+    DbConnectorType: InternalJobOrchestration + 'static,
+    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+>(
+    db_connector_factory: DbConnectorFactoryType,
+) {
     let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
     let result = run_workload(
         &graph,
         inputs,
+        db_connector_factory,
         CancelPolicy::Concurrent,
         default_output_handler(128),
         false,
@@ -807,5 +923,34 @@ async fn test_concurrent_success_and_cancel() -> anyhow::Result<()> {
         "concurrent success/cancel should produce Succeeded or Cancelled, got {:?}",
         result.terminal_state
     );
-    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_success_without_db() {
+    test_flat_success(noop_db_connector).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_cancel_without_db() {
+    test_flat_cancel(noop_db_connector).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_neural_net_success_without_db() {
+    test_neural_net_success(noop_db_connector).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_neural_net_cancel_without_db() {
+    test_neural_net_cancel(noop_db_connector).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_always_fail_terminates_job_without_db() {
+    test_always_fail_terminates_job(noop_db_connector).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_concurrent_success_and_cancel_without_db() {
+    test_concurrent_success_and_cancel(noop_db_connector).await;
 }
