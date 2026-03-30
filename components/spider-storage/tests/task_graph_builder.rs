@@ -84,7 +84,7 @@ pub fn build_flat_task_graph(
         .expect("flat task graph creation should succeed");
 
     let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-    for i in 0..num_tasks {
+    for _ in 0..num_tasks {
         graph
             .insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
@@ -152,7 +152,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
 
     // Layer 0: input tasks (no input_sources).
-    for i in 0..TASKS_PER_LAYER {
+    for _ in 0..TASKS_PER_LAYER {
         graph
             .insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
@@ -171,7 +171,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     for layer in 1..NUM_LAYERS {
         let prev_layer_start: TaskIndex = (layer - 1) * TASKS_PER_LAYER;
-        for i in 0..TASKS_PER_LAYER {
+        for _ in 0..TASKS_PER_LAYER {
             let input_sources: Vec<TaskInputOutputIndex> = (0..INPUTS_PER_LAYER)
                 .map(|_| {
                     let src_task: TaskIndex =

@@ -29,7 +29,7 @@ use spider_storage::{
     task_instance_pool::TaskInstancePoolConnector,
 };
 use task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph, build_neural_net_task_graph};
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::watch;
 
 /// The number of concurrent worker tasks to spawn.
 const NUM_WORKERS: usize = 64;
@@ -59,14 +59,14 @@ enum ReadyMessage {
     Cleanup,
 }
 
-/// A mock [`ReadyQueueSender`] backed by a `tokio::sync::mpsc::UnboundedSender`.
+/// A mock [`ReadyQueueSender`] backed by an [`async_channel::Sender`].
 ///
-/// Workers share the corresponding receiver via `Arc<Mutex<UnboundedReceiver<ReadyMessage>>>` for
-/// MPMC semantics. The `job_id` parameter in each trait method is discarded since only one job
-/// runs at a time.
+/// Workers each hold a cloned [`async_channel::Receiver`] and can concurrently await messages
+/// without any mutex serialization. The `job_id` parameter in each trait method is discarded since
+/// only one job runs at a time.
 #[derive(Clone)]
 struct MockReadyQueueSender {
-    tx: mpsc::UnboundedSender<ReadyMessage>,
+    sender: async_channel::Sender<ReadyMessage>,
 }
 
 #[async_trait]
@@ -77,22 +77,25 @@ impl ReadyQueueSender for MockReadyQueueSender {
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
         for task_index in task_indices {
-            self.tx
+            self.sender
                 .send(ReadyMessage::Task { task_index })
+                .await
                 .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))?;
         }
         Ok(())
     }
 
     async fn send_commit_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
-        self.tx
+        self.sender
             .send(ReadyMessage::Commit)
+            .await
             .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
     }
 
     async fn send_cleanup_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
-        self.tx
+        self.sender
             .send(ReadyMessage::Cleanup)
+            .await
             .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
     }
 }
@@ -190,21 +193,24 @@ impl TaskInstancePoolConnector for MockTaskInstancePool {
     }
 }
 
-/// Shared state passed to every worker.
+/// Per-worker context. All fields are cheaply cloneable (via `Arc` or built-in `Clone` impls),
+/// so each worker owns its own copy without shared `Arc<WorkerContext>` indirection.
+#[derive(Clone)]
 struct WorkerContext {
-    /// The shared ready-queue receiver (MPMC via mutex).
-    receiver: Arc<Mutex<mpsc::UnboundedReceiver<ReadyMessage>>>,
+    /// The MPMC ready-queue receiver. Each clone can concurrently await messages without
+    /// serialization.
+    receiver: async_channel::Receiver<ReadyMessage>,
 
     /// The JCB under test.
     jcb: TestJcb,
 
     /// Watch channel sender — workers send the terminal [`JobState`] when observed.
-    terminal_state_tx: watch::Sender<Option<JobState>>,
+    terminal_state_sender: watch::Sender<Option<JobState>>,
 
     /// Watch channel receiver — workers use this to detect shutdown.
-    done_rx: watch::Receiver<bool>,
+    done_receiver: watch::Receiver<bool>,
 
-    /// Tracks which [`TaskIndex`]es have been seen for failure injection.
+    /// Tracks which [`TaskIndex`](es) have been seen for failure injection.
     seen_tasks: Arc<DashMap<TaskIndex, ()>>,
 
     /// Generates mock task outputs from an [`ExecutionContext`].
@@ -251,11 +257,9 @@ enum CancelPolicy {
     Concurrent,
 }
 
-// ---------------------------------------------------------------------------
-// Const functions
-// ---------------------------------------------------------------------------
-
-/// Returns `true` if the error is a [`CacheError::StaleState`] variant.
+/// # Returns
+///
+/// Whether the error is a [`CacheError::StaleState`] variant.
 ///
 /// Stale-state errors are expected during concurrent execution (e.g., a task was already succeeded
 /// by another worker) and should be silently ignored.
@@ -263,23 +267,20 @@ const fn is_stale_state(err: &CacheError) -> bool {
     matches!(err, CacheError::StaleState(_))
 }
 
-// ---------------------------------------------------------------------------
-// Functions
-// ---------------------------------------------------------------------------
-
 /// If `state` is terminal, broadcasts it on the watch channel.
-fn check_terminal(ctx: &WorkerContext, state: JobState) {
+fn broadcast_if_terminated(ctx: &WorkerContext, state: JobState) {
     if state.is_terminal() {
         // Ignore send errors — the receiver may already have a terminal value.
-        let _ = ctx.terminal_state_tx.send(Some(state));
+        let _ = ctx.terminal_state_sender.send(Some(state));
     }
 }
 
-/// Creates a default output handler that produces one output of `output_size` bytes per task.
+/// # Returns
+///
+/// A default (noop) output handler that produces one output of `output_size` bytes per task. This
+/// output is currently independent of the execution context.
 fn default_output_handler(output_size: usize) -> TaskOutputHandler {
-    Arc::new(move |_exec_ctx: &ExecutionContext| -> Vec<TaskOutput> {
-        vec![vec![0u8; output_size]]
-    })
+    Arc::new(move |_: &ExecutionContext| -> Vec<TaskOutput> { vec![vec![0u8; output_size]] })
 }
 
 /// Runs a single worker that consumes [`ReadyMessage`]s from the shared queue and drives task
@@ -298,20 +299,18 @@ fn default_output_handler(output_size: usize) -> TaskOutputHandler {
 ///
 /// All [`CacheError::StaleState`] errors are silently ignored — they are expected when multiple
 /// workers race on the same task or when the job has already terminated.
-async fn run_worker(ctx: Arc<WorkerContext>) -> anyhow::Result<()> {
+///
+/// # Errors
+///
+/// Forwards all errors that are not [`CacheError::StaleState`].
+async fn run_worker(mut ctx: WorkerContext) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
-    let mut done_rx = ctx.done_rx.clone();
     loop {
-        // Use `select!` so the worker can be interrupted by the done signal even while waiting
-        // for the receiver lock. The lock guard is dropped when the losing branch is cancelled.
         let msg = tokio::select! {
-            msg = async {
-                let mut rx = ctx.receiver.lock().await;
-                rx.recv().await
-            } => msg,
-            _ = done_rx.wait_for(|&done| done) => break,
+            msg = ctx.receiver.recv() => msg,
+            _ = ctx.done_receiver.wait_for(|&done| done) => break,
         };
-        let Some(msg) = msg else {
+        let Ok(msg) = msg else {
             break;
         };
 
@@ -342,17 +341,24 @@ async fn run_worker(ctx: Arc<WorkerContext>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Processes a single task index: applies failure injection, then succeeds or fails the task.
+/// Processes a single task index to simulate task execution according to the given policy.
 ///
-/// Returns the [`CacheError`] from the JCB if any non-stale error occurs, so the caller can
-/// decide whether to propagate or ignore it.
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
+///   failure.
+/// * Forwards [`SharedTerminationTaskControlBlock::succeed_task_instance`]'s return values on
+///   failure.
+/// * Forwards [`SharedTerminationTaskControlBlock::fail_task_instance`]'s return values on failure.
 async fn process_task(
     ctx: &WorkerContext,
     rng: &mut impl Rng,
     task_index: TaskIndex,
 ) -> Result<(), CacheError> {
-    // Always-fail mode: every instance fails unconditionally.
     if ctx.always_fail {
+        // In always-fail, every instance fails unconditionally.
         let exec_ctx = ctx
             .jcb
             .create_task_instance(TaskId::Index(task_index))
@@ -365,49 +371,43 @@ async fn process_task(
                 "always fail".to_owned(),
             )
             .await?;
-        check_terminal(ctx, state);
+        broadcast_if_terminated(ctx, state);
         return Ok(());
     }
 
-    let should_inject_failure = rng.random_bool(0.5);
-    if should_inject_failure {
-        let is_first_seen = ctx.seen_tasks.insert(task_index, ()).is_none();
-        if is_first_seen {
-            // Spawn two concurrent coroutines that each register and fail a task instance,
-            // exercising both the retry and concurrent-instance logic.
-            let handles: Vec<_> = (0..2)
-                .map(|_| {
-                    let jcb = ctx.jcb.clone();
-                    let terminal_tx = ctx.terminal_state_tx.clone();
-                    tokio::spawn(async move {
-                        let exec_ctx = jcb.create_task_instance(TaskId::Index(task_index)).await?;
-                        let state = jcb
-                            .fail_task_instance(
-                                exec_ctx.task_instance_id,
-                                TaskId::Index(task_index),
-                                "injected failure".to_owned(),
-                            )
-                            .await?;
-                        if state.is_terminal() {
-                            let _ = terminal_tx.send(Some(state));
-                        }
-                        Ok::<(), CacheError>(())
-                    })
+    if ctx.seen_tasks.insert(task_index, ()).is_none() && rng.random_bool(0.5) {
+        // Failure ingestion
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let jcb = ctx.jcb.clone();
+                let terminal_tx = ctx.terminal_state_sender.clone();
+                tokio::spawn(async move {
+                    let exec_ctx = jcb.create_task_instance(TaskId::Index(task_index)).await?;
+                    let state = jcb
+                        .fail_task_instance(
+                            exec_ctx.task_instance_id,
+                            TaskId::Index(task_index),
+                            "injected failure".to_owned(),
+                        )
+                        .await?;
+                    if state.is_terminal() {
+                        let _ = terminal_tx.send(Some(state));
+                    }
+                    Ok::<(), CacheError>(())
                 })
-                .collect();
-            for handle in handles {
-                match handle
-                    .await
-                    .expect("failure injection task should not panic")
-                {
-                    Ok(()) => {}
-                    Err(e) if is_stale_state(&e) => {}
-                    Err(e) => return Err(e),
-                }
+            })
+            .collect();
+        for handle in handles {
+            match handle
+                .await
+                .expect("failure injection task should not panic")
+            {
+                Ok(()) => {}
+                Err(e) if is_stale_state(&e) => {}
+                Err(e) => return Err(e),
             }
-            return Ok(());
         }
-        // Already seen — fall through to succeed.
+        return Ok(());
     }
 
     let exec_ctx = ctx
@@ -420,11 +420,18 @@ async fn process_task(
         .succeed_task_instance(exec_ctx.task_instance_id, task_index, outputs)
         .await?;
     ctx.task_success_count.fetch_add(1, Ordering::Relaxed);
-    check_terminal(ctx, state);
+    broadcast_if_terminated(ctx, state);
     Ok(())
 }
 
 /// Processes a commit-ready message: creates a commit task instance and succeeds it.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
+/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
 async fn process_commit(ctx: &WorkerContext) -> Result<(), CacheError> {
     let exec_ctx = ctx.jcb.create_task_instance(TaskId::Commit).await?;
     let state = ctx
@@ -432,11 +439,18 @@ async fn process_commit(ctx: &WorkerContext) -> Result<(), CacheError> {
         .succeed_commit_task_instance(exec_ctx.task_instance_id)
         .await?;
     ctx.commit_count.fetch_add(1, Ordering::Relaxed);
-    check_terminal(ctx, state);
+    broadcast_if_terminated(ctx, state);
     Ok(())
 }
 
 /// Processes a cleanup-ready message: creates a cleanup task instance and succeeds it.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
+/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
 async fn process_cleanup(ctx: &WorkerContext) -> Result<(), CacheError> {
     let exec_ctx = ctx.jcb.create_task_instance(TaskId::Cleanup).await?;
     let state = ctx
@@ -444,19 +458,11 @@ async fn process_cleanup(ctx: &WorkerContext) -> Result<(), CacheError> {
         .succeed_cleanup_task_instance(exec_ctx.task_instance_id)
         .await?;
     ctx.cleanup_count.fetch_add(1, Ordering::Relaxed);
-    check_terminal(ctx, state);
+    broadcast_if_terminated(ctx, state);
     Ok(())
 }
 
 /// Creates a JCB from the given task graph, starts it, spawns workers, and runs to completion.
-///
-/// # Parameters
-///
-/// * `submitted_task_graph` -- the task graph to execute.
-/// * `inputs` -- job inputs matching the graph's input tasks.
-/// * `cancel_policy` -- whether and when to cancel the job.
-/// * `output_handler` -- generates mock task outputs from each [`ExecutionContext`].
-/// * `always_fail` -- if `true`, workers always fail every task instance (no random injection).
 ///
 /// # Returns
 ///
@@ -467,14 +473,13 @@ async fn run_workload(
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
     always_fail: bool,
-) -> anyhow::Result<WorkloadResult> {
+) -> WorkloadResult {
     let has_commit_task = submitted_task_graph.get_commit_task_descriptor().is_some();
     let has_cleanup_task = submitted_task_graph.get_cleanup_task_descriptor().is_some();
 
     // Create mock components.
-    let (tx, rx) = mpsc::unbounded_channel::<ReadyMessage>();
-    let receiver = Arc::new(Mutex::new(rx));
-    let ready_queue_sender = MockReadyQueueSender { tx };
+    let (tx, rx) = async_channel::unbounded::<ReadyMessage>();
+    let ready_queue_sender = MockReadyQueueSender { sender: tx };
     let db_connector = NoopDbConnector {
         has_commit_task,
         has_cleanup_task,
@@ -491,14 +496,37 @@ async fn run_workload(
         db_connector,
         task_instance_pool,
     )
-    .await?;
+    .await
+    .expect("failed to create JCB");
 
-    jcb.start().await?;
+    jcb.start().await.expect("failed to start JCB");
 
-    // Set up the terminal-state watch channel and done signal before cancellation, so that
-    // an immediate cancel that produces a terminal state can be captured.
-    let (terminal_tx, mut terminal_rx) = watch::channel::<Option<JobState>>(None);
-    let (done_tx, done_rx) = watch::channel::<bool>(false);
+    let (terminal_state_sender, mut terminal_state_receiver) =
+        watch::channel::<Option<JobState>>(None);
+    let (done_sender, done_receiver) = watch::channel::<bool>(false);
+    let task_success_count = Arc::new(AtomicUsize::new(0));
+    let commit_count = Arc::new(AtomicUsize::new(0));
+    let cleanup_count = Arc::new(AtomicUsize::new(0));
+
+    let ctx = WorkerContext {
+        receiver: rx,
+        jcb: jcb.clone(),
+        terminal_state_sender: terminal_state_sender.clone(),
+        done_receiver: done_receiver.clone(),
+        seen_tasks: Arc::new(DashMap::new()),
+        output_handler: output_handler.clone(),
+        task_success_count: task_success_count.clone(),
+        commit_count: commit_count.clone(),
+        cleanup_count: cleanup_count.clone(),
+        always_fail,
+    };
+
+    // Spawn workers.
+    let mut join_set = tokio::task::JoinSet::new();
+    for _ in 0..NUM_WORKERS {
+        let worker_ctx = ctx.clone();
+        join_set.spawn(async move { run_worker(worker_ctx).await });
+    }
 
     // Apply cancellation policy.
     let cancel_handle = match cancel_policy {
@@ -507,17 +535,17 @@ async fn run_workload(
             // Cancel synchronously before workers process any messages.
             match jcb.cancel().await {
                 Ok(state) if state.is_terminal() => {
-                    let _ = terminal_tx.send(Some(state));
+                    let _ = terminal_state_sender.send(Some(state));
                 }
                 Ok(_) => {}
                 Err(e) if is_stale_state(&e) => {}
-                Err(e) => bail!(e),
+                Err(e) => panic!("unexpected cancel error: {e:?}"),
             }
             None
         }
         CancelPolicy::Concurrent => {
             let jcb_clone = jcb.clone();
-            let tx_clone = terminal_tx.clone();
+            let tx_clone = terminal_state_sender.clone();
             Some(tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 match jcb_clone.cancel().await {
@@ -531,45 +559,23 @@ async fn run_workload(
         }
     };
 
-    let task_success_count = Arc::new(AtomicUsize::new(0));
-    let commit_count = Arc::new(AtomicUsize::new(0));
-    let cleanup_count = Arc::new(AtomicUsize::new(0));
-
-    let ctx = Arc::new(WorkerContext {
-        receiver: receiver.clone(),
-        jcb,
-        terminal_state_tx: terminal_tx,
-        done_rx,
-        seen_tasks: Arc::new(DashMap::new()),
-        output_handler,
-        task_success_count: task_success_count.clone(),
-        commit_count: commit_count.clone(),
-        cleanup_count: cleanup_count.clone(),
-        always_fail,
-    });
-
-    // Spawn workers.
-    let mut join_set = tokio::task::JoinSet::new();
-    for _ in 0..NUM_WORKERS {
-        let ctx = ctx.clone();
-        join_set.spawn(async move { run_worker(ctx).await });
-    }
-
     // Wait for a terminal state, then signal workers to exit.
-    terminal_rx
+    terminal_state_receiver
         .wait_for(Option::is_some)
         .await
         .expect("terminal state watch channel should not be dropped");
-    let terminal_state = terminal_rx
+    let terminal_state = terminal_state_receiver
         .borrow()
         .expect("terminal state should be set after wait_for");
 
-    // Signal all workers to exit via the done channel.
-    let _ = done_tx.send(true);
+    // Signal all workers to exit via the done channel. Ignore the error since all workers might be
+    // closed, meaning that no living receiver.
+    let _ = done_sender.send(true);
 
-    // Await all workers and propagate the first error.
     while let Some(result) = join_set.join_next().await {
-        result.expect("worker task should not panic")?;
+        result
+            .expect("worker task should not panic")
+            .expect("worker early returns on error");
     }
 
     // Await the concurrent cancel task if any.
@@ -577,23 +583,20 @@ async fn run_workload(
         handle.await.expect("cancel task should not panic");
     }
 
-    Ok(WorkloadResult {
+    WorkloadResult {
         terminal_state,
         task_success_count: task_success_count.load(Ordering::Relaxed),
         commit_count: commit_count.load(Ordering::Relaxed),
         cleanup_count: cleanup_count.load(Ordering::Relaxed),
-    })
+    }
 }
-
-// ---------------------------------------------------------------------------
-// Test cases
-// ---------------------------------------------------------------------------
 
 /// Runs the flat workload (10,000 independent tasks with commit + cleanup) to successful
 /// completion.
 ///
 /// Verifies that:
-/// * The terminal state is `Succeeded`.
+///
+/// * The terminal state is [`JobState::Succeeded`].
 /// * All 10,000 tasks were successfully completed.
 /// * The commit task executed exactly once.
 /// * The cleanup task did not execute.
@@ -608,7 +611,7 @@ async fn test_flat_success() -> anyhow::Result<()> {
         default_output_handler(1024),
         false,
     )
-    .await?;
+    .await;
 
     assert_eq!(
         result.terminal_state,
@@ -627,14 +630,23 @@ async fn test_flat_success() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Cancels the flat workload immediately after starting. Since the MPSC channel is FIFO and
-/// cancel is called before any worker processes a message, the job deterministically reaches
-/// `Cancelled`.
+/// Cancels the flat workload immediately after starting.
 ///
 /// Verifies that:
-/// * The terminal state is `Cancelled`.
+///
+/// * The terminal state is [`JobState::Cancelled`].
 /// * The commit task did not execute.
 /// * The cleanup task executed exactly once.
+///
+/// # NOTE
+///
+/// Since we spawn workers before cancelling the job, there is a chance that when the cancellation
+/// is issued, the commit task has finished. However, this should rarely happen in practice, since:
+///
+/// * It takes a while for workers to consume all tasks, which should give the main coroutine enough
+///   time to cancel the job.
+/// * The underlying ready-queue is FIFO. As long as cleanup-ready message is sent before
+///   commit-ready, the job should be cancellable.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_flat_cancel() -> anyhow::Result<()> {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
@@ -645,7 +657,7 @@ async fn test_flat_cancel() -> anyhow::Result<()> {
         default_output_handler(1024),
         false,
     )
-    .await?;
+    .await;
 
     assert_eq!(
         result.terminal_state,
@@ -667,7 +679,8 @@ async fn test_flat_cancel() -> anyhow::Result<()> {
 /// completion.
 ///
 /// Verifies that:
-/// * The terminal state is `Succeeded`.
+///
+/// * The terminal state is [`JobState::Succeeded`].
 /// * All 10,000 tasks were successfully completed.
 /// * No commit or cleanup tasks executed (since the graph has none).
 #[tokio::test(flavor = "multi_thread")]
@@ -681,7 +694,7 @@ async fn test_neural_net_success() -> anyhow::Result<()> {
         default_output_handler(128),
         false,
     )
-    .await?;
+    .await;
 
     assert_eq!(
         result.terminal_state,
@@ -703,12 +716,20 @@ async fn test_neural_net_success() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Cancels the neural-net workload immediately after starting. Since there is no cleanup task,
-/// the job transitions directly to `Cancelled`.
+/// Cancels the neural-net workload immediately after starting.
 ///
 /// Verifies that:
-/// * The terminal state is `Cancelled`.
+///
+/// * The terminal state is [`JobState::Cancelled`].
 /// * No commit or cleanup tasks executed.
+///
+/// # NOTE
+///
+/// Since we spawn workers before cancelling the job, there is a chance that when the cancellation
+/// is issued, all tasks have finished. However, this should rarely happen in practice, since it
+/// takes a while for workers to consume all tasks (especially when needing to resolve
+/// dependencies), which should give the main coroutine enough time to cancel the job before it
+/// terminates.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_neural_net_cancel() -> anyhow::Result<()> {
     let (graph, inputs) = build_neural_net_task_graph();
@@ -719,7 +740,7 @@ async fn test_neural_net_cancel() -> anyhow::Result<()> {
         default_output_handler(128),
         false,
     )
-    .await?;
+    .await;
 
     assert_eq!(
         result.terminal_state,
@@ -737,11 +758,11 @@ async fn test_neural_net_cancel() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Runs a single task that always fails (`max_num_retry = 3`, all instances fail). The job
-/// should transition to `Failed` after retries are exhausted.
+/// Runs a job whose tasks always fail (`max_num_retry = 3`, all instances fail). The job should
+/// transition to [`JobState::Failed`] after retries are exhausted.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_always_fail_terminates_job() -> anyhow::Result<()> {
-    let (graph, inputs) = build_flat_task_graph(1, 128, false, false);
+    let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
     let result = run_workload(
         &graph,
         inputs,
@@ -749,7 +770,7 @@ async fn test_always_fail_terminates_job() -> anyhow::Result<()> {
         default_output_handler(128),
         true,
     )
-    .await?;
+    .await;
 
     assert_eq!(
         result.terminal_state,
@@ -766,8 +787,8 @@ async fn test_always_fail_terminates_job() -> anyhow::Result<()> {
 /// Races task execution against cancellation. A small flat workload (100 tasks with commit +
 /// cleanup) is started and a cancel is issued concurrently after a short delay.
 ///
-/// The terminal state must be exactly one of `Succeeded` or `Cancelled` — no other state is
-/// valid.
+/// The terminal state must be exactly one of [`JobState::Succeeded`] or [`JobState::Cancelled`]: no
+/// other state is valid.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_concurrent_success_and_cancel() -> anyhow::Result<()> {
     let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
@@ -778,7 +799,7 @@ async fn test_concurrent_success_and_cancel() -> anyhow::Result<()> {
         default_output_handler(128),
         false,
     )
-    .await?;
+    .await;
 
     assert!(
         result.terminal_state == JobState::Succeeded
