@@ -94,11 +94,7 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn cancel(
-        &self,
-        job_id: JobId,
-        target: CancelTarget,
-    ) -> Result<(), DbError>;
+    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError>;
 
     /// Gets the state of a job.
     ///

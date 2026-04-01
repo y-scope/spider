@@ -571,4 +571,3 @@ async fn transition_job_state(
 
     Ok(())
 }
-
