@@ -78,7 +78,7 @@ async fn test_register_job() {
         .expect("register should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Ready);
@@ -120,12 +120,12 @@ async fn test_start_job() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Running);
@@ -147,11 +147,11 @@ async fn test_start_job_wrong_state() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
-    let result = storage.start(rg_id, job_id).await;
+    let result = storage.start(job_id).await;
     assert!(
         matches!(result, Err(DbError::UnexpectedJobState { .. })),
         "expected UnexpectedJobState, got {result:?}"
@@ -174,21 +174,16 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
-    ExternalJobOrchestration::cancel(
-        &storage,
-        copy_rg(&rg_id),
-        copy_job(&job_id),
-        CancelTarget::Cancelled,
-    )
-    .await
-    .expect("cancel should succeed");
+    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+        .await
+        .expect("cancel should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Cancelled);
@@ -210,7 +205,7 @@ async fn test_get_outputs_succeeded_job() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -225,7 +220,7 @@ async fn test_get_outputs_succeeded_job() {
     .expect("commit_outputs should succeed");
 
     let retrieved = storage
-        .get_outputs(rg_id, job_id)
+        .get_outputs(job_id)
         .await
         .expect("get_outputs should succeed");
     assert_eq!(retrieved, outputs);
@@ -246,7 +241,7 @@ async fn test_get_outputs_wrong_state() {
         .await
         .expect("register should succeed");
 
-    let result = storage.get_outputs(copy_rg(&rg_id), job_id).await;
+    let result = storage.get_outputs(job_id).await;
     assert!(
         matches!(result, Err(DbError::UnexpectedJobState { .. })),
         "expected UnexpectedJobState"
@@ -269,7 +264,7 @@ async fn test_get_error_failed_job() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -278,7 +273,7 @@ async fn test_get_error_failed_job() {
         .expect("fail should succeed");
 
     let error_msg = storage
-        .get_error(rg_id, job_id)
+        .get_error(job_id)
         .await
         .expect("get_error should succeed");
     assert_eq!(error_msg, "something broke");
@@ -299,7 +294,7 @@ async fn test_get_error_wrong_state() {
         .await
         .expect("register should succeed");
 
-    let result = storage.get_error(copy_rg(&rg_id), job_id).await;
+    let result = storage.get_error(job_id).await;
     assert!(
         matches!(result, Err(DbError::UnexpectedJobState { .. })),
         "expected UnexpectedJobState, got {result:?}"
@@ -322,21 +317,16 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
-    ExternalJobOrchestration::cancel(
-        &storage,
-        copy_rg(&rg_id),
-        copy_job(&job_id),
-        CancelTarget::CleanupReady,
-    )
-    .await
-    .expect("cancel should succeed");
+    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::CleanupReady)
+        .await
+        .expect("cancel should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::CleanupReady);
@@ -358,26 +348,17 @@ async fn test_cancel_already_terminal() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
-    ExternalJobOrchestration::cancel(
-        &storage,
-        copy_rg(&rg_id),
-        copy_job(&job_id),
-        CancelTarget::Cancelled,
-    )
-    .await
-    .expect("first cancel should succeed");
+    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+        .await
+        .expect("first cancel should succeed");
 
-    let result = ExternalJobOrchestration::cancel(
-        &storage,
-        copy_rg(&rg_id),
-        copy_job(&job_id),
-        CancelTarget::Cancelled,
-    )
-    .await;
+    let result =
+        ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+            .await;
     assert!(
         matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
         "expected InvalidJobStateTransition, got {result:?}"
@@ -406,7 +387,7 @@ async fn test_set_state_valid_transition() {
         .expect("set_state should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Running);
@@ -452,7 +433,7 @@ async fn test_commit_outputs_without_commit_task() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -466,7 +447,7 @@ async fn test_commit_outputs_without_commit_task() {
     .expect("commit_outputs should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Succeeded);
@@ -502,7 +483,7 @@ async fn test_commit_outputs_with_commit_task() {
     .expect("commit_outputs should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::CommitReady);
@@ -553,7 +534,7 @@ async fn test_internal_cancel_without_cleanup() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -562,7 +543,7 @@ async fn test_internal_cancel_without_cleanup() {
         .expect("cancel should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Cancelled);
@@ -592,7 +573,7 @@ async fn test_internal_cancel_with_cleanup() {
         .expect("cancel should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::CleanupReady);
@@ -614,19 +595,14 @@ async fn test_internal_cancel_terminal_state() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
     // Cancel via external (goes to Cancelled terminal state)
-    ExternalJobOrchestration::cancel(
-        &storage,
-        copy_rg(&rg_id),
-        copy_job(&job_id),
-        CancelTarget::Cancelled,
-    )
-    .await
-    .expect("external cancel should succeed");
+    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+        .await
+        .expect("external cancel should succeed");
 
     let result =
         InternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
@@ -653,7 +629,7 @@ async fn test_fail_job() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -662,7 +638,7 @@ async fn test_fail_job() {
         .expect("fail should succeed");
 
     let state = storage
-        .get_state(rg_id, job_id)
+        .get_state(job_id)
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Failed);
@@ -684,7 +660,7 @@ async fn test_fail_terminal_state() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -717,7 +693,7 @@ async fn test_delete_expired_terminated_jobs() {
         .expect("register should succeed");
 
     storage
-        .start(copy_rg(&rg_id), copy_job(&job_id))
+        .start(copy_job(&job_id))
         .await
         .expect("start should succeed");
 
@@ -737,7 +713,7 @@ async fn test_delete_expired_terminated_jobs() {
         "expected job_id in deleted list, got {deleted:?}"
     );
 
-    let result = storage.get_state(copy_rg(&rg_id), job_id).await;
+    let result = storage.get_state(job_id).await;
     assert!(
         matches!(result, Err(DbError::JobNotFound(_))),
         "expected JobNotFound, got {result:?}"
@@ -868,41 +844,15 @@ async fn test_delete_nonexistent_resource_group() {
     );
 }
 
-// ─── InvalidAccess (cross-tenant rejection) ─────────────────────────────────
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_get_state_invalid_access() {
-    let storage = setup().await;
-    let rg_a = create_test_resource_group(&storage).await;
-    let rg_b = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register(
-            copy_rg(&rg_a),
-            Arc::new(minimal_task_graph()),
-            vec![].as_slice(),
-        )
-        .await
-        .expect("register should succeed");
-
-    let result = storage.get_state(rg_b, job_id).await;
-    assert!(
-        matches!(result, Err(DbError::InvalidAccess(_))),
-        "expected InvalidAccess, got {result:?}"
-    );
-}
-
 // ─── JobNotFound ─────────────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn test_start_job_not_found() {
     let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
     let fake_job_id = JobId::new();
 
-    let result = storage.start(rg_id, fake_job_id).await;
+    let result = storage.start(fake_job_id).await;
     assert!(
         matches!(result, Err(DbError::JobNotFound(_))),
         "expected JobNotFound, got {result:?}"
