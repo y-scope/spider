@@ -119,21 +119,10 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         }
     }
 
-    async fn start(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-    ) -> Result<(), DbError> {
+    async fn start(&self, job_id: JobId) -> Result<(), DbError> {
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState, ResourceGroupId)> =
-            sqlx::query_as(SELECT_JOB_STATE_AND_RG_FOR_UPDATE)
-                .bind(job_id)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-        let (state, actual_rg_id) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(actual_rg_id, resource_group_id)?;
+        let state = fetch_job_state_for_update(&mut tx, job_id).await?;
 
         if state != JobState::Ready {
             return Err(DbError::UnexpectedJobState {
@@ -152,70 +141,44 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         Ok(())
     }
 
-    async fn cancel(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-        target: CancelTarget,
-    ) -> Result<(), DbError> {
+    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
         let new_state = target.into_job_state();
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(JobState, ResourceGroupId)> =
-            sqlx::query_as(SELECT_JOB_STATE_AND_RG_FOR_UPDATE)
-                .bind(job_id)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-        let (state, actual_rg_id) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(actual_rg_id, resource_group_id)?;
-
-        transition_job_state(&mut tx, job_id, state, new_state).await?;
+        let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
+        transition_job_state(&mut tx, job_id, current_state, new_state).await?;
 
         tx.commit().await?;
         Ok(())
     }
 
-    async fn get_state(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-    ) -> Result<JobState, DbError> {
+    async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = \
-             ?;",
+            "SELECT `state` FROM `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, ResourceGroupId)> = sqlx::query_as(QUERY)
+        let row: Option<(JobState,)> = sqlx::query_as(QUERY)
             .bind(job_id)
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, actual_rg_id) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(actual_rg_id, resource_group_id)?;
-
+        let (state,) = row.ok_or(DbError::JobNotFound(job_id))?;
         Ok(state)
     }
 
-    async fn get_outputs(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-    ) -> Result<Vec<TaskOutput>, DbError> {
+    async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)), `serialized_job_outputs` \
-             FROM `{table}` WHERE `id` = ?;",
+            "SELECT `state`, `serialized_job_outputs` FROM `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, ResourceGroupId, Option<String>)> = sqlx::query_as(QUERY)
+        let row: Option<(JobState, Option<String>)> = sqlx::query_as(QUERY)
             .bind(job_id)
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, actual_rg_id, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(actual_rg_id, resource_group_id)?;
+        let (state, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
 
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
@@ -235,24 +198,18 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         Ok(outputs)
     }
 
-    async fn get_error(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_id: JobId,
-    ) -> Result<String, DbError> {
+    async fn get_error(&self, job_id: JobId) -> Result<String, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)), `error_message` FROM \
-             `{table}` WHERE `id` = ?;",
+            "SELECT `state`, `error_message` FROM `{table}` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, ResourceGroupId, Option<String>)> = sqlx::query_as(QUERY)
+        let row: Option<(JobState, Option<String>)> = sqlx::query_as(QUERY)
             .bind(job_id)
             .fetch_optional(&self.pool)
             .await?;
 
-        let (state, actual_rg_id, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
-        validate_resource_group_access(actual_rg_id, resource_group_id)?;
+        let (state, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
 
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
@@ -522,11 +479,6 @@ const SELECT_JOB_STATE_FOR_UPDATE: &str = formatcp!(
     "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
     table = JOBS_TABLE_NAME,
 );
-const SELECT_JOB_STATE_AND_RG_FOR_UPDATE: &str = formatcp!(
-    "SELECT `state`, CAST(`resource_group_id` AS BINARY(16)) FROM `{table}` WHERE `id` = ? FOR \
-     UPDATE;",
-    table = JOBS_TABLE_NAME,
-);
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
     table = JOBS_TABLE_NAME,
@@ -620,12 +572,3 @@ async fn transition_job_state(
     Ok(())
 }
 
-fn validate_resource_group_access(
-    actual: ResourceGroupId,
-    expected: ResourceGroupId,
-) -> Result<(), DbError> {
-    if actual != expected {
-        return Err(DbError::InvalidAccess(expected));
-    }
-    Ok(())
-}
