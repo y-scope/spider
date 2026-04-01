@@ -16,9 +16,6 @@ pub enum DbError {
     #[error("resource group `{0:?}` password is incorrect")]
     InvalidPassword(ResourceGroupId),
 
-    #[error("resource group `{0:?}` has no access")]
-    InvalidAccess(ResourceGroupId),
-
     #[error("job `{0:?}` does not exist")]
     JobNotFound(JobId),
 
