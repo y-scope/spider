@@ -151,14 +151,14 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let outputs_str = serialized_outputs.ok_or_else(|| {
+        let outputs_bytes = serialized_outputs.ok_or_else(|| {
             DbError::CorruptedDbState(format!(
                 "job `{}` succeeded but has no serialized outputs",
                 job_id.as_uuid_ref()
             ))
         })?;
         let outputs: Vec<TaskOutput> =
-            rmp_serde::from_slice(&outputs_str).map_err(DbError::value_de)?;
+            rmp_serde::from_slice(&outputs_bytes).map_err(DbError::value_de)?;
         Ok(outputs)
     }
 
