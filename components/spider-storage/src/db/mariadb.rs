@@ -576,19 +576,15 @@ async fn transition_job_state(
         });
     }
 
-    if new_state.is_terminal() {
-        sqlx::query(UPDATE_JOB_STATE_AND_END)
-            .bind(new_state)
-            .bind(job_id)
-            .execute(&mut **tx)
-            .await?;
+    sqlx::query(if new_state.is_terminal() {
+        UPDATE_JOB_STATE_AND_END
     } else {
-        sqlx::query(UPDATE_JOB_STATE)
-            .bind(new_state)
-            .bind(job_id)
-            .execute(&mut **tx)
-            .await?;
-    }
+        UPDATE_JOB_STATE
+    })
+    .bind(new_state)
+    .bind(job_id)
+    .execute(&mut **tx)
+    .await?;
 
     Ok(())
 }
