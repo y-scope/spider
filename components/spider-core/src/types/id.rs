@@ -48,42 +48,42 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     }
 }
 
-impl<TypeMarker, DB> sqlx::Type<DB> for Id<TypeMarker>
+impl<TypeMarker, Db> sqlx::Type<Db> for Id<TypeMarker>
 where
     TypeMarker: Debug + PartialEq + Eq,
-    DB: Database,
-    Uuid: sqlx::Type<DB>,
+    Db: Database,
+    Uuid: sqlx::Type<Db>,
 {
-    fn type_info() -> <DB as Database>::TypeInfo {
-        <Uuid as sqlx::Type<DB>>::type_info()
+    fn type_info() -> <Db as Database>::TypeInfo {
+        <Uuid as sqlx::Type<Db>>::type_info()
     }
 
-    fn compatible(ty: &<DB as Database>::TypeInfo) -> bool {
-        <Uuid as sqlx::Type<DB>>::compatible(ty)
+    fn compatible(ty: &<Db as Database>::TypeInfo) -> bool {
+        <Uuid as sqlx::Type<Db>>::compatible(ty)
     }
 }
 
-impl<'q, TypeMarker, DB> sqlx::Encode<'q, DB> for Id<TypeMarker>
+impl<'encode, TypeMarker, Db> sqlx::Encode<'encode, Db> for Id<TypeMarker>
 where
     TypeMarker: Debug + PartialEq + Eq,
-    DB: Database,
-    Uuid: sqlx::Encode<'q, DB>,
+    Db: Database,
+    Uuid: sqlx::Encode<'encode, Db>,
 {
     fn encode_by_ref(
         &self,
-        buf: &mut <DB as Database>::ArgumentBuffer<'q>,
+        buf: &mut <Db as Database>::ArgumentBuffer<'encode>,
     ) -> Result<IsNull, sqlx::error::BoxDynError> {
         self.0.encode_by_ref(buf)
     }
 }
 
-impl<'r, TypeMarker, DB> sqlx::Decode<'r, DB> for Id<TypeMarker>
+impl<'decode, TypeMarker, Db> sqlx::Decode<'decode, Db> for Id<TypeMarker>
 where
     TypeMarker: Debug + PartialEq + Eq,
-    DB: Database,
-    Uuid: sqlx::Decode<'r, DB>,
+    Db: Database,
+    Uuid: sqlx::Decode<'decode, Db>,
 {
-    fn decode(value: <DB as Database>::ValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: <Db as Database>::ValueRef<'decode>) -> Result<Self, sqlx::error::BoxDynError> {
         Uuid::decode(value).map(|uuid| Self(uuid, PhantomData))
     }
 }
