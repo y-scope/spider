@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
-    job::{CancelTarget, CommitTarget, JobState},
+    job::JobState,
     task::TaskGraph,
     types::{
         id::{JobId, ResourceGroupId},
@@ -115,39 +115,6 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         Ok(job_id)
     }
 
-    async fn start(&self, job_id: JobId) -> Result<(), DbError> {
-        let mut tx = self.pool.begin().await?;
-
-        let state = fetch_job_state_for_update(&mut tx, job_id).await?;
-
-        if state != JobState::Ready {
-            return Err(DbError::UnexpectedJobState {
-                current: state,
-                expected: ExpectedStates(vec![JobState::Ready]),
-            });
-        }
-
-        sqlx::query(UPDATE_JOB_STATE)
-            .bind(JobState::Running)
-            .bind(job_id)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(())
-    }
-
-    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
-        let new_state = target.into_job_state();
-        let mut tx = self.pool.begin().await?;
-
-        let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
-        transition_job_state(&mut tx, job_id, current_state, new_state).await?;
-
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
         const QUERY: &str = formatcp!(
             "SELECT `state` FROM `{table}` WHERE `id` = ?;",
@@ -228,6 +195,28 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorageConnector {
+    async fn start(&self, job_id: JobId) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        let state = fetch_job_state_for_update(&mut tx, job_id).await?;
+
+        if state != JobState::Ready {
+            return Err(DbError::UnexpectedJobState {
+                current: state,
+                expected: ExpectedStates(vec![JobState::Ready]),
+            });
+        }
+
+        sqlx::query(UPDATE_JOB_STATE)
+            .bind(JobState::Running)
+            .bind(job_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError> {
         let mut tx = self.pool.begin().await?;
 
@@ -242,7 +231,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
-        target: CommitTarget,
+        has_commit_task: bool,
     ) -> Result<(), DbError> {
         const UPDATE_SUCCEEDED_QUERY: &str = formatcp!(
             "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, `ended_at` = \
@@ -254,7 +243,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let new_state = target.into_job_state();
+        let new_state = if has_commit_task {
+            JobState::CommitReady
+        } else {
+            JobState::Succeeded
+        };
         let mut tx = self.pool.begin().await?;
 
         let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
@@ -283,8 +276,12 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         Ok(())
     }
 
-    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
-        let new_state = target.into_job_state();
+    async fn cancel(&self, job_id: JobId, has_cleanup_task: bool) -> Result<(), DbError> {
+        let new_state = if has_cleanup_task {
+            JobState::CleanupReady
+        } else {
+            JobState::Cancelled
+        };
         let mut tx = self.pool.begin().await?;
 
         let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
