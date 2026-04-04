@@ -51,7 +51,7 @@ tasks:
       CHECKSUM_FILE: "{{.G_TEST_VENV_CHECKSUM_FILE}}"
       OUTPUT_DIR: "{{.G_TEST_VENV_DIR}}"
     sources:
-      - "{{.ROOT_DIR}}/taskfile.yaml"
+      - "{{.ROOT_TASKFILE}}"
       - "{{.TASKFILE}}"
       - "requirements-dev.txt"
     generates: ["{{.CHECKSUM_FILE}}"]
