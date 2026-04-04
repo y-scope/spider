@@ -28,7 +28,7 @@ jobs:
           distribution: "temurin"
           java-version: "11"
 
-      - uses: "./.github/actions/install-go-task"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
       - name: "Generate parsers"
         shell: "bash"

@@ -27,9 +27,9 @@ jobs:
         with:
           submodules: "recursive"
 
-      - uses: "./.github/actions/install-python"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
 
-      - uses: "./.github/actions/install-go-task"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
       - name: "Install dev dependencies"
         run: "./tools/scripts/lib_install/linux/install-dev.sh"

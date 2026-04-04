@@ -3,12 +3,12 @@ name: "docs"
 on:
   pull_request:
     paths: &monitored_paths
-      - ".github/actions/**"
       - ".github/workflows/docs.yaml"
       - "docs/**"
       - "examples/wolf/quick-start/**"
       - "taskfile.yaml"
       - "taskfiles/docs.yaml"
+      - "tools/yscope-dev-utils"
   push:
     paths: *monitored_paths
   schedule:
@@ -39,9 +39,9 @@ jobs:
         with:
           submodules: "recursive"
 
-      - uses: "./.github/actions/install-python"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
 
-      - uses: "./.github/actions/install-go-task"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
       - name: "Build docs"
         run: "task docs:${{matrix.task}}:site"
