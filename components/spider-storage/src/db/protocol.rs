@@ -273,7 +273,7 @@ pub trait ResourceGroupManagement {
     async fn add(
         &self,
         external_resource_group_id: String,
-        password: String,
+        password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError>;
 
     /// Verifies the password of a resource group.
@@ -293,7 +293,7 @@ pub trait ResourceGroupManagement {
     async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
-        password: String,
+        password: &[u8],
     ) -> Result<(), DbError>;
 
     /// Deletes a resource group from the database.

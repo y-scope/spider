@@ -364,7 +364,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn add(
         &self,
         external_resource_group_id: String,
-        password: String,
+        password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING CAST(`id` \
@@ -398,28 +398,26 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
-        password: String,
+        password: &[u8],
     ) -> Result<(), DbError> {
         const QUERY: &str = formatcp!(
             "SELECT `password` FROM `{table}` WHERE `id` = ?;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let row: Option<(String,)> = sqlx::query_as(QUERY)
+        use subtle::ConstantTimeEq;
+        let Some((stored_password,)) = sqlx::query_as::<_, (Vec<u8>,)>(QUERY)
             .bind(resource_group_id)
             .fetch_optional(&self.pool)
-            .await?;
+            .await?
+        else {
+            return Err(DbError::ResourceGroupNotFound(resource_group_id));
+        };
 
-        match row {
-            None => Err(DbError::ResourceGroupNotFound(resource_group_id)),
-            Some((stored_password,)) => {
-                use subtle::ConstantTimeEq;
-                if stored_password.as_bytes().ct_eq(password.as_bytes()).into() {
-                    Ok(())
-                } else {
-                    Err(DbError::InvalidPassword(resource_group_id))
-                }
-            }
+        if stored_password.ct_eq(password).into() {
+            Ok(())
+        } else {
+            Err(DbError::InvalidPassword(resource_group_id))
         }
     }
 
