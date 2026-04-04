@@ -325,9 +325,12 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND FOR \
-             UPDATE;",
+             ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
+             INTERVAL ? SECOND FOR UPDATE;",
             table = JOBS_TABLE_NAME,
+            succeeded_state = JobState::Succeeded.as_str(),
+            failed_state = JobState::Failed.as_str(),
+            cancelled_state = JobState::Cancelled.as_str(),
         );
 
         let timeout_secs = expire_after.as_secs();
