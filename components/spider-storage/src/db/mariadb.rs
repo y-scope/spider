@@ -333,12 +333,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         let timeout_secs = expire_after.as_secs();
         let mut tx = self.pool.begin().await?;
 
-        let job_ids: Vec<(JobId,)> = sqlx::query_as(SELECT_QUERY)
+        let job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
             .bind(timeout_secs)
             .fetch_all(&mut *tx)
             .await?;
-
-        let job_ids: Vec<JobId> = job_ids.into_iter().map(|(id,)| id).collect();
 
         if !job_ids.is_empty() {
             let placeholders = std::iter::repeat_n("?", job_ids.len())
