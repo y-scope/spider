@@ -23,7 +23,7 @@ tasks:
           TASK_NAME: "{{.TASK}}"
           CHECKSUM_FILE: "{{.G_BUILD_DIR}}/docs#wolf#site.md5"
           OUTPUT_DIR: "{{.G_DOCS_WOLF_BUILD_DIR}}"
-          SRC_DIR: "{{.TASKFILE_DIR}}/wolf"
+          SRC_DIR: "{{.ROOT_DIR}}/docs/wolf"
 
   wolf:serve:
     deps:
@@ -39,7 +39,7 @@ tasks:
           TASK_NAME: "{{.TASK}}"
           CHECKSUM_FILE: "{{.G_BUILD_DIR}}/docs#huntsman#site.md5"
           OUTPUT_DIR: "{{.G_DOCS_HUNTSMAN_BUILD_DIR}}"
-          SRC_DIR: "{{.TASKFILE_DIR}}/huntsman"
+          SRC_DIR: "{{.ROOT_DIR}}/docs/huntsman"
 
   huntsman:serve:
     deps:
@@ -62,10 +62,9 @@ tasks:
     sources:
       - "{{.G_DOCS_VENV_CHECKSUM_FILE}}"
       - "{{.ROOT_TASKFILE}}"
+      - "{{.SRC_DIR}}/conf/**/*"
+      - "{{.SRC_DIR}}/src/**/*"
       - "{{.TASKFILE}}"
-      - "conf/**/*"
-      - "src/**/*"
-    dir: "{{.SRC_DIR}}"
     deps:
       - ":init"
       - task: ":utils:checksum:validate"
@@ -81,12 +80,13 @@ tasks:
         sphinx-build \
           --write-all \
           --fresh-env \
-          --conf-dir conf \
+          --conf-dir "{{.SRC_DIR}}/conf" \
           --nitpicky \
           --fail-on-warning \
           --keep-going \
           --builder html \
-          src "{{.OUTPUT_DIR}}"
+          "{{.SRC_DIR}}/src" \
+          "{{.OUTPUT_DIR}}"
       # This command must be last
       - task: ":utils:checksum:compute"
         vars:
@@ -98,7 +98,7 @@ tasks:
     vars:
       CHECKSUM_FILE: "{{.G_DOCS_VENV_CHECKSUM_FILE}}"
       OUTPUT_DIR: "{{.G_DOCS_VENV_DIR}}"
-      REQUIREMENTS_FILE: "docs/requirements.txt"
+      REQUIREMENTS_FILE: "{{.ROOT_DIR}}/docs/requirements.txt"
     deps:
       - ":init"
       - task: ":utils:checksum:validate"
