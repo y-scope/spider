@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
@@ -54,7 +52,7 @@ pub trait ExternalJobOrchestration {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: Arc<TaskGraph>,
+        task_graph: &TaskGraph,
         job_inputs: &[TaskInput],
     ) -> Result<JobId, DbError>;
 

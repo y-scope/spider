@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use const_format::formatcp;
@@ -82,7 +82,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: Arc<TaskGraph>,
+        task_graph: &TaskGraph,
         job_inputs: &[TaskInput],
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
@@ -407,7 +407,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         );
 
         use subtle::ConstantTimeEq;
-        let Some((stored_password,)) = sqlx::query_as::<_, (Vec<u8>,)>(QUERY)
+        let Some(stored_password) = sqlx::query_scalar::<_, Vec<u8>>(QUERY)
             .bind(resource_group_id)
             .fetch_optional(&self.pool)
             .await?
