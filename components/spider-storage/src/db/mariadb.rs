@@ -94,8 +94,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         let serialized_task_graph = task_graph
             .to_json()
             .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;
-        let serialized_job_inputs =
-            serde_json::to_string(&job_inputs).map_err(DbError::value_ser)?;
+        let serialized_job_inputs = rmp_serde::to_vec(&job_inputs).map_err(DbError::value_ser)?;
 
         let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
             .bind(resource_group_id)
@@ -137,7 +136,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         );
 
         let Some((state, serialized_outputs)) =
-            sqlx::query_as::<_, (JobState, Option<String>)>(QUERY)
+            sqlx::query_as::<_, (JobState, Option<Vec<u8>>)>(QUERY)
                 .bind(job_id)
                 .fetch_optional(&self.pool)
                 .await?
@@ -159,7 +158,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             ))
         })?;
         let outputs: Vec<TaskOutput> =
-            serde_json::from_str(&outputs_str).map_err(DbError::value_de)?;
+            rmp_serde::from_slice(&outputs_str).map_err(DbError::value_de)?;
         Ok(outputs)
     }
 
@@ -259,7 +258,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let serialized_outputs = serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
+        let serialized_outputs = rmp_serde::to_vec(&job_outputs).map_err(DbError::value_ser)?;
 
         sqlx::query(if new_state.is_terminal() {
             UPDATE_SUCCEEDED_QUERY

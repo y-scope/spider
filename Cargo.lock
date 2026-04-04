@@ -1158,9 +1158,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "const_format",
+ "rmp-serde",
  "secrecy",
  "serde",
- "serde_json",
  "spider-core",
  "sqlx",
  "subtle",
