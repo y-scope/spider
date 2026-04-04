@@ -26,9 +26,7 @@ jobs:
       - name: "Remove default CMake installation in the runner"
         run: "rm '/usr/local/bin/cmake'"
 
-      - uses: "actions/checkout@v4"
-        with:
-          submodules: "recursive"
+      - uses: "./.github/actions/repo-checkout"
 
       - uses: "actions/setup-python@v5"
         with:

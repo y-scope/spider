@@ -1,0 +1,43 @@
+name: "docs"
+
+on:
+  pull_request:
+    paths: &monitored_paths
+      - ".github/actions/**"
+      - ".github/workflows/docs.yaml"
+      - "docs/**"
+      - "examples/wolf/quick-start/**"
+      - "taskfile.yaml"
+      - "taskfiles/docs.yaml"
+  push:
+    paths: *monitored_paths
+  schedule:
+    # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "Build ${{matrix.task}} docs"
+    permissions:
+      contents: "read"
+    strategy:
+      matrix:
+        os: ["macos-latest", "ubuntu-24.04"]
+        task: ["huntsman", "wolf"]
+    runs-on: "${{matrix.os}}"
+    steps:
+      - uses: "./.github/actions/repo-checkout"
+
+      - uses: "./.github/actions/install-go-task"
+
+      - name: "Build docs"
+        run: "task docs:${{matrix.task}}:site"
