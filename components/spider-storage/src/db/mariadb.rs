@@ -169,10 +169,11 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let Some((state, serialized_outputs)) = sqlx::query_as::<_, (JobState, Option<String>)>(QUERY)
-            .bind(job_id)
-            .fetch_optional(&self.pool)
-            .await?
+        let Some((state, serialized_outputs)) =
+            sqlx::query_as::<_, (JobState, Option<String>)>(QUERY)
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await?
         else {
             return Err(DbError::JobNotFound(job_id));
         };
@@ -272,11 +273,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         } else {
             UPDATE_COMMIT_READY_QUERY
         })
-            .bind(new_state)
-            .bind(&serialized_outputs)
-            .bind(job_id)
-            .execute(&mut *tx)
-            .await?;
+        .bind(new_state)
+        .bind(&serialized_outputs)
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
         Ok(())

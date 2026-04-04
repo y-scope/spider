@@ -83,7 +83,9 @@ where
     Db: Database,
     Uuid: sqlx::Decode<'decode, Db>,
 {
-    fn decode(value: <Db as Database>::ValueRef<'decode>) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(
+        value: <Db as Database>::ValueRef<'decode>,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
         Uuid::decode(value).map(|uuid| Self(uuid, PhantomData))
     }
 }
