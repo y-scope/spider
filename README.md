@@ -1,15 +1,14 @@
 # Docs
 
-You can find our docs [online][spider-docs]. 
+You can find our docs [online][spider-docs].
 
 # Contributing
 Follow the steps below to develop and contribute to the project.
 
 ## Requirements
-* Python 3.10 or higher
-* [Task] 3.44.0
-  * We pin the version to 3.44.0 due to [y-scope/spider#250].
-* [uv] 0.7.0 or higher
+* Python >= 3.10
+* [Task] >= 3.48.0
+* [uv] >= 0.7.0
 
 ## Set up
 Run dependency installation task:
@@ -70,4 +69,3 @@ in the table below.
 [spider-docs]: https://docs.yscope.com/spider/main/
 [Task]: https://taskfile.dev
 [uv]: https://docs.astral.sh/uv/
-[y-scope/spider#250]: https://github.com/y-scope/spider/issues/250

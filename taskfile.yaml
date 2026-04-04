@@ -3,7 +3,7 @@ version: "3"
 includes:
   build: "taskfiles/build.yaml"
   deps: "taskfiles/deps.yaml"
-  docs: "docs/tasks.yaml"
+  docs: "taskfiles/docs.yaml"
   lint: "taskfiles/lint.yaml"
   test: "taskfiles/test.yaml"
   utils: "tools/yscope-dev-utils/exports/taskfiles/utils/utils.yaml"
