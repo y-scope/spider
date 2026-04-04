@@ -97,26 +97,22 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         let serialized_job_inputs =
             serde_json::to_string(&job_inputs).map_err(DbError::value_ser)?;
 
-        let result = sqlx::query(INSERT_QUERY)
+        let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
             .bind(resource_group_id)
             .bind(serialized_task_graph)
             .bind(serialized_job_inputs)
             .fetch_one(&self.pool)
-            .await;
-
-        match result {
-            Ok(row) => {
-                let job_id: JobId = row.get(0);
-                Ok(job_id)
-            }
-            Err(sqlx::Error::Database(e))
-                if e.try_downcast_ref::<MySqlDatabaseError>()
-                    .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_FK_CONSTRAINT) =>
-            {
-                Err(DbError::ResourceGroupNotFound(resource_group_id))
-            }
-            Err(e) => Err(e.into()),
-        }
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::Database(e)
+                    if e.try_downcast_ref::<MySqlDatabaseError>()
+                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_FK_CONSTRAINT) =>
+                {
+                    DbError::ResourceGroupNotFound(resource_group_id)
+                }
+                e => e.into(),
+            })?;
+        Ok(job_id)
     }
 
     async fn start(&self, job_id: JobId) -> Result<(), DbError> {
@@ -173,12 +169,13 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, Option<String>)> = sqlx::query_as(QUERY)
+        let Some((state, serialized_outputs)) = sqlx::query_as::<_, (JobState, Option<String>)>(QUERY)
             .bind(job_id)
             .fetch_optional(&self.pool)
-            .await?;
-
-        let (state, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
+            .await?
+        else {
+            return Err(DbError::JobNotFound(job_id));
+        };
 
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
@@ -270,21 +267,16 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
         let serialized_outputs = serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
 
-        if new_state.is_terminal() {
-            sqlx::query(UPDATE_SUCCEEDED_QUERY)
-                .bind(new_state)
-                .bind(&serialized_outputs)
-                .bind(job_id)
-                .execute(&mut *tx)
-                .await?;
+        sqlx::query(if new_state.is_terminal() {
+            UPDATE_SUCCEEDED_QUERY
         } else {
-            sqlx::query(UPDATE_COMMIT_READY_QUERY)
-                .bind(new_state)
-                .bind(&serialized_outputs)
-                .bind(job_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+            UPDATE_COMMIT_READY_QUERY
+        })
+            .bind(new_state)
+            .bind(&serialized_outputs)
+            .bind(job_id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok(())
