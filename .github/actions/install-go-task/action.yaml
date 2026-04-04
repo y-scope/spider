@@ -4,7 +4,7 @@ description: "Install Task with a pinned setup-task action and Task version"
 runs:
   using: "composite"
   steps:
-    - if: "runner.os == 'macOS'"
+    - if: "'macOS' == runner.os"
       name: "Install coreutils (for md5sum)"
       shell: "bash"
       run: "brew install coreutils"
