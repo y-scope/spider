@@ -39,6 +39,8 @@ jobs:
         with:
           submodules: "recursive"
 
+      - uses: "./.github/actions/install-python"
+
       - uses: "./.github/actions/install-go-task"
 
       - name: "Build docs"
