@@ -518,6 +518,22 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
     )
 }
 
+/// Gets the job state with exclusive lock on the row.
+///
+/// # Parameters
+/// * `tx`: The transaction to execute the query in.
+/// * `job_id`: The ID of the job to fetch the state for.
+///
+/// # Returns
+///
+/// The current state of the job on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+/// * Forwards [`sqlx::error::Error`] on DB operations failure.
 async fn fetch_job_state_for_update(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
@@ -531,6 +547,22 @@ async fn fetch_job_state_for_update(
     Ok(state)
 }
 
+/// Updates job state.
+///
+/// Updates the job end timestamp if job state is updated to a terminal state.
+///
+/// # Parameters
+/// * `tx`: The transaction to execute the query in.
+/// * `job_id`: The ID of the job to update the state for.
+/// * `current_state`: The current state of the job. Used for validating state transition.
+/// * `new_state`: The new state to update to.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::InvalidJobStateTransition`] if the job state transition is invalid.
+/// * Forwards [`sqlx::error::Error`] on DB operations failure.
 async fn transition_job_state(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
