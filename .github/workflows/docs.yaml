@@ -43,5 +43,7 @@ jobs:
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/log-tool-versions"
+
       - name: "Build docs"
         run: "task docs:${{matrix.task}}:site"

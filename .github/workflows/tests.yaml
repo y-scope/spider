@@ -37,14 +37,7 @@ jobs:
       - name: "Install dev dependencies"
         run: "./tools/scripts/lib_install/linux/install-dev.sh"
 
-      - name: "Log tool versions"
-        run: |-
-          cmake --version
-          md5sum --version
-          python --version
-          tar --version
-          task --version
-          uv --version
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/log-tool-versions"
 
       - name: "Install project dependencies"
         timeout-minutes: 10
