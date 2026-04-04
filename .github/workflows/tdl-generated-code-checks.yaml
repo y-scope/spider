@@ -22,11 +22,7 @@ jobs:
         with:
           submodules: "recursive"
 
-      - name: "Set up Java"
-        uses: "actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
-        with:
-          distribution: "temurin"
-          java-version: "11"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-java"
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
