@@ -9,7 +9,10 @@ use spider_core::{
 use spider_storage::{
     DatabaseConfig,
     db::{
-        DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector,
+        DbError,
+        ExternalJobOrchestration,
+        InternalJobOrchestration,
+        MariaDbStorageConnector,
         ResourceGroupManagement,
     },
 };
@@ -66,11 +69,7 @@ async fn test_register_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -88,11 +87,7 @@ async fn test_register_job_invalid_resource_group() {
     let fake_rg_id = ResourceGroupId::new();
 
     let result = storage
-        .register(
-            fake_rg_id,
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(fake_rg_id, &minimal_task_graph(), vec![].as_slice())
         .await;
 
     assert!(
@@ -108,11 +103,7 @@ async fn test_start_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -135,11 +126,7 @@ async fn test_start_job_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -162,11 +149,7 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -193,11 +176,7 @@ async fn test_get_outputs_succeeded_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -207,14 +186,9 @@ async fn test_get_outputs_succeeded_job() {
         .expect("start should succeed");
 
     let outputs = vec![vec![1, 2, 3]];
-    InternalJobOrchestration::commit_outputs(
-        &storage,
-        copy_job(&job_id),
-        outputs.clone(),
-        false,
-    )
-    .await
-    .expect("commit_outputs should succeed");
+    InternalJobOrchestration::commit_outputs(&storage, copy_job(&job_id), outputs.clone(), false)
+        .await
+        .expect("commit_outputs should succeed");
 
     let retrieved = storage
         .get_outputs(job_id)
@@ -230,11 +204,7 @@ async fn test_get_outputs_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -252,11 +222,7 @@ async fn test_get_error_failed_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -283,11 +249,7 @@ async fn test_get_error_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -305,11 +267,7 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -336,11 +294,7 @@ async fn test_cancel_already_terminal() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -353,9 +307,7 @@ async fn test_cancel_already_terminal() {
         .await
         .expect("first cancel should succeed");
 
-    let result =
-        InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
-            .await;
+    let result = InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false).await;
     match result {
         Err(DbError::InvalidJobStateTransition { from, to }) => {
             assert_eq!(from, JobState::Cancelled);
@@ -374,11 +326,7 @@ async fn test_set_state_valid_transition() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -400,11 +348,7 @@ async fn test_set_state_invalid_transition() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -427,11 +371,7 @@ async fn test_commit_outputs_without_commit_task() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -440,14 +380,9 @@ async fn test_commit_outputs_without_commit_task() {
         .await
         .expect("start should succeed");
 
-    InternalJobOrchestration::commit_outputs(
-        &storage,
-        copy_job(&job_id),
-        vec![vec![]],
-        false,
-    )
-    .await
-    .expect("commit_outputs should succeed");
+    InternalJobOrchestration::commit_outputs(&storage, copy_job(&job_id), vec![vec![]], false)
+        .await
+        .expect("commit_outputs should succeed");
 
     let state = storage
         .get_state(job_id)
@@ -463,11 +398,7 @@ async fn test_commit_outputs_with_commit_task() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -476,14 +407,9 @@ async fn test_commit_outputs_with_commit_task() {
         .await
         .expect("set_state should succeed");
 
-    InternalJobOrchestration::commit_outputs(
-        &storage,
-        copy_job(&job_id),
-        vec![vec![]],
-        true,
-    )
-    .await
-    .expect("commit_outputs should succeed");
+    InternalJobOrchestration::commit_outputs(&storage, copy_job(&job_id), vec![vec![]], true)
+        .await
+        .expect("commit_outputs should succeed");
 
     let state = storage
         .get_state(job_id)
@@ -499,22 +425,14 @@ async fn test_commit_outputs_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
     // Job is in Ready state, not Running
-    let result = InternalJobOrchestration::commit_outputs(
-        &storage,
-        copy_job(&job_id),
-        vec![vec![]],
-        false,
-    )
-    .await;
+    let result =
+        InternalJobOrchestration::commit_outputs(&storage, copy_job(&job_id), vec![vec![]], false)
+            .await;
     match result {
         Err(DbError::InvalidJobStateTransition { from, to }) => {
             assert_eq!(from, JobState::Ready);
@@ -531,11 +449,7 @@ async fn test_fail_job() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -562,11 +476,7 @@ async fn test_fail_terminal_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -598,11 +508,7 @@ async fn test_delete_expired_terminated_jobs() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -731,11 +637,7 @@ async fn test_delete_resource_group_with_jobs() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -865,8 +767,7 @@ async fn test_fail_job_not_found() {
     let storage = setup().await;
     let fake_job_id = JobId::new();
 
-    let result =
-        InternalJobOrchestration::fail(&storage, fake_job_id, "error".to_string()).await;
+    let result = InternalJobOrchestration::fail(&storage, fake_job_id, "error".to_string()).await;
     assert!(
         matches!(result, Err(DbError::JobNotFound(_))),
         "expected JobNotFound, got {result:?}"
@@ -882,11 +783,7 @@ async fn test_cancel_from_ready_state() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -908,11 +805,7 @@ async fn test_delete_expired_terminated_jobs_no_match() {
     let rg_id = create_test_resource_group(&storage).await;
 
     let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
+        .register(copy_rg(&rg_id), &minimal_task_graph(), vec![].as_slice())
         .await
         .expect("register should succeed");
 
@@ -927,7 +820,7 @@ async fn test_delete_expired_terminated_jobs_no_match() {
 
     // Large window — the just-failed job should not be expired yet.
     let deleted = storage
-        .delete_expired_terminated_jobs(Duration::from_secs(3600))
+        .delete_expired_terminated_jobs(Duration::from_hours(1))
         .await
         .expect("delete_expired should succeed");
     assert!(
