@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use spider_core::{
-    job::{CancelTarget, CommitTarget, JobState},
+    job::JobState,
     task::TaskGraph,
     types::{
         id::{JobId, ResourceGroupId},
@@ -31,7 +29,7 @@ pub trait ExternalJobOrchestration {
     ///
     /// * `resource_group_id` - The owner of the created job.
     /// * `task_graph` - The task graph representing the job's tasks and their dependencies.
-    /// * `job_inputs` - A vector of job inputs required for the job.
+    /// * `job_inputs` - A slice of job inputs required for the job.
     ///
     /// # Returns
     ///
@@ -54,47 +52,9 @@ pub trait ExternalJobOrchestration {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: Arc<TaskGraph>,
+        task_graph: &TaskGraph,
         job_inputs: &[TaskInput],
     ) -> Result<JobId, DbError>;
-
-    /// Starts a job.
-    ///
-    /// # Parameters
-    ///
-    /// * `job_id` - The ID of the job.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
-    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn start(&self, job_id: JobId) -> Result<(), DbError>;
-
-    /// Cancels a job.
-    ///
-    /// The caller specifies the target state via `target`:
-    ///
-    /// * [`CancelTarget::CleanupReady`] if the job has a cleanup task.
-    /// * [`CancelTarget::Cancelled`] otherwise.
-    ///
-    /// # Parameters
-    ///
-    /// * `job_id` - The ID of the job.
-    /// * `target` - The target state (`Cancelled` or `CleanupReady`).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::UnexpectedJobState`] if the job is in a terminal state.
-    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError>;
 
     /// Gets the state of a job.
     ///
@@ -160,6 +120,22 @@ pub trait ExternalJobOrchestration {
 /// Defines the internal storage interface for job storage in the database.
 #[async_trait]
 pub trait InternalJobOrchestration {
+    /// Starts a job.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn start(&self, job_id: JobId) -> Result<(), DbError>;
+
     /// Sets the state of a job.
     ///
     /// # Parameters
@@ -181,16 +157,16 @@ pub trait InternalJobOrchestration {
     /// Commits the job outputs.
     ///
     /// A job is ready to commit if all its tasks have been completed successfully. The job outputs
-    /// will be persisted in the database. The caller specifies the target state via `target`:
+    /// will be persisted in the database. The job enters the state:
     ///
-    /// * [`CommitTarget::CommitReady`] if the job has a commit task.
-    /// * [`CommitTarget::Succeeded`] otherwise.
+    /// * [`JobState::CommitReady`] if the job has a commit task.
+    /// * [`JobState::Succeeded`] otherwise.
     ///
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
     /// * `job_outputs` - The outputs of the job.
-    /// * `target` - The target state (`Succeeded` or `CommitReady`).
+    /// * `has_commit_task` - Whether the job has commit task.
     ///
     /// # Errors
     ///
@@ -206,20 +182,20 @@ pub trait InternalJobOrchestration {
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
-        target: CommitTarget,
+        has_commit_task: bool,
     ) -> Result<(), DbError>;
 
     /// Cancels the job.
     ///
-    /// The caller specifies the target state via `target`:
+    /// The job enters the state:
     ///
-    /// * [`CancelTarget::CleanupReady`] if the job has a cleanup task.
-    /// * [`CancelTarget::Cancelled`] otherwise.
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
+    /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
-    /// * `target` - The target state (`Cancelled` or `CleanupReady`).
+    /// * `has_cleanup_task` - Whether the job has cleanup task.
     ///
     /// # Errors
     ///
@@ -229,7 +205,7 @@ pub trait InternalJobOrchestration {
     /// * [`DbError::InvalidJobStateTransition`] if the job is not in a cancellable state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError>;
+    async fn cancel(&self, job_id: JobId, has_cleanup_task: bool) -> Result<(), DbError>;
 
     /// Fails job execution.
     ///
@@ -295,7 +271,7 @@ pub trait ResourceGroupManagement {
     async fn add(
         &self,
         external_resource_group_id: String,
-        password: String,
+        password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError>;
 
     /// Verifies the password of a resource group.
@@ -315,13 +291,13 @@ pub trait ResourceGroupManagement {
     async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
-        password: String,
+        password: &[u8],
     ) -> Result<(), DbError>;
 
     /// Deletes a resource group from the database.
     ///
     /// This function deletes all jobs belonging to the resource group before deleting the resource
-    /// groups.
+    /// group.
     ///
     /// # Parameters
     ///

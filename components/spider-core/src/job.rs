@@ -15,60 +15,6 @@ pub enum JobState {
     Cancelled,
 }
 
-/// The valid target states when cancelling a job.
-///
-/// * [`CancelTarget::CleanupReady`] — the job has a cleanup task to run.
-/// * [`CancelTarget::Cancelled`] — the job can be terminated immediately.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CancelTarget {
-    CleanupReady,
-    Cancelled,
-}
-
-impl CancelTarget {
-    /// Converts this target into the corresponding [`JobState`].
-    #[must_use]
-    pub const fn into_job_state(self) -> JobState {
-        match self {
-            Self::CleanupReady => JobState::CleanupReady,
-            Self::Cancelled => JobState::Cancelled,
-        }
-    }
-}
-
-impl From<CancelTarget> for JobState {
-    fn from(target: CancelTarget) -> Self {
-        target.into_job_state()
-    }
-}
-
-/// The valid target states when committing job outputs.
-///
-/// * [`CommitTarget::CommitReady`] — the job has a commit task to run.
-/// * [`CommitTarget::Succeeded`] — the job can be marked as succeeded immediately.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommitTarget {
-    CommitReady,
-    Succeeded,
-}
-
-impl CommitTarget {
-    /// Converts this target into the corresponding [`JobState`].
-    #[must_use]
-    pub const fn into_job_state(self) -> JobState {
-        match self {
-            Self::CommitReady => JobState::CommitReady,
-            Self::Succeeded => JobState::Succeeded,
-        }
-    }
-}
-
-impl From<CommitTarget> for JobState {
-    fn from(target: CommitTarget) -> Self {
-        target.into_job_state()
-    }
-}
-
 impl JobState {
     /// # Returns
     ///

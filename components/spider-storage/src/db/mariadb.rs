@@ -1,10 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
-    job::{CancelTarget, CommitTarget, JobState},
+    job::JobState,
     task::TaskGraph,
     types::{
         id::{JobId, ResourceGroupId},
@@ -82,7 +82,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: Arc<TaskGraph>,
+        task_graph: &TaskGraph,
         job_inputs: &[TaskInput],
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
@@ -94,62 +94,24 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         let serialized_task_graph = task_graph
             .to_json()
             .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;
-        let serialized_job_inputs =
-            serde_json::to_string(&job_inputs).map_err(DbError::value_ser)?;
+        let serialized_job_inputs = rmp_serde::to_vec(&job_inputs).map_err(DbError::value_ser)?;
 
-        let result = sqlx::query(INSERT_QUERY)
+        let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
             .bind(resource_group_id)
             .bind(serialized_task_graph)
             .bind(serialized_job_inputs)
             .fetch_one(&self.pool)
-            .await;
-
-        match result {
-            Ok(row) => {
-                let job_id: JobId = row.get(0);
-                Ok(job_id)
-            }
-            Err(sqlx::Error::Database(e))
-                if e.try_downcast_ref::<MySqlDatabaseError>()
-                    .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_FK_CONSTRAINT) =>
-            {
-                Err(DbError::ResourceGroupNotFound(resource_group_id))
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    async fn start(&self, job_id: JobId) -> Result<(), DbError> {
-        let mut tx = self.pool.begin().await?;
-
-        let state = fetch_job_state_for_update(&mut tx, job_id).await?;
-
-        if state != JobState::Ready {
-            return Err(DbError::UnexpectedJobState {
-                current: state,
-                expected: ExpectedStates(vec![JobState::Ready]),
-            });
-        }
-
-        sqlx::query(UPDATE_JOB_STATE)
-            .bind(JobState::Running)
-            .bind(job_id)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(())
-    }
-
-    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
-        let new_state = target.into_job_state();
-        let mut tx = self.pool.begin().await?;
-
-        let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
-        transition_job_state(&mut tx, job_id, current_state, new_state).await?;
-
-        tx.commit().await?;
-        Ok(())
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::Database(e)
+                    if e.try_downcast_ref::<MySqlDatabaseError>()
+                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_FK_CONSTRAINT) =>
+                {
+                    DbError::ResourceGroupNotFound(resource_group_id)
+                }
+                e => e.into(),
+            })?;
+        Ok(job_id)
     }
 
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
@@ -173,12 +135,14 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, Option<String>)> = sqlx::query_as(QUERY)
-            .bind(job_id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        let (state, serialized_outputs) = row.ok_or(DbError::JobNotFound(job_id))?;
+        let Some((state, serialized_outputs)) =
+            sqlx::query_as::<_, (JobState, Option<Vec<u8>>)>(QUERY)
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await?
+        else {
+            return Err(DbError::JobNotFound(job_id));
+        };
 
         if state != JobState::Succeeded {
             return Err(DbError::UnexpectedJobState {
@@ -187,14 +151,14 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let outputs_str = serialized_outputs.ok_or_else(|| {
+        let outputs_bytes = serialized_outputs.ok_or_else(|| {
             DbError::CorruptedDbState(format!(
                 "job `{}` succeeded but has no serialized outputs",
                 job_id.as_uuid_ref()
             ))
         })?;
         let outputs: Vec<TaskOutput> =
-            serde_json::from_str(&outputs_str).map_err(DbError::value_de)?;
+            rmp_serde::from_slice(&outputs_bytes).map_err(DbError::value_de)?;
         Ok(outputs)
     }
 
@@ -230,6 +194,28 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
 #[async_trait]
 impl InternalJobOrchestration for MariaDbStorageConnector {
+    async fn start(&self, job_id: JobId) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        let state = fetch_job_state_for_update(&mut tx, job_id).await?;
+
+        if state != JobState::Ready {
+            return Err(DbError::UnexpectedJobState {
+                current: state,
+                expected: ExpectedStates(vec![JobState::Ready]),
+            });
+        }
+
+        sqlx::query(UPDATE_JOB_STATE)
+            .bind(JobState::Running)
+            .bind(job_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError> {
         let mut tx = self.pool.begin().await?;
 
@@ -244,7 +230,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         &self,
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
-        target: CommitTarget,
+        has_commit_task: bool,
     ) -> Result<(), DbError> {
         const UPDATE_SUCCEEDED_QUERY: &str = formatcp!(
             "UPDATE `{table}` SET `state` = ?, `serialized_job_outputs` = ?, `ended_at` = \
@@ -256,7 +242,11 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let new_state = target.into_job_state();
+        let new_state = if has_commit_task {
+            JobState::CommitReady
+        } else {
+            JobState::Succeeded
+        };
         let mut tx = self.pool.begin().await?;
 
         let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
@@ -268,30 +258,29 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let serialized_outputs = serde_json::to_string(&job_outputs).map_err(DbError::value_ser)?;
+        let serialized_outputs = rmp_serde::to_vec(&job_outputs).map_err(DbError::value_ser)?;
 
-        if new_state.is_terminal() {
-            sqlx::query(UPDATE_SUCCEEDED_QUERY)
-                .bind(new_state)
-                .bind(&serialized_outputs)
-                .bind(job_id)
-                .execute(&mut *tx)
-                .await?;
+        sqlx::query(if new_state.is_terminal() {
+            UPDATE_SUCCEEDED_QUERY
         } else {
-            sqlx::query(UPDATE_COMMIT_READY_QUERY)
-                .bind(new_state)
-                .bind(&serialized_outputs)
-                .bind(job_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+            UPDATE_COMMIT_READY_QUERY
+        })
+        .bind(new_state)
+        .bind(&serialized_outputs)
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
         Ok(())
     }
 
-    async fn cancel(&self, job_id: JobId, target: CancelTarget) -> Result<(), DbError> {
-        let new_state = target.into_job_state();
+    async fn cancel(&self, job_id: JobId, has_cleanup_task: bool) -> Result<(), DbError> {
+        let new_state = if has_cleanup_task {
+            JobState::CleanupReady
+        } else {
+            JobState::Cancelled
+        };
         let mut tx = self.pool.begin().await?;
 
         let current_state = fetch_job_state_for_update(&mut tx, job_id).await?;
@@ -336,20 +325,21 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
-             ('Succeeded','Failed','Cancelled') AND `ended_at` < NOW() - INTERVAL ? SECOND FOR \
-             UPDATE;",
+             ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
+             INTERVAL ? SECOND FOR UPDATE;",
             table = JOBS_TABLE_NAME,
+            succeeded_state = JobState::Succeeded.as_str(),
+            failed_state = JobState::Failed.as_str(),
+            cancelled_state = JobState::Cancelled.as_str(),
         );
 
         let timeout_secs = expire_after.as_secs();
         let mut tx = self.pool.begin().await?;
 
-        let job_ids: Vec<(JobId,)> = sqlx::query_as(SELECT_QUERY)
+        let job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
             .bind(timeout_secs)
             .fetch_all(&mut *tx)
             .await?;
-
-        let job_ids: Vec<JobId> = job_ids.into_iter().map(|(id,)| id).collect();
 
         if !job_ids.is_empty() {
             let placeholders = std::iter::repeat_n("?", job_ids.len())
@@ -375,7 +365,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn add(
         &self,
         external_resource_group_id: String,
-        password: String,
+        password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING CAST(`id` \
@@ -409,28 +399,26 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn verify(
         &self,
         resource_group_id: ResourceGroupId,
-        password: String,
+        password: &[u8],
     ) -> Result<(), DbError> {
         const QUERY: &str = formatcp!(
             "SELECT `password` FROM `{table}` WHERE `id` = ?;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let row: Option<(String,)> = sqlx::query_as(QUERY)
+        use subtle::ConstantTimeEq;
+        let Some(stored_password) = sqlx::query_scalar::<_, Vec<u8>>(QUERY)
             .bind(resource_group_id)
             .fetch_optional(&self.pool)
-            .await?;
+            .await?
+        else {
+            return Err(DbError::ResourceGroupNotFound(resource_group_id));
+        };
 
-        match row {
-            None => Err(DbError::ResourceGroupNotFound(resource_group_id)),
-            Some((stored_password,)) => {
-                use subtle::ConstantTimeEq;
-                if stored_password.as_bytes().ct_eq(password.as_bytes()).into() {
-                    Ok(())
-                } else {
-                    Err(DbError::InvalidPassword(resource_group_id))
-                }
-            }
+        if stored_password.ct_eq(password).into() {
+            Ok(())
+        } else {
+            Err(DbError::InvalidPassword(resource_group_id))
         }
     }
 
@@ -495,7 +483,7 @@ const fn resource_groups_creation_query() -> &'static str {
 CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
   `id` UUID NOT NULL DEFAULT UUID_v7(),
   `external_id` VARCHAR(256) NOT NULL,
-  `password` VARCHAR(2048) NOT NULL,
+  `password` VARBINARY(2048) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE INDEX `external_resource_group_id` (`external_id`)
 );"
@@ -511,8 +499,8 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `resource_group_id` UUID NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `serialized_task_graph` LONGTEXT NOT NULL,
-  `serialized_job_inputs` LONGTEXT NOT NULL,
-  `serialized_job_outputs` LONGTEXT,
+  `serialized_job_inputs` LONGBLOB NOT NULL,
+  `serialized_job_outputs` LONGBLOB,
   `error_message` LONGTEXT,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -529,6 +517,22 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
     )
 }
 
+/// Gets the job state with exclusive lock on the row.
+///
+/// # Parameters
+/// * `tx`: The transaction to execute the query in.
+/// * `job_id`: The ID of the job to fetch the state for.
+///
+/// # Returns
+///
+/// The current state of the job on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+/// * Forwards [`sqlx::error::Error`] on DB operations failure.
 async fn fetch_job_state_for_update(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
@@ -542,6 +546,22 @@ async fn fetch_job_state_for_update(
     Ok(state)
 }
 
+/// Updates job state.
+///
+/// Updates the job end timestamp if job state is updated to a terminal state.
+///
+/// # Parameters
+/// * `tx`: The transaction to execute the query in.
+/// * `job_id`: The ID of the job to update the state for.
+/// * `current_state`: The current state of the job. Used for validating state transition.
+/// * `new_state`: The new state to update to.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`DbError::InvalidJobStateTransition`] if the job state transition is invalid.
+/// * Forwards [`sqlx::error::Error`] on DB operations failure.
 async fn transition_job_state(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
@@ -555,19 +575,15 @@ async fn transition_job_state(
         });
     }
 
-    if new_state.is_terminal() {
-        sqlx::query(UPDATE_JOB_STATE_AND_END)
-            .bind(new_state)
-            .bind(job_id)
-            .execute(&mut **tx)
-            .await?;
+    sqlx::query(if new_state.is_terminal() {
+        UPDATE_JOB_STATE_AND_END
     } else {
-        sqlx::query(UPDATE_JOB_STATE)
-            .bind(new_state)
-            .bind(job_id)
-            .execute(&mut **tx)
-            .await?;
-    }
+        UPDATE_JOB_STATE
+    })
+    .bind(new_state)
+    .bind(job_id)
+    .execute(&mut **tx)
+    .await?;
 
     Ok(())
 }
