@@ -1,18 +1,15 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use secrecy::SecretString;
 use spider_core::{
-    job::{CancelTarget, CommitTarget, JobState},
+    job::JobState,
     task::TaskGraph,
     types::id::{Id, JobId, ResourceGroupId},
 };
 use spider_storage::{
     DatabaseConfig,
     db::{
-        DbError,
-        ExternalJobOrchestration,
-        InternalJobOrchestration,
-        MariaDbStorageConnector,
+        DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector,
         ResourceGroupManagement,
     },
 };
@@ -51,7 +48,7 @@ async fn setup() -> MariaDbStorageConnector {
 async fn create_test_resource_group(storage: &MariaDbStorageConnector) -> ResourceGroupId {
     let external_id = uuid::Uuid::new_v4().to_string();
     storage
-        .add(external_id, "test-password".to_string())
+        .add(external_id, b"test-password".to_vec())
         .await
         .expect("add should succeed")
 }
@@ -71,7 +68,7 @@ async fn test_register_job() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -93,7 +90,7 @@ async fn test_register_job_invalid_resource_group() {
     let result = storage
         .register(
             fake_rg_id,
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await;
@@ -113,7 +110,7 @@ async fn test_start_job() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -140,7 +137,7 @@ async fn test_start_job_wrong_state() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -167,7 +164,7 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -178,7 +175,7 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
         .await
         .expect("start should succeed");
 
-    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
         .await
         .expect("cancel should succeed");
 
@@ -198,7 +195,7 @@ async fn test_get_outputs_succeeded_job() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -214,7 +211,7 @@ async fn test_get_outputs_succeeded_job() {
         &storage,
         copy_job(&job_id),
         outputs.clone(),
-        CommitTarget::Succeeded,
+        false,
     )
     .await
     .expect("commit_outputs should succeed");
@@ -235,7 +232,7 @@ async fn test_get_outputs_wrong_state() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -257,7 +254,7 @@ async fn test_get_error_failed_job() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -288,7 +285,7 @@ async fn test_get_error_wrong_state() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -310,7 +307,7 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -321,7 +318,7 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
         .await
         .expect("start should succeed");
 
-    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::CleanupReady)
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), true)
         .await
         .expect("cancel should succeed");
 
@@ -341,7 +338,7 @@ async fn test_cancel_already_terminal() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -352,12 +349,12 @@ async fn test_cancel_already_terminal() {
         .await
         .expect("start should succeed");
 
-    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
         .await
         .expect("first cancel should succeed");
 
     let result =
-        ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+        InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
             .await;
     assert!(
         matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
@@ -376,7 +373,7 @@ async fn test_set_state_valid_transition() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -402,7 +399,7 @@ async fn test_set_state_invalid_transition() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -426,7 +423,7 @@ async fn test_commit_outputs_without_commit_task() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -441,7 +438,7 @@ async fn test_commit_outputs_without_commit_task() {
         &storage,
         copy_job(&job_id),
         vec![vec![]],
-        CommitTarget::Succeeded,
+        false,
     )
     .await
     .expect("commit_outputs should succeed");
@@ -462,7 +459,7 @@ async fn test_commit_outputs_with_commit_task() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -477,7 +474,7 @@ async fn test_commit_outputs_with_commit_task() {
         &storage,
         copy_job(&job_id),
         vec![vec![]],
-        CommitTarget::CommitReady,
+        true,
     )
     .await
     .expect("commit_outputs should succeed");
@@ -498,7 +495,7 @@ async fn test_commit_outputs_wrong_state() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -509,7 +506,7 @@ async fn test_commit_outputs_wrong_state() {
         &storage,
         copy_job(&job_id),
         vec![vec![]],
-        CommitTarget::Succeeded,
+        false,
     )
     .await;
     assert!(
@@ -527,7 +524,7 @@ async fn test_internal_cancel_without_cleanup() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -538,7 +535,7 @@ async fn test_internal_cancel_without_cleanup() {
         .await
         .expect("start should succeed");
 
-    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
         .await
         .expect("cancel should succeed");
 
@@ -558,7 +555,7 @@ async fn test_internal_cancel_with_cleanup() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -568,7 +565,7 @@ async fn test_internal_cancel_with_cleanup() {
         .await
         .expect("set_state should succeed");
 
-    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::CleanupReady)
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), true)
         .await
         .expect("cancel should succeed");
 
@@ -588,7 +585,7 @@ async fn test_internal_cancel_terminal_state() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -599,13 +596,13 @@ async fn test_internal_cancel_terminal_state() {
         .await
         .expect("start should succeed");
 
-    // Cancel via external (goes to Cancelled terminal state)
-    ExternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+    // Cancel (goes to Cancelled terminal state)
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
         .await
-        .expect("external cancel should succeed");
+        .expect("cancel should succeed");
 
     let result =
-        InternalJobOrchestration::cancel(&storage, copy_job(&job_id), CancelTarget::Cancelled)
+        InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
             .await;
     assert!(
         matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
@@ -622,7 +619,7 @@ async fn test_fail_job() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -653,7 +650,7 @@ async fn test_fail_terminal_state() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -686,7 +683,7 @@ async fn test_delete_expired_terminated_jobs() {
     let job_id = storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
@@ -729,11 +726,11 @@ async fn test_add_duplicate_resource_group() {
     let external_id = uuid::Uuid::new_v4().to_string();
 
     storage
-        .add(external_id.clone(), "password".to_string())
+        .add(external_id.clone(), b"password".to_vec())
         .await
         .expect("first add should succeed");
 
-    let result = storage.add(external_id, "password".to_string()).await;
+    let result = storage.add(external_id, b"password".to_vec()).await;
     assert!(
         matches!(result, Err(DbError::ResourceGroupAlreadyExists(_))),
         "expected ResourceGroupAlreadyExists, got {result:?}"
@@ -748,13 +745,13 @@ async fn test_verify_correct_password() {
     let rg_id = storage
         .add(
             uuid::Uuid::new_v4().to_string(),
-            "correct-password".to_string(),
+            b"correct-password".to_vec(),
         )
         .await
         .expect("add should succeed");
 
     storage
-        .verify(rg_id, "correct-password".to_string())
+        .verify(rg_id, b"correct-password")
         .await
         .expect("verify with correct password should succeed");
 }
@@ -767,12 +764,12 @@ async fn test_verify_wrong_password() {
     let rg_id = storage
         .add(
             uuid::Uuid::new_v4().to_string(),
-            "correct-password".to_string(),
+            b"correct-password".to_vec(),
         )
         .await
         .expect("add should succeed");
 
-    let result = storage.verify(rg_id, "wrong-password".to_string()).await;
+    let result = storage.verify(rg_id, b"wrong-password").await;
     assert!(
         matches!(result, Err(DbError::InvalidPassword(_))),
         "expected InvalidPassword, got {result:?}"
@@ -785,7 +782,7 @@ async fn test_verify_nonexistent_resource_group() {
     let storage = setup().await;
     let fake_rg_id = ResourceGroupId::new();
 
-    let result = storage.verify(fake_rg_id, "password".to_string()).await;
+    let result = storage.verify(fake_rg_id, b"password").await;
     assert!(
         matches!(result, Err(DbError::ResourceGroupNotFound(_))),
         "expected ResourceGroupNotFound, got {result:?}"
@@ -803,7 +800,7 @@ async fn test_delete_resource_group() {
         .await
         .expect("delete should succeed");
 
-    let result = storage.verify(rg_id, "test-password".to_string()).await;
+    let result = storage.verify(rg_id, b"test-password").await;
     assert!(
         matches!(result, Err(DbError::ResourceGroupNotFound(_))),
         "expected ResourceGroupNotFound after delete, got {result:?}"
@@ -819,7 +816,7 @@ async fn test_delete_resource_group_with_jobs() {
     storage
         .register(
             copy_rg(&rg_id),
-            Arc::new(minimal_task_graph()),
+            &minimal_task_graph(),
             vec![].as_slice(),
         )
         .await
