@@ -195,7 +195,7 @@ pub trait InternalJobOrchestration {
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
-    /// * `has_cleanup_state` - Whether the job has cleanup task.
+    /// * `has_cleanup_task` - Whether the job has cleanup task.
     ///
     /// # Errors
     ///
