@@ -29,7 +29,7 @@ pub trait ExternalJobOrchestration {
     ///
     /// * `resource_group_id` - The owner of the created job.
     /// * `task_graph` - The task graph representing the job's tasks and their dependencies.
-    /// * `job_inputs` - A vector of job inputs required for the job.
+    /// * `job_inputs` - A slice of job inputs required for the job.
     ///
     /// # Returns
     ///
@@ -159,8 +159,8 @@ pub trait InternalJobOrchestration {
     /// A job is ready to commit if all its tasks have been completed successfully. The job outputs
     /// will be persisted in the database. The job enters the state:
     ///
-    /// * [`CommitTarget::CommitReady`] if the job has a commit task.
-    /// * [`CommitTarget::Succeeded`] otherwise.
+    /// * [`JobState::CommitReady`] if the job has a commit task.
+    /// * [`JobState::Succeeded`] otherwise.
     ///
     /// # Parameters
     ///
@@ -189,13 +189,13 @@ pub trait InternalJobOrchestration {
     ///
     /// The job enters the state:
     ///
-    /// * [`CancelTarget::CleanupReady`] if the job has a cleanup task.
-    /// * [`CancelTarget::Cancelled`] otherwise.
+    /// * [`JobState::CleanupReady`] if the job has a cleanup task.
+    /// * [`JobState::Cancelled`] otherwise.
     ///
     /// # Parameters
     ///
     /// * `job_id` - The ID of the job.
-    /// * `has_cancel_state` - Whether the job has cleanup task.
+    /// * `has_cleanup_state` - Whether the job has cleanup task.
     ///
     /// # Errors
     ///
