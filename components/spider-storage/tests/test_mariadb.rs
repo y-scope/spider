@@ -356,10 +356,13 @@ async fn test_cancel_already_terminal() {
     let result =
         InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
             .await;
-    assert!(
-        matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
-        "expected InvalidJobStateTransition, got {result:?}"
-    );
+    match result {
+        Err(DbError::InvalidJobStateTransition { from, to }) => {
+            assert_eq!(from, JobState::Cancelled);
+            assert_eq!(to, JobState::Cancelled);
+        }
+        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
+    }
 }
 
 // ─── InternalJobOrchestration ───────────────────────────────────────────────
@@ -408,10 +411,13 @@ async fn test_set_state_invalid_transition() {
     // Ready -> Succeeded is not a valid transition
     let result =
         InternalJobOrchestration::set_state(&storage, copy_job(&job_id), JobState::Succeeded).await;
-    assert!(
-        matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
-        "expected InvalidJobStateTransition, got {result:?}"
-    );
+    match result {
+        Err(DbError::InvalidJobStateTransition { from, to }) => {
+            assert_eq!(from, JobState::Ready);
+            assert_eq!(to, JobState::Succeeded);
+        }
+        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -509,105 +515,13 @@ async fn test_commit_outputs_wrong_state() {
         false,
     )
     .await;
-    assert!(
-        matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
-        "expected InvalidJobStateTransition, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_internal_cancel_without_cleanup() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
-        .await
-        .expect("register should succeed");
-
-    storage
-        .start(copy_job(&job_id))
-        .await
-        .expect("start should succeed");
-
-    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
-        .await
-        .expect("cancel should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Cancelled);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_internal_cancel_with_cleanup() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
-        .await
-        .expect("register should succeed");
-
-    InternalJobOrchestration::set_state(&storage, copy_job(&job_id), JobState::Running)
-        .await
-        .expect("set_state should succeed");
-
-    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), true)
-        .await
-        .expect("cancel should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::CleanupReady);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_internal_cancel_terminal_state() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register(
-            copy_rg(&rg_id),
-            &minimal_task_graph(),
-            vec![].as_slice(),
-        )
-        .await
-        .expect("register should succeed");
-
-    storage
-        .start(copy_job(&job_id))
-        .await
-        .expect("start should succeed");
-
-    // Cancel (goes to Cancelled terminal state)
-    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
-        .await
-        .expect("cancel should succeed");
-
-    let result =
-        InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
-            .await;
-    assert!(
-        matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
-        "expected InvalidJobStateTransition, got {result:?}"
-    );
+    match result {
+        Err(DbError::InvalidJobStateTransition { from, to }) => {
+            assert_eq!(from, JobState::Ready);
+            assert_eq!(to, JobState::Succeeded);
+        }
+        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -668,10 +582,13 @@ async fn test_fail_terminal_state() {
     let result =
         InternalJobOrchestration::fail(&storage, copy_job(&job_id), "second error".to_string())
             .await;
-    assert!(
-        matches!(result, Err(DbError::InvalidJobStateTransition { .. })),
-        "expected InvalidJobStateTransition, got {result:?}"
-    );
+    match result {
+        Err(DbError::InvalidJobStateTransition { from, to }) => {
+            assert_eq!(from, JobState::Failed);
+            assert_eq!(to, JobState::Failed);
+        }
+        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -813,7 +730,7 @@ async fn test_delete_resource_group_with_jobs() {
     let storage = setup().await;
     let rg_id = create_test_resource_group(&storage).await;
 
-    storage
+    let job_id = storage
         .register(
             copy_rg(&rg_id),
             &minimal_task_graph(),
@@ -826,6 +743,12 @@ async fn test_delete_resource_group_with_jobs() {
         .delete(rg_id)
         .await
         .expect("delete should succeed even with jobs");
+
+    let result = storage.get_state(job_id).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound after resource group delete, got {result:?}"
+    );
 }
 
 #[tokio::test]
@@ -868,4 +791,153 @@ async fn test_set_state_job_not_found() {
         matches!(result, Err(DbError::JobNotFound(_))),
         "expected JobNotFound, got {result:?}"
     );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_get_state_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result = storage.get_state(fake_job_id).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_get_outputs_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result = storage.get_outputs(fake_job_id).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_get_error_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result = storage.get_error(fake_job_id).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_commit_outputs_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result =
+        InternalJobOrchestration::commit_outputs(&storage, fake_job_id, vec![vec![]], false).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_cancel_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result = InternalJobOrchestration::cancel(&storage, fake_job_id, false).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_fail_job_not_found() {
+    let storage = setup().await;
+    let fake_job_id = JobId::new();
+
+    let result =
+        InternalJobOrchestration::fail(&storage, fake_job_id, "error".to_string()).await;
+    assert!(
+        matches!(result, Err(DbError::JobNotFound(_))),
+        "expected JobNotFound, got {result:?}"
+    );
+}
+
+// ─── Additional state transition tests ──────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_cancel_from_ready_state() {
+    let storage = setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+
+    let job_id = storage
+        .register(
+            copy_rg(&rg_id),
+            &minimal_task_graph(),
+            vec![].as_slice(),
+        )
+        .await
+        .expect("register should succeed");
+
+    InternalJobOrchestration::cancel(&storage, copy_job(&job_id), false)
+        .await
+        .expect("cancel from Ready should succeed");
+
+    let state = storage
+        .get_state(job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(state, JobState::Cancelled);
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_delete_expired_terminated_jobs_no_match() {
+    let storage = setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+
+    let job_id = storage
+        .register(
+            copy_rg(&rg_id),
+            &minimal_task_graph(),
+            vec![].as_slice(),
+        )
+        .await
+        .expect("register should succeed");
+
+    storage
+        .start(copy_job(&job_id))
+        .await
+        .expect("start should succeed");
+
+    InternalJobOrchestration::fail(&storage, copy_job(&job_id), "recent failure".to_string())
+        .await
+        .expect("fail should succeed");
+
+    // Large window — the just-failed job should not be expired yet.
+    let deleted = storage
+        .delete_expired_terminated_jobs(Duration::from_secs(3600))
+        .await
+        .expect("delete_expired should succeed");
+    assert!(
+        deleted.is_empty(),
+        "expected no deleted jobs, got {deleted:?}"
+    );
+
+    let state = storage
+        .get_state(job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(state, JobState::Failed);
 }
