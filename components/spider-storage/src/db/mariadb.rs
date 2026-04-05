@@ -483,7 +483,7 @@ const fn resource_groups_creation_query() -> &'static str {
 CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
   `id` UUID NOT NULL DEFAULT UUID_v7(),
   `external_id` VARCHAR(256) NOT NULL,
-  `password` VARCHAR(2048) NOT NULL,
+  `password` VARBINARY(2048) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE INDEX `external_resource_group_id` (`external_id`)
 );"
@@ -499,8 +499,8 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `resource_group_id` UUID NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `serialized_task_graph` LONGTEXT NOT NULL,
-  `serialized_job_inputs` LONGTEXT NOT NULL,
-  `serialized_job_outputs` LONGTEXT,
+  `serialized_job_inputs` LONGBLOB NOT NULL,
+  `serialized_job_outputs` LONGBLOB,
   `error_message` LONGTEXT,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
