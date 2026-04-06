@@ -228,7 +228,8 @@ pub trait InternalJobOrchestration {
     ///
     /// # Parameters
     ///
-    /// * `expire_after` - The duration after termination which a job is considered expired.
+    /// * `expire_after_sec` - The duration after termination which a job is considered expired, in
+    /// seconds.
     ///
     /// # Returns
     ///
@@ -242,7 +243,7 @@ pub trait InternalJobOrchestration {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete_expired_terminated_jobs(
         &self,
-        expire_after: std::time::Duration,
+        expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError>;
 }
 

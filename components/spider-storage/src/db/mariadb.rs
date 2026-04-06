@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
@@ -11,7 +9,7 @@ use spider_core::{
         io::{TaskInput, TaskOutput},
     },
 };
-use sqlx::{MySqlPool, Row, mysql::MySqlDatabaseError};
+use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
     config::DatabaseConfig,
@@ -321,7 +319,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
     async fn delete_expired_terminated_jobs(
         &self,
-        expire_after: Duration,
+        expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
@@ -333,11 +331,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             cancelled_state = JobState::Cancelled.as_str(),
         );
 
-        let timeout_secs = expire_after.as_secs();
         let mut tx = self.pool.begin().await?;
 
         let job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
-            .bind(timeout_secs)
+            .bind(expire_after_sec)
             .fetch_all(&mut *tx)
             .await?;
 
@@ -373,27 +370,22 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let result = sqlx::query(QUERY)
-            .bind(external_resource_group_id.clone())
+        let resource_group_id = sqlx::query_scalar(QUERY)
+            .bind(&external_resource_group_id)
             .bind(password)
             .fetch_one(&self.pool)
-            .await;
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::Database(e)
+                    if e.try_downcast_ref::<MySqlDatabaseError>()
+                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
+                {
+                    DbError::ResourceGroupAlreadyExists(external_resource_group_id)
+                }
+                e => e.into(),
+            })?;
 
-        match result {
-            Ok(row) => {
-                let rg_id: ResourceGroupId = row.get(0);
-                Ok(rg_id)
-            }
-            Err(sqlx::Error::Database(e))
-                if e.try_downcast_ref::<MySqlDatabaseError>()
-                    .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
-            {
-                Err(DbError::ResourceGroupAlreadyExists(
-                    external_resource_group_id,
-                ))
-            }
-            Err(e) => Err(e.into()),
-        }
+        Ok(resource_group_id)
     }
 
     async fn verify(
