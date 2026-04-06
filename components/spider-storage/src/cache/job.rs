@@ -72,8 +72,8 @@ impl<
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
-        let num_incomplete_tasks = AtomicUsize::new(submitted_task_graph.get_num_tasks());
-        if 0 == submitted_task_graph.get_num_tasks() {
+        let num_tasks = submitted_task_graph.get_num_tasks();
+        if 0 == num_tasks {
             return Err(InternalError::TaskGraphCorrupted(
                 "task graph with no task is unsupported".to_owned(),
             )
@@ -84,7 +84,7 @@ impl<
         let job_execution_state = JobExecutionState {
             state: JobState::Ready,
             task_graph,
-            num_incomplete_tasks,
+            num_incomplete_tasks: AtomicUsize::new(num_tasks),
             ready_queue_sender,
             db_connector,
             task_instance_pool_connector,

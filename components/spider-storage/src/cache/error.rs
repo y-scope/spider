@@ -47,7 +47,7 @@ pub enum InternalError {
     #[error("job not started")]
     JobNotStarted,
 
-    #[error("unexpected job state: current {current}, expected {expected}")]
+    #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
         current: JobState,
         expected: JobState,
