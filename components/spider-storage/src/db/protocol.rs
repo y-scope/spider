@@ -229,7 +229,7 @@ pub trait InternalJobOrchestration {
     /// # Parameters
     ///
     /// * `expire_after_sec` - The duration after termination which a job is considered expired, in
-    /// seconds.
+    ///   seconds.
     ///
     /// # Returns
     ///

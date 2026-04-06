@@ -166,12 +166,14 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, Option<String>)> = sqlx::query_as(QUERY)
-            .bind(job_id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        let (state, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
+        let Some((state, error_message)) =
+            sqlx::query_as::<_, (JobState, Option<String>)>(QUERY)
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await?
+        else {
+            return Err(DbError::JobNotFound(job_id));
+        };
 
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
@@ -331,36 +333,38 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             cancelled_state = JobState::Cancelled.as_str(),
         );
 
-        let mut job_ids: Vec<JobId> = Vec::new();
+        let mut deleted_job_ids: Vec<JobId> = Vec::new();
 
         loop {
             // We create a new transaction for each batch to limit the locking time.
             let mut tx = self.pool.begin().await?;
 
-            let batch_job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
+            let job_id_batch: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
                 .bind(expire_after_sec)
                 .fetch_all(&mut *tx)
                 .await?;
 
-            if batch_job_ids.is_empty() {
-                return Ok(job_ids);
+            if job_id_batch.is_empty() {
+                break;
             }
 
-            let placeholders = std::iter::repeat_n("?", batch_job_ids.len())
+            let placeholders = std::iter::repeat_n("?", job_id_batch.len())
                 .collect::<Vec<_>>()
                 .join(",");
             let delete_query =
                 format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
 
             let mut query = sqlx::query(&delete_query);
-            for job_id in &batch_job_ids {
+            for job_id in &job_id_batch {
                 query = query.bind(job_id);
             }
             query.execute(&mut *tx).await?;
 
             tx.commit().await?;
-            job_ids.extend(batch_job_ids);
+            deleted_job_ids.extend(job_id_batch);
         }
+
+        Ok(deleted_job_ids)
     }
 }
 
@@ -406,6 +410,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         );
 
         use subtle::ConstantTimeEq;
+        
         let Some(stored_password) = sqlx::query_scalar::<_, Vec<u8>>(QUERY)
             .bind(resource_group_id)
             .fetch_optional(&self.pool)
@@ -456,6 +461,7 @@ impl DbStorage for MariaDbStorageConnector {}
 
 /// `MySQL` error number for foreign key constraint violation.
 const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
+
 /// `MySQL` error number for duplicate entry.
 const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
@@ -518,10 +524,6 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 
 /// Gets the job state with exclusive lock on the row.
 ///
-/// # Parameters
-/// * `tx`: The transaction to execute the query in.
-/// * `job_id`: The ID of the job to fetch the state for.
-///
 /// # Returns
 ///
 /// The current state of the job on success.
@@ -531,18 +533,17 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 /// Returns an error if:
 ///
 /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-/// * Forwards [`sqlx::error::Error`] on DB operations failure.
+/// * Forwards [`sqlx::query::Query::fetch_optional`]'s return values on failure.
 async fn fetch_job_state_for_update(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
 ) -> Result<JobState, DbError> {
-    let row: Option<(JobState,)> = sqlx::query_as(SELECT_JOB_STATE_FOR_UPDATE)
+    let state = sqlx::query_scalar::<_, JobState>(SELECT_JOB_STATE_FOR_UPDATE)
         .bind(job_id)
         .fetch_optional(&mut **tx)
-        .await?;
-
-    let (state,) = row.ok_or(DbError::JobNotFound(job_id))?;
-    Ok(state)
+        .await?
+        .ok_or(DbError::JobNotFound(job_id))?;
+     Ok(state)
 }
 
 /// Updates job state.
@@ -560,7 +561,7 @@ async fn fetch_job_state_for_update(
 /// Returns an error if:
 ///
 /// * [`DbError::InvalidJobStateTransition`] if the job state transition is invalid.
-/// * Forwards [`sqlx::error::Error`] on DB operations failure.
+/// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
 async fn transition_job_state(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
