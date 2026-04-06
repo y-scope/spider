@@ -334,10 +334,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         );
 
         let mut deleted_job_ids: Vec<JobId> = Vec::new();
+        let mut tx = self.pool.begin().await?;
 
         loop {
-            // We create a new transaction for each batch to limit the locking time.
-            let mut tx = self.pool.begin().await?;
 
             let job_id_batch: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
                 .bind(expire_after_sec)
@@ -360,10 +359,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             }
             query.execute(&mut *tx).await?;
 
-            tx.commit().await?;
             deleted_job_ids.extend(job_id_batch);
         }
 
+        tx.commit().await?;
         Ok(deleted_job_ids)
     }
 }
