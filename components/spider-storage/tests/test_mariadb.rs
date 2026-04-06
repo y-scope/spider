@@ -525,7 +525,7 @@ async fn test_delete_expired_terminated_jobs() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let deleted = storage
-        .delete_expired_terminated_jobs(Duration::from_secs(1))
+        .delete_expired_terminated_jobs(1)
         .await
         .expect("delete_expired should succeed");
     assert!(
@@ -820,7 +820,7 @@ async fn test_delete_expired_terminated_jobs_no_match() {
 
     // Large window — the just-failed job should not be expired yet.
     let deleted = storage
-        .delete_expired_terminated_jobs(Duration::from_hours(1))
+        .delete_expired_terminated_jobs(60)
         .await
         .expect("delete_expired should succeed");
     assert!(
