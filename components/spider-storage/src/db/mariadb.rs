@@ -324,7 +324,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
              ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
-             INTERVAL ? SECOND FOR UPDATE LIMIT {DELETE_BATCH_SIZE};",
+             INTERVAL ? SECOND LIMIT {DELETE_BATCH_SIZE} FOR UPDATE;",
             table = JOBS_TABLE_NAME,
             succeeded_state = JobState::Succeeded.as_str(),
             failed_state = JobState::Failed.as_str(),
@@ -346,14 +346,14 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
                 return Ok(job_ids);
             }
 
-            let placeholders = std::iter::repeat_n("?", job_ids.len())
+            let placeholders = std::iter::repeat_n("?", batch_job_ids.len())
                 .collect::<Vec<_>>()
                 .join(",");
             let delete_query =
                 format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
 
             let mut query = sqlx::query(&delete_query);
-            for job_id in &job_ids {
+            for job_id in &batch_job_ids {
                 query = query.bind(job_id);
             }
             query.execute(&mut *tx).await?;
