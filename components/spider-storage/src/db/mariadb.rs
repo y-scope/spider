@@ -321,7 +321,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
     async fn delete_expired_terminated_jobs(
         &self,
-        expire_after: Duration,
+        expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
@@ -333,11 +333,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             cancelled_state = JobState::Cancelled.as_str(),
         );
 
-        let timeout_secs = expire_after.as_secs();
         let mut tx = self.pool.begin().await?;
 
         let job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
-            .bind(timeout_secs)
+            .bind(expire_after_sec)
             .fetch_all(&mut *tx)
             .await?;
 
