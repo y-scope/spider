@@ -324,21 +324,28 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
              ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
-             INTERVAL ? SECOND FOR UPDATE;",
+             INTERVAL ? SECOND FOR UPDATE LIMIT {DELETE_BATCH_SIZE};",
             table = JOBS_TABLE_NAME,
             succeeded_state = JobState::Succeeded.as_str(),
             failed_state = JobState::Failed.as_str(),
             cancelled_state = JobState::Cancelled.as_str(),
         );
 
-        let mut tx = self.pool.begin().await?;
+        let mut job_ids: Vec<JobId> = Vec::new();
 
-        let job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
-            .bind(expire_after_sec)
-            .fetch_all(&mut *tx)
-            .await?;
+        loop {
+            // We create a new transaction for each batch to limit the locking time.
+            let mut tx = self.pool.begin().await?;
 
-        if !job_ids.is_empty() {
+            let batch_job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
+                .bind(expire_after_sec)
+                .fetch_all(&mut *tx)
+                .await?;
+
+            if batch_job_ids.is_empty() {
+                return Ok(job_ids);
+            }
+
             let placeholders = std::iter::repeat_n("?", job_ids.len())
                 .collect::<Vec<_>>()
                 .join(",");
@@ -350,10 +357,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
                 query = query.bind(job_id);
             }
             query.execute(&mut *tx).await?;
-        }
 
-        tx.commit().await?;
-        Ok(job_ids)
+            tx.commit().await?;
+            job_ids.extend(batch_job_ids);
+        }
     }
 }
 
@@ -579,3 +586,5 @@ async fn transition_job_state(
 
     Ok(())
 }
+
+const DELETE_BATCH_SIZE: usize = 1000;
