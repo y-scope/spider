@@ -190,7 +190,7 @@ pub trait ExternalJobOrchestration {
 
 /// Defines the internal storage interface for job storage in the database.
 #[async_trait]
-pub trait InternalJobOrchestration {
+pub trait InternalJobOrchestration: Clone + Send + Sync {
     /// Sets the state of a job.
     ///
     /// # Parameters
@@ -241,6 +241,22 @@ pub trait InternalJobOrchestration {
         job_id: JobId,
         job_outputs: Vec<TaskOutput>,
     ) -> Result<JobState, DbError>;
+
+    /// Starts the job.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The ID of the job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
+    /// * [`DbError::InvalidJobStateTransition`] if the job is already started.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn start(&self, job_id: JobId) -> Result<(), DbError>;
 
     /// Cancels the job.
     ///

@@ -18,4 +18,9 @@ thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync"] }
 
 [dev-dependencies]
-tokio = { version = "1.49.0", features = ["macros"] }
+anyhow = "1.0.98"
+async-channel = "2.3.1"
+dashmap = "6.1.0"
+rand = "0.9.1"
+tabled = "0.20.0"
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "sync"] }

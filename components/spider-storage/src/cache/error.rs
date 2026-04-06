@@ -1,4 +1,4 @@
-use spider_core::task::TaskState;
+use spider_core::{job::JobState, task::TaskState};
 
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
@@ -8,6 +8,9 @@ pub enum CacheError {
 
     #[error(transparent)]
     StaleState(#[from] StaleStateError),
+
+    #[error(transparent)]
+    Db(#[from] crate::db::DbError),
 }
 
 /// Enums for all internal errors.
@@ -40,6 +43,30 @@ pub enum InternalError {
 
     #[error("task graph input size mismatch: expected {0}, got {1}")]
     TaskGraphInputsSizeMismatch(usize, usize),
+
+    #[error("job not started")]
+    JobNotStarted,
+
+    #[error("job in state {current}, expect state {expected}")]
+    UnexpectedJobState {
+        current: JobState,
+        expected: JobState,
+    },
+
+    #[error("task index out of bound")]
+    TaskIndexOutOfBound,
+
+    #[error("job has no commit task")]
+    UndefinedCommitTask,
+
+    #[error("job has no cleanup task")]
+    UndefinedCleanupTask,
+
+    #[error("job terminated unexpectedly")]
+    UnexpectedJobTermination,
+
+    #[error("failed to send to the ready queue: {0}")]
+    ReadyQueueSendFailure(String),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
@@ -60,4 +87,25 @@ pub enum StaleStateError {
 
     #[error("the task instance ID is not valid")]
     InvalidTaskInstanceId,
+
+    #[error("job no longer running")]
+    JobNoLongerRunning,
+
+    #[error("job no longer in the commit-ready state")]
+    JobNoLongerCommitReady,
+
+    #[error("job no longer in the cleanup-ready state")]
+    JobNoLongerCleanupReady,
+
+    #[error("job already terminated")]
+    JobAlreadyTerminated(JobState),
+
+    #[error("job already requested for cancellation")]
+    JobCancellationAlreadyRequested,
+
+    #[error("job already cancelled")]
+    JobAlreadyCancelled,
+
+    #[error("job already started")]
+    JobAlreadyStarted,
 }

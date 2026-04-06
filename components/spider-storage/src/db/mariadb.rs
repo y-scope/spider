@@ -150,6 +150,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         todo!()
     }
 
+    async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
+        todo!()
+    }
+
     async fn cancel(&self, _job_id: JobId) -> Result<JobState, DbError> {
         todo!()
     }
