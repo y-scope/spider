@@ -28,9 +28,7 @@ jobs:
           distribution: "temurin"
           java-version: "11"
 
-      - name: "Install task"
-        shell: "bash"
-        run: "npm install -g @go-task/cli@3.44.0"
+      - uses: "./.github/actions/install-go-task"
 
       - name: "Generate parsers"
         shell: "bash"
