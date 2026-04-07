@@ -21,5 +21,10 @@ tokio = { version = "1.50.0", features = ["rt-multi-thread", "sync"] }
 uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]
-tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
+anyhow = "1.0.98"
+async-channel = "2.3.1"
+dashmap = "6.1.0"
+rand = "0.9.1"
+tabled = "0.20.0"
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
 uuid = { version = "1.19.0", features = ["v4"] }

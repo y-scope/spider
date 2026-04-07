@@ -166,12 +166,13 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let row: Option<(JobState, Option<String>)> = sqlx::query_as(QUERY)
+        let Some((state, error_message)) = sqlx::query_as::<_, (JobState, Option<String>)>(QUERY)
             .bind(job_id)
             .fetch_optional(&self.pool)
-            .await?;
-
-        let (state, error_message) = row.ok_or(DbError::JobNotFound(job_id))?;
+            .await?
+        else {
+            return Err(DbError::JobNotFound(job_id));
+        };
 
         if state != JobState::Failed {
             return Err(DbError::UnexpectedJobState {
@@ -321,6 +322,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         &self,
         expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError> {
+        const DELETE_BATCH_SIZE: usize = 1000;
+
         const SELECT_QUERY: &str = formatcp!(
             "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
              ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
@@ -331,36 +334,36 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             cancelled_state = JobState::Cancelled.as_str(),
         );
 
-        let mut job_ids: Vec<JobId> = Vec::new();
+        let mut deleted_job_ids: Vec<JobId> = Vec::new();
+        let mut tx = self.pool.begin().await?;
 
         loop {
-            // We create a new transaction for each batch to limit the locking time.
-            let mut tx = self.pool.begin().await?;
-
-            let batch_job_ids: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
+            let job_id_batch: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
                 .bind(expire_after_sec)
                 .fetch_all(&mut *tx)
                 .await?;
 
-            if batch_job_ids.is_empty() {
-                return Ok(job_ids);
+            if job_id_batch.is_empty() {
+                break;
             }
 
-            let placeholders = std::iter::repeat_n("?", batch_job_ids.len())
+            let placeholders = std::iter::repeat_n("?", job_id_batch.len())
                 .collect::<Vec<_>>()
                 .join(",");
             let delete_query =
                 format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
 
             let mut query = sqlx::query(&delete_query);
-            for job_id in &batch_job_ids {
+            for job_id in &job_id_batch {
                 query = query.bind(job_id);
             }
             query.execute(&mut *tx).await?;
 
-            tx.commit().await?;
-            job_ids.extend(batch_job_ids);
+            deleted_job_ids.extend(job_id_batch);
         }
+
+        tx.commit().await?;
+        Ok(deleted_job_ids)
     }
 }
 
@@ -406,6 +409,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         );
 
         use subtle::ConstantTimeEq;
+
         let Some(stored_password) = sqlx::query_scalar::<_, Vec<u8>>(QUERY)
             .bind(resource_group_id)
             .fetch_optional(&self.pool)
@@ -421,34 +425,8 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         }
     }
 
-    async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError> {
-        const DELETE_JOBS_QUERY: &str = formatcp!(
-            "DELETE FROM `{table}` WHERE `resource_group_id` = ?;",
-            table = JOBS_TABLE_NAME,
-        );
-        const DELETE_RG_QUERY: &str = formatcp!(
-            "DELETE FROM `{table}` WHERE `id` = ?;",
-            table = RESOURCE_GROUPS_TABLE_NAME,
-        );
-
-        let mut tx = self.pool.begin().await?;
-
-        sqlx::query(DELETE_JOBS_QUERY)
-            .bind(resource_group_id)
-            .execute(&mut *tx)
-            .await?;
-
-        let result = sqlx::query(DELETE_RG_QUERY)
-            .bind(resource_group_id)
-            .execute(&mut *tx)
-            .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(DbError::ResourceGroupNotFound(resource_group_id));
-        }
-
-        tx.commit().await?;
-        Ok(())
+    async fn delete(&self, _resource_group_id: ResourceGroupId) -> Result<(), DbError> {
+        todo!("not implemented")
     }
 }
 
@@ -456,22 +434,15 @@ impl DbStorage for MariaDbStorageConnector {}
 
 /// `MySQL` error number for foreign key constraint violation.
 const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
+
 /// `MySQL` error number for duplicate entry.
 const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
 
-const SELECT_JOB_STATE_FOR_UPDATE: &str = formatcp!(
-    "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
-    table = JOBS_TABLE_NAME,
-);
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
-    table = JOBS_TABLE_NAME,
-);
-const UPDATE_JOB_STATE_AND_END: &str = formatcp!(
-    "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
     table = JOBS_TABLE_NAME,
 );
 
@@ -518,10 +489,6 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 
 /// Gets the job state with exclusive lock on the row.
 ///
-/// # Parameters
-/// * `tx`: The transaction to execute the query in.
-/// * `job_id`: The ID of the job to fetch the state for.
-///
 /// # Returns
 ///
 /// The current state of the job on success.
@@ -531,17 +498,21 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 /// Returns an error if:
 ///
 /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-/// * Forwards [`sqlx::error::Error`] on DB operations failure.
+/// * Forwards [`sqlx::query::Query::fetch_optional`]'s return values on failure.
 async fn fetch_job_state_for_update(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
 ) -> Result<JobState, DbError> {
-    let row: Option<(JobState,)> = sqlx::query_as(SELECT_JOB_STATE_FOR_UPDATE)
+    const SELECT_JOB_STATE_FOR_UPDATE: &str = formatcp!(
+        "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+        table = JOBS_TABLE_NAME,
+    );
+
+    let state = sqlx::query_scalar::<_, JobState>(SELECT_JOB_STATE_FOR_UPDATE)
         .bind(job_id)
         .fetch_optional(&mut **tx)
-        .await?;
-
-    let (state,) = row.ok_or(DbError::JobNotFound(job_id))?;
+        .await?
+        .ok_or(DbError::JobNotFound(job_id))?;
     Ok(state)
 }
 
@@ -560,13 +531,18 @@ async fn fetch_job_state_for_update(
 /// Returns an error if:
 ///
 /// * [`DbError::InvalidJobStateTransition`] if the job state transition is invalid.
-/// * Forwards [`sqlx::error::Error`] on DB operations failure.
+/// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
 async fn transition_job_state(
     tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
     job_id: JobId,
     current_state: JobState,
     new_state: JobState,
 ) -> Result<(), DbError> {
+    const UPDATE_JOB_STATE_AND_END: &str = formatcp!(
+        "UPDATE `{table}` SET `state` = ?, `ended_at` = CURRENT_TIMESTAMP WHERE `id` = ?;",
+        table = JOBS_TABLE_NAME,
+    );
+
     if !JobState::is_valid_transition(current_state, new_state) {
         return Err(DbError::InvalidJobStateTransition {
             from: current_state,
@@ -586,5 +562,3 @@ async fn transition_job_state(
 
     Ok(())
 }
-
-const DELETE_BATCH_SIZE: usize = 1000;
