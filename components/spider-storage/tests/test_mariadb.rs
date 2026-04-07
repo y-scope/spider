@@ -1,51 +1,19 @@
+mod mariadb_infra;
+
 use std::time::Duration;
 
-use secrecy::SecretString;
+use mariadb_infra::{create_test_resource_group, setup};
 use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::id::{JobId, ResourceGroupId},
 };
-use spider_storage::{
-    DatabaseConfig,
-    db::{
-        DbError,
-        ExternalJobOrchestration,
-        InternalJobOrchestration,
-        MariaDbStorageConnector,
-        ResourceGroupManagement,
-    },
+use spider_storage::db::{
+    DbError,
+    ExternalJobOrchestration,
+    InternalJobOrchestration,
+    ResourceGroupManagement,
 };
-
-async fn setup() -> MariaDbStorageConnector {
-    let port: u16 = std::env::var("MARIADB_PORT")
-        .expect("MARIADB_PORT")
-        .parse()
-        .expect("valid port");
-    let database = std::env::var("MARIADB_DATABASE").expect("MARIADB_DATABASE");
-    let username = std::env::var("MARIADB_USERNAME").expect("MARIADB_USERNAME");
-    let password = std::env::var("MARIADB_PASSWORD").expect("MARIADB_PASSWORD");
-
-    let config = DatabaseConfig {
-        host: "localhost".to_string(),
-        port,
-        name: database,
-        username,
-        password: SecretString::from(password),
-        max_connections: 5,
-    };
-    MariaDbStorageConnector::connect(&config)
-        .await
-        .expect("connect failed")
-}
-
-async fn create_test_resource_group(storage: &MariaDbStorageConnector) -> ResourceGroupId {
-    let external_id = uuid::Uuid::new_v4().to_string();
-    storage
-        .add(external_id, b"test-password".to_vec())
-        .await
-        .expect("add should succeed")
-}
 
 fn minimal_task_graph() -> TaskGraph {
     TaskGraph::default()

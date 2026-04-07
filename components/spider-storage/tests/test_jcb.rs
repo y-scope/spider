@@ -1,10 +1,13 @@
+mod mariadb_infra;
 mod scheduling_infra;
 mod task_graph_builder;
 
 use scheduling_infra::{
     CancelPolicy,
+    DbConnectorFactory,
     InstrumentSender,
     default_output_handler,
+    mariadb_db_connector_factory,
     noop_db_connector,
     run_workload,
     try_create_instrument_channel,
@@ -29,17 +32,8 @@ macro_rules! function_name {
 
 /// Runs the flat workload (10,000 independent tasks with commit + cleanup) to successful
 /// completion.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
-///   graph.
-async fn test_flat_success<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
-    db_connector_factory: DbConnectorFactoryType,
+async fn test_flat_success<Db: InternalJobOrchestration + 'static>(
+    db_connector_factory: Box<DbConnectorFactory<Db>>,
     instrument_sender: Option<InstrumentSender>,
 ) {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
@@ -72,17 +66,8 @@ async fn test_flat_success<
 }
 
 /// Cancels the flat workload immediately after starting.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
-///   graph.
-async fn test_flat_cancel<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
-    db_connector_factory: DbConnectorFactoryType,
+async fn test_flat_cancel<Db: InternalJobOrchestration + 'static>(
+    db_connector_factory: Box<DbConnectorFactory<Db>>,
 ) {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let result = run_workload(
@@ -113,17 +98,8 @@ async fn test_flat_cancel<
 
 /// Runs the neural-net workload (10 layers x 1,000 tasks, no termination tasks) to successful
 /// completion.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
-///   graph.
-async fn test_neural_net_success<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
-    db_connector_factory: DbConnectorFactoryType,
+async fn test_neural_net_success<Db: InternalJobOrchestration + 'static>(
+    db_connector_factory: Box<DbConnectorFactory<Db>>,
     instrument_sender: Option<InstrumentSender>,
 ) {
     let (graph, inputs) = build_neural_net_task_graph();
@@ -159,17 +135,8 @@ async fn test_neural_net_success<
 }
 
 /// Cancels the neural-net workload immediately after starting.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
-///   graph.
-async fn test_neural_net_cancel<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
-    db_connector_factory: DbConnectorFactoryType,
+async fn test_neural_net_cancel<Db: InternalJobOrchestration + 'static>(
+    db_connector_factory: Box<DbConnectorFactory<Db>>,
 ) {
     let (graph, inputs) = build_neural_net_task_graph();
     let result = run_workload(
@@ -200,17 +167,8 @@ async fn test_neural_net_cancel<
 
 /// Runs a job whose tasks always fail (`max_num_retry = 3`, all instances fail). The job should
 /// transition to [`JobState::Failed`] after retries are exhausted.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
-///   graph.
-async fn test_always_fail_terminates_job<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
-    db_connector_factory: DbConnectorFactoryType,
+async fn test_always_fail_terminates_job<Db: InternalJobOrchestration + 'static>(
+    db_connector_factory: Box<DbConnectorFactory<Db>>,
 ) {
     let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
     let result = run_workload(
@@ -237,17 +195,8 @@ async fn test_always_fail_terminates_job<
 
 /// Races task execution against cancellation. A small flat workload (100 tasks with commit +
 /// cleanup) is started and a cancel is issued concurrently after a short delay.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-/// * `DbConnectorFactoryType` - A factory that creates `DbConnectorType` from the submitted task
-///   graph.
-async fn test_concurrent_success_and_cancel<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
-    db_connector_factory: DbConnectorFactoryType,
+async fn test_concurrent_success_and_cancel<Db: InternalJobOrchestration + 'static>(
+    db_connector_factory: Box<DbConnectorFactory<Db>>,
 ) {
     let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
     let result = run_workload(
@@ -273,7 +222,7 @@ async fn test_concurrent_success_and_cancel<
 async fn test_flat_success_without_db() {
     let channel = try_create_instrument_channel();
     let instrument_sender = channel.as_ref().map(|(sender, _)| sender.clone());
-    test_flat_success(noop_db_connector, instrument_sender).await;
+    test_flat_success(noop_db_connector(), instrument_sender).await;
     if let Some((_, receiver)) = channel {
         write_instrument_results(function_name!(), receiver);
     }
@@ -281,14 +230,14 @@ async fn test_flat_success_without_db() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_flat_cancel_without_db() {
-    test_flat_cancel(noop_db_connector).await;
+    test_flat_cancel(noop_db_connector()).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_neural_net_success_without_db() {
     let channel = try_create_instrument_channel();
     let instrument_sender = channel.as_ref().map(|(sender, _)| sender.clone());
-    test_neural_net_success(noop_db_connector, instrument_sender).await;
+    test_neural_net_success(noop_db_connector(), instrument_sender).await;
     if let Some((_, receiver)) = channel {
         write_instrument_results(function_name!(), receiver);
     }
@@ -296,15 +245,54 @@ async fn test_neural_net_success_without_db() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_neural_net_cancel_without_db() {
-    test_neural_net_cancel(noop_db_connector).await;
+    test_neural_net_cancel(noop_db_connector()).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_always_fail_terminates_job_without_db() {
-    test_always_fail_terminates_job(noop_db_connector).await;
+    test_always_fail_terminates_job(noop_db_connector()).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_concurrent_success_and_cancel_without_db() {
-    test_concurrent_success_and_cancel(noop_db_connector).await;
+    test_concurrent_success_and_cancel(noop_db_connector()).await;
+}
+
+// ─── MariaDB integration tests ─────────────────────────────────────────────
+//
+// Neural-net MariaDB tests are omitted: the 25,000-input payload (10 layers × 1,000 tasks × 25
+// inputs) exceeds MariaDB's `max_allowed_packet` limit during job registration.
+
+use mariadb_infra::{create_test_resource_group, setup as mariadb_setup};
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_flat_success_with_mariadb() {
+    let storage = mariadb_setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    test_flat_success(mariadb_db_connector_factory(storage, rg_id), None).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_flat_cancel_with_mariadb() {
+    let storage = mariadb_setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    test_flat_cancel(mariadb_db_connector_factory(storage, rg_id)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_always_fail_terminates_job_with_mariadb() {
+    let storage = mariadb_setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    test_always_fail_terminates_job(mariadb_db_connector_factory(storage, rg_id)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_concurrent_success_and_cancel_with_mariadb() {
+    let storage = mariadb_setup().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    test_concurrent_success_and_cancel(mariadb_db_connector_factory(storage, rg_id)).await;
 }
