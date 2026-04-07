@@ -1,0 +1,12 @@
+[profile.default]
+default-filter = "not test(test_serial_)"
+
+[[profile.default.overrides]]
+filter = "test(test_serial_)"
+test-group = "serial"
+
+[profile.serial]
+default-filter = "test(test_serial_)"
+
+[test-groups]
+serial = { max-threads = 1 }

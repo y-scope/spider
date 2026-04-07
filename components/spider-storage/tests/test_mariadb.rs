@@ -428,7 +428,7 @@ async fn test_fail_terminal_state() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_delete_expired_terminated_jobs() {
+async fn test_serial_delete_expired_terminated_jobs() {
     let storage = setup().await;
     let rg_id = create_test_resource_group(&storage).await;
 
@@ -668,7 +668,7 @@ async fn test_cancel_from_ready_state() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_delete_expired_terminated_jobs_no_match() {
+async fn test_serial_delete_expired_terminated_jobs_no_match() {
     let storage = setup().await;
     let rg_id = create_test_resource_group(&storage).await;
 
