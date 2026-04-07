@@ -324,6 +324,9 @@ impl<
         } else {
             JobState::Succeeded
         };
+        if has_commit_task {
+            job.ready_queue_sender.send_commit_ready(jcb.id).await?;
+        }
         Ok(job.state)
     }
 
@@ -526,6 +529,9 @@ impl<
         };
 
         job.task_graph.cancel_non_terminal().await;
+        if has_cleanup_task {
+            job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
+        }
         Ok(job.state)
     }
 }
