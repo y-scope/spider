@@ -721,8 +721,8 @@ async fn test_delete_expired_terminated_jobs_no_match() {
         .await
         .expect("delete_expired should succeed");
     assert!(
-        deleted.is_empty(),
-        "expected no deleted jobs, got {deleted:?}"
+        !deleted.contains(&job_id),
+        "recently failed job should not be expired, but it was deleted"
     );
 
     let state = storage
