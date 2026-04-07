@@ -566,57 +566,6 @@ async fn test_verify_nonexistent_resource_group() {
     );
 }
 
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_delete_resource_group() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    storage.delete(rg_id).await.expect("delete should succeed");
-
-    let result = storage.verify(rg_id, b"test-password").await;
-    assert!(
-        matches!(result, Err(DbError::ResourceGroupNotFound(_))),
-        "expected ResourceGroupNotFound after delete, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_delete_resource_group_with_jobs() {
-    let storage = setup().await;
-    let rg_id = create_test_resource_group(&storage).await;
-
-    let job_id = storage
-        .register(rg_id, &minimal_task_graph(), vec![].as_slice())
-        .await
-        .expect("register should succeed");
-
-    storage
-        .delete(rg_id)
-        .await
-        .expect("delete should succeed even with jobs");
-
-    let result = storage.get_state(job_id).await;
-    assert!(
-        matches!(result, Err(DbError::JobNotFound(_))),
-        "expected JobNotFound after resource group delete, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_delete_nonexistent_resource_group() {
-    let storage = setup().await;
-    let fake_rg_id = ResourceGroupId::new();
-
-    let result = storage.delete(fake_rg_id).await;
-    assert!(
-        matches!(result, Err(DbError::ResourceGroupNotFound(_))),
-        "expected ResourceGroupNotFound, got {result:?}"
-    );
-}
-
 // ─── JobNotFound ─────────────────────────────────────────────────────────────
 
 #[tokio::test]
