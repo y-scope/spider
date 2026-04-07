@@ -42,4 +42,9 @@ impl JobState {
             Self::Cancelled => matches!(from, Self::Ready | Self::Running | Self::CleanupReady),
         }
     }
+
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
+        matches!(self, Self::Running)
+    }
 }

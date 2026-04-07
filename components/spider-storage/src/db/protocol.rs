@@ -119,7 +119,7 @@ pub trait ExternalJobOrchestration {
 
 /// Defines the internal storage interface for job storage in the database.
 #[async_trait]
-pub trait InternalJobOrchestration {
+pub trait InternalJobOrchestration: Clone + Send + Sync {
     /// Starts a job.
     ///
     /// # Parameters

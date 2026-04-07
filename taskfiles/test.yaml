@@ -214,10 +214,23 @@ tasks:
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
       MARIADB_USERNAME: "{{.MARIADB_USERNAME}}"
       MARIADB_PASSWORD: "{{.MARIADB_PASSWORD}}"
+      SPIDER_TEST_INSTRUMENT_OUTPUT_DIR:
+        sh: "echo {{.G_BUILD_DIR}}/spider-instrument-$(uuidgen)"
     requires:
       vars: ["MARIADB_PORT", "MARIADB_DATABASE", "MARIADB_USERNAME", "MARIADB_PASSWORD"]
     dir: "{{.ROOT_DIR}}"
     deps: ["toolchains:rust"]
-    cmd: |-
+    cmds:
+      - "mkdir ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
+      - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
+      - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
         cargo nextest run --all --all-features --run-ignored all --release
+      - |-
+        for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
+          if [ -f "$f" ]; then
+            echo "=== Instrument: $(basename "$f") ==="
+            cat "$f"
+            echo ""
+          fi
+        done
