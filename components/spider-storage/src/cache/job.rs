@@ -258,8 +258,6 @@ impl<
     /// * [`InternalError::TaskIndexOutOfBound`] if the task index is out of range.
     /// * [`InternalError::TaskGraphCorrupted`] if no incomplete tasks remain while new ready tasks
     ///   are generated.
-    /// * [`InternalError::UndefinedCommitTask`] if the job should transition to commit-ready but
-    ///   has no commit task.
     /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
     /// * Forwards [`JobExecutionStateHandle::write_running`]'s return values on failure.
     /// * Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values on failure.
@@ -317,19 +315,17 @@ impl<
                 .clone();
             job_outputs.push(payload);
         }
-        job.state = job.db_connector.commit_outputs(jcb.id, job_outputs).await?;
-        match job.state {
-            JobState::CommitReady => {
-                if !job.task_graph.has_commit_task() {
-                    return Err(InternalError::UndefinedCommitTask.into());
-                }
-                job.ready_queue_sender.send_commit_ready(jcb.id).await?;
-            }
-            JobState::Succeeded => {}
-            other => unreachable!(
-                "unexpected job state after committing job outputs: {:?}",
-                other
-            ),
+        let has_commit_task = job.task_graph.has_commit_task();
+        job.db_connector
+            .commit_outputs(jcb.id, job_outputs, has_commit_task)
+            .await?;
+        job.state = if has_commit_task {
+            JobState::CommitReady
+        } else {
+            JobState::Succeeded
+        };
+        if has_commit_task {
+            job.ready_queue_sender.send_commit_ready(jcb.id).await?;
         }
         Ok(job.state)
     }
@@ -518,28 +514,24 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::UndefinedCleanupTask`] if the job should transition to cleanup-ready but
-    ///   has no cleanup task.
     /// * Forwards [`JobExecutionStateHandle::write_cancellable`]'s return values on failure.
     /// * Forwards [`InternalJobOrchestration::cancel`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
     pub async fn cancel(&self) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_cancellable().await?;
-        job.state = job.db_connector.cancel(jcb.id).await?;
-
-        match job.state {
-            JobState::CleanupReady => {
-                if !job.task_graph.has_cleanup_task() {
-                    return Err(InternalError::UndefinedCleanupTask.into());
-                }
-                job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
-            }
-            JobState::Cancelled => {}
-            other => unreachable!("unexpected job state after cancelling the job: {:?}", other),
-        }
+        let has_cleanup_task = job.task_graph.has_cleanup_task();
+        job.db_connector.cancel(jcb.id, has_cleanup_task).await?;
+        job.state = if has_cleanup_task {
+            JobState::CleanupReady
+        } else {
+            JobState::Cancelled
+        };
 
         job.task_graph.cancel_non_terminal().await;
+        if has_cleanup_task {
+            job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
+        }
         Ok(job.state)
     }
 }

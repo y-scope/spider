@@ -140,18 +140,15 @@ pub enum CancelPolicy {
 }
 
 /// A stateless DB connector stub.
-///
-/// Returns the appropriate [`JobState`] transitions based on whether the job has commit/cleanup
-/// tasks. All other methods are no-ops. Designed so a real DB connector can be swapped in later
-/// by changing the type parameter on the JCB.
 #[derive(Clone)]
-pub struct NoopDbConnector {
-    has_commit_task: bool,
-    has_cleanup_task: bool,
-}
+pub struct NoopDbConnector {}
 
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
+    async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
+        Ok(())
+    }
+
     async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
         Ok(())
     }
@@ -160,24 +157,13 @@ impl InternalJobOrchestration for NoopDbConnector {
         &self,
         _job_id: JobId,
         _job_outputs: Vec<TaskOutput>,
-    ) -> Result<JobState, DbError> {
-        if self.has_commit_task {
-            Ok(JobState::CommitReady)
-        } else {
-            Ok(JobState::Succeeded)
-        }
-    }
-
-    async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
+        _has_commit_task: bool,
+    ) -> Result<(), DbError> {
         Ok(())
     }
 
-    async fn cancel(&self, _job_id: JobId) -> Result<JobState, DbError> {
-        if self.has_cleanup_task {
-            Ok(JobState::CleanupReady)
-        } else {
-            Ok(JobState::Cancelled)
-        }
+    async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
+        Ok(())
     }
 
     async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
@@ -186,7 +172,7 @@ impl InternalJobOrchestration for NoopDbConnector {
 
     async fn delete_expired_terminated_jobs(
         &self,
-        _expire_after: std::time::Duration,
+        _expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError> {
         Ok(Vec::new())
     }
@@ -213,11 +199,8 @@ pub struct WorkloadResult {
 ///
 /// The created no-op connector.
 #[must_use]
-pub const fn noop_db_connector(submitted_task_graph: &SubmittedTaskGraph) -> NoopDbConnector {
-    NoopDbConnector {
-        has_commit_task: submitted_task_graph.get_commit_task_descriptor().is_some(),
-        has_cleanup_task: submitted_task_graph.get_cleanup_task_descriptor().is_some(),
-    }
+pub const fn noop_db_connector() -> NoopDbConnector {
+    NoopDbConnector {}
 }
 
 /// # Returns
@@ -307,7 +290,7 @@ pub fn write_instrument_results(
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
 pub async fn run_workload<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,
@@ -322,7 +305,7 @@ pub async fn run_workload<
     let ready_queue_sender = MockReadyQueueSender {
         sender: ready_sender,
     };
-    let db_connector = db_connector_factory(submitted_task_graph);
+    let db_connector = db_connector_factory();
     let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.

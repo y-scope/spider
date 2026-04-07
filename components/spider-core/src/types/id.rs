@@ -1,6 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
+use sqlx::{Database, encode::IsNull};
 use uuid::Uuid;
 
 /// A generic identifier type that wraps a UUID and a type marker.
@@ -40,7 +41,56 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     pub const fn as_uuid_ref(&self) -> &Uuid {
         &self.0
     }
+
+    #[must_use]
+    pub const fn as_bytes(&self) -> &UuidBytes {
+        self.0.as_bytes()
+    }
 }
+
+impl<TypeMarker, Db> sqlx::Type<Db> for Id<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+    Db: Database,
+    Uuid: sqlx::Type<Db>,
+{
+    fn type_info() -> <Db as Database>::TypeInfo {
+        <Uuid as sqlx::Type<Db>>::type_info()
+    }
+
+    fn compatible(ty: &<Db as Database>::TypeInfo) -> bool {
+        <Uuid as sqlx::Type<Db>>::compatible(ty)
+    }
+}
+
+impl<'encode, TypeMarker, Db> sqlx::Encode<'encode, Db> for Id<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+    Db: Database,
+    Uuid: sqlx::Encode<'encode, Db>,
+{
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Db as Database>::ArgumentBuffer<'encode>,
+    ) -> Result<IsNull, sqlx::error::BoxDynError> {
+        self.0.encode_by_ref(buf)
+    }
+}
+
+impl<'decode, TypeMarker, Db> sqlx::Decode<'decode, Db> for Id<TypeMarker>
+where
+    TypeMarker: Debug + PartialEq + Eq,
+    Db: Database,
+    Uuid: sqlx::Decode<'decode, Db>,
+{
+    fn decode(
+        value: <Db as Database>::ValueRef<'decode>,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        Uuid::decode(value).map(|uuid| Self(uuid, PhantomData))
+    }
+}
+
+pub type UuidBytes = uuid::Bytes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceGroupIdMarker {}

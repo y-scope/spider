@@ -12,7 +12,7 @@ use scheduling_infra::{
 };
 use spider_core::job::JobState;
 use spider_storage::db::InternalJobOrchestration;
-use task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph, build_neural_net_task_graph};
+use task_graph_builder::{build_flat_task_graph, build_neural_net_task_graph};
 
 /// Evaluates to the fully-qualified name of the enclosing function, stripping internal suffixes
 /// like `::_f` and `::{{closure}}` that result from the macro expansion and `#[tokio::test]`.
@@ -37,7 +37,7 @@ macro_rules! function_name {
 ///   graph.
 async fn test_flat_success<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
     instrument_sender: Option<InstrumentSender>,
@@ -80,7 +80,7 @@ async fn test_flat_success<
 ///   graph.
 async fn test_flat_cancel<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
 ) {
@@ -121,7 +121,7 @@ async fn test_flat_cancel<
 ///   graph.
 async fn test_neural_net_success<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
     instrument_sender: Option<InstrumentSender>,
@@ -167,7 +167,7 @@ async fn test_neural_net_success<
 ///   graph.
 async fn test_neural_net_cancel<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
 ) {
@@ -208,7 +208,7 @@ async fn test_neural_net_cancel<
 ///   graph.
 async fn test_always_fail_terminates_job<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
 ) {
@@ -245,7 +245,7 @@ async fn test_always_fail_terminates_job<
 ///   graph.
 async fn test_concurrent_success_and_cancel<
     DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce(&SubmittedTaskGraph) -> DbConnectorType,
+    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
 >(
     db_connector_factory: DbConnectorFactoryType,
 ) {

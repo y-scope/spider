@@ -39,7 +39,7 @@ impl JobState {
             Self::CleanupReady => matches!(from, Self::Running | Self::CommitReady),
             Self::Succeeded => matches!(from, Self::Running | Self::CommitReady),
             Self::Failed => matches!(from, Self::Running | Self::CommitReady | Self::CleanupReady),
-            Self::Cancelled => matches!(from, Self::Running | Self::CleanupReady),
+            Self::Cancelled => matches!(from, Self::Ready | Self::Running | Self::CleanupReady),
         }
     }
 
