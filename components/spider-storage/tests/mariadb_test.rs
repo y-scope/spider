@@ -1,10 +1,11 @@
 use std::time::Duration;
 
-use super::mariadb_infra::{create_mariadb_connector, create_test_resource_group};
 use spider_core::{
     job::JobState,
-    types::id::{JobId, ResourceGroupId},
-    types::io::TaskInput,
+    types::{
+        id::{JobId, ResourceGroupId},
+        io::TaskInput,
+    },
 };
 use spider_storage::db::{
     DbError,
@@ -12,7 +13,11 @@ use spider_storage::db::{
     InternalJobOrchestration,
     ResourceGroupManagement,
 };
-use super::task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph};
+
+use super::{
+    mariadb_infra::{create_mariadb_connector, create_test_resource_group},
+    task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph},
+};
 
 /// Input payload size in bytes for the single-task graph used by DB-layer tests.
 const TEST_INPUT_PAYLOAD_SIZE: usize = 128;
@@ -118,7 +123,8 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
 
     storage.start(job_id).await.expect("start should succeed");
 
-    storage.cancel(job_id, false)
+    storage
+        .cancel(job_id, false)
         .await
         .expect("cancel should succeed");
 

@@ -111,8 +111,8 @@ pub fn build_flat_task_graph(
 ///
 /// # Inputs and Outputs
 ///
-/// * Layer 0 (input layer): each task has 1 byte-typed input from the graph inputs and 1
-///   byte-typed output.
+/// * Layer 0 (input layer): each task has 1 byte-typed input from the graph inputs and 1 byte-typed
+///   output.
 /// * Layers 1-9: each task has 25 inputs sourced from random tasks in the previous layer
 ///   (deterministic via seeded RNG) and 1 byte-typed output.
 ///

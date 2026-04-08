@@ -1,18 +1,21 @@
-use super::scheduling_infra::{
-    CancelPolicy,
-    DbConnectorFactory,
-    InstrumentSender,
-    WorkloadResult,
-    default_output_handler,
-    mariadb_db_connector_factory,
-    noop_db_connector_factory,
-    run_workload,
-    try_create_instrument_channel,
-    write_instrument_results,
-};
 use spider_core::job::JobState;
 use spider_storage::db::{ExternalJobOrchestration, InternalJobOrchestration};
-use super::task_graph_builder::{build_flat_task_graph, build_neural_net_task_graph};
+
+use super::{
+    scheduling_infra::{
+        CancelPolicy,
+        DbConnectorFactory,
+        InstrumentSender,
+        WorkloadResult,
+        default_output_handler,
+        mariadb_db_connector_factory,
+        noop_db_connector_factory,
+        run_workload,
+        try_create_instrument_channel,
+        write_instrument_results,
+    },
+    task_graph_builder::{build_flat_task_graph, build_neural_net_task_graph},
+};
 
 /// Evaluates to the fully-qualified name of the enclosing function, stripping internal suffixes
 /// like `::_f` and `::{{closure}}` that result from the macro expansion and `#[tokio::test]`.
@@ -275,7 +278,11 @@ async fn test_flat_success_with_mariadb() {
         .get_state(result.job_id)
         .await
         .expect("get_state should succeed");
-    assert_eq!(db_state, JobState::Succeeded, "DB state should be Succeeded");
+    assert_eq!(
+        db_state,
+        JobState::Succeeded,
+        "DB state should be Succeeded"
+    );
     let outputs = verifier
         .get_outputs(result.job_id)
         .await
@@ -295,7 +302,11 @@ async fn test_flat_cancel_with_mariadb() {
         .get_state(result.job_id)
         .await
         .expect("get_state should succeed");
-    assert_eq!(db_state, JobState::Cancelled, "DB state should be Cancelled");
+    assert_eq!(
+        db_state,
+        JobState::Cancelled,
+        "DB state should be Cancelled"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -343,15 +354,18 @@ async fn test_concurrent_success_and_cancel_with_mariadb() {
 async fn test_neural_net_success_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result =
-        test_neural_net_success(mariadb_db_connector_factory(storage, rg_id), None).await;
+    let result = test_neural_net_success(mariadb_db_connector_factory(storage, rg_id), None).await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier
         .get_state(result.job_id)
         .await
         .expect("get_state should succeed");
-    assert_eq!(db_state, JobState::Succeeded, "DB state should be Succeeded");
+    assert_eq!(
+        db_state,
+        JobState::Succeeded,
+        "DB state should be Succeeded"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -366,5 +380,9 @@ async fn test_neural_net_cancel_with_mariadb() {
         .get_state(result.job_id)
         .await
         .expect("get_state should succeed");
-    assert_eq!(db_state, JobState::Cancelled, "DB state should be Cancelled");
+    assert_eq!(
+        db_state,
+        JobState::Cancelled,
+        "DB state should be Cancelled"
+    );
 }

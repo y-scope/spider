@@ -206,8 +206,7 @@ pub struct WorkloadResult {
 /// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
 /// use for the JCB.
 pub trait DbConnectorFactory<Db: InternalJobOrchestration>:
-    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send
-{
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send {
 }
 
 impl<Db: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<Db> for AsyncFunc where
