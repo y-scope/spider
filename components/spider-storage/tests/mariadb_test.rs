@@ -26,7 +26,7 @@ const TEST_INPUT_PAYLOAD_SIZE: usize = 128;
 ///
 /// # Returns
 ///
-/// The submitted task graph and corresponding job inputs.
+/// Forwards `build_flat_task_graph`'s return values.
 fn single_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, false)
 }
