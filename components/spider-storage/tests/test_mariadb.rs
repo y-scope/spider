@@ -121,7 +121,7 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
 
     storage.start(job_id).await.expect("start should succeed");
 
-    InternalJobOrchestration::cancel(&storage, job_id, false)
+    storage.cancel(job_id, false)
         .await
         .expect("cancel should succeed");
 
