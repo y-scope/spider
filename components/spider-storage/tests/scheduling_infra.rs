@@ -200,18 +200,21 @@ pub struct WorkloadResult {
 ///
 /// # Type Parameters
 ///
-/// * `DbConnector` - The DB-layer connector implementation.
+/// * `DbConnectorType` - The DB-layer connector implementation.
 ///
 /// Receives the submitted task graph and job inputs, performs any required DB setup (e.g. job
 /// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
 /// use for the JCB.
-pub trait DbConnectorFactory<Db: InternalJobOrchestration>:
-    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send {
+pub trait DbConnectorFactory<DbConnectorType: InternalJobOrchestration>:
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (DbConnectorType, JobId, ResourceGroupId) + Send
+{
 }
 
-impl<Db: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<Db> for AsyncFunc where
-    AsyncFunc:
-        AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send
+impl<DbConnectorType: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<DbConnectorType>
+    for AsyncFunc
+where
+    AsyncFunc: AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (DbConnectorType, JobId, ResourceGroupId)
+        + Send,
 {
 }
 
@@ -294,8 +297,8 @@ pub fn write_instrument_results(
 ///
 /// # Type Parameters
 ///
-/// * `Db` - The DB-layer connector implementation. Must be `'static` so that worker tasks can be
-///   spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
 ///
 /// # Panics
 ///
@@ -309,10 +312,10 @@ pub fn write_instrument_results(
 /// # Returns
 ///
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
-pub async fn run_workload<Db: InternalJobOrchestration + 'static>(
+pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,
-    db_connector_factory: impl DbConnectorFactory<Db>,
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
     always_fail: bool,
