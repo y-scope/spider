@@ -333,8 +333,7 @@ async fn test_flat_success_with_mariadb() {
         .await
         .expect("get_state should succeed");
     assert_eq!(
-        db_state,
-        result.terminal_state,
+        db_state, result.terminal_state,
         "DB state should match observed terminal state"
     );
     let outputs = verifier
@@ -357,8 +356,7 @@ async fn test_flat_cancel_with_mariadb() {
         .await
         .expect("get_state should succeed");
     assert_eq!(
-        db_state,
-        result.terminal_state,
+        db_state, result.terminal_state,
         "DB state should match observed terminal state"
     );
 }
@@ -377,8 +375,7 @@ async fn test_always_fail_terminates_job_with_mariadb() {
         .await
         .expect("get_state should succeed");
     assert_eq!(
-        db_state,
-        result.terminal_state,
+        db_state, result.terminal_state,
         "DB state should match observed terminal state"
     );
     let error_msg = verifier
@@ -420,8 +417,7 @@ async fn test_neural_net_success_with_mariadb() {
         .await
         .expect("get_state should succeed");
     assert_eq!(
-        db_state,
-        result.terminal_state,
+        db_state, result.terminal_state,
         "DB state should match observed terminal state"
     );
 }
@@ -439,8 +435,7 @@ async fn test_neural_net_cancel_with_mariadb() {
         .await
         .expect("get_state should succeed");
     assert_eq!(
-        db_state,
-        result.terminal_state,
+        db_state, result.terminal_state,
         "DB state should match observed terminal state"
     );
 }
