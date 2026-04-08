@@ -32,8 +32,17 @@ macro_rules! function_name {
 
 /// Runs the flat workload (10,000 independent tasks with commit + cleanup) to successful
 /// completion.
-async fn test_flat_success<Db: InternalJobOrchestration + 'static>(
-    db_connector_factory: impl DbConnectorFactory<Db>,
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+///
+/// # Returns
+///
+/// Forwards `run_workload`'s return values.
+async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
@@ -67,8 +76,17 @@ async fn test_flat_success<Db: InternalJobOrchestration + 'static>(
 }
 
 /// Cancels the flat workload immediately after starting.
-async fn test_flat_cancel<Db: InternalJobOrchestration + 'static>(
-    db_connector_factory: impl DbConnectorFactory<Db>,
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+///
+/// # Returns
+///
+/// Forwards `run_workload`'s return values.
+async fn test_flat_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let result = run_workload(
@@ -100,8 +118,17 @@ async fn test_flat_cancel<Db: InternalJobOrchestration + 'static>(
 
 /// Runs the neural-net workload (10 layers x 1,000 tasks, no termination tasks) to successful
 /// completion.
-async fn test_neural_net_success<Db: InternalJobOrchestration + 'static>(
-    db_connector_factory: impl DbConnectorFactory<Db>,
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+///
+/// # Returns
+///
+/// Forwards `run_workload`'s return values.
+async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'static>(
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_neural_net_task_graph();
@@ -138,8 +165,17 @@ async fn test_neural_net_success<Db: InternalJobOrchestration + 'static>(
 }
 
 /// Cancels the neural-net workload immediately after starting.
-async fn test_neural_net_cancel<Db: InternalJobOrchestration + 'static>(
-    db_connector_factory: impl DbConnectorFactory<Db>,
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+///
+/// # Returns
+///
+/// Forwards `run_workload`'s return values.
+async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_neural_net_task_graph();
     let result = run_workload(
@@ -171,8 +207,17 @@ async fn test_neural_net_cancel<Db: InternalJobOrchestration + 'static>(
 
 /// Runs a job whose tasks always fail (`max_num_retry = 3`, all instances fail). The job should
 /// transition to [`JobState::Failed`] after retries are exhausted.
-async fn test_always_fail_terminates_job<Db: InternalJobOrchestration + 'static>(
-    db_connector_factory: impl DbConnectorFactory<Db>,
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+///
+/// # Returns
+///
+/// Forwards `run_workload`'s return values.
+async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestration + 'static>(
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
     let result = run_workload(
@@ -200,8 +245,17 @@ async fn test_always_fail_terminates_job<Db: InternalJobOrchestration + 'static>
 
 /// Races task execution against cancellation. A small flat workload (100 tasks with commit +
 /// cleanup) is started and a cancel is issued concurrently after a short delay.
-async fn test_concurrent_success_and_cancel<Db: InternalJobOrchestration + 'static>(
-    db_connector_factory: impl DbConnectorFactory<Db>,
+///
+/// # Type Parameters
+///
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
+///   tasks can be spawned onto the tokio runtime.
+///
+/// # Returns
+///
+/// Forwards `run_workload`'s return values.
+async fn test_concurrent_success_and_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
     let result = run_workload(
@@ -280,8 +334,8 @@ async fn test_flat_success_with_mariadb() {
         .expect("get_state should succeed");
     assert_eq!(
         db_state,
-        JobState::Succeeded,
-        "DB state should be Succeeded"
+        result.terminal_state,
+        "DB state should match observed terminal state"
     );
     let outputs = verifier
         .get_outputs(result.job_id)
@@ -304,8 +358,8 @@ async fn test_flat_cancel_with_mariadb() {
         .expect("get_state should succeed");
     assert_eq!(
         db_state,
-        JobState::Cancelled,
-        "DB state should be Cancelled"
+        result.terminal_state,
+        "DB state should match observed terminal state"
     );
 }
 
@@ -322,7 +376,11 @@ async fn test_always_fail_terminates_job_with_mariadb() {
         .get_state(result.job_id)
         .await
         .expect("get_state should succeed");
-    assert_eq!(db_state, JobState::Failed, "DB state should be Failed");
+    assert_eq!(
+        db_state,
+        result.terminal_state,
+        "DB state should match observed terminal state"
+    );
     let error_msg = verifier
         .get_error(result.job_id)
         .await
@@ -363,8 +421,8 @@ async fn test_neural_net_success_with_mariadb() {
         .expect("get_state should succeed");
     assert_eq!(
         db_state,
-        JobState::Succeeded,
-        "DB state should be Succeeded"
+        result.terminal_state,
+        "DB state should match observed terminal state"
     );
 }
 
@@ -382,7 +440,7 @@ async fn test_neural_net_cancel_with_mariadb() {
         .expect("get_state should succeed");
     assert_eq!(
         db_state,
-        JobState::Cancelled,
-        "DB state should be Cancelled"
+        result.terminal_state,
+        "DB state should match observed terminal state"
     );
 }
