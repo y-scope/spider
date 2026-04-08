@@ -196,6 +196,9 @@ pub struct WorkloadResult {
     pub cleanup_count: usize,
 }
 
+/// Type alias for the DB connector factory return type.
+pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroupId);
+
 /// An async DB connector factory for [`run_workload`].
 ///
 /// # Type Parameters
@@ -206,15 +209,14 @@ pub struct WorkloadResult {
 /// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
 /// use for the JCB.
 pub trait DbConnectorFactory<DbConnectorType: InternalJobOrchestration>:
-    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (DbConnectorType, JobId, ResourceGroupId) + Send
-{
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send {
 }
 
 impl<DbConnectorType: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<DbConnectorType>
     for AsyncFunc
 where
-    AsyncFunc: AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (DbConnectorType, JobId, ResourceGroupId)
-        + Send,
+    AsyncFunc:
+        AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send,
 {
 }
 
