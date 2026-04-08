@@ -1,9 +1,6 @@
-mod mariadb_infra;
-mod task_graph_builder;
-
 use std::time::Duration;
 
-use mariadb_infra::{create_mariadb_connector, create_test_resource_group};
+use super::mariadb_infra::{create_mariadb_connector, create_test_resource_group};
 use spider_core::{
     job::JobState,
     types::id::{JobId, ResourceGroupId},
@@ -15,7 +12,7 @@ use spider_storage::db::{
     InternalJobOrchestration,
     ResourceGroupManagement,
 };
-use task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph};
+use super::task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph};
 
 /// Input payload size in bytes for the single-task graph used by DB-layer tests.
 const TEST_INPUT_PAYLOAD_SIZE: usize = 128;

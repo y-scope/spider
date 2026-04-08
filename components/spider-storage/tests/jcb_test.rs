@@ -1,8 +1,4 @@
-mod mariadb_infra;
-mod scheduling_infra;
-mod task_graph_builder;
-
-use scheduling_infra::{
+use super::scheduling_infra::{
     CancelPolicy,
     DbConnectorFactory,
     InstrumentSender,
@@ -16,7 +12,7 @@ use scheduling_infra::{
 };
 use spider_core::job::JobState;
 use spider_storage::db::{ExternalJobOrchestration, InternalJobOrchestration};
-use task_graph_builder::{build_flat_task_graph, build_neural_net_task_graph};
+use super::task_graph_builder::{build_flat_task_graph, build_neural_net_task_graph};
 
 /// Evaluates to the fully-qualified name of the enclosing function, stripping internal suffixes
 /// like `::_f` and `::{{closure}}` that result from the macro expansion and `#[tokio::test]`.
@@ -265,7 +261,7 @@ async fn test_concurrent_success_and_cancel_without_db() {
     test_concurrent_success_and_cancel(noop_db_connector_factory()).await;
 }
 
-use mariadb_infra::{create_mariadb_connector, create_test_resource_group};
+use super::mariadb_infra::{create_mariadb_connector, create_test_resource_group};
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
