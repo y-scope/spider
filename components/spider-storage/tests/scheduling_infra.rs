@@ -67,8 +67,8 @@
 //!
 //! # Generic test design
 //!
-//! All test logic is generic over `DbConnectorType` via a factory callback
-//! `FnOnce() -> DbConnectorType`, so the same tests can be rerun with a real
+//! All test logic is generic over `DbConnectorType` via an async factory callback
+//! `AsyncFnOnce() -> DbConnectorType`, so the same tests can be rerun with a real
 //! DB connector later.
 
 use std::{
@@ -180,6 +180,9 @@ impl InternalJobOrchestration for NoopDbConnector {
 
 /// The result of running a workload to completion.
 pub struct WorkloadResult {
+    /// The [`JobId`] of the job that was run.
+    pub job_id: JobId,
+
     /// The terminal [`JobState`] observed by a worker.
     pub terminal_state: JobState,
 
@@ -193,24 +196,36 @@ pub struct WorkloadResult {
     pub cleanup_count: usize,
 }
 
-/// A DB connector factory for [`run_workload`].
+/// An async DB connector factory for [`run_workload`].
+///
+/// # Type Parameters
+///
+/// * `DbConnector` - The DB-layer connector implementation.
 ///
 /// Receives the submitted task graph and job inputs, performs any required DB setup (e.g. job
 /// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
 /// use for the JCB.
-pub type DbConnectorFactory<Db> =
-    dyn FnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send;
+pub trait DbConnectorFactory<Db: InternalJobOrchestration>:
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send
+{
+}
+
+impl<Db: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<Db> for AsyncFunc where
+    AsyncFunc:
+        AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> (Db, JobId, ResourceGroupId) + Send
+{
+}
 
 /// Creates a [`NoopDbConnector`] with default [`JobId`] and [`ResourceGroupId`].
 #[must_use]
-pub fn noop_db_connector() -> Box<DbConnectorFactory<NoopDbConnector>> {
-    Box::new(|_, _| {
+pub fn noop_db_connector_factory() -> impl DbConnectorFactory<NoopDbConnector> {
+    async |_, _| {
         (
             NoopDbConnector {},
             JobId::default(),
             ResourceGroupId::default(),
         )
-    })
+    }
 }
 
 /// # Returns
@@ -298,7 +313,7 @@ pub fn write_instrument_results(
 pub async fn run_workload<Db: InternalJobOrchestration + 'static>(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,
-    db_connector_factory: Box<DbConnectorFactory<Db>>,
+    db_connector_factory: impl DbConnectorFactory<Db>,
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
     always_fail: bool,
@@ -310,7 +325,7 @@ pub async fn run_workload<Db: InternalJobOrchestration + 'static>(
         sender: ready_sender,
     };
     let (db_connector, job_id, resource_group_id) =
-        db_connector_factory(submitted_task_graph, &inputs);
+        db_connector_factory(submitted_task_graph, &inputs).await;
     let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.
@@ -412,19 +427,13 @@ pub async fn run_workload<Db: InternalJobOrchestration + 'static>(
     }
 
     WorkloadResult {
+        job_id,
         terminal_state,
         task_success_count: task_success_count.load(Ordering::Relaxed),
         commit_count: commit_count.load(Ordering::Relaxed),
         cleanup_count: cleanup_count.load(Ordering::Relaxed),
     }
 }
-
-/// The number of concurrent worker tasks to spawn.
-const NUM_WORKERS: usize = 64;
-
-/// The environment variable that, when set, enables instrumentation output. Its value is the
-/// directory path where the instrumentation file will be written.
-const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 
 /// Creates a DB connector factory that registers a job via [`MariaDbStorageConnector`].
 ///
@@ -439,17 +448,21 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 pub fn mariadb_db_connector_factory(
     storage: MariaDbStorageConnector,
     rg_id: ResourceGroupId,
-) -> Box<DbConnectorFactory<MariaDbStorageConnector>> {
-    Box::new(move |graph, inputs| {
-        let job_id = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(ExternalJobOrchestration::register(
-                &storage, rg_id, graph, inputs,
-            ))
-        })
-        .expect("register should succeed");
+) -> impl DbConnectorFactory<MariaDbStorageConnector> {
+    async move |graph, inputs| {
+        let job_id = ExternalJobOrchestration::register(&storage, rg_id, graph, inputs)
+            .await
+            .expect("register should succeed");
         (storage, job_id, rg_id)
-    })
+    }
 }
+
+/// The number of concurrent worker tasks to spawn.
+const NUM_WORKERS: usize = 64;
+
+/// The environment variable that, when set, enables instrumentation output. Its value is the
+/// directory path where the instrumentation file will be written.
+const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 
 /// The concrete JCB type parameterized by the DB connector.
 ///

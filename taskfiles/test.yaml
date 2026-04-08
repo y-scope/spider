@@ -225,10 +225,7 @@ tasks:
       - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo nextest run --profile default --all --all-features --run-ignored all --release
-      - |-
-        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo nextest run --profile serial --all --all-features --run-ignored all --release
+        cargo nextest run --all --all-features --run-ignored all --release
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
           if [ -f "$f" ]; then
