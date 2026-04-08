@@ -111,7 +111,8 @@ pub fn build_flat_task_graph(
 ///
 /// # Inputs and Outputs
 ///
-/// * Layer 0: each task has 25 byte-typed inputs from the graph inputs and 1 byte-typed output.
+/// * Layer 0 (input layer): each task has 1 byte-typed input from the graph inputs and 1 byte-typed
+///   output.
 /// * Layers 1-9: each task has 25 inputs sourced from random tasks in the previous layer
 ///   (deterministic via seeded RNG) and 1 byte-typed output.
 ///
@@ -127,8 +128,8 @@ pub fn build_flat_task_graph(
 ///
 /// # Returns
 ///
-/// The submitted task graph and the corresponding job inputs (25,000 payloads of 128 bytes each
-/// for layer 0's 1,000 tasks x 25 inputs).
+/// The submitted task graph and the corresponding job inputs (1,000 payloads of 128 bytes each
+/// for layer 0's 1,000 tasks x 1 input).
 ///
 /// # Panics
 ///
@@ -138,8 +139,8 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     const TDL_FUNC: &str = "nn_task";
     const NUM_LAYERS: usize = 10;
     const TASKS_PER_LAYER: usize = 1_000;
-    const INPUTS_PER_LAYER: usize = 25;
-    const NUM_GRAPH_INPUTS: usize = TASKS_PER_LAYER * INPUTS_PER_LAYER;
+    const INPUTS_PER_INNER_LAYER: usize = 25;
+    const NUM_GRAPH_INPUTS: usize = TASKS_PER_LAYER;
 
     let execution_policy = Some(ExecutionPolicy {
         max_num_retry: 3,
@@ -151,7 +152,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
         SubmittedTaskGraph::new(None, None).expect("neural-net task graph creation should succeed");
     let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
 
-    // Layer 0: input tasks (no input_sources).
+    // Layer 0: input layer (1 graph input per task, no input_sources).
     for _ in 0..TASKS_PER_LAYER {
         graph
             .insert_task(TaskDescriptor {
@@ -160,7 +161,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
                     task_func: TDL_FUNC.to_owned(),
                 },
                 execution_policy: execution_policy.clone(),
-                inputs: vec![bytes_type.clone(); INPUTS_PER_LAYER],
+                inputs: vec![bytes_type.clone()],
                 outputs: vec![bytes_type.clone()],
                 input_sources: None,
             })
@@ -172,7 +173,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     for layer in 1..NUM_LAYERS {
         let prev_layer_start: TaskIndex = (layer - 1) * TASKS_PER_LAYER;
         for _ in 0..TASKS_PER_LAYER {
-            let input_sources: Vec<TaskInputOutputIndex> = (0..INPUTS_PER_LAYER)
+            let input_sources: Vec<TaskInputOutputIndex> = (0..INPUTS_PER_INNER_LAYER)
                 .map(|_| {
                     let src_task: TaskIndex =
                         prev_layer_start + rng.random_range(0..TASKS_PER_LAYER);
@@ -189,7 +190,7 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
                         task_func: TDL_FUNC.to_owned(),
                     },
                     execution_policy: execution_policy.clone(),
-                    inputs: vec![bytes_type.clone(); INPUTS_PER_LAYER],
+                    inputs: vec![bytes_type.clone(); INPUTS_PER_INNER_LAYER],
                     outputs: vec![bytes_type.clone()],
                     input_sources: Some(input_sources),
                 })

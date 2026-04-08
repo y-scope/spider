@@ -67,8 +67,8 @@
 //!
 //! # Generic test design
 //!
-//! All test logic is generic over `DbConnectorType` via a factory callback
-//! `FnOnce(&SubmittedTaskGraph) -> DbConnectorType`, so the same tests can be rerun with a real
+//! All test logic is generic over `DbConnectorType` via an async factory callback
+//! `AsyncFnOnce() -> DbConnectorType`, so the same tests can be rerun with a real
 //! DB connector later.
 
 use std::{
@@ -98,7 +98,7 @@ use spider_storage::{
         job::SharedJobControlBlock,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
-    db::{DbError, InternalJobOrchestration},
+    db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::ReadyQueueSender,
     task_instance_pool::TaskInstancePoolConnector,
 };
@@ -180,6 +180,9 @@ impl InternalJobOrchestration for NoopDbConnector {
 
 /// The result of running a workload to completion.
 pub struct WorkloadResult {
+    /// The [`JobId`] of the job that was run.
+    pub job_id: JobId,
+
     /// The terminal [`JobState`] observed by a worker.
     pub terminal_state: JobState,
 
@@ -193,14 +196,40 @@ pub struct WorkloadResult {
     pub cleanup_count: usize,
 }
 
-/// Creates a [`NoopDbConnector`] from the given submitted task graph.
+/// Type alias for the DB connector factory return type.
+pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroupId);
+
+/// An async DB connector factory for [`run_workload`].
 ///
-/// # Returns
+/// # Type Parameters
 ///
-/// The created no-op connector.
+/// * `DbConnectorType` - The DB-layer connector implementation.
+///
+/// Receives the submitted task graph and job inputs, performs any required DB setup (e.g. job
+/// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
+/// use for the JCB.
+pub trait DbConnectorFactory<DbConnectorType: InternalJobOrchestration>:
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send {
+}
+
+impl<DbConnectorType: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<DbConnectorType>
+    for AsyncFunc
+where
+    AsyncFunc:
+        AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send,
+{
+}
+
+/// Creates a [`NoopDbConnector`] with default [`JobId`] and [`ResourceGroupId`].
 #[must_use]
-pub const fn noop_db_connector() -> NoopDbConnector {
-    NoopDbConnector {}
+pub fn noop_db_connector_factory() -> impl DbConnectorFactory<NoopDbConnector> {
+    async |_, _| {
+        (
+            NoopDbConnector {},
+            JobId::default(),
+            ResourceGroupId::default(),
+        )
+    }
 }
 
 /// # Returns
@@ -272,9 +301,6 @@ pub fn write_instrument_results(
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
 ///   tasks can be spawned onto the tokio runtime.
-/// * `DbConnectorFactoryType` - A factory that creates the DB connector from the submitted task
-///   graph. This allows the caller to defer connector construction until the task graph is
-///   available, avoiding redundant graph builds.
 ///
 /// # Panics
 ///
@@ -288,13 +314,10 @@ pub fn write_instrument_results(
 /// # Returns
 ///
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
-pub async fn run_workload<
-    DbConnectorType: InternalJobOrchestration + 'static,
-    DbConnectorFactoryType: FnOnce() -> DbConnectorType,
->(
+pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,
-    db_connector_factory: DbConnectorFactoryType,
+    db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
     always_fail: bool,
@@ -305,13 +328,14 @@ pub async fn run_workload<
     let ready_queue_sender = MockReadyQueueSender {
         sender: ready_sender,
     };
-    let db_connector = db_connector_factory();
+    let (db_connector, job_id, resource_group_id) =
+        db_connector_factory(submitted_task_graph, &inputs).await;
     let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.
     let inner_jcb = SharedJobControlBlock::create(
-        JobId::default(),
-        ResourceGroupId::default(),
+        job_id,
+        resource_group_id,
         submitted_task_graph,
         inputs,
         ready_queue_sender,
@@ -407,10 +431,33 @@ pub async fn run_workload<
     }
 
     WorkloadResult {
+        job_id,
         terminal_state,
         task_success_count: task_success_count.load(Ordering::Relaxed),
         commit_count: commit_count.load(Ordering::Relaxed),
         cleanup_count: cleanup_count.load(Ordering::Relaxed),
+    }
+}
+
+/// Creates a DB connector factory that registers a job via [`MariaDbStorageConnector`].
+///
+/// The returned closure receives the submitted task graph and job inputs from [`run_workload`],
+/// registers the job via [`ExternalJobOrchestration::register`], and returns the connector along
+/// with the resulting [`JobId`] and [`ResourceGroupId`].
+///
+/// # Panics
+///
+/// Panics if job registration fails.
+#[must_use]
+pub fn mariadb_db_connector_factory(
+    storage: MariaDbStorageConnector,
+    rg_id: ResourceGroupId,
+) -> impl DbConnectorFactory<MariaDbStorageConnector> {
+    async move |graph, inputs| {
+        let job_id = ExternalJobOrchestration::register(&storage, rg_id, graph, inputs)
+            .await
+            .expect("register should succeed");
+        (storage, job_id, rg_id)
     }
 }
 

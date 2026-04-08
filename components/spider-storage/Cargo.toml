@@ -2,10 +2,15 @@
 name = "spider-storage"
 version = "0.1.0"
 edition = "2024"
+autotests = false
 
 [lib]
 name = "spider_storage"
 path = "src/lib.rs"
+
+[[test]]
+name = "test_spider_storage"
+path = "tests/test_spider_storage.rs"
 
 [dependencies]
 async-trait = "0.1.89"
@@ -25,6 +30,7 @@ anyhow = "1.0.98"
 async-channel = "2.3.1"
 dashmap = "6.1.0"
 rand = "0.9.1"
+serial_test = "3.2.0"
 tabled = "0.20.0"
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
 uuid = { version = "1.19.0", features = ["v4"] }
