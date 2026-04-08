@@ -320,3 +320,31 @@ package lib and the driver code inside the execution process. Put the design doc
 We should refer the package lib as "TDL package", and the execution process as "task executor".
 
 We will ask you to implement a prototype later.
+
+---
+
+We want to enforce the first parameter to be a `TaskContext` struct, containing the runtime metadata
+of the task execution. It should contain:
+
+```rust
+struct TaskContext {
+    job_id: JobId,
+    task_id: TaskId, // Currently defined in `spider-storage`, but needed to be in `spider-core`
+    task_instance_id: TaskInstanceId,
+}
+```
+
+This struct is constructed in the execution manager process, and passed all the way down to the task
+package lib, serialized and deserialized using msgpack.
+
+Help me update the design to include this new requirement. Make sure that:
+
+* The proc macro should check if the first parameter is a `TaskContext` struct, and only the first
+  parameter.
+* It is visible in the execution manager, the task executor, and the TDL package lib.
+
+---
+
+Besides this new feature, can you also make sure and clearly document what is the behavior if a task
+function contains no other parameters than the first one? This would make the param struct an empty
+struct, and how would the serde work in this case?

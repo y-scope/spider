@@ -71,6 +71,7 @@ components/spider-tdl/
     lib.rs              # Re-exports all public API
     tdl_types.rs        # Type aliases (int8=i8, List<T>=Vec<T>, etc.)
     error.rs            # TdlError enum (shared across all components)
+    task_context.rs     # TaskContext struct (runtime metadata, shared across all components)
     ffi.rs              # CArray, CCharArray, CByteArray, TaskExecutionResult (#[repr(C)])
     wire.rs             # Wire format serde (adapted from claude/struct-serde/example)
     task.rs             # Task trait, TaskHandler trait, TaskHandlerImpl<T>, ExecutionResult
@@ -81,6 +82,7 @@ Dependencies:
 
 ```toml
 [dependencies]
+spider-core = { path = "../spider-core" }
 spider-tdl-derive = { path = "../spider-tdl-derive" }
 rmp-serde = "1.3.1"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -227,7 +229,42 @@ This is the error type that user task functions return: `fn my_task(...) -> Resu
 
 ---
 
-## 5. C-FFI Types (`ffi`)
+## 5. `TaskContext`
+
+Every task function must accept `TaskContext` as its **first** parameter. It carries runtime
+metadata about the current task execution, constructed by the execution manager.
+
+```rust
+// components/spider-tdl/src/task_context.rs
+
+use spider_core::types::id::{JobId, TaskId, TaskInstanceId};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskContext {
+    pub job_id: JobId,
+    pub task_id: TaskId,
+    pub task_instance_id: TaskInstanceId,
+}
+```
+
+**Visibility:** Defined in `spider-tdl`, re-exported publicly. Visible to:
+- **Execution manager** -- constructs and msgpack-serializes it.
+- **Task executor** -- passes serialized bytes through to the cdylib (opaque).
+- **TDL package** -- deserializes it from msgpack and passes to the user's task function.
+
+**Serialization:** Plain msgpack (not wire format). A single `rmp_serde::to_vec(&ctx)` /
+`rmp_serde::from_slice(&bytes)`. This is separate from the task inputs wire stream.
+
+**Why separate from inputs:** `TaskContext` is runtime metadata owned by the execution manager,
+not user-supplied data from the storage layer. It travels a different path -- the execution
+manager constructs it and attaches it alongside the input wire bytes.
+
+**Note on `TaskId`:** `TaskId` is already defined in `spider-core::types::id` (as
+`Id<TaskIdMarker>`). No relocation from `spider-storage` is needed.
+
+---
+
+## 6. C-FFI Types (`ffi`)
 
 All `#[repr(C)]` types shared between the TDL package and the executor.
 
@@ -445,22 +482,23 @@ manager if needed.
 ### 6.4 Summary: what each component sees
 
 ```
-                    Inputs              Outputs             Errors
-                    ──────              ───────             ──────
-Storage             Vec<TaskInput>      Vec<Vec<u8>>        —
-                    → serialize         ← deserialize
-                      (wire format)       (wire frame only)
+                    TaskContext        Inputs              Outputs             Errors
+                    ───────────       ──────              ───────             ──────
+Storage             —                 Vec<TaskInput>      Vec<Vec<u8>>        —
+                                      → serialize         ← deserialize
+                                        (wire format)       (wire frame only)
 
-Exec Manager        raw bytes           raw bytes           raw bytes
-                    (passthrough)       (passthrough)       (passthrough)
+Exec Manager        TaskContext        raw bytes           raw bytes           raw bytes
+                    → serialize       (passthrough)       (passthrough)       (passthrough)
+                      (msgpack)
 
-Task Executor       raw bytes           raw bytes           TdlError
-                    (passthrough)       (passthrough)       ← deserialize
-                                                              (msgpack)
+Task Executor       raw bytes         raw bytes           raw bytes           TdlError
+                    (passthrough)     (passthrough)       (passthrough)       ← deserialize
+                                                                                (msgpack)
 
-TDL Package         Params struct       Return tuple        TdlError
-                    ← deserialize       → serialize         → serialize
-                      (wire + msgpack)    (msgpack + wire)    (msgpack)
+TDL Package         TaskContext        Params struct       Return tuple        TdlError
+                    ← deserialize     ← deserialize       → serialize         → serialize
+                      (msgpack)         (wire + msgpack)    (msgpack + wire)    (msgpack)
 ```
 
 The wire format helper for output framing:
@@ -499,7 +537,7 @@ pub trait Task {
     type Params: for<'de> serde::Deserialize<'de>;
     type Return;
 
-    fn execute(params: Self::Params) -> Result<Self::Return, TdlError>;
+    fn execute(ctx: TaskContext, params: Self::Params) -> Result<Self::Return, TdlError>;
 
     /// Serialize the return tuple into wire format bytes.
     /// Generated by the #[task] proc-macro.
@@ -507,7 +545,9 @@ pub trait Task {
 }
 
 pub trait TaskHandler: Send + Sync {
-    fn execute_raw(&self, raw_args: &[u8]) -> ExecutionResult;
+    /// `raw_ctx` is msgpack-encoded `TaskContext`.
+    /// `raw_args` is wire-format-encoded task inputs.
+    fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult;
     fn name(&self) -> &'static str;
 }
 
@@ -522,8 +562,19 @@ impl<T: Task> TaskHandlerImpl<T> {
 }
 
 impl<T: Task> TaskHandler for TaskHandlerImpl<T> {
-    fn execute_raw(&self, raw_args: &[u8]) -> ExecutionResult {
-        // 1. Deserialize inputs
+    fn execute_raw(&self, raw_ctx: &[u8], raw_args: &[u8]) -> ExecutionResult {
+        // 1. Deserialize TaskContext (msgpack)
+        let ctx: TaskContext = match rmp_serde::from_slice(raw_ctx) {
+            Ok(c) => c,
+            Err(e) => {
+                let err = TdlError::DeserializationError(
+                    format!("failed to deserialize TaskContext: {e}")
+                );
+                return ExecutionResult::Error(rmp_serde::to_vec(&err).unwrap());
+            }
+        };
+
+        // 2. Deserialize task inputs (wire format)
         let params: T::Params = match wire::deserialize_task_inputs(raw_args) {
             Ok(p) => p,
             Err(e) => {
@@ -532,10 +583,10 @@ impl<T: Task> TaskHandler for TaskHandlerImpl<T> {
             }
         };
 
-        // 2. Execute task
-        match T::execute(params) {
+        // 3. Execute task with context
+        match T::execute(ctx, params) {
             Ok(result) => {
-                // 3. Serialize outputs
+                // 4. Serialize outputs
                 match T::serialize_return(&result) {
                     Ok(bytes) => ExecutionResult::Outputs(bytes),
                     Err(e) => ExecutionResult::Error(rmp_serde::to_vec(&e).unwrap()),
@@ -557,9 +608,12 @@ impl<T: Task> TaskHandler for TaskHandlerImpl<T> {
 
 ### Input
 
+The first parameter must always be `ctx: TaskContext`. Remaining parameters are the task's
+user-supplied inputs, deserialized from the wire format.
+
 ```rust
 #[task]
-fn my_task(a: int32, b: MyStruct1) -> Result<(List<MyStruct2>, int64), TdlError> {
+fn my_task(ctx: TaskContext, a: int32, b: MyStruct1) -> Result<(List<MyStruct2>, int64), TdlError> {
     // user body
 }
 ```
@@ -568,10 +622,13 @@ Or with a custom name:
 
 ```rust
 #[task(name = "my_namespace::my_task")]
-fn my_task(a: int32, b: MyStruct1) -> Result<(List<MyStruct2>, int64), TdlError> { ... }
+fn my_task(ctx: TaskContext, a: int32, b: MyStruct1) -> Result<(List<MyStruct2>, int64), TdlError> { ... }
 ```
 
 ### Generated output
+
+The proc-macro strips `ctx: TaskContext` from the params struct (it is not part of the wire
+inputs) and threads it through to the user function separately.
 
 ```rust
 /// Marker struct.
@@ -579,12 +636,12 @@ pub struct my_task;
 
 impl my_task {
     /// The original user function, renamed.
-    fn __my_task(a: int32, b: MyStruct1) -> Result<(List<MyStruct2>, int64), TdlError> {
+    fn __my_task(ctx: TaskContext, a: int32, b: MyStruct1) -> Result<(List<MyStruct2>, int64), TdlError> {
         // original body
     }
 }
 
-/// Params struct for deserialization.
+/// Params struct for deserialization -- only the wire-format inputs, NOT TaskContext.
 #[derive(serde::Deserialize)]
 struct __my_task_params {
     a: int32,
@@ -596,8 +653,8 @@ impl spider_tdl::Task for my_task {
     type Params = __my_task_params;
     type Return = (List<MyStruct2>, int64);
 
-    fn execute(params: Self::Params) -> Result<Self::Return, spider_tdl::TdlError> {
-        Self::__my_task(params.a, params.b)
+    fn execute(ctx: spider_tdl::TaskContext, params: Self::Params) -> Result<Self::Return, spider_tdl::TdlError> {
+        Self::__my_task(ctx, params.a, params.b)
     }
 
     fn serialize_return(result: &Self::Return) -> Result<Vec<u8>, spider_tdl::TdlError> {
@@ -610,17 +667,60 @@ impl spider_tdl::Task for my_task {
 }
 ```
 
+### No-input tasks (empty params)
+
+When a task has no user-supplied inputs (only `TaskContext`):
+
+```rust
+#[task]
+fn my_context_only_task(ctx: TaskContext) -> Result<(int32,), TdlError> {
+    Ok((42,))
+}
+```
+
+The generated params struct is empty:
+
+```rust
+#[derive(serde::Deserialize)]
+struct __my_context_only_task_params {}
+
+impl spider_tdl::Task for my_context_only_task {
+    type Params = __my_context_only_task_params;
+    // ...
+    fn execute(ctx: spider_tdl::TaskContext, params: Self::Params) -> Result<Self::Return, spider_tdl::TdlError> {
+        Self::__my_context_only_task(ctx)  // no params to unpack
+    }
+}
+```
+
+**Wire format for empty params:** The input wire bytes must still be a valid wire frame with
+`count = 0`:
+
+```
+[0x00, 0x00, 0x00, 0x00]   ← count: u32 LE = 0, no field entries
+```
+
+This is 4 bytes total. The `StreamDeserializer` reads `count = 0`, validates
+`0 == fields.len()` (the empty struct has 0 fields), and calls `visitor.visit_seq()` which
+immediately returns `None` for `next_element_seed` -- producing the empty struct with no
+deserialization work. The storage layer must produce this 4-byte wire frame even when
+`Vec<TaskInput>` is empty.
+
 ### Validation rules (compile-time errors)
 
-1. **Return type must be `Result<(...), TdlError>`** -- the Ok type must be a parenthesized
+1. **First parameter must be `ctx: TaskContext`** -- the macro checks that the first argument's
+   type is `TaskContext`. Compile error if missing or if `TaskContext` appears at any other
+   position.
+2. **Return type must be `Result<(...), TdlError>`** -- the Ok type must be a parenthesized
    tuple (even for single values: `Result<(int32,), TdlError>`).
-2. **Argument types must be supported types** -- primitives, aliases (`int32`, `Bytes`, etc.),
+3. **Argument types must be supported types** -- primitives, aliases (`int32`, `Bytes`, etc.),
    `Vec<T>`/`List<T>`, `HashMap<K,V>`/`Map<K,V>`, or user-defined structs (single-segment
-   identifiers not in the primitive set, assumed valid).
-3. **Map key restriction** -- K must be one of `{i8, i16, i32, i64, int8, int16, int32, int64,
+   identifiers not in the primitive set, assumed valid). This applies to all parameters after
+   `TaskContext`.
+4. **Map key restriction** -- K must be one of `{i8, i16, i32, i64, int8, int16, int32, int64,
    Vec<u8>, Bytes}`.
-4. **No `self` parameter** -- must be a free function.
-5. **Tuple element types** follow the same validation as argument types.
+5. **No `self` parameter** -- must be a free function.
+6. **Tuple element types** follow the same validation as argument types.
 
 Type alias resolution (e.g., `type MyInt = int32;`) is not possible at the syntactic level.
 User-defined struct names pass validation and fail at serde time if incorrect.
@@ -668,13 +768,15 @@ pub extern "C" fn __spider_tdl_package_get_name<'a>() -> spider_tdl::ffi::CCharA
 #[unsafe(no_mangle)]
 pub extern "C" fn __spider_tdl_package_execute(
     name: spider_tdl::ffi::CCharArray<'_>,
+    ctx: spider_tdl::ffi::CByteArray<'_>,
     inputs: spider_tdl::ffi::CByteArray<'_>,
 ) -> spider_tdl::ffi::TaskExecutionResult {
     let task_name: &str = unsafe { name.as_str() };
-    let raw_bytes: &[u8] = unsafe { inputs.as_slice() };
+    let raw_ctx: &[u8] = unsafe { ctx.as_slice() };
+    let raw_inputs: &[u8] = unsafe { inputs.as_slice() };
 
     let result = match __SPIDER_TDL_REGISTRY.get(task_name) {
-        Some(handler) => handler.execute_raw(raw_bytes),
+        Some(handler) => handler.execute_raw(raw_ctx, raw_inputs),
         None => {
             let err = spider_tdl::TdlError::TaskNotFound(task_name.to_string());
             spider_tdl::ExecutionResult::Error(rmp_serde::to_vec(&err).unwrap())
@@ -702,7 +804,7 @@ pub struct TdlPackageLoader {
 }
 
 type GetNameFn = unsafe extern "C" fn() -> CCharArray<'static>;
-type ExecuteFn = unsafe extern "C" fn(CCharArray<'_>, CByteArray<'_>) -> TaskExecutionResult;
+type ExecuteFn = unsafe extern "C" fn(CCharArray<'_>, CByteArray<'_>, CByteArray<'_>) -> TaskExecutionResult;
 
 impl TdlPackageLoader {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ExecutorError> {
@@ -720,20 +822,23 @@ impl TdlPackageLoader {
         }
     }
 
-    /// Execute a task by name. `raw_inputs` is the wire-format byte stream
-    /// produced by `serialize_task_inputs()` in the storage layer -- passed
-    /// through opaquely by the execution manager and task executor.
+    /// Execute a task by name.
+    /// - `raw_ctx` is msgpack-encoded `TaskContext`, constructed by the execution manager.
+    /// - `raw_inputs` is wire-format-encoded task inputs, produced by the storage layer.
+    /// Both are passed through opaquely.
     pub fn execute_task(
         &self,
         task_name: &str,
+        raw_ctx: &[u8],
         raw_inputs: &[u8],
     ) -> Result<Vec<u8>, TdlError> {
         unsafe {
             let func: libloading::Symbol<ExecuteFn> =
                 self.library.get(b"__spider_tdl_package_execute")?;
             let name_arr = CCharArray::from_str(task_name);
+            let ctx_arr = CByteArray::from_slice(raw_ctx);
             let input_arr = CByteArray::from_slice(raw_inputs);
-            let result = func(name_arr, input_arr);
+            let result = func(name_arr, ctx_arr, input_arr);
 
             // Reclaim ownership and interpret
             match result.into_result() {
@@ -758,31 +863,44 @@ manager. It only deserializes error bytes to determine the failure reason.
 `Vec<TaskInput>` only exists in the storage layer. The storage layer serializes it into wire
 bytes (`serialize_task_inputs`), and from that point on, only raw bytes flow through the system.
 
+`TaskContext` is constructed and serialized by the execution manager. It travels separately
+from the task inputs.
+
 ```
 Storage              Execution Manager       Task Executor          TDL Package (cdylib)
    │                       │                       │                        │
    │ Vec<TaskInput>        │                       │                        │
    │ serialize_task_inputs │                       │                        │
-   │ → wire bytes          │                       │                        │
+   │ → input wire bytes    │                       │                        │
    │                       │                       │                        │
    │ task_name +           │                       │                        │
-   │ wire bytes            │                       │                        │
+   │ input wire bytes      │                       │                        │
    ├──────────────────────►│                       │                        │
    │                       │                       │                        │
+   │                       │ construct TaskContext  │                        │
+   │                       │ rmp_serde::to_vec()   │                        │
+   │                       │ → ctx bytes           │                        │
+   │                       │                       │                        │
    │                       │ task_name +           │                        │
-   │                       │ wire bytes (passthru) │                        │
+   │                       │ ctx bytes +           │                        │
+   │                       │ input wire bytes      │                        │
    │                       ├──────────────────────►│                        │
    │                       │    (via OS pipe)      │                        │
    │                       │                       │                        │
    │                       │                       │ dlopen + symbol lookup │
    │                       │                       ├───────────────────────►│
    │                       │                       │ __spider_tdl_package_execute
-   │                       │                       │ (CCharArray, CByteArray)
+   │                       │                       │ (CCharArray,           │
+   │                       │                       │  CByteArray[ctx],      │
+   │                       │                       │  CByteArray[inputs])   │
+   │                       │                       │                        │
+   │                       │                       │                        │ rmp_serde::from_slice()
+   │                       │                       │                        │ ctx bytes → TaskContext
    │                       │                       │                        │
    │                       │                       │                        │ deserialize_task_inputs()
    │                       │                       │                        │ wire bytes → Params struct
    │                       │                       │                        │
-   │                       │                       │                        │ Task::execute(params)
+   │                       │                       │                        │ Task::execute(ctx, params)
    │                       │                       │                        │ → Result<Return, TdlError>
    │                       │                       │                        │
    │                       │                       │                        │ serialize_return() or
@@ -813,8 +931,9 @@ Storage              Execution Manager       Task Executor          TDL Package 
 
 Key points:
 - `serialize_task_inputs()` is called in the **storage layer**, not the executor.
-- The execution manager and task executor treat both input and output bytes as opaque -- no
-  deserialization, pure passthrough.
+- `TaskContext` is constructed and msgpack-serialized by the **execution manager**. It is
+  passed as a separate byte stream alongside the input wire bytes.
+- The task executor treats all three byte streams (ctx, inputs, outputs) as opaque passthrough.
 - `deserialize_task_inputs()` is called in the **TDL package** (cdylib) only.
 - Output bytes flow back opaquely to the **storage layer**, which deserializes the wire frame
   into `Vec<Vec<u8>>` (each element is one msgpack-encoded tuple output value).
