@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 autotests = false
 
-[[test]]
-name = "test_spider_storage"
-path = "tests/test_spider_storage.rs"
-
 [lib]
 name = "spider_storage"
 path = "src/lib.rs"
+
+[[test]]
+name = "test_spider_storage"
+path = "tests/test_spider_storage.rs"
 
 [dependencies]
 async-trait = "0.1.89"
