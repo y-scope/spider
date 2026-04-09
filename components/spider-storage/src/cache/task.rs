@@ -135,6 +135,30 @@ impl TaskGraph {
         })
     }
 
+    /// Marks all TCBs and commit TCB as cancelled, if not terminated.
+    pub async fn cancel_non_terminal(&mut self) {
+        for tcb in &self.tasks {
+            tcb.cancel_non_terminal().await;
+        }
+        if let Some(commit_tcb) = &self.commit_task {
+            commit_tcb.cancel_non_terminal().await;
+        }
+    }
+
+    /// # Returns
+    ///
+    /// A vector of task indices of all TCBs in [`TaskState::Ready`] state.
+    pub async fn get_all_ready_task_indices(&self) -> Vec<TaskIndex> {
+        let mut ready_task_indices = Vec::new();
+        for shared_tcb in &self.tasks {
+            let tcb = shared_tcb.inner.lock().await;
+            if matches!(tcb.base.state, TaskState::Ready) {
+                ready_task_indices.push(tcb.index);
+            }
+        }
+        ready_task_indices
+    }
+
     /// # Returns
     ///
     /// The TCB of the given task index if it exists, `None` otherwise.
@@ -162,6 +186,16 @@ impl TaskGraph {
     #[must_use]
     pub const fn get_outputs(&self) -> &Vec<OutputReader> {
         &self.outputs
+    }
+
+    #[must_use]
+    pub const fn has_commit_task(&self) -> bool {
+        self.commit_task.is_some()
+    }
+
+    #[must_use]
+    pub const fn has_cleanup_task(&self) -> bool {
+        self.cleanup_task.is_some()
     }
 }
 
@@ -316,6 +350,12 @@ impl SharedTaskControlBlock {
         for output_writer in &tcb.outputs {
             *output_writer.write().await = None;
         }
+    }
+
+    /// Marks the TCB state cancelled.
+    pub async fn cancel_non_terminal(&self) {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.cancel_non_terminal();
     }
 
     /// Private factory function for creating a new task control block from a task definition.
@@ -513,6 +553,12 @@ impl SharedTerminationTaskControlBlock {
     pub async fn force_remove_task_instance(&self, instance_id: TaskInstanceId) -> bool {
         let mut tcb = self.inner.lock().await;
         tcb.base.force_remove_task_instance(instance_id)
+    }
+
+    /// Marks the TCB state cancelled.
+    pub async fn cancel_non_terminal(&self) {
+        let mut tcb = self.inner.lock().await;
+        tcb.base.cancel_non_terminal();
     }
 
     /// Private factory function for creating a new termination task control block from a task
@@ -778,6 +824,13 @@ impl TaskControlBlockBase {
             self.state = TaskState::Ready;
         }
         existed
+    }
+
+    /// Cancels if the task is in a non-terminal state.
+    fn cancel_non_terminal(&mut self) {
+        if !self.state.is_terminal() {
+            self.state = TaskState::Cancelled;
+        }
     }
 }
 

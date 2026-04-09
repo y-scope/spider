@@ -2,20 +2,35 @@
 name = "spider-storage"
 version = "0.1.0"
 edition = "2024"
+autotests = false
 
 [lib]
 name = "spider_storage"
 path = "src/lib.rs"
 
+[[test]]
+name = "test_spider_storage"
+path = "tests/test_spider_storage.rs"
+
 [dependencies]
 async-trait = "0.1.89"
 const_format = "0.2.35"
+rmp-serde = "1.3.1"
 secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
+subtle = "2.6.1"
 thiserror = "2.0.18"
-tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "1.50.0", features = ["rt-multi-thread", "sync"] }
+uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]
-tokio = { version = "1.49.0", features = ["macros"] }
+anyhow = "1.0.98"
+async-channel = "2.3.1"
+dashmap = "6.1.0"
+rand = "0.9.1"
+serial_test = "3.2.0"
+tabled = "0.20.0"
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
+uuid = { version = "1.19.0", features = ["v4"] }
