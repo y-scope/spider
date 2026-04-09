@@ -36,7 +36,7 @@ jobs:
       - name: "Install dev dependencies"
         run: "./tools/scripts/lib_install/linux/install-dev.sh"
 
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/log-tool-versions"
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
       - name: "Install project dependencies "
         timeout-minutes: 10
