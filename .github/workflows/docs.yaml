@@ -1,8 +1,16 @@
-name: "tests"
+name: "docs"
 
 on:
   pull_request:
+    paths: &monitored_paths
+      - ".github/workflows/docs.yaml"
+      - "docs/**"
+      - "examples/wolf/quick-start/**"
+      - "taskfile.yaml"
+      - "taskfiles/docs.yaml"
+      - "tools/yscope-dev-utils"
   push:
+    paths: *monitored_paths
   schedule:
     # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
     - cron: "15 0 * * *"
@@ -17,15 +25,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tests:
+  build:
+    name: "Build ${{matrix.task}} docs"
+    permissions:
+      contents: "read"
     strategy:
       matrix:
-        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        os: ["macos-latest", "ubuntu-24.04"]
+        task: ["huntsman", "wolf"]
     runs-on: "${{matrix.os}}"
     steps:
-      - name: "Remove default CMake installation in the runner"
-        run: "rm '/usr/local/bin/cmake'"
-
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
           submodules: "recursive"
@@ -34,23 +43,7 @@ jobs:
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
-
-      - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/linux/install-dev.sh"
-
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
-      - name: "Install project dependencies"
-        timeout-minutes: 10
-        env:
-          SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
-        run: "task deps:lib_install"
-
-      - run: "task test:cpp-unit-tests"
-
-      - run: "task test:rust-unit-tests"
-
-      - run: "task test:spider-py-unit-tests"
-
-      - run: "task test:cpp-integration"
+      - name: "Build docs"
+        run: "task docs:${{matrix.task}}:site"
