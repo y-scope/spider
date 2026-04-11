@@ -67,6 +67,9 @@ pub enum InternalError {
 
     #[error("failed to send to the ready queue: {0}")]
     ReadyQueueSendFailure(String),
+
+    #[error("failed to receive from the ready queue: {0}")]
+    ReadyQueueReceiveFailure(String),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
