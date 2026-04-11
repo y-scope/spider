@@ -2,7 +2,7 @@
 //!
 //! This module provides a complete test harness that drives concurrent job execution through the
 //! [`SharedJobControlBlock`] with 64 async worker tasks. It is designed to be reused across
-//! different test files and DB connector implementations.
+//! different test files, DB connector implementations, and ready queue implementations.
 //!
 //! # Mock system architecture
 //!
@@ -28,10 +28,18 @@
 //! `start()` but before workers process any messages. For concurrent cancel, a separate spawned
 //! task cancels after a 1ms delay, racing against worker execution.
 //!
+//! # Queue implementations
+//!
+//! The framework is generic over the ready queue implementation via [`ReadyQueueSender`] and
+//! [`ReadyQueueReceiver`] trait bounds. Two implementations are supported:
+//!
+//! * **Mock** ([`MockReadyQueueSender`] / [`MockReadyQueueReceiver`]) -- backed by `async_channel`.
+//!   Task-ready batches are flattened to one message per task index for maximum worker concurrency.
+//! * **Real** ([`ReadyQueueSenderImpl`] / [`ReadyQueueReceiverImpl`]) -- the production
+//!   `spider_storage::ready_queue::channel()` implementation.
+//!
 //! # Mock components
 //!
-//! * [`MockReadyQueueSender`] -- backed by `async_channel` (true MPMC). Task-ready batches from the
-//!   JCB are flattened to one message per task index for maximum worker concurrency.
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
@@ -69,7 +77,8 @@
 //!
 //! All test logic is generic over `DbConnectorType` via an async factory callback
 //! `AsyncFnOnce() -> DbConnectorType`, so the same tests can be rerun with a real
-//! DB connector later.
+//! DB connector later. The ready queue is also generic, allowing tests to run with either the
+//! mock or production queue implementation.
 
 use std::{
     sync::{
@@ -99,7 +108,7 @@ use spider_storage::{
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
-    ready_queue::ReadyQueueSender,
+    ready_queue::{ReadyMessage, ReadyQueueReceiver, ReadyQueueSender},
     task_instance_pool::TaskInstancePoolConnector,
 };
 use tabled::{Table, Tabled};
@@ -137,6 +146,27 @@ pub enum CancelPolicy {
 
     /// Cancel concurrently — spawn a separate task that cancels after a short delay.
     Concurrent,
+}
+
+/// Configuration for a test workload execution.
+///
+/// Groups the execution-policy parameters that control how workers behave, what outputs they
+/// produce, and whether instrumentation is enabled. Passed to [`run_workload`] to keep its
+/// argument list within clippy limits.
+pub struct WorkloadConfig {
+    /// Describes when (if ever) to cancel the job.
+    pub cancel_policy: CancelPolicy,
+
+    /// Generates mock task outputs from an [`ExecutionContext`].
+    pub output_handler: TaskOutputHandler,
+
+    /// If `true`, workers always fail task instances instead of applying the random injection
+    /// policy.
+    pub always_fail: bool,
+
+    /// Optional sender for latency instrumentation samples. When `None`, no timing data is
+    /// collected.
+    pub instrument_sender: Option<InstrumentSender>,
 }
 
 /// A stateless DB connector stub.
@@ -265,7 +295,7 @@ pub fn try_create_instrument_channel()
 /// Panics if:
 ///
 /// * [`INSTRUMENT_OUTPUT_DIR_ENV`] is not set.
-/// * The output file cannot be opened or written to.
+/// * The output file cannot be opened or written.
 pub fn write_instrument_results(
     test_name: &str,
     receiver: mpsc::UnboundedReceiver<InstrumentSample>,
@@ -295,10 +325,25 @@ pub fn write_instrument_results(
     });
 }
 
+/// Creates a mock ready queue pair.
+///
+/// The mock sender flattens task-ready batches into individual one-element messages for maximum
+/// worker concurrency.
+#[must_use]
+pub fn mock_channel() -> (MockReadyQueueSender, MockReadyQueueReceiver) {
+    let (sender, receiver) = async_channel::unbounded();
+    (
+        MockReadyQueueSender { sender },
+        MockReadyQueueReceiver { receiver },
+    )
+}
+
 /// Creates a JCB from the given task graph, starts it, spawns workers, and runs to completion.
 ///
 /// # Type Parameters
 ///
+/// * `S` - The ready queue sender type.
+/// * `R` - The ready queue receiver type.
 /// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
 ///   tasks can be spawned onto the tokio runtime.
 ///
@@ -314,20 +359,18 @@ pub fn write_instrument_results(
 /// # Returns
 ///
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
-pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
+pub async fn run_workload<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
-    cancel_policy: CancelPolicy,
-    output_handler: TaskOutputHandler,
-    always_fail: bool,
-    instrument_sender: Option<InstrumentSender>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
+    config: WorkloadConfig,
 ) -> WorkloadResult {
-    // Create mock components.
-    let (ready_sender, ready_receiver) = async_channel::unbounded::<ReadyMessage>();
-    let ready_queue_sender = MockReadyQueueSender {
-        sender: ready_sender,
-    };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
     let task_instance_pool = MockTaskInstancePool::new();
@@ -349,7 +392,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
 
     let jcb = InstrumentedJcb {
         jcb: inner_jcb,
-        instrument_sender,
+        instrument_sender: config.instrument_sender,
     };
 
     let (terminal_state_sender, mut terminal_state_receiver) =
@@ -360,16 +403,16 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let cleanup_count = Arc::new(AtomicUsize::new(0));
 
     let ctx = WorkerContext {
-        receiver: ready_receiver,
+        receiver: ready_queue_receiver,
         jcb: jcb.clone(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
         seen_tasks: Arc::new(DashMap::new()),
-        output_handler: output_handler.clone(),
+        output_handler: config.output_handler.clone(),
         task_success_count: task_success_count.clone(),
         commit_count: commit_count.clone(),
         cleanup_count: cleanup_count.clone(),
-        always_fail,
+        always_fail: config.always_fail,
     };
 
     // Spawn workers.
@@ -380,7 +423,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     }
 
     // Apply cancellation policy.
-    let cancel_handle = match cancel_policy {
+    let cancel_handle = match config.cancel_policy {
         CancelPolicy::Never => None,
         CancelPolicy::Immediate => {
             match jcb.cancel().await {
@@ -468,39 +511,22 @@ const NUM_WORKERS: usize = 64;
 /// directory path where the instrumentation file will be written.
 const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 
-/// The concrete JCB type parameterized by the DB connector.
+/// The concrete JCB type parameterized by the ready queue sender and DB connector.
 ///
 /// # Type Parameters
 ///
+/// * `S` - The ready queue sender type.
 /// * `DbConnectorType` - The DB-layer connector implementation.
-type TestJcb<DbConnectorType> =
-    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, MockTaskInstancePool>;
-
-/// A message sent through the mock ready queue.
-///
-/// Each message represents a single schedulable unit of work. Task-ready batches from the JCB are
-/// flattened into one message per task index so that workers receive tasks individually, enabling
-/// better concurrency across the worker pool.
-///
-/// Since these tests run a single job at a time, messages do not carry a job ID.
-enum ReadyMessage {
-    /// A single task is ready to be scheduled.
-    Task { task_index: TaskIndex },
-
-    /// The commit task is ready to be scheduled.
-    Commit,
-
-    /// The cleanup task is ready to be scheduled.
-    Cleanup,
-}
+type TestJcb<S, DbConnectorType> = SharedJobControlBlock<S, DbConnectorType, MockTaskInstancePool>;
 
 /// A mock [`ReadyQueueSender`] backed by an [`async_channel::Sender`].
 ///
 /// Workers each hold a cloned [`async_channel::Receiver`] and can concurrently await messages
-/// without any mutex serialization. The `job_id` parameter in each trait method is discarded since
-/// only one job runs at a time.
+/// without any mutex serialization. The `job_id` parameter is preserved in each message. Task-ready
+/// batches are flattened to one message per task index so that workers receive tasks individually,
+/// enabling better concurrency across the worker pool.
 #[derive(Clone)]
-struct MockReadyQueueSender {
+pub struct MockReadyQueueSender {
     sender: async_channel::Sender<ReadyMessage>,
 }
 
@@ -508,30 +534,49 @@ struct MockReadyQueueSender {
 impl ReadyQueueSender for MockReadyQueueSender {
     async fn send_task_ready(
         &self,
-        _job_id: JobId,
+        job_id: JobId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
         for task_index in task_indices {
             self.sender
-                .send(ReadyMessage::Task { task_index })
+                .send(ReadyMessage::Task {
+                    job_id,
+                    task_indices: vec![task_index],
+                })
                 .await
                 .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))?;
         }
         Ok(())
     }
 
-    async fn send_commit_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+    async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
         self.sender
-            .send(ReadyMessage::Commit)
+            .send(ReadyMessage::Commit { job_id })
             .await
             .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
     }
 
-    async fn send_cleanup_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+    async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
         self.sender
-            .send(ReadyMessage::Cleanup)
+            .send(ReadyMessage::Cleanup { job_id })
             .await
             .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
+    }
+}
+
+/// A mock [`ReadyQueueReceiver`] backed by an [`async_channel::Receiver`].
+#[derive(Clone)]
+pub struct MockReadyQueueReceiver {
+    receiver: async_channel::Receiver<ReadyMessage>,
+}
+
+#[async_trait]
+impl ReadyQueueReceiver for MockReadyQueueReceiver {
+    async fn recv(&self) -> Result<ReadyMessage, InternalError> {
+        self.receiver
+            .recv()
+            .await
+            .map_err(|e| InternalError::ReadyQueueReceiveFailure(e.to_string()))
     }
 }
 
@@ -581,14 +626,17 @@ impl TaskInstancePoolConnector for MockTaskInstancePool {
 ///
 /// # Type Parameters
 ///
+/// * `S` - The ready queue sender type.
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
-struct InstrumentedJcb<DbConnectorType: InternalJobOrchestration> {
-    jcb: TestJcb<DbConnectorType>,
+struct InstrumentedJcb<S: ReadyQueueSender, DbConnectorType: InternalJobOrchestration> {
+    jcb: TestJcb<S, DbConnectorType>,
     instrument_sender: Option<InstrumentSender>,
 }
 
-impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType> {
+impl<S: ReadyQueueSender, DbConnectorType: InternalJobOrchestration>
+    InstrumentedJcb<S, DbConnectorType>
+{
     /// Wraps [`SharedJobControlBlock::create_task_instance`] with optional latency recording.
     async fn create_task_instance(&self, task_id: TaskId) -> Result<ExecutionContext, CacheError> {
         if let Some(sender) = &self.instrument_sender {
@@ -711,15 +759,20 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
 ///
 /// # Type Parameters
 ///
+/// * `S` - The ready queue sender type.
+/// * `R` - The ready queue receiver type.
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
-struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
-    /// The MPMC ready-queue receiver. Each clone can concurrently await messages without
-    /// serialization.
-    receiver: async_channel::Receiver<ReadyMessage>,
+struct WorkerContext<
+    S: ReadyQueueSender,
+    R: ReadyQueueReceiver,
+    DbConnectorType: InternalJobOrchestration,
+> {
+    /// The ready-queue receiver. Each clone can concurrently await messages.
+    receiver: R,
 
     /// The instrumented JCB under test.
-    jcb: InstrumentedJcb<DbConnectorType>,
+    jcb: InstrumentedJcb<S, DbConnectorType>,
 
     /// Watch channel sender — workers send the terminal [`JobState`] when observed.
     terminal_state_sender: watch::Sender<Option<JobState>>,
@@ -812,16 +865,12 @@ const fn is_stale_state(err: &CacheError) -> bool {
 }
 
 /// If `state` is terminal, broadcasts it on the watch channel.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-fn broadcast_if_terminated<DbConnectorType: InternalJobOrchestration>(
-    ctx: &WorkerContext<DbConnectorType>,
+fn broadcast_if_terminated_state(
+    terminal_state_sender: &watch::Sender<Option<JobState>>,
     state: JobState,
 ) {
     if state.is_terminal() {
-        let _ = ctx.terminal_state_sender.send(Some(state));
+        let _ = terminal_state_sender.send(Some(state));
     }
 }
 
@@ -871,10 +920,6 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 ///
 /// The worker loops until either the done signal fires or the receiver is closed (returns `None`).
 ///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-///
 /// # Failure injection
 ///
 /// For each task index received, the worker flips a coin:
@@ -890,8 +935,12 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 /// # Errors
 ///
 /// Forwards all errors that are not [`CacheError::StaleState`].
-async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
-    mut ctx: WorkerContext<DbConnectorType>,
+async fn run_worker<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
+    mut ctx: WorkerContext<S, R, DbConnectorType>,
 ) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
@@ -904,21 +953,26 @@ async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
         };
 
         match msg {
-            ReadyMessage::Task { task_index } => {
-                if let Err(e) = process_task(&ctx, &mut rng, task_index).await
-                    && !is_stale_state(&e)
-                {
-                    bail!(e);
+            ReadyMessage::Task {
+                job_id: _,
+                task_indices,
+            } => {
+                for task_index in task_indices {
+                    if let Err(e) = process_task(&ctx, &mut rng, task_index).await
+                        && !is_stale_state(&e)
+                    {
+                        bail!(e);
+                    }
                 }
             }
-            ReadyMessage::Commit => {
+            ReadyMessage::Commit { job_id: _ } => {
                 if let Err(e) = process_commit(&ctx).await
                     && !is_stale_state(&e)
                 {
                     bail!(e);
                 }
             }
-            ReadyMessage::Cleanup => {
+            ReadyMessage::Cleanup { job_id: _ } => {
                 if let Err(e) = process_cleanup(&ctx).await
                     && !is_stale_state(&e)
                 {
@@ -932,10 +986,6 @@ async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
 
 /// Processes a single task index to simulate task execution according to the given policy.
 ///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-///
 /// # Errors
 ///
 /// Returns an error if:
@@ -943,8 +993,12 @@ async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
-async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
-    ctx: &WorkerContext<DbConnectorType>,
+async fn process_task<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
+    ctx: &WorkerContext<S, R, DbConnectorType>,
     rng: &mut impl Rng,
     task_index: TaskIndex,
 ) -> Result<(), CacheError> {
@@ -961,7 +1015,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
                 "always fail".to_owned(),
             )
             .await?;
-        broadcast_if_terminated(ctx, state);
+        broadcast_if_terminated_state(&ctx.terminal_state_sender, state);
         return Ok(());
     }
 
@@ -1011,15 +1065,11 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
         .succeed_task_instance(exec_ctx.task_instance_id, task_index, outputs)
         .await?;
     ctx.task_success_count.fetch_add(1, Ordering::Relaxed);
-    broadcast_if_terminated(ctx, state);
+    broadcast_if_terminated_state(&ctx.terminal_state_sender, state);
     Ok(())
 }
 
 /// Processes a commit-ready message: creates a commit task instance and succeeds it.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 ///
 /// # Errors
 ///
@@ -1027,8 +1077,12 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
-async fn process_commit<DbConnectorType: InternalJobOrchestration>(
-    ctx: &WorkerContext<DbConnectorType>,
+async fn process_commit<
+    S: ReadyQueueSender,
+    R: ReadyQueueReceiver,
+    DbConnectorType: InternalJobOrchestration,
+>(
+    ctx: &WorkerContext<S, R, DbConnectorType>,
 ) -> Result<(), CacheError> {
     let exec_ctx = ctx.jcb.create_task_instance(TaskId::Commit).await?;
     let state = ctx
@@ -1036,15 +1090,11 @@ async fn process_commit<DbConnectorType: InternalJobOrchestration>(
         .succeed_commit_task_instance(exec_ctx.task_instance_id)
         .await?;
     ctx.commit_count.fetch_add(1, Ordering::Relaxed);
-    broadcast_if_terminated(ctx, state);
+    broadcast_if_terminated_state(&ctx.terminal_state_sender, state);
     Ok(())
 }
 
 /// Processes a cleanup-ready message: creates a cleanup task instance and succeeds it.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 ///
 /// # Errors
 ///
@@ -1052,8 +1102,12 @@ async fn process_commit<DbConnectorType: InternalJobOrchestration>(
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
-async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
-    ctx: &WorkerContext<DbConnectorType>,
+async fn process_cleanup<
+    S: ReadyQueueSender,
+    R: ReadyQueueReceiver,
+    DbConnectorType: InternalJobOrchestration,
+>(
+    ctx: &WorkerContext<S, R, DbConnectorType>,
 ) -> Result<(), CacheError> {
     let exec_ctx = ctx.jcb.create_task_instance(TaskId::Cleanup).await?;
     let state = ctx
@@ -1061,6 +1115,6 @@ async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
         .succeed_cleanup_task_instance(exec_ctx.task_instance_id)
         .await?;
     ctx.cleanup_count.fetch_add(1, Ordering::Relaxed);
-    broadcast_if_terminated(ctx, state);
+    broadcast_if_terminated_state(&ctx.terminal_state_sender, state);
     Ok(())
 }

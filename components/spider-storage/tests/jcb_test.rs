@@ -1,14 +1,20 @@
 use spider_core::job::JobState;
-use spider_storage::db::{ExternalJobOrchestration, InternalJobOrchestration};
+use spider_storage::{
+    db::{ExternalJobOrchestration, InternalJobOrchestration},
+    ready_queue::{ReadyQueueReceiver, ReadyQueueSender},
+};
 
 use super::{
+    mariadb_infra::{create_mariadb_connector, create_test_resource_group},
     scheduling_infra::{
         CancelPolicy,
         DbConnectorFactory,
         InstrumentSender,
+        WorkloadConfig,
         WorkloadResult,
         default_output_handler,
         mariadb_db_connector_factory,
+        mock_channel,
         noop_db_connector_factory,
         run_workload,
         try_create_instrument_channel,
@@ -32,17 +38,14 @@ macro_rules! function_name {
 
 /// Runs the flat workload (10,000 independent tasks with commit + cleanup) to successful
 /// completion.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
-///
-/// # Returns
-///
-/// Forwards `run_workload`'s return values.
-async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
+async fn test_flat_success<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
@@ -51,10 +54,14 @@ async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
         &graph,
         inputs,
         db_connector_factory,
-        CancelPolicy::Never,
-        default_output_handler(1024),
-        false,
-        instrument_sender,
+        ready_queue_sender,
+        ready_queue_receiver,
+        WorkloadConfig {
+            cancel_policy: CancelPolicy::Never,
+            output_handler: default_output_handler(1024),
+            always_fail: false,
+            instrument_sender,
+        },
     )
     .await;
 
@@ -76,27 +83,28 @@ async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
 }
 
 /// Cancels the flat workload immediately after starting.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
-///
-/// # Returns
-///
-/// Forwards `run_workload`'s return values.
-async fn test_flat_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
+async fn test_flat_cancel<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let result = run_workload(
         &graph,
         inputs,
         db_connector_factory,
-        CancelPolicy::Immediate,
-        default_output_handler(1024),
-        false,
-        None,
+        ready_queue_sender,
+        ready_queue_receiver,
+        WorkloadConfig {
+            cancel_policy: CancelPolicy::Immediate,
+            output_handler: default_output_handler(1024),
+            always_fail: false,
+            instrument_sender: None,
+        },
     )
     .await;
 
@@ -118,17 +126,14 @@ async fn test_flat_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
 
 /// Runs the neural-net workload (10 layers x 1,000 tasks, no termination tasks) to successful
 /// completion.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
-///
-/// # Returns
-///
-/// Forwards `run_workload`'s return values.
-async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'static>(
+async fn test_neural_net_success<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_neural_net_task_graph();
@@ -137,10 +142,14 @@ async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'st
         &graph,
         inputs,
         db_connector_factory,
-        CancelPolicy::Never,
-        default_output_handler(128),
-        false,
-        instrument_sender,
+        ready_queue_sender,
+        ready_queue_receiver,
+        WorkloadConfig {
+            cancel_policy: CancelPolicy::Never,
+            output_handler: default_output_handler(128),
+            always_fail: false,
+            instrument_sender,
+        },
     )
     .await;
 
@@ -165,27 +174,28 @@ async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'st
 }
 
 /// Cancels the neural-net workload immediately after starting.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
-///
-/// # Returns
-///
-/// Forwards `run_workload`'s return values.
-async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
+async fn test_neural_net_cancel<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
 ) -> WorkloadResult {
     let (graph, inputs) = build_neural_net_task_graph();
     let result = run_workload(
         &graph,
         inputs,
         db_connector_factory,
-        CancelPolicy::Immediate,
-        default_output_handler(128),
-        false,
-        None,
+        ready_queue_sender,
+        ready_queue_receiver,
+        WorkloadConfig {
+            cancel_policy: CancelPolicy::Immediate,
+            output_handler: default_output_handler(128),
+            always_fail: false,
+            instrument_sender: None,
+        },
     )
     .await;
 
@@ -207,27 +217,28 @@ async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'sta
 
 /// Runs a job whose tasks always fail (`max_num_retry = 3`, all instances fail). The job should
 /// transition to [`JobState::Failed`] after retries are exhausted.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
-///
-/// # Returns
-///
-/// Forwards `run_workload`'s return values.
-async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestration + 'static>(
+async fn test_always_fail_terminates_job<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
     let result = run_workload(
         &graph,
         inputs,
         db_connector_factory,
-        CancelPolicy::Never,
-        default_output_handler(128),
-        true,
-        None,
+        ready_queue_sender,
+        ready_queue_receiver,
+        WorkloadConfig {
+            cancel_policy: CancelPolicy::Never,
+            output_handler: default_output_handler(128),
+            always_fail: true,
+            instrument_sender: None,
+        },
     )
     .await;
 
@@ -245,27 +256,28 @@ async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestrati
 
 /// Races task execution against cancellation. A small flat workload (100 tasks with commit +
 /// cleanup) is started and a cancel is issued concurrently after a short delay.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
-///
-/// # Returns
-///
-/// Forwards `run_workload`'s return values.
-async fn test_concurrent_success_and_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
+async fn test_concurrent_success_and_cancel<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
+    ready_queue_sender: S,
+    ready_queue_receiver: R,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
     let result = run_workload(
         &graph,
         inputs,
         db_connector_factory,
-        CancelPolicy::Concurrent,
-        default_output_handler(128),
-        false,
-        None,
+        ready_queue_sender,
+        ready_queue_receiver,
+        WorkloadConfig {
+            cancel_policy: CancelPolicy::Concurrent,
+            output_handler: default_output_handler(128),
+            always_fail: false,
+            instrument_sender: None,
+        },
     )
     .await;
 
@@ -278,54 +290,141 @@ async fn test_concurrent_success_and_cancel<DbConnectorType: InternalJobOrchestr
     result
 }
 
+// ---- Without DB, mock queue ----
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_flat_success_without_db() {
+    let (sender, receiver) = mock_channel();
     let channel = try_create_instrument_channel();
-    let instrument_sender = channel.as_ref().map(|(sender, _)| sender.clone());
-    test_flat_success(noop_db_connector_factory(), instrument_sender).await;
-    if let Some((_, receiver)) = channel {
-        write_instrument_results(function_name!(), receiver);
+    let instrument_sender = channel.as_ref().map(|(s, _)| s.clone());
+    test_flat_success(
+        noop_db_connector_factory(),
+        sender,
+        receiver,
+        instrument_sender,
+    )
+    .await;
+    if let Some((_, receiver_ch)) = channel {
+        write_instrument_results(function_name!(), receiver_ch);
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_flat_cancel_without_db() {
-    test_flat_cancel(noop_db_connector_factory()).await;
+    let (sender, receiver) = mock_channel();
+    test_flat_cancel(noop_db_connector_factory(), sender, receiver).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_neural_net_success_without_db() {
+    let (sender, receiver) = mock_channel();
     let channel = try_create_instrument_channel();
-    let instrument_sender = channel.as_ref().map(|(sender, _)| sender.clone());
-    test_neural_net_success(noop_db_connector_factory(), instrument_sender).await;
-    if let Some((_, receiver)) = channel {
-        write_instrument_results(function_name!(), receiver);
+    let instrument_sender = channel.as_ref().map(|(s, _)| s.clone());
+    test_neural_net_success(
+        noop_db_connector_factory(),
+        sender,
+        receiver,
+        instrument_sender,
+    )
+    .await;
+    if let Some((_, receiver_ch)) = channel {
+        write_instrument_results(function_name!(), receiver_ch);
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_neural_net_cancel_without_db() {
-    test_neural_net_cancel(noop_db_connector_factory()).await;
+    let (sender, receiver) = mock_channel();
+    test_neural_net_cancel(noop_db_connector_factory(), sender, receiver).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_always_fail_terminates_job_without_db() {
-    test_always_fail_terminates_job(noop_db_connector_factory()).await;
+    let (sender, receiver) = mock_channel();
+    test_always_fail_terminates_job(noop_db_connector_factory(), sender, receiver).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_concurrent_success_and_cancel_without_db() {
-    test_concurrent_success_and_cancel(noop_db_connector_factory()).await;
+    let (sender, receiver) = mock_channel();
+    test_concurrent_success_and_cancel(noop_db_connector_factory(), sender, receiver).await;
 }
 
-use super::mariadb_infra::{create_mariadb_connector, create_test_resource_group};
+// ---- Without DB, real queue ----
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_success_without_db_with_real_queue() {
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let channel = try_create_instrument_channel();
+    let instrument_sender = channel.as_ref().map(|(s, _)| s.clone());
+    test_flat_success(
+        noop_db_connector_factory(),
+        sender,
+        receiver,
+        instrument_sender,
+    )
+    .await;
+    if let Some((_, receiver_ch)) = channel {
+        write_instrument_results(function_name!(), receiver_ch);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_cancel_without_db_with_real_queue() {
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    test_flat_cancel(noop_db_connector_factory(), sender, receiver).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_neural_net_success_without_db_with_real_queue() {
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let channel = try_create_instrument_channel();
+    let instrument_sender = channel.as_ref().map(|(s, _)| s.clone());
+    test_neural_net_success(
+        noop_db_connector_factory(),
+        sender,
+        receiver,
+        instrument_sender,
+    )
+    .await;
+    if let Some((_, receiver_ch)) = channel {
+        write_instrument_results(function_name!(), receiver_ch);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_neural_net_cancel_without_db_with_real_queue() {
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    test_neural_net_cancel(noop_db_connector_factory(), sender, receiver).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_always_fail_terminates_job_without_db_with_real_queue() {
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    test_always_fail_terminates_job(noop_db_connector_factory(), sender, receiver).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_concurrent_success_and_cancel_without_db_with_real_queue() {
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    test_concurrent_success_and_cancel(noop_db_connector_factory(), sender, receiver).await;
+}
+
+// ---- With MariaDB, mock queue ----
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
 async fn test_flat_success_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result = test_flat_success(mariadb_db_connector_factory(storage, rg_id), None).await;
+    let (sender, receiver) = mock_channel();
+    let result = test_flat_success(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+        None,
+    )
+    .await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier
@@ -348,7 +447,13 @@ async fn test_flat_success_with_mariadb() {
 async fn test_flat_cancel_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result = test_flat_cancel(mariadb_db_connector_factory(storage, rg_id)).await;
+    let (sender, receiver) = mock_channel();
+    let result = test_flat_cancel(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier
@@ -366,8 +471,13 @@ async fn test_flat_cancel_with_mariadb() {
 async fn test_always_fail_terminates_job_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result =
-        test_always_fail_terminates_job(mariadb_db_connector_factory(storage, rg_id)).await;
+    let (sender, receiver) = mock_channel();
+    let result = test_always_fail_terminates_job(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier
@@ -390,8 +500,13 @@ async fn test_always_fail_terminates_job_with_mariadb() {
 async fn test_concurrent_success_and_cancel_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result =
-        test_concurrent_success_and_cancel(mariadb_db_connector_factory(storage, rg_id)).await;
+    let (sender, receiver) = mock_channel();
+    let result = test_concurrent_success_and_cancel(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier
@@ -409,7 +524,14 @@ async fn test_concurrent_success_and_cancel_with_mariadb() {
 async fn test_neural_net_success_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result = test_neural_net_success(mariadb_db_connector_factory(storage, rg_id), None).await;
+    let (sender, receiver) = mock_channel();
+    let result = test_neural_net_success(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+        None,
+    )
+    .await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier
@@ -427,7 +549,171 @@ async fn test_neural_net_success_with_mariadb() {
 async fn test_neural_net_cancel_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let result = test_neural_net_cancel(mariadb_db_connector_factory(storage, rg_id)).await;
+    let (sender, receiver) = mock_channel();
+    let result = test_neural_net_cancel(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
+
+    let verifier = create_mariadb_connector().await;
+    let db_state = verifier
+        .get_state(result.job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(
+        db_state, result.terminal_state,
+        "DB state should match observed terminal state"
+    );
+}
+
+// ---- With MariaDB, real queue ----
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_flat_success_with_mariadb_with_real_queue() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let result = test_flat_success(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+        None,
+    )
+    .await;
+
+    let verifier = create_mariadb_connector().await;
+    let db_state = verifier
+        .get_state(result.job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(
+        db_state, result.terminal_state,
+        "DB state should match observed terminal state"
+    );
+    let outputs = verifier
+        .get_outputs(result.job_id)
+        .await
+        .expect("get_outputs should succeed");
+    assert!(!outputs.is_empty(), "DB should contain job outputs");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_flat_cancel_with_mariadb_with_real_queue() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let result = test_flat_cancel(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
+
+    let verifier = create_mariadb_connector().await;
+    let db_state = verifier
+        .get_state(result.job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(
+        db_state, result.terminal_state,
+        "DB state should match observed terminal state"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_always_fail_terminates_job_with_mariadb_with_real_queue() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let result = test_always_fail_terminates_job(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
+
+    let verifier = create_mariadb_connector().await;
+    let db_state = verifier
+        .get_state(result.job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(
+        db_state, result.terminal_state,
+        "DB state should match observed terminal state"
+    );
+    let error_msg = verifier
+        .get_error(result.job_id)
+        .await
+        .expect("get_error should succeed");
+    assert!(!error_msg.is_empty(), "DB should contain an error message");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_concurrent_success_and_cancel_with_mariadb_with_real_queue() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let result = test_concurrent_success_and_cancel(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
+
+    let verifier = create_mariadb_connector().await;
+    let db_state = verifier
+        .get_state(result.job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(
+        db_state, result.terminal_state,
+        "DB state should match observed terminal state"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_neural_net_success_with_mariadb_with_real_queue() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let result = test_neural_net_success(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+        None,
+    )
+    .await;
+
+    let verifier = create_mariadb_connector().await;
+    let db_state = verifier
+        .get_state(result.job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(
+        db_state, result.terminal_state,
+        "DB state should match observed terminal state"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires MariaDB"]
+async fn test_neural_net_cancel_with_mariadb_with_real_queue() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (sender, receiver) = spider_storage::ready_queue::channel();
+    let result = test_neural_net_cancel(
+        mariadb_db_connector_factory(storage, rg_id),
+        sender,
+        receiver,
+    )
+    .await;
 
     let verifier = create_mariadb_connector().await;
     let db_state = verifier

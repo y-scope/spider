@@ -94,7 +94,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
 ///
 /// A tuple of (sender, receiver) backed by an [`async_channel`].
 #[must_use]
-pub fn channel() -> (impl ReadyQueueSender, impl ReadyQueueReceiver) {
+pub fn channel() -> (ReadyQueueSenderImpl, ReadyQueueReceiverImpl) {
     let (sender, receiver) = async_channel::unbounded();
     (
         ReadyQueueSenderImpl { sender },
@@ -103,7 +103,7 @@ pub fn channel() -> (impl ReadyQueueSender, impl ReadyQueueReceiver) {
 }
 
 #[derive(Clone)]
-struct ReadyQueueSenderImpl {
+pub struct ReadyQueueSenderImpl {
     sender: async_channel::Sender<ReadyMessage>,
 }
 
@@ -139,7 +139,7 @@ impl ReadyQueueSender for ReadyQueueSenderImpl {
 }
 
 #[derive(Clone)]
-struct ReadyQueueReceiverImpl {
+pub struct ReadyQueueReceiverImpl {
     receiver: async_channel::Receiver<ReadyMessage>,
 }
 
@@ -234,6 +234,18 @@ mod tests {
         assert!(
             matches!(result, Err(InternalError::ReadyQueueReceiveFailure(_))),
             "recv should fail when the sender is dropped, got: {result:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_fails_when_receiver_dropped() {
+        let (sender, receiver) = channel();
+        drop(receiver);
+
+        let result = sender.send_task_ready(JobId::default(), vec![0]).await;
+        assert!(
+            matches!(result, Err(InternalError::ReadyQueueSendFailure(_))),
+            "send should fail when the receiver is dropped, got: {result:?}"
         );
     }
 
