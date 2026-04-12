@@ -98,10 +98,10 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
 ///
 /// This trait is invoked by the scheduler to dequeue tasks that are ready for dispatch.
 pub trait ReadyQueueReceiver: Clone + Send + Sync {
-    /// Drains up to `limit` entries with `queue_id > start_after`.
+    /// Returns up to `limit` entries with `queue_id > start_after`.
     ///
     /// Returns immediately with 0 or more entries. Idempotent — repeated calls with the same cursor
-    /// return the same entries.
+    /// return the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
@@ -110,7 +110,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// * `limit` - Maximum number of entries to return.
     fn recv_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the highest `queue_id` in the queue, or `None` if empty.
+    /// Returns the `queue_id` of the last entry in the queue, or `None` if empty.
     fn latest_id(&self) -> Option<u64>;
 }
 
@@ -558,5 +558,57 @@ mod tests {
         let batch = receiver.recv_batch(Some(1), 10);
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].queue_id, 4);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn latest_id_after_removal_reflects_remaining() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+        let other_job_id = JobId::new();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0, 1])
+            .await
+            .expect("send should succeed");
+        sender
+            .send_task_ready(other_job_id, rg_id, vec![2])
+            .await
+            .expect("send should succeed");
+        assert_eq!(receiver.latest_id(), Some(3));
+
+        sender.remove_job_entries(job_id);
+        assert_eq!(
+            receiver.latest_id(),
+            Some(3),
+            "latest_id should return the last remaining entry's queue_id"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn recv_batch_start_after_zero_behaves_like_none() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+        sender
+            .send_task_ready(job_id, rg_id, vec![0, 1])
+            .await
+            .expect("send should succeed");
+
+        let batch_none = receiver.recv_batch(None, 10);
+        let batch_zero = receiver.recv_batch(Some(0), 10);
+        assert_eq!(batch_none.len(), batch_zero.len());
+        assert_eq!(batch_none[0].queue_id, batch_zero[0].queue_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn recv_batch_start_after_u64_max_returns_empty() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+        sender
+            .send_task_ready(job_id, rg_id, vec![0])
+            .await
+            .expect("send should succeed");
+
+        let batch = receiver.recv_batch(Some(u64::MAX), 10);
+        assert!(batch.is_empty());
     }
 }

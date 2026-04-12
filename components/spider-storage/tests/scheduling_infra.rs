@@ -421,34 +421,8 @@ pub async fn run_workload<
     }
 
     // Apply cancellation policy.
-    let cancel_handle = match config.cancel_policy {
-        CancelPolicy::Never => None,
-        CancelPolicy::Immediate => {
-            match jcb.cancel().await {
-                Ok(state) if state.is_terminal() => {
-                    let _ = terminal_state_sender.send(Some(state));
-                }
-                Ok(_) => {}
-                Err(e) if is_stale_state(&e) => {}
-                Err(e) => panic!("unexpected cancel error: {e:?}"),
-            }
-            None
-        }
-        CancelPolicy::Concurrent => {
-            let jcb_clone = jcb.clone();
-            let terminal_sender_clone = terminal_state_sender.clone();
-            Some(tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                match jcb_clone.cancel().await {
-                    Ok(state) if state.is_terminal() => {
-                        let _ = terminal_sender_clone.send(Some(state));
-                    }
-                    Ok(_) | Err(CacheError::StaleState(_)) => {}
-                    Err(e) => panic!("unexpected cancel error: {e:?}"),
-                }
-            }))
-        }
-    };
+    let cancel_handle =
+        apply_cancel_policy(config.cancel_policy, &jcb, &terminal_state_sender).await;
 
     // Wait for a terminal state, then signal workers to exit.
     terminal_state_receiver
@@ -459,7 +433,9 @@ pub async fn run_workload<
         .borrow()
         .expect("terminal state should be set after wait_for");
 
-    let _ = done_sender.send(true);
+    done_sender
+        .send(true)
+        .expect("done receiver should be alive");
 
     while let Some(result) = join_set.join_next().await {
         result
@@ -796,6 +772,49 @@ impl LatencyRow {
 
 /// # Returns
 ///
+/// Applies the cancellation policy to the given JCB, returning an optional spawned task handle.
+async fn apply_cancel_policy<
+    S: ReadyQueueSender + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
+    cancel_policy: CancelPolicy,
+    jcb: &InstrumentedJcb<S, DbConnectorType>,
+    terminal_state_sender: &watch::Sender<Option<JobState>>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    match cancel_policy {
+        CancelPolicy::Never => None,
+        CancelPolicy::Immediate => {
+            match jcb.cancel().await {
+                Ok(state) if state.is_terminal() => {
+                    terminal_state_sender
+                        .send(Some(state))
+                        .expect("terminal state receiver should be alive");
+                }
+                Ok(_) => {}
+                Err(e) if is_stale_state(&e) => {}
+                Err(e) => panic!("unexpected cancel error: {e:?}"),
+            }
+            None
+        }
+        CancelPolicy::Concurrent => {
+            let jcb_clone = jcb.clone();
+            let terminal_sender_clone = terminal_state_sender.clone();
+            Some(tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                match jcb_clone.cancel().await {
+                    Ok(state) if state.is_terminal() => {
+                        terminal_sender_clone
+                            .send(Some(state))
+                            .expect("terminal state receiver should be alive");
+                    }
+                    Ok(_) | Err(CacheError::StaleState(_)) => {}
+                    Err(e) => panic!("unexpected cancel error: {e:?}"),
+                }
+            }))
+        }
+    }
+}
+
 /// Whether the error is a [`CacheError::StaleState`] variant.
 ///
 /// Stale-state errors are expected during concurrent execution (e.g., a task was already succeeded
@@ -810,7 +829,9 @@ fn broadcast_if_terminated_state(
     state: JobState,
 ) {
     if state.is_terminal() {
-        let _ = terminal_state_sender.send(Some(state));
+        terminal_state_sender
+            .send(Some(state))
+            .expect("terminal state receiver should be alive");
     }
 }
 
