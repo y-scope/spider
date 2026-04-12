@@ -31,12 +31,8 @@
 //! # Queue implementations
 //!
 //! The framework is generic over the ready queue implementation via [`ReadyQueueSender`] and
-//! [`ReadyQueueReceiver`] trait bounds. Two implementations are supported:
-//!
-//! * **Mock** ([`MockReadyQueueSender`] / [`MockReadyQueueReceiver`]) -- backed by `async_channel`.
-//!   Task-ready batches are flattened to one message per task index for maximum worker concurrency.
-//! * **Real** ([`ReadyQueueSenderImpl`] / [`ReadyQueueReceiverImpl`]) -- the production
-//!   `spider_storage::ready_queue::channel()` implementation.
+//! [`ReadyQueueReceiver`] trait bounds. The [`mock_channel()`] function delegates directly to the
+//! production implementation ([`ReadyQueueSenderImpl`] / [`ReadyQueueReceiverImpl`]).
 //!
 //! # Mock components
 //!
@@ -83,7 +79,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -108,7 +104,12 @@ use spider_storage::{
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
-    ready_queue::{ReadyMessage, ReadyQueueReceiver, ReadyQueueSender},
+    ready_queue::{
+        ReadyQueueReceiver,
+        ReadyQueueReceiverImpl,
+        ReadyQueueSender,
+        ReadyQueueSenderImpl,
+    },
     task_instance_pool::TaskInstancePoolConnector,
 };
 use tabled::{Table, Tabled};
@@ -325,17 +326,12 @@ pub fn write_instrument_results(
     });
 }
 
-/// Creates a mock ready queue pair.
+/// Creates a ready queue pair using the production implementation.
 ///
-/// The mock sender flattens task-ready batches into individual one-element messages for maximum
-/// worker concurrency.
+/// Delegates to [`spider_storage::ready_queue::channel()`].
 #[must_use]
-pub fn mock_channel() -> (MockReadyQueueSender, MockReadyQueueReceiver) {
-    let (sender, receiver) = async_channel::unbounded();
-    (
-        MockReadyQueueSender { sender },
-        MockReadyQueueReceiver { receiver },
-    )
+pub fn mock_channel() -> (ReadyQueueSenderImpl, ReadyQueueReceiverImpl) {
+    spider_storage::ready_queue::channel()
 }
 
 /// Creates a JCB from the given task graph, starts it, spawns workers, and runs to completion.
@@ -401,6 +397,7 @@ pub async fn run_workload<
     let task_success_count = Arc::new(AtomicUsize::new(0));
     let commit_count = Arc::new(AtomicUsize::new(0));
     let cleanup_count = Arc::new(AtomicUsize::new(0));
+    let shared_cursor = Arc::new(AtomicU64::new(0));
 
     let ctx = WorkerContext {
         receiver: ready_queue_receiver,
@@ -413,6 +410,7 @@ pub async fn run_workload<
         commit_count: commit_count.clone(),
         cleanup_count: cleanup_count.clone(),
         always_fail: config.always_fail,
+        shared_cursor: shared_cursor.clone(),
     };
 
     // Spawn workers.
@@ -518,67 +516,6 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 /// * `S` - The ready queue sender type.
 /// * `DbConnectorType` - The DB-layer connector implementation.
 type TestJcb<S, DbConnectorType> = SharedJobControlBlock<S, DbConnectorType, MockTaskInstancePool>;
-
-/// A mock [`ReadyQueueSender`] backed by an [`async_channel::Sender`].
-///
-/// Workers each hold a cloned [`async_channel::Receiver`] and can concurrently await messages
-/// without any mutex serialization. The `job_id` parameter is preserved in each message. Task-ready
-/// batches are flattened to one message per task index so that workers receive tasks individually,
-/// enabling better concurrency across the worker pool.
-#[derive(Clone)]
-pub struct MockReadyQueueSender {
-    sender: async_channel::Sender<ReadyMessage>,
-}
-
-#[async_trait]
-impl ReadyQueueSender for MockReadyQueueSender {
-    async fn send_task_ready(
-        &self,
-        job_id: JobId,
-        task_indices: Vec<TaskIndex>,
-    ) -> Result<(), InternalError> {
-        for task_index in task_indices {
-            self.sender
-                .send(ReadyMessage::Task {
-                    job_id,
-                    task_indices: vec![task_index],
-                })
-                .await
-                .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))?;
-        }
-        Ok(())
-    }
-
-    async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Commit { job_id })
-            .await
-            .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
-    }
-
-    async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Cleanup { job_id })
-            .await
-            .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
-    }
-}
-
-/// A mock [`ReadyQueueReceiver`] backed by an [`async_channel::Receiver`].
-#[derive(Clone)]
-pub struct MockReadyQueueReceiver {
-    receiver: async_channel::Receiver<ReadyMessage>,
-}
-
-#[async_trait]
-impl ReadyQueueReceiver for MockReadyQueueReceiver {
-    async fn recv(&self) -> Result<ReadyMessage, InternalError> {
-        self.receiver
-            .recv()
-            .await
-            .map_err(|e| InternalError::ReadyQueueReceiveFailure(e.to_string()))
-    }
-}
 
 /// A mock task instance pool that hands out monotonically increasing [`TaskInstanceId`]s.
 ///
@@ -798,6 +735,9 @@ struct WorkerContext<
     /// If `true`, workers always fail task instances instead of applying the random injection
     /// policy. Used by the always-fail test case.
     always_fail: bool,
+
+    /// Shared cursor for MPMC coordination via CAS on `recv_batch`.
+    shared_cursor: Arc<AtomicU64>,
 }
 
 /// A single row in the instrumentation output table.
@@ -915,8 +855,8 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
     Table::new(rows).to_string()
 }
 
-/// Runs a single worker that consumes [`ReadyMessage`]s from the shared queue and drives task
-/// execution through the JCB.
+/// Runs a single worker that consumes [`ReadyQueueEntry`] items from the shared queue and drives
+/// task execution through the JCB.
 ///
 /// The worker loops until either the done signal fires or the receiver is closed (returns `None`).
 ///
@@ -940,39 +880,43 @@ async fn run_worker<
     R: ReadyQueueReceiver + 'static,
     DbConnectorType: InternalJobOrchestration + 'static,
 >(
-    mut ctx: WorkerContext<S, R, DbConnectorType>,
+    ctx: WorkerContext<S, R, DbConnectorType>,
 ) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
-        let msg = tokio::select! {
-            msg = ctx.receiver.recv() => msg,
-            _ = ctx.done_receiver.wait_for(|&done| done) => break,
+        let cursor = ctx.shared_cursor.load(Ordering::Acquire);
+        let entries = ctx.receiver.recv_batch(Some(cursor), 1);
+        let Some(entry) = entries.first() else {
+            if *ctx.done_receiver.borrow() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            continue;
         };
-        let Ok(msg) = msg else {
-            break;
-        };
+        if ctx
+            .shared_cursor
+            .compare_exchange(cursor, entry.queue_id, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            continue;
+        }
 
-        match msg {
-            ReadyMessage::Task {
-                job_id: _,
-                task_indices,
-            } => {
-                for task_index in task_indices {
-                    if let Err(e) = process_task(&ctx, &mut rng, task_index).await
-                        && !is_stale_state(&e)
-                    {
-                        bail!(e);
-                    }
+        match entry.task_id {
+            TaskId::Index(task_index) => {
+                if let Err(e) = process_task(&ctx, &mut rng, task_index).await
+                    && !is_stale_state(&e)
+                {
+                    bail!(e);
                 }
             }
-            ReadyMessage::Commit { job_id: _ } => {
+            TaskId::Commit => {
                 if let Err(e) = process_commit(&ctx).await
                     && !is_stale_state(&e)
                 {
                     bail!(e);
                 }
             }
-            ReadyMessage::Cleanup { job_id: _ } => {
+            TaskId::Cleanup => {
                 if let Err(e) = process_cleanup(&ctx).await
                     && !is_stale_state(&e)
                 {

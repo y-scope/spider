@@ -1,25 +1,28 @@
+use std::{collections::VecDeque, sync::Arc};
+
 use async_trait::async_trait;
-use spider_core::{task::TaskIndex, types::id::JobId};
+use spider_core::{
+    task::TaskIndex,
+    types::id::{JobId, ResourceGroupId},
+};
 
-use crate::cache::error::InternalError;
+use crate::cache::{TaskId, error::InternalError};
 
-#[derive(Debug)]
-/// A message sent through the ready queue.
+/// A single entry in the ready queue.
 ///
-/// Each message represents a schedulable unit of work, tagged with the [`JobId`] it belongs to so
-/// that the scheduler can dispatch work to the correct job context in a multi-job environment.
-pub enum ReadyMessage {
-    /// A batch of tasks are ready to be scheduled.
-    Task {
-        job_id: JobId,
-        task_indices: Vec<TaskIndex>,
-    },
-
-    /// The commit task is ready to be scheduled.
-    Commit { job_id: JobId },
-
-    /// The cleanup task is ready to be scheduled.
-    Cleanup { job_id: JobId },
+/// Each entry represents one schedulable unit of work (a regular task, commit task, or cleanup
+/// task) and carries a monotonically increasing [`queue_id`](ReadyQueueEntry::queue_id) for
+/// cursor-based pagination.
+#[derive(Clone, Debug)]
+pub struct ReadyQueueEntry {
+    /// Monotonically increasing ID assigned when the entry is enqueued.
+    pub queue_id: u64,
+    /// The job this task belongs to.
+    pub job_id: JobId,
+    /// The resource group that owns the job.
+    pub resource_group_id: ResourceGroupId,
+    /// Identifies the task within the job.
+    pub task_id: TaskId,
 }
 
 /// Connector for publishing task execution events to the ready queue.
@@ -27,11 +30,12 @@ pub enum ReadyMessage {
 /// This trait is invoked by the cache layer to enqueue tasks that are ready for scheduling.
 #[async_trait]
 pub trait ReadyQueueSender: Clone + Send + Sync {
-    /// Enqueues a batch of tasks for the specified job which are ready to be scheduled.
+    /// Enqueues regular tasks that have become ready for scheduling.
     ///
     /// # Parameters
     ///
     /// * `job_id` - The job ID.
+    /// * `resource_group_id` - The resource group that owns the job.
     /// * `task_indices` - The indices of the tasks that are ready.
     ///
     /// # Errors
@@ -42,6 +46,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     async fn send_task_ready(
         &self,
         job_id: JobId,
+        resource_group_id: ResourceGroupId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError>;
 
@@ -50,13 +55,18 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// # Parameters
     ///
     /// * `job_id` - The job ID.
+    /// * `resource_group_id` - The resource group that owns the job.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`InternalError`] if the message fails to be sent to the ready queue.
-    async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError>;
+    async fn send_commit_ready(
+        &self,
+        job_id: JobId,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), InternalError>;
 
     /// Enqueues a signal indicating that the cleanup task of the given job is ready to be
     /// scheduled.
@@ -64,47 +74,80 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// # Parameters
     ///
     /// * `job_id` - The job ID.
+    /// * `resource_group_id` - The resource group that owns the job.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`InternalError`] if the message fails to be sent to the ready queue.
-    async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError>;
+    async fn send_cleanup_ready(
+        &self,
+        job_id: JobId,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), InternalError>;
+
+    /// Removes all entries matching the given job and task.
+    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId);
+
+    /// Removes all entries for the given job.
+    fn remove_job_entries(&self, job_id: JobId);
 }
 
 /// Connector for consuming task execution events from the ready queue.
 ///
 /// This trait is invoked by the scheduler to dequeue tasks that are ready for dispatch.
-#[async_trait]
 pub trait ReadyQueueReceiver: Clone + Send + Sync {
-    /// Receives the next message from the ready queue.
+    /// Drains up to `limit` entries with `queue_id > start_after`.
     ///
-    /// # Errors
+    /// Returns immediately with 0 or more entries. Idempotent — repeated calls with the same cursor
+    /// return the same entries.
     ///
-    /// Returns an error if:
+    /// # Parameters
     ///
-    /// * [`InternalError`] if the message fails to be received from the ready queue.
-    async fn recv(&self) -> Result<ReadyMessage, InternalError>;
+    /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
+    ///   returns from the beginning.
+    /// * `limit` - Maximum number of entries to return.
+    fn recv_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
+
+    /// Returns the highest `queue_id` in the queue, or `None` if empty.
+    fn latest_id(&self) -> Option<u64>;
 }
 
-/// Creates a new unbounded ready queue.
+/// Shared state for the ready queue.
+struct ReadyQueueInner {
+    entries: VecDeque<ReadyQueueEntry>,
+    next_id: u64,
+}
+
+struct ReadyQueueShared {
+    inner: std::sync::Mutex<ReadyQueueInner>,
+}
+
+/// Creates a new ready queue.
 ///
 /// # Returns
 ///
-/// A tuple of (sender, receiver) backed by an [`async_channel`].
+/// A tuple of (sender, receiver) backed by an append-only log with cursor-based pagination.
 #[must_use]
 pub fn channel() -> (ReadyQueueSenderImpl, ReadyQueueReceiverImpl) {
-    let (sender, receiver) = async_channel::unbounded();
+    let shared = Arc::new(ReadyQueueShared {
+        inner: std::sync::Mutex::new(ReadyQueueInner {
+            entries: VecDeque::new(),
+            next_id: 1,
+        }),
+    });
     (
-        ReadyQueueSenderImpl { sender },
-        ReadyQueueReceiverImpl { receiver },
+        ReadyQueueSenderImpl {
+            shared: shared.clone(),
+        },
+        ReadyQueueReceiverImpl { shared },
     )
 }
 
 #[derive(Clone)]
 pub struct ReadyQueueSenderImpl {
-    sender: async_channel::Sender<ReadyMessage>,
+    shared: Arc<ReadyQueueShared>,
 }
 
 #[async_trait]
@@ -112,223 +155,408 @@ impl ReadyQueueSender for ReadyQueueSenderImpl {
     async fn send_task_ready(
         &self,
         job_id: JobId,
+        resource_group_id: ResourceGroupId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Task {
+        let mut inner = self.shared.inner.lock().unwrap();
+        for task_index in task_indices {
+            let queue_id = inner.next_id;
+            inner.next_id += 1;
+            inner.entries.push_back(ReadyQueueEntry {
+                queue_id,
                 job_id,
-                task_indices,
-            })
-            .await
-            .map_err(|e| InternalError::ReadyQueueSendFailure(e.to_string()))
+                resource_group_id,
+                task_id: TaskId::Index(task_index),
+            });
+        }
+        drop(inner);
+        Ok(())
     }
 
-    async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Commit { job_id })
-            .await
-            .map_err(|e| InternalError::ReadyQueueSendFailure(e.to_string()))
+    async fn send_commit_ready(
+        &self,
+        job_id: JobId,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), InternalError> {
+        let mut inner = self.shared.inner.lock().unwrap();
+        let queue_id = inner.next_id;
+        inner.next_id += 1;
+        inner.entries.push_back(ReadyQueueEntry {
+            queue_id,
+            job_id,
+            resource_group_id,
+            task_id: TaskId::Commit,
+        });
+        drop(inner);
+        Ok(())
     }
 
-    async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Cleanup { job_id })
-            .await
-            .map_err(|e| InternalError::ReadyQueueSendFailure(e.to_string()))
+    async fn send_cleanup_ready(
+        &self,
+        job_id: JobId,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), InternalError> {
+        let mut inner = self.shared.inner.lock().unwrap();
+        let queue_id = inner.next_id;
+        inner.next_id += 1;
+        inner.entries.push_back(ReadyQueueEntry {
+            queue_id,
+            job_id,
+            resource_group_id,
+            task_id: TaskId::Cleanup,
+        });
+        drop(inner);
+        Ok(())
+    }
+
+    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId) {
+        let mut inner = self.shared.inner.lock().unwrap();
+        inner
+            .entries
+            .retain(|e| !(e.job_id == job_id && e.task_id == task_id));
+    }
+
+    fn remove_job_entries(&self, job_id: JobId) {
+        let mut inner = self.shared.inner.lock().unwrap();
+        inner.entries.retain(|e| e.job_id != job_id);
     }
 }
 
 #[derive(Clone)]
 pub struct ReadyQueueReceiverImpl {
-    receiver: async_channel::Receiver<ReadyMessage>,
+    shared: Arc<ReadyQueueShared>,
 }
 
-#[async_trait]
 impl ReadyQueueReceiver for ReadyQueueReceiverImpl {
-    async fn recv(&self) -> Result<ReadyMessage, InternalError> {
-        self.receiver
-            .recv()
-            .await
-            .map_err(|e| InternalError::ReadyQueueReceiveFailure(e.to_string()))
+    fn recv_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
+        let inner = self.shared.inner.lock().unwrap();
+        inner
+            .entries
+            .iter()
+            .filter(|e| start_after.is_none_or(|id| e.queue_id > id))
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    fn latest_id(&self) -> Option<u64> {
+        let inner = self.shared.inner.lock().unwrap();
+        inner.entries.back().map(|e| e.queue_id)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use spider_core::types::id::{JobId, ResourceGroupId};
+
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn send_and_recv_task_message() {
-        let (sender, receiver) = channel();
-        let job_id = JobId::default();
-        let task_indices = vec![0, 1, 2];
+    fn default_ids() -> (JobId, ResourceGroupId) {
+        (JobId::default(), ResourceGroupId::default())
+    }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_and_recv_single_task() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
         sender
-            .send_task_ready(job_id, task_indices.clone())
+            .send_task_ready(job_id, rg_id, vec![0])
             .await
             .expect("send should succeed");
 
-        let msg = receiver.recv().await.expect("recv should succeed");
-        assert!(
-            matches!(
-                &msg,
-                ReadyMessage::Task {
-                    job_id: received_job_id,
-                    task_indices: received_indices,
-                } if *received_job_id == job_id && *received_indices == task_indices
-            ),
-            "received message should match sent task message"
-        );
+        let batch = receiver.recv_batch(None, 1);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[0].job_id, job_id);
+        assert_eq!(batch[0].resource_group_id, rg_id);
+        assert!(matches!(batch[0].task_id, TaskId::Index(0)));
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn send_and_recv_commit_message() {
+    async fn send_and_recv_batch() {
         let (sender, receiver) = channel();
-        let job_id = JobId::default();
+        let (job_id, rg_id) = default_ids();
 
         sender
-            .send_commit_ready(job_id)
+            .send_task_ready(job_id, rg_id, vec![0, 1, 2])
             .await
             .expect("send should succeed");
 
-        let msg = receiver.recv().await.expect("recv should succeed");
-        assert!(
-            matches!(
-                &msg,
-                ReadyMessage::Commit {
-                    job_id: received_job_id,
-                } if *received_job_id == job_id
-            ),
-            "received message should match sent commit message"
-        );
+        let batch = receiver.recv_batch(None, 10);
+        assert_eq!(batch.len(), 3, "should receive all three entries");
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[1].queue_id, 2);
+        assert_eq!(batch[2].queue_id, 3);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn send_and_recv_cleanup_message() {
+    async fn recv_batch_with_start_after() {
         let (sender, receiver) = channel();
-        let job_id = JobId::default();
+        let (job_id, rg_id) = default_ids();
 
         sender
-            .send_cleanup_ready(job_id)
+            .send_task_ready(job_id, rg_id, vec![0, 1, 2, 3, 4])
             .await
             .expect("send should succeed");
 
-        let msg = receiver.recv().await.expect("recv should succeed");
-        assert!(
-            matches!(
-                &msg,
-                ReadyMessage::Cleanup {
-                    job_id: received_job_id,
-                } if *received_job_id == job_id
-            ),
-            "received message should match sent cleanup message"
-        );
+        let batch = receiver.recv_batch(Some(2), 10);
+        assert_eq!(batch.len(), 3, "should skip entries with queue_id <= 2");
+        assert_eq!(batch[0].queue_id, 3);
+        assert_eq!(batch[1].queue_id, 4);
+        assert_eq!(batch[2].queue_id, 5);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn recv_fails_when_sender_dropped() {
+    async fn recv_batch_limit() {
         let (sender, receiver) = channel();
-        drop(sender);
-
-        let result = receiver.recv().await;
-        assert!(
-            matches!(result, Err(InternalError::ReadyQueueReceiveFailure(_))),
-            "recv should fail when the sender is dropped, got: {result:?}"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn send_fails_when_receiver_dropped() {
-        let (sender, receiver) = channel();
-        drop(receiver);
-
-        let result = sender.send_task_ready(JobId::default(), vec![0]).await;
-        assert!(
-            matches!(result, Err(InternalError::ReadyQueueSendFailure(_))),
-            "send should fail when the receiver is dropped, got: {result:?}"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn send_and_recv_preserves_order() {
-        let (sender, receiver) = channel();
-        let job_id = JobId::default();
+        let (job_id, rg_id) = default_ids();
 
         sender
-            .send_task_ready(job_id, vec![0])
-            .await
-            .expect("send task should succeed");
-        sender
-            .send_commit_ready(job_id)
-            .await
-            .expect("send commit should succeed");
-        sender
-            .send_cleanup_ready(job_id)
-            .await
-            .expect("send cleanup should succeed");
-
-        assert!(matches!(
-            receiver.recv().await,
-            Ok(ReadyMessage::Task { .. })
-        ));
-        assert!(matches!(
-            receiver.recv().await,
-            Ok(ReadyMessage::Commit { .. })
-        ));
-        assert!(matches!(
-            receiver.recv().await,
-            Ok(ReadyMessage::Cleanup { .. })
-        ));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn cloned_receiver_receives_from_same_channel() {
-        let (sender, receiver) = channel();
-        let receiver2 = receiver.clone();
-        let job_id = JobId::default();
-
-        sender
-            .send_task_ready(job_id, vec![42])
+            .send_task_ready(job_id, rg_id, vec![0, 1, 2, 3, 4])
             .await
             .expect("send should succeed");
 
-        let msg = tokio::select! {
-            m = receiver.recv() => m,
-            m = receiver2.recv() => m,
-        }
-        .expect("one receiver should get the message");
-
-        assert!(matches!(msg, ReadyMessage::Task { task_indices, .. } if task_indices == vec![42]));
+        let batch = receiver.recv_batch(None, 3);
+        assert_eq!(batch.len(), 3, "should respect limit");
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[2].queue_id, 3);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn cloned_sender_sends_to_same_channel() {
+    async fn recv_batch_empty() {
+        let (_sender, receiver) = channel();
+        let batch = receiver.recv_batch(None, 10);
+        assert!(batch.is_empty(), "should return empty when no messages");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn latest_id_tracks_newest() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        assert!(receiver.latest_id().is_none(), "should be None when empty");
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0])
+            .await
+            .expect("send should succeed");
+        assert_eq!(receiver.latest_id(), Some(1));
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![1, 2])
+            .await
+            .expect("send should succeed");
+        assert_eq!(receiver.latest_id(), Some(3));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn auto_increment_ids() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0])
+            .await
+            .expect("send should succeed");
+        sender
+            .send_commit_ready(job_id, rg_id)
+            .await
+            .expect("send should succeed");
+        sender
+            .send_cleanup_ready(job_id, rg_id)
+            .await
+            .expect("send should succeed");
+
+        let batch = receiver.recv_batch(None, 10);
+        assert_eq!(batch.len(), 3);
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[1].queue_id, 2);
+        assert_eq!(batch[2].queue_id, 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_and_recv_commit() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_commit_ready(job_id, rg_id)
+            .await
+            .expect("send should succeed");
+
+        let batch = receiver.recv_batch(None, 1);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[0].job_id, job_id);
+        assert!(matches!(batch[0].task_id, TaskId::Commit));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_and_recv_cleanup() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_cleanup_ready(job_id, rg_id)
+            .await
+            .expect("send should succeed");
+
+        let batch = receiver.recv_batch(None, 1);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[0].job_id, job_id);
+        assert!(matches!(batch[0].task_id, TaskId::Cleanup));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_preserves_order() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0])
+            .await
+            .expect("send should succeed");
+        sender
+            .send_commit_ready(job_id, rg_id)
+            .await
+            .expect("send should succeed");
+        sender
+            .send_cleanup_ready(job_id, rg_id)
+            .await
+            .expect("send should succeed");
+
+        let batch = receiver.recv_batch(None, 10);
+        assert_eq!(batch.len(), 3);
+        assert!(matches!(batch[0].task_id, TaskId::Index(0)));
+        assert!(matches!(batch[1].task_id, TaskId::Commit));
+        assert!(matches!(batch[2].task_id, TaskId::Cleanup));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cloned_sender_sends_to_same_queue() {
         let (sender, receiver) = channel();
         let sender2 = sender.clone();
-        let job_id = JobId::default();
+        let (job_id, rg_id) = default_ids();
 
         sender
-            .send_task_ready(job_id, vec![1])
+            .send_task_ready(job_id, rg_id, vec![1])
             .await
             .expect("send from original should succeed");
         sender2
-            .send_task_ready(job_id, vec![2])
+            .send_task_ready(job_id, rg_id, vec![2])
             .await
             .expect("send from clone should succeed");
 
-        let msg1 = receiver.recv().await.expect("recv 1 should succeed");
-        let msg2 = receiver.recv().await.expect("recv 2 should succeed");
+        let batch = receiver.recv_batch(None, 10);
+        assert_eq!(batch.len(), 2);
+        assert!(matches!(batch[0].task_id, TaskId::Index(1)));
+        assert!(matches!(batch[1].task_id, TaskId::Index(2)));
+    }
 
-        let all_indices: Vec<TaskIndex> = [&msg1, &msg2]
-            .iter()
-            .filter_map(|m| match m {
-                ReadyMessage::Task { task_indices, .. } => Some(task_indices.clone()),
-                _ => None,
-            })
-            .flatten()
-            .collect();
-        assert_eq!(all_indices.len(), 2);
-        assert!(all_indices.contains(&1));
-        assert!(all_indices.contains(&2));
+    #[tokio::test(flavor = "multi_thread")]
+    async fn recv_batch_is_idempotent() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0, 1])
+            .await
+            .expect("send should succeed");
+
+        let batch1 = receiver.recv_batch(None, 10);
+        assert_eq!(batch1.len(), 2);
+
+        // Second call with same cursor returns the same entries.
+        let batch2 = receiver.recv_batch(None, 10);
+        assert_eq!(batch2.len(), 2);
+        assert_eq!(batch1[0].queue_id, batch2[0].queue_id);
+        assert_eq!(batch1[1].queue_id, batch2[1].queue_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn remove_task_entries_removes_matching() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+        let other_job_id = JobId::new();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0])
+            .await
+            .expect("send should succeed");
+        sender
+            .send_task_ready(other_job_id, rg_id, vec![1])
+            .await
+            .expect("send should succeed");
+        sender
+            .send_task_ready(job_id, rg_id, vec![2])
+            .await
+            .expect("send should succeed");
+
+        sender.remove_task_entries(job_id, TaskId::Index(0));
+
+        let remaining = receiver.recv_batch(None, 10);
+        assert_eq!(remaining.len(), 2);
+        assert!(
+            remaining
+                .iter()
+                .all(|e| e.task_id != TaskId::Index(0) || e.job_id != job_id)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn remove_job_entries_removes_all_for_job() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+        let other_job_id = JobId::new();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0, 1])
+            .await
+            .expect("send should succeed");
+        sender
+            .send_task_ready(other_job_id, rg_id, vec![2])
+            .await
+            .expect("send should succeed");
+
+        sender.remove_job_entries(job_id);
+
+        let remaining = receiver.recv_batch(None, 10);
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].job_id, other_job_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn recv_batch_skips_removed_entries() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0, 1, 2])
+            .await
+            .expect("send should succeed");
+        sender.remove_task_entries(job_id, TaskId::Index(1));
+
+        let batch = receiver.recv_batch(None, 10);
+        assert_eq!(batch.len(), 2);
+        assert_eq!(batch[0].queue_id, 1);
+        assert_eq!(batch[1].queue_id, 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn recv_batch_after_removal_filters_correctly() {
+        let (sender, receiver) = channel();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0, 1, 2, 3])
+            .await
+            .expect("send should succeed");
+        sender.remove_task_entries(job_id, TaskId::Index(1));
+        sender.remove_task_entries(job_id, TaskId::Index(2));
+
+        let batch = receiver.recv_batch(Some(1), 10);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].queue_id, 4);
     }
 }
