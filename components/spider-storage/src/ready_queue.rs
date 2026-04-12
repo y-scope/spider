@@ -88,9 +88,18 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ) -> Result<(), InternalError>;
 
     /// Removes all entries matching the given job and task.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The job ID.
+    /// * `task_id` - The task ID to remove.
     fn remove_task_entries(&self, job_id: JobId, task_id: TaskId);
 
     /// Removes all entries for the given job.
+    ///
+    /// # Parameters
+    ///
+    /// * `job_id` - The job ID.
     fn remove_job_entries(&self, job_id: JobId);
 }
 

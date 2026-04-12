@@ -770,9 +770,11 @@ impl LatencyRow {
     }
 }
 
+/// Applies the cancellation policy to the given JCB, returning an optional spawned task handle.
+///
 /// # Returns
 ///
-/// Applies the cancellation policy to the given JCB, returning an optional spawned task handle.
+/// `Some(handle)` if a concurrent cancel task was spawned, `None` otherwise.
 async fn apply_cancel_policy<
     S: ReadyQueueSender + 'static,
     DbConnectorType: InternalJobOrchestration + 'static,
