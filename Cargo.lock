@@ -1312,6 +1312,7 @@ dependencies = [
  "anyhow",
  "rmp-serde",
  "serde",
+ "spider-core",
  "thiserror",
 ]
 

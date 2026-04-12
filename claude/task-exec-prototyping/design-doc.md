@@ -356,7 +356,7 @@ and share the same Rust global allocator. The allocation is created on one side
 
 ## 6. Serialization Formats
 
-Adapted from `claude/struct-serde/example/src/lib.rs` into `components/spider-tdl/src/wire.rs`.
+Implemented in `components/spider-tdl/src/wire.rs`.
 
 There are two serialization layers:
 
@@ -368,32 +368,42 @@ There are two serialization layers:
 The wire format never interprets payload bytes -- it reads/writes them as opaque
 `[len][data]` chunks. All type-aware serialization is done by msgpack at the payload layer.
 
-### 6.1 Inputs
-
 **Wire format:**
 
 ```
 [count: u32 LE] [len₀: u32 LE][payload₀ …] [len₁: u32 LE][payload₁ …] …
 ```
 
-- `count` -- number of task arguments (= number of `TaskInput` elements).
-- Each `payload` is the raw `Vec<u8>` from `TaskInput::ValuePayload`, already msgpack-encoded
-  by whichever component produced the `TaskInput`.
-- Fixed-width u32 LE lengths. Faster to parse than varints; 4 bytes overhead per field is
-  negligible.
+Both inputs and outputs share the same wire format. The count header is `u32` LE, and each
+payload is prefixed by its `u32` LE byte length.
 
-**Where serialized:** Storage layer, via `serialize_task_inputs(&[TaskInput]) -> Vec<u8>`.
+### 6.1 `TaskInputs` — streaming serializer + struct deserializer
 
-**Where deserialized:** TDL package (cdylib), via
-`deserialize_task_inputs<'de, T: Deserialize<'de>>(data: &'de [u8]) -> Result<T, WireError>`.
+**Serialization (storage layer):** `TaskInputs` is a streaming appender. Each `TaskInput` is
+appended one at a time; the count header is deferred and patched on `release()`.
 
-**Avoiding memory copies on deserialization:**
+```rust
+let mut inputs = TaskInputs::new();
+inputs.append(TaskInput::ValuePayload(msgpack_bytes_0))?;
+inputs.append(TaskInput::ValuePayload(msgpack_bytes_1))?;
+let wire: Vec<u8> = inputs.release();
+```
 
-The `StreamDeserializer` holds a borrowed `&'de [u8]` reference to the wire buffer. For each
-field, it reads the u32 LE length, then yields a `&'de [u8]` slice pointing directly into the
-original buffer (zero-copy). That slice is fed to `rmp_serde::Deserializer::from_read_ref()`,
-which deserializes the field value from the borrowed slice. No intermediate `Vec<TaskInput>` is
-constructed at the sink. Total copies per field: one (from msgpack into the target value).
+No intermediate `Vec<&[u8]>` allocation. The internal `WireFrameBuilder` reserves 4 bytes for
+the count header upfront and appends each payload's length + data inline.
+
+**Deserialization (TDL package):** `TaskInputs::deserialize<T>()` zero-copy-deserializes the
+wire buffer directly into a struct. Each field positionally consumes one payload:
+
+```rust
+let params: MyParams = TaskInputs::deserialize(&wire)?;
+```
+
+Internally, a `StreamDeserializer` holds a borrowed `&[u8]` reference to the wire buffer. For
+each struct field, it reads the length prefix and yields a `&[u8]` slice pointing directly into
+the original buffer (zero-copy). That slice is fed to `rmp_serde::from_read_ref()`, which
+deserializes the field value in one step. Total copies per field: one (from the msgpack payload
+into the target value).
 
 ```
 wire buffer (borrowed &[u8]):
@@ -401,66 +411,58 @@ wire buffer (borrowed &[u8]):
 │ count │ len₀ │ payload₀  │ len₁ │ payload₁  │...│
 └───────┴──────┴─────┬─────┴──────┴─────┬─────┴───┘
                      │                  │
-              &'de [u8] slice    &'de [u8] slice    ← zero-copy borrows
+              &[u8] slice        &[u8] slice         ← zero-copy borrows
                      │                  │
                      ▼                  ▼
-              rmp_serde deser    rmp_serde deser     ← one deser per field
+              rmp_serde deser    rmp_serde deser      ← one deser per field
                      │                  │
                      ▼                  ▼
-                field₀ value     field₁ value        ← target Params struct
+                field₀ value     field₁ value         ← target Params struct
 ```
 
-### 6.2 Outputs
+### 6.2 `TaskOutputs` — streaming serializer + Vec deserializer
 
-**Wire format:** Identical framing to inputs.
-
-```
-[count: u32 LE] [len₀: u32 LE][payload₀ …] [len₁: u32 LE][payload₁ …] …
-```
-
-- `count` -- number of tuple elements in the return type (known at compile time).
-- Each `payload` is one tuple element, independently msgpack-encoded via `rmp_serde::to_vec()`.
-
-**Where serialized:** TDL package (cdylib), in the proc-macro-generated `serialize_return()`.
-
-**Where deserialized:** Storage layer, which reads the wire frame back into `Vec<Vec<u8>>`
-(each element is one msgpack-encoded output value, kept as raw bytes for downstream use).
-
-**Avoiding memory copies on serialization:**
-
-The proc-macro generates per-task code that knows the exact tuple arity at compile time. Each
-tuple element is serialized into a temporary `Vec<u8>` via `rmp_serde::to_vec()`, then the
-framing is assembled. To minimize copies, the output buffer is pre-allocated to exact capacity:
+**Serialization (TDL package):** `TaskOutputs` is a streaming appender. Each tuple element is
+serialized into msgpack and appended directly into the wire buffer in-place — no intermediate
+`Vec<u8>` per element.
 
 ```rust
 // Generated by #[task] for return type (T0, T1):
 fn serialize_return(result: &(T0, T1)) -> Result<Vec<u8>, TdlError> {
-    let elem0 = rmp_serde::to_vec(&result.0)?;
-    let elem1 = rmp_serde::to_vec(&result.1)?;
-
-    // Pre-allocate exact size: header + (len + payload) per element
-    let total = 4 + (4 + elem0.len()) + (4 + elem1.len());
-    let mut buf = Vec::with_capacity(total);
-    buf.extend_from_slice(&2u32.to_le_bytes());       // count
-    buf.extend_from_slice(&(elem0.len() as u32).to_le_bytes());
-    buf.extend_from_slice(&elem0);                     // payload₀
-    buf.extend_from_slice(&(elem1.len() as u32).to_le_bytes());
-    buf.extend_from_slice(&elem1);                     // payload₁
-    Ok(buf)
+    let mut outputs = TaskOutputs::new();
+    outputs.append(&result.0)?;
+    outputs.append(&result.1)?;
+    Ok(outputs.release())
 }
 ```
 
-Each element requires exactly two copies: one from the value into the temporary msgpack
-`Vec<u8>`, and one from that temporary into the output buffer. The output buffer never
-reallocates (exact pre-allocation).
+`TaskOutputs::append<V: Serialize>(value: &V)` writes a placeholder `u32` length prefix,
+serializes the value via `rmp_serde::encode::write` directly into the buffer, then back-patches
+the length. This avoids allocating a temporary `Vec<u8>` per element — each element requires
+exactly one copy (from the value into the wire buffer).
 
-**Avoiding memory copies on deserialization (storage layer):**
+**Deserialization (storage layer):** `TaskOutputs::deserialize()` extracts each payload as an
+opaque `Vec<u8>` without decoding the msgpack contents:
 
-The storage layer deserializes outputs into `Vec<Vec<u8>>` -- it only needs to parse the wire
-framing, not the msgpack payloads. Each payload is copied once out of the wire buffer into its
-own `Vec<u8>`. The msgpack bytes remain opaque at this layer.
+```rust
+let outputs: Vec<TaskOutput> = TaskOutputs::deserialize(&wire)?;
+// Each output is a raw msgpack blob, decoded downstream.
+```
 
-### 6.3 Errors
+### 6.3 `WireFrameBuilder` — shared core
+
+Both `TaskInputs` and `TaskOutputs` are thin wrappers around a private `WireFrameBuilder`:
+
+- `new()` — allocates a buffer with 4 zero bytes (placeholder count header).
+- `append_payload(&[u8])` — writes length prefix + raw bytes (used by `TaskInputs`).
+- `append_serialize<V: Serialize>(&V)` — writes placeholder length, serializes in-place via
+  `rmp_serde::encode::write`, back-patches the length (used by `TaskOutputs`).
+- `release()` — patches the count header and returns the buffer.
+
+Overflow is checked on every append: payload count and individual payload lengths must fit in
+`u32`. Returns `WireError::Overflow` on failure.
+
+### 6.4 Errors
 
 **Format:** A single msgpack-encoded `TdlError` value (no wire framing).
 
@@ -479,14 +481,14 @@ task returns `Err(TdlError)` or deserialization/serialization fails.
 determine the failure reason. The executor may also forward the raw error bytes to the execution
 manager if needed.
 
-### 6.4 Summary: what each component sees
+### 6.5 Summary: what each component sees
 
 ```
                     TaskContext        Inputs              Outputs             Errors
                     ───────────       ──────              ───────             ──────
-Storage             —                 Vec<TaskInput>      Vec<Vec<u8>>        —
-                                      → serialize         ← deserialize
-                                        (wire format)       (wire frame only)
+Storage             —                 TaskInputs          TaskOutputs         —
+                                      → append+release    ← deserialize
+                                                            → Vec<TaskOutput>
 
 Exec Manager        TaskContext        raw bytes           raw bytes           raw bytes
                     → serialize       (passthrough)       (passthrough)       (passthrough)
@@ -496,29 +498,13 @@ Task Executor       raw bytes         raw bytes           raw bytes           Td
                     (passthrough)     (passthrough)       (passthrough)       ← deserialize
                                                                                 (msgpack)
 
-TDL Package         TaskContext        Params struct       Return tuple        TdlError
-                    ← deserialize     ← deserialize       → serialize         → serialize
-                      (msgpack)         (wire + msgpack)    (msgpack + wire)    (msgpack)
+TDL Package         TaskContext        Params struct       TaskOutputs         TdlError
+                    ← deserialize     ← TaskInputs::      → append+release    → serialize
+                      (msgpack)         deserialize                             (msgpack)
 ```
 
-The wire format helper for output framing:
-
-```rust
-/// Serialize pre-encoded msgpack elements into wire format.
-pub fn serialize_wire_frame(encoded_fields: &[&[u8]]) -> Vec<u8> {
-    let total = 4 + encoded_fields.iter().map(|f| 4 + f.len()).sum::<usize>();
-    let mut buf = Vec::with_capacity(total);
-    buf.extend_from_slice(&(encoded_fields.len() as u32).to_le_bytes());
-    for field in encoded_fields {
-        buf.extend_from_slice(&(field.len() as u32).to_le_bytes());
-        buf.extend_from_slice(field);
-    }
-    buf
-}
-```
-
-The wire error type used in deserialization is specific to the wire module. It maps to
-`TdlError` at the `TaskHandlerImpl` boundary.
+The wire error type (`WireError`) is specific to the wire module. It is converted to `TdlError`
+at the `TaskHandlerImpl` boundary before crossing the C-FFI edge.
 
 ---
 
@@ -658,11 +644,10 @@ impl spider_tdl::Task for my_task {
     }
 
     fn serialize_return(result: &Self::Return) -> Result<Vec<u8>, spider_tdl::TdlError> {
-        let map_err = |e: rmp_serde::encode::Error|
-            spider_tdl::TdlError::SerializationError(e.to_string());
-        let elem0 = rmp_serde::to_vec(&result.0).map_err(map_err)?;
-        let elem1 = rmp_serde::to_vec(&result.1).map_err(map_err)?;
-        Ok(spider_tdl::wire::serialize_wire_frame(&[&elem0, &elem1]))
+        let mut outputs = spider_tdl::wire::TaskOutputs::new();
+        outputs.append(&result.0).map_err(|e| spider_tdl::TdlError::SerializationError(e.to_string()))?;
+        outputs.append(&result.1).map_err(|e| spider_tdl::TdlError::SerializationError(e.to_string()))?;
+        Ok(outputs.release())
     }
 }
 ```
@@ -943,8 +928,8 @@ Key points:
 ## 12. Implementation Order
 
 1. **`spider-tdl` foundation** -- `tdl_types.rs`, `error.rs`, `ffi.rs`
-2. **Wire format** -- adapt `claude/struct-serde/example/src/lib.rs` into `wire.rs`; add
-   `serialize_wire_frame` for output serialization
+2. **Wire format** -- implement `wire.rs` with `TaskInputs`, `TaskOutputs`, `WireFrameBuilder`,
+   `StreamDeserializer`, and `WireError`
 3. **Task traits** -- `task.rs` with `Task`, `TaskHandler`, `TaskHandlerImpl`, `ExecutionResult`
 4. **Registration macro** -- `register.rs`
 5. **Proc-macro** -- `spider-tdl-derive` with `task_macro.rs` and `validation.rs`
