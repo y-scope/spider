@@ -100,7 +100,17 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// # Returns
     ///
     /// The removed entries.
-    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry>;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError`] if the entries fail to be removed from the ready queue.
+    fn remove_task_entries(
+        &self,
+        job_id: JobId,
+        task_id: TaskId,
+    ) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 
     /// Removes all entries for the given job across all priority lanes.
     ///
@@ -111,7 +121,13 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// # Returns
     ///
     /// All removed entries, across all three priority lanes.
-    fn remove_job_entries(&self, job_id: JobId) -> Vec<ReadyQueueEntry>;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError`] if the entries fail to be removed from the ready queue.
+    fn remove_job_entries(&self, job_id: JobId) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 }
 
 /// Connector for consuming task execution events from the ready queue.
@@ -246,102 +262,6 @@ impl SharedReadyQueue {
     }
 }
 
-/// A queue of [`ReadyQueueEntry`] values backed by a [`BTreeMap`] for O(log n) paginated reads.
-///
-/// Each queue maintains its own monotonically increasing `queue_id` sequence and a secondary
-/// index mapping `(job_id, task_id)` to the set of `queue_id`s for O(1) removal by job or task.
-struct TaskQueue {
-    /// Primary store: `queue_id` -> entry. Ordered by `queue_id` for O(log n) range queries.
-    entries: BTreeMap<u64, ReadyQueueEntry>,
-    /// Secondary index: `(job_id, task_id)` -> set of `queue_id`s. For O(1) removal.
-    job_task_index: HashMap<(JobId, TaskId), BTreeSet<u64>>,
-    /// Monotonically increasing ID counter for this lane.
-    next_id: u64,
-}
-
-impl TaskQueue {
-    /// Creates a new empty lane with IDs starting at 1.
-    fn new() -> Self {
-        Self {
-            entries: BTreeMap::new(),
-            job_task_index: HashMap::new(),
-            next_id: 1,
-        }
-    }
-
-    /// Appends an entry to the lane, updating both the primary store and secondary index.
-    fn push(&mut self, entry: ReadyQueueEntry) {
-        let key = (entry.job_id, entry.task_id.clone());
-        self.job_task_index
-            .entry(key)
-            .or_default()
-            .insert(entry.queue_id);
-        self.entries.insert(entry.queue_id, entry);
-    }
-
-    /// Returns up to `limit` entries with `queue_id > start_after` using O(log n) seek.
-    fn recv_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
-        start_after.map_or_else(
-            || self.entries.values().take(limit).cloned().collect(),
-            |id| {
-                let Some(start) = id.checked_add(1) else {
-                    return Vec::new();
-                };
-                self.entries
-                    .range(start..)
-                    .map(|(_, v)| v)
-                    .take(limit)
-                    .cloned()
-                    .collect()
-            },
-        )
-    }
-
-    /// Returns the highest `queue_id` in this lane, or `None` if empty.
-    fn latest_id(&self) -> Option<u64> {
-        self.entries.last_key_value().map(|(id, _)| *id)
-    }
-
-    /// Removes all entries matching the given `(job_id, task_id)` pair.
-    ///
-    /// Uses the secondary index for O(1) lookup, then removes from the primary store.
-    fn remove_task_entries(&mut self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry> {
-        let Some(ids) = self.job_task_index.remove(&(job_id, task_id)) else {
-            return Vec::new();
-        };
-        ids.into_iter()
-            .filter_map(|id| self.entries.remove(&id))
-            .collect()
-    }
-
-    /// Removes all entries for the given `job_id`.
-    ///
-    /// Scans the secondary index for all `(job_id, task_id)` pairs matching the job, then removes
-    /// each from the primary store.
-    fn remove_job_entries(&mut self, job_id: JobId) -> Vec<ReadyQueueEntry> {
-        let keys_to_remove: Vec<(JobId, TaskId)> = self
-            .job_task_index
-            .keys()
-            .filter(|(jid, _)| *jid == job_id)
-            .cloned()
-            .collect();
-        let mut removed = Vec::new();
-        for key in keys_to_remove {
-            if let Some(ids) = self.job_task_index.remove(&key) {
-                removed.extend(ids.into_iter().filter_map(|id| self.entries.remove(&id)));
-            }
-        }
-        removed
-    }
-}
-
-/// The ready queue data, containing three task queues.
-struct ReadyQueue {
-    task: TaskQueue,
-    commit: TaskQueue,
-    cleanup: TaskQueue,
-}
-
 #[derive(Clone)]
 pub struct ReadyQueueSenderHandle {
     inner: Arc<std::sync::Mutex<ReadyQueue>>,
@@ -412,22 +332,27 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         Ok(())
     }
 
-    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry> {
+    fn remove_task_entries(
+        &self,
+        job_id: JobId,
+        task_id: TaskId,
+    ) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         let mut queue = self.inner.lock().unwrap();
-        match task_id {
+        Ok(match task_id {
             TaskId::Index(_) => queue.task.remove_task_entries(job_id, task_id),
             TaskId::Commit => queue.commit.remove_task_entries(job_id, task_id),
             TaskId::Cleanup => queue.cleanup.remove_task_entries(job_id, task_id),
-        }
+        })
     }
 
-    fn remove_job_entries(&self, job_id: JobId) -> Vec<ReadyQueueEntry> {
+    fn remove_job_entries(&self, job_id: JobId) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         let mut queue = self.inner.lock().unwrap();
         let mut removed = Vec::new();
         removed.extend(queue.task.remove_job_entries(job_id));
         removed.extend(queue.commit.remove_job_entries(job_id));
         removed.extend(queue.cleanup.remove_job_entries(job_id));
-        removed
+        drop(queue);
+        Ok(removed)
     }
 }
 
@@ -472,6 +397,104 @@ impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
         let queue = self.inner.lock().unwrap();
         queue.cleanup.latest_id()
     }
+}
+
+/// A queue of [`ReadyQueueEntry`] values backed by a [`BTreeMap`] for O(log n) paginated reads.
+///
+/// Each queue maintains its own monotonically increasing `queue_id` sequence and a secondary
+/// index mapping `(job_id, task_id)` to the set of `queue_id`s for efficient removal by job or
+/// task.
+struct TaskQueue {
+    /// Primary store: `queue_id` -> entry. Ordered by `queue_id` for O(log n) range queries.
+    entries: BTreeMap<u64, ReadyQueueEntry>,
+    /// Secondary index: `(job_id, task_id)` -> set of `queue_id`s. For removal lookups.
+    job_task_index: HashMap<(JobId, TaskId), BTreeSet<u64>>,
+    /// Monotonically increasing ID counter for this lane.
+    next_id: u64,
+}
+
+impl TaskQueue {
+    /// Creates a new empty lane with IDs starting at 1.
+    fn new() -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            job_task_index: HashMap::new(),
+            next_id: 1,
+        }
+    }
+
+    /// Appends an entry to the lane, updating both the primary store and secondary index.
+    fn push(&mut self, entry: ReadyQueueEntry) {
+        let key = (entry.job_id, entry.task_id.clone());
+        self.job_task_index
+            .entry(key)
+            .or_default()
+            .insert(entry.queue_id);
+        self.entries.insert(entry.queue_id, entry);
+    }
+
+    /// Returns up to `limit` entries with `queue_id > start_after` using O(log n) seek.
+    fn recv_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
+        start_after.map_or_else(
+            || self.entries.values().take(limit).cloned().collect(),
+            |id| {
+                let Some(start) = id.checked_add(1) else {
+                    return Vec::new();
+                };
+                self.entries
+                    .range(start..)
+                    .map(|(_, v)| v)
+                    .take(limit)
+                    .cloned()
+                    .collect()
+            },
+        )
+    }
+
+    /// Returns the highest `queue_id` in this lane, or `None` if empty.
+    fn latest_id(&self) -> Option<u64> {
+        self.entries.last_key_value().map(|(id, _)| *id)
+    }
+
+    /// Removes all entries matching the given `(job_id, task_id)` pair.
+    ///
+    /// Uses the secondary index to look up the set of matching `queue_id`s, then removes each
+    /// from the primary store.
+    fn remove_task_entries(&mut self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry> {
+        let Some(ids) = self.job_task_index.remove(&(job_id, task_id)) else {
+            return Vec::new();
+        };
+        ids.into_iter()
+            .filter_map(|id| self.entries.remove(&id))
+            .collect()
+    }
+
+    /// Removes all entries for the given `job_id`.
+    ///
+    /// Scans the secondary index for all `(job_id, task_id)` pairs matching the job, then removes
+    /// each from the primary store.
+    fn remove_job_entries(&mut self, job_id: JobId) -> Vec<ReadyQueueEntry> {
+        let keys_to_remove: Vec<(JobId, TaskId)> = self
+            .job_task_index
+            .keys()
+            .filter(|(jid, _)| *jid == job_id)
+            .cloned()
+            .collect();
+        let mut removed = Vec::new();
+        for key in keys_to_remove {
+            if let Some(ids) = self.job_task_index.remove(&key) {
+                removed.extend(ids.into_iter().filter_map(|id| self.entries.remove(&id)));
+            }
+        }
+        removed
+    }
+}
+
+/// The ready queue data, containing three task queues.
+struct ReadyQueue {
+    task: TaskQueue,
+    commit: TaskQueue,
+    cleanup: TaskQueue,
 }
 
 #[cfg(test)]
@@ -714,7 +737,9 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let removed = sender.remove_task_entries(job_id, TaskId::Index(0));
+        let removed = sender
+            .remove_task_entries(job_id, TaskId::Index(0))
+            .expect("remove should succeed");
         assert_eq!(removed.len(), 1);
         assert!(matches!(removed[0].task_id, TaskId::Index(0)));
 
@@ -742,7 +767,9 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let removed = sender.remove_job_entries(job_id);
+        let removed = sender
+            .remove_job_entries(job_id)
+            .expect("remove should succeed");
         assert_eq!(removed.len(), 2);
         assert!(removed.iter().all(|e| e.job_id == job_id));
 
@@ -760,7 +787,9 @@ mod tests {
             .send_task_ready(job_id, rg_id, vec![0, 1, 2])
             .await
             .expect("send should succeed");
-        sender.remove_task_entries(job_id, TaskId::Index(1));
+        sender
+            .remove_task_entries(job_id, TaskId::Index(1))
+            .expect("remove should succeed");
 
         let batch = receiver.recv_task_batch(None, 10);
         assert_eq!(batch.len(), 2);
@@ -777,8 +806,12 @@ mod tests {
             .send_task_ready(job_id, rg_id, vec![0, 1, 2, 3])
             .await
             .expect("send should succeed");
-        sender.remove_task_entries(job_id, TaskId::Index(1));
-        sender.remove_task_entries(job_id, TaskId::Index(2));
+        sender
+            .remove_task_entries(job_id, TaskId::Index(1))
+            .expect("remove should succeed");
+        sender
+            .remove_task_entries(job_id, TaskId::Index(2))
+            .expect("remove should succeed");
 
         let batch = receiver.recv_task_batch(Some(1), 10);
         assert_eq!(batch.len(), 1);
@@ -801,7 +834,9 @@ mod tests {
             .expect("send should succeed");
         assert_eq!(receiver.latest_task_id(), Some(3));
 
-        sender.remove_job_entries(job_id);
+        sender
+            .remove_job_entries(job_id)
+            .expect("remove should succeed");
         assert_eq!(
             receiver.latest_task_id(),
             Some(3),
@@ -851,7 +886,9 @@ mod tests {
             .await
             .expect("send cleanup should succeed");
 
-        let removed = sender.remove_task_entries(job_id, TaskId::Commit);
+        let removed = sender
+            .remove_task_entries(job_id, TaskId::Commit)
+            .expect("remove should succeed");
         assert_eq!(removed.len(), 1);
         assert!(matches!(removed[0].task_id, TaskId::Commit));
 
@@ -880,7 +917,9 @@ mod tests {
             .await
             .expect("send cleanup should succeed");
 
-        let removed = sender.remove_task_entries(job_id, TaskId::Cleanup);
+        let removed = sender
+            .remove_task_entries(job_id, TaskId::Cleanup)
+            .expect("remove should succeed");
         assert_eq!(removed.len(), 1);
         assert!(matches!(removed[0].task_id, TaskId::Cleanup));
 
@@ -918,7 +957,9 @@ mod tests {
             .await
             .expect("send other task should succeed");
 
-        let removed = sender.remove_job_entries(job_id);
+        let removed = sender
+            .remove_job_entries(job_id)
+            .expect("remove should succeed");
         assert_eq!(
             removed.len(),
             3,
