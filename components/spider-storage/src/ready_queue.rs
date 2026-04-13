@@ -130,26 +130,26 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     fn remove_job_entries(&self, job_id: JobId) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 }
 
-/// Connector for consuming task execution events from the ready queue.
+/// Connector for getting task execution events from the ready queue.
 ///
 /// This trait is invoked by the scheduler to dequeue tasks that are ready for dispatch. Each
 /// priority lane (task, commit, cleanup) has its own cursor and `queue_id` sequence.
 pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// Fetches up to `limit` task entries with `queue_id` greater than `start_after`.
     ///
-    /// Returns immediately with zero or more entries. Idempotent — repeated calls with the same
-    /// cursor return the same entries as long as no entries have been removed in between.
+    /// Returns immediately with zero or more entries. Repeated calls with the same cursor return
+    /// the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
-    /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
-    ///   returns from the beginning.
+    /// * `start_after` - Only returns entries with `queue_id > start_after`. Use `0` to return from
+    ///   the beginning.
     /// * `limit` - Maximum number of entries to return.
     ///
     /// # Returns
     ///
     /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
-    fn recv_task_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
+    fn recv_task_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry>;
 
     /// Returns the highest `queue_id` in the task lane, or `None` if the lane is empty.
     ///
@@ -160,19 +160,19 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
 
     /// Fetches up to `limit` commit entries with `queue_id` greater than `start_after`.
     ///
-    /// Returns immediately with zero or more entries. Idempotent — repeated calls with the same
-    /// cursor return the same entries as long as no entries have been removed in between.
+    /// Returns immediately with zero or more entries. Repeated calls with the same cursor return
+    /// the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
-    /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
-    ///   returns from the beginning.
+    /// * `start_after` - Only returns entries with `queue_id > start_after`. Use `0` to return from
+    ///   the beginning.
     /// * `limit` - Maximum number of entries to return.
     ///
     /// # Returns
     ///
     /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
-    fn recv_commit_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
+    fn recv_commit_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry>;
 
     /// Returns the highest `queue_id` in the commit lane, or `None` if the lane is empty.
     ///
@@ -184,19 +184,19 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
 
     /// Fetches up to `limit` cleanup entries with `queue_id` greater than `start_after`.
     ///
-    /// Returns immediately with zero or more entries. Idempotent — repeated calls with the same
-    /// cursor return the same entries as long as no entries have been removed in between.
+    /// Returns immediately with zero or more entries. Repeated calls with the same cursor return
+    /// the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
-    /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
-    ///   returns from the beginning.
+    /// * `start_after` - Only returns entries with `queue_id > start_after`. Use `0` to return from
+    ///   the beginning.
     /// * `limit` - Maximum number of entries to return.
     ///
     /// # Returns
     ///
     /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
-    fn recv_cleanup_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
+    fn recv_cleanup_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry>;
 
     /// Returns the highest `queue_id` in the cleanup lane, or `None` if the lane is empty.
     ///
@@ -368,7 +368,7 @@ impl ReadyQueueReceiverHandle {
 }
 
 impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
-    fn recv_task_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
+    fn recv_task_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry> {
         let queue = self.inner.lock().unwrap();
         queue.task.recv_batch(start_after, limit)
     }
@@ -378,7 +378,7 @@ impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
         queue.task.latest_id()
     }
 
-    fn recv_commit_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
+    fn recv_commit_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry> {
         let queue = self.inner.lock().unwrap();
         queue.commit.recv_batch(start_after, limit)
     }
@@ -388,7 +388,7 @@ impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
         queue.commit.latest_id()
     }
 
-    fn recv_cleanup_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
+    fn recv_cleanup_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry> {
         let queue = self.inner.lock().unwrap();
         queue.cleanup.recv_batch(start_after, limit)
     }
@@ -434,21 +434,16 @@ impl TaskQueue {
     }
 
     /// Returns up to `limit` entries with `queue_id > start_after` using O(log n) seek.
-    fn recv_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
-        start_after.map_or_else(
-            || self.entries.values().take(limit).cloned().collect(),
-            |id| {
-                let Some(start) = id.checked_add(1) else {
-                    return Vec::new();
-                };
-                self.entries
-                    .range(start..)
-                    .map(|(_, v)| v)
-                    .take(limit)
-                    .cloned()
-                    .collect()
-            },
-        )
+    fn recv_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry> {
+        let Some(start) = start_after.checked_add(1) else {
+            return Vec::new();
+        };
+        self.entries
+            .range(start..)
+            .map(|(_, v)| v)
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     /// Returns the highest `queue_id` in this lane, or `None` if empty.
@@ -521,7 +516,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_task_batch(None, 1);
+        let batch = receiver.recv_task_batch(0, 1);
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].queue_id, 1);
         assert_eq!(batch[0].job_id, job_id);
@@ -539,7 +534,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_task_batch(None, 10);
+        let batch = receiver.recv_task_batch(0, 10);
         assert_eq!(batch.len(), 3, "should receive all three entries");
         assert_eq!(batch[0].queue_id, 1);
         assert_eq!(batch[1].queue_id, 2);
@@ -556,7 +551,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_task_batch(Some(2), 10);
+        let batch = receiver.recv_task_batch(2, 10);
         assert_eq!(batch.len(), 3, "should skip entries with queue_id <= 2");
         assert_eq!(batch[0].queue_id, 3);
         assert_eq!(batch[1].queue_id, 4);
@@ -573,7 +568,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_task_batch(None, 3);
+        let batch = receiver.recv_task_batch(0, 3);
         assert_eq!(batch.len(), 3, "should respect limit");
         assert_eq!(batch[0].queue_id, 1);
         assert_eq!(batch[2].queue_id, 3);
@@ -583,15 +578,15 @@ mod tests {
     async fn recv_batch_empty() {
         let (_sender, receiver) = create_queue();
         assert!(
-            receiver.recv_task_batch(None, 10).is_empty(),
+            receiver.recv_task_batch(0, 10).is_empty(),
             "should return empty when no messages"
         );
         assert!(
-            receiver.recv_commit_batch(None, 10).is_empty(),
+            receiver.recv_commit_batch(0, 10).is_empty(),
             "should return empty when no messages"
         );
         assert!(
-            receiver.recv_cleanup_batch(None, 10).is_empty(),
+            receiver.recv_cleanup_batch(0, 10).is_empty(),
             "should return empty when no messages"
         );
     }
@@ -653,7 +648,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_commit_batch(None, 1);
+        let batch = receiver.recv_commit_batch(0, 1);
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].queue_id, 1);
         assert_eq!(batch[0].job_id, job_id);
@@ -670,7 +665,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_cleanup_batch(None, 1);
+        let batch = receiver.recv_cleanup_batch(0, 1);
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].queue_id, 1);
         assert_eq!(batch[0].job_id, job_id);
@@ -692,7 +687,7 @@ mod tests {
             .await
             .expect("send from clone should succeed");
 
-        let batch = receiver.recv_task_batch(None, 10);
+        let batch = receiver.recv_task_batch(0, 10);
         assert_eq!(batch.len(), 2);
         assert!(matches!(batch[0].task_id, TaskId::Index(1)));
         assert!(matches!(batch[1].task_id, TaskId::Index(2)));
@@ -708,11 +703,11 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch1 = receiver.recv_task_batch(None, 10);
+        let batch1 = receiver.recv_task_batch(0, 10);
         assert_eq!(batch1.len(), 2);
 
         // Second call with same cursor returns the same entries.
-        let batch2 = receiver.recv_task_batch(None, 10);
+        let batch2 = receiver.recv_task_batch(0, 10);
         assert_eq!(batch2.len(), 2);
         assert_eq!(batch1[0].queue_id, batch2[0].queue_id);
         assert_eq!(batch1[1].queue_id, batch2[1].queue_id);
@@ -743,7 +738,7 @@ mod tests {
         assert_eq!(removed.len(), 1);
         assert!(matches!(removed[0].task_id, TaskId::Index(0)));
 
-        let remaining = receiver.recv_task_batch(None, 10);
+        let remaining = receiver.recv_task_batch(0, 10);
         assert_eq!(remaining.len(), 2);
         assert!(
             remaining
@@ -773,7 +768,7 @@ mod tests {
         assert_eq!(removed.len(), 2);
         assert!(removed.iter().all(|e| e.job_id == job_id));
 
-        let remaining = receiver.recv_task_batch(None, 10);
+        let remaining = receiver.recv_task_batch(0, 10);
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].job_id, other_job_id);
     }
@@ -791,7 +786,7 @@ mod tests {
             .remove_task_entries(job_id, TaskId::Index(1))
             .expect("remove should succeed");
 
-        let batch = receiver.recv_task_batch(None, 10);
+        let batch = receiver.recv_task_batch(0, 10);
         assert_eq!(batch.len(), 2);
         assert_eq!(batch[0].queue_id, 1);
         assert_eq!(batch[1].queue_id, 3);
@@ -813,7 +808,7 @@ mod tests {
             .remove_task_entries(job_id, TaskId::Index(2))
             .expect("remove should succeed");
 
-        let batch = receiver.recv_task_batch(Some(1), 10);
+        let batch = receiver.recv_task_batch(1, 10);
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].queue_id, 4);
     }
@@ -845,21 +840,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn recv_batch_start_after_zero_behaves_like_none() {
-        let (sender, receiver) = create_queue();
-        let (job_id, rg_id) = default_ids();
-        sender
-            .send_task_ready(job_id, rg_id, vec![0, 1])
-            .await
-            .expect("send should succeed");
-
-        let batch_none = receiver.recv_task_batch(None, 10);
-        let batch_zero = receiver.recv_task_batch(Some(0), 10);
-        assert_eq!(batch_none.len(), batch_zero.len());
-        assert_eq!(batch_none[0].queue_id, batch_zero[0].queue_id);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_start_after_u64_max_returns_empty() {
         let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
@@ -868,7 +848,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let batch = receiver.recv_task_batch(Some(u64::MAX), 10);
+        let batch = receiver.recv_task_batch(u64::MAX, 10);
         assert!(batch.is_empty());
     }
 
@@ -893,11 +873,11 @@ mod tests {
         assert!(matches!(removed[0].task_id, TaskId::Commit));
 
         assert!(
-            receiver.recv_commit_batch(None, 10).is_empty(),
+            receiver.recv_commit_batch(0, 10).is_empty(),
             "commit lane should be empty after removal"
         );
         assert_eq!(
-            receiver.recv_cleanup_batch(None, 10).len(),
+            receiver.recv_cleanup_batch(0, 10).len(),
             1,
             "cleanup lane should still have its entry"
         );
@@ -924,12 +904,12 @@ mod tests {
         assert!(matches!(removed[0].task_id, TaskId::Cleanup));
 
         assert_eq!(
-            receiver.recv_commit_batch(None, 10).len(),
+            receiver.recv_commit_batch(0, 10).len(),
             1,
             "commit lane should still have its entry"
         );
         assert!(
-            receiver.recv_cleanup_batch(None, 10).is_empty(),
+            receiver.recv_cleanup_batch(0, 10).is_empty(),
             "cleanup lane should be empty after removal"
         );
     }
@@ -967,16 +947,16 @@ mod tests {
         );
 
         assert_eq!(
-            receiver.recv_task_batch(None, 10).len(),
+            receiver.recv_task_batch(0, 10).len(),
             1,
             "only other_job entry should remain in task lane"
         );
         assert!(
-            receiver.recv_commit_batch(None, 10).is_empty(),
+            receiver.recv_commit_batch(0, 10).is_empty(),
             "commit lane should be empty"
         );
         assert!(
-            receiver.recv_cleanup_batch(None, 10).is_empty(),
+            receiver.recv_cleanup_batch(0, 10).is_empty(),
             "cleanup lane should be empty"
         );
     }

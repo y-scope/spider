@@ -954,7 +954,7 @@ async fn try_process_cleanup<
     ctx: &WorkerContext<S, R, DbConnectorType>,
 ) -> anyhow::Result<bool> {
     let cursor = ctx.cleanup_cursor.load(Ordering::Acquire);
-    let entries = ctx.receiver.recv_cleanup_batch(Some(cursor), 1);
+    let entries = ctx.receiver.recv_cleanup_batch(cursor, 1);
     let Some(entry) = entries.first() else {
         return Ok(false);
     };
@@ -986,7 +986,7 @@ async fn try_process_commit<
     ctx: &WorkerContext<S, R, DbConnectorType>,
 ) -> anyhow::Result<bool> {
     let cursor = ctx.commit_cursor.load(Ordering::Acquire);
-    let entries = ctx.receiver.recv_commit_batch(Some(cursor), 1);
+    let entries = ctx.receiver.recv_commit_batch(cursor, 1);
     let Some(entry) = entries.first() else {
         return Ok(false);
     };
@@ -1019,7 +1019,7 @@ async fn try_process_task<
     rng: &mut impl Rng,
 ) -> anyhow::Result<bool> {
     let cursor = ctx.task_cursor.load(Ordering::Acquire);
-    let entries = ctx.receiver.recv_task_batch(Some(cursor), 1);
+    let entries = ctx.receiver.recv_task_batch(cursor, 1);
     let Some(entry) = entries.first() else {
         return Ok(false);
     };
