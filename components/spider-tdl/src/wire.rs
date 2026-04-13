@@ -64,13 +64,19 @@ pub enum WireError {
     #[error("wire format overflow: {0}")]
     Overflow(String),
 
-    /// Catch-all bucket required by [`serde::de::Error`] for deserializer-reported errors that
-    /// do not fit any specific variant.
+    /// Catch-all bucket required by [`serde::de::Error`] and [`serde::ser::Error`] for errors
+    /// that do not fit any specific variant.
     #[error("{0}")]
     Custom(String),
 }
 
 impl de::Error for WireError {
+    fn custom<MessageType: fmt::Display>(msg: MessageType) -> Self {
+        Self::Custom(msg.to_string())
+    }
+}
+
+impl serde::ser::Error for WireError {
     fn custom<MessageType: fmt::Display>(msg: MessageType) -> Self {
         Self::Custom(msg.to_string())
     }
@@ -202,7 +208,7 @@ impl TaskOutputs {
     /// * [`WireError::Overflow`] if the payload count would exceed [`u32::MAX`].
     /// * [`WireError::Overflow`] if the serialized payload is longer than [`u32::MAX`] bytes.
     /// * [`WireError::Custom`] if msgpack serialization of `value` fails.
-    pub fn append<ValueType: serde::Serialize>(
+    pub fn append<ValueType: serde::Serialize + ?Sized>(
         &mut self,
         value: &ValueType,
     ) -> Result<(), WireError> {
@@ -232,6 +238,174 @@ impl TaskOutputs {
     pub fn deserialize(data: &[u8]) -> Result<Vec<TaskOutput>, WireError> {
         unframe_payloads(data)
     }
+
+    /// Serializes a tuple by decomposing it into individual elements, encoding each element as
+    /// msgpack, and framing them in the wire format.
+    ///
+    /// This drives serde's `Serialize` impl for the tuple: serde calls `serialize_tuple(len)`
+    /// followed by `serialize_element` for each element. A custom [`TupleOutputSerializer`]
+    /// intercepts these calls and routes each element through [`TaskOutputs::append`].
+    ///
+    /// # Type Parameters
+    ///
+    /// * `TupleType` - The tuple type to serialize. Must implement [`serde::Serialize`].
+    ///
+    /// # Returns
+    ///
+    /// The wire-format byte stream on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`WireError::Overflow`] if any payload exceeds [`u32::MAX`] bytes.
+    /// * [`WireError::Custom`] if msgpack serialization of any element fails.
+    /// * [`WireError::Custom`] if the value is not a tuple.
+    pub fn serialize_from<TupleType: serde::Serialize>(
+        value: &TupleType,
+    ) -> Result<Vec<u8>, WireError> {
+        value.serialize(TupleOutputSerializer {
+            outputs: Self::new(),
+        })
+    }
+}
+
+/// Custom serde [`serde::Serializer`] that decomposes a tuple into individually-encoded wire
+/// payloads via [`TaskOutputs`].
+///
+/// Only `serialize_tuple` (and `serialize_unit` for the empty-tuple case) are supported. All
+/// other serialization methods return an error.
+struct TupleOutputSerializer {
+    outputs: TaskOutputs,
+}
+
+/// Generates `serialize_*` methods on a `serde::Serializer` impl that all return the same
+/// error. Covers the three method shapes in the trait:
+///
+/// - `primitive`: `fn method(self, _: Type) -> Result<Self::Ok, Self::Error>`
+/// - `compound`: `fn method(self, ...) -> Result<Self::AssocType, Self::Error>`
+/// - `generic`: `fn method<T: Serialize + ?Sized>(self, ...) -> Result<Self::Ok, Self::Error>`
+macro_rules! reject_non_tuple {
+    // fn method(self, _: PrimType)
+    (primitive: $($method:ident($prim:ty)),* $(,)?) => {
+        $(
+            fn $method(self, _: $prim) -> Result<Self::Ok, Self::Error> {
+                Err(unsupported_type_error())
+            }
+        )*
+    };
+    // fn method(self, ...) -> Result<Self::AssocType, ...>  (compound starters)
+    (compound: $($method:ident($($arg:ident: $ty:ty),*) -> $assoc:ty),* $(,)?) => {
+        $(
+            fn $method(self, $($arg: $ty),*) -> Result<$assoc, Self::Error> {
+                Err(unsupported_type_error())
+            }
+        )*
+    };
+}
+
+impl serde::Serializer for TupleOutputSerializer {
+    type Error = WireError;
+    type Ok = Vec<u8>;
+    type SerializeMap = serde::ser::Impossible<Self::Ok, Self::Error>;
+    type SerializeSeq = serde::ser::Impossible<Self::Ok, Self::Error>;
+    type SerializeStruct = serde::ser::Impossible<Self::Ok, Self::Error>;
+    type SerializeStructVariant = serde::ser::Impossible<Self::Ok, Self::Error>;
+    type SerializeTuple = Self;
+    type SerializeTupleStruct = serde::ser::Impossible<Self::Ok, Self::Error>;
+    type SerializeTupleVariant = serde::ser::Impossible<Self::Ok, Self::Error>;
+
+    reject_non_tuple! { primitive:
+        serialize_bool(bool),
+        serialize_i8(i8), serialize_i16(i16), serialize_i32(i32), serialize_i64(i64),
+        serialize_u8(u8), serialize_u16(u16), serialize_u32(u32), serialize_u64(u64),
+        serialize_f32(f32), serialize_f64(f64),
+        serialize_char(char), serialize_str(&str), serialize_bytes(&[u8]),
+    }
+
+    reject_non_tuple! { compound:
+        serialize_unit_struct(
+            _n: &'static str
+        ) -> Self::Ok,
+        serialize_unit_variant(
+            _n: &'static str, _i: u32, _v: &'static str
+        ) -> Self::Ok,
+        serialize_seq(
+            _len: Option<usize>
+        ) -> Self::SerializeSeq,
+        serialize_tuple_struct(
+            _n: &'static str, _len: usize
+        ) -> Self::SerializeTupleStruct,
+        serialize_tuple_variant(
+            _n: &'static str, _i: u32, _v: &'static str, _len: usize
+        ) -> Self::SerializeTupleVariant,
+        serialize_map(
+            _len: Option<usize>
+        ) -> Self::SerializeMap,
+        serialize_struct(
+            _n: &'static str, _len: usize
+        ) -> Self::SerializeStruct,
+        serialize_struct_variant(
+            _n: &'static str, _i: u32, _v: &'static str, _len: usize
+        ) -> Self::SerializeStructVariant,
+    }
+
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        Ok(self)
+    }
+
+    fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+        Ok(self.outputs.release())
+    }
+
+    fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+        Err(unsupported_type_error())
+    }
+
+    fn serialize_some<ValueType: serde::Serialize + ?Sized>(
+        self,
+        _: &ValueType,
+    ) -> Result<Self::Ok, Self::Error> {
+        Err(unsupported_type_error())
+    }
+
+    fn serialize_newtype_struct<ValueType: serde::Serialize + ?Sized>(
+        self,
+        _: &'static str,
+        _: &ValueType,
+    ) -> Result<Self::Ok, Self::Error> {
+        Err(unsupported_type_error())
+    }
+
+    fn serialize_newtype_variant<ValueType: serde::Serialize + ?Sized>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &ValueType,
+    ) -> Result<Self::Ok, Self::Error> {
+        Err(unsupported_type_error())
+    }
+}
+
+impl serde::ser::SerializeTuple for TupleOutputSerializer {
+    type Error = WireError;
+    type Ok = Vec<u8>;
+
+    fn serialize_element<ValueType: serde::Serialize + ?Sized>(
+        &mut self,
+        value: &ValueType,
+    ) -> Result<(), Self::Error> {
+        self.outputs.append(value)
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        Ok(self.outputs.release())
+    }
+}
+
+fn unsupported_type_error() -> WireError {
+    WireError::Custom("task output must be a tuple".to_owned())
 }
 
 /// Streaming wire-format builder shared by [`TaskInputs`] and [`TaskOutputs`].
@@ -267,7 +441,7 @@ impl WireFrameBuilder {
     ///
     /// Writes a placeholder `u32` length, serializes the value in-place, then back-patches the
     /// length with the actual payload size.
-    fn append_serialize<ValueType: serde::Serialize>(
+    fn append_serialize<ValueType: serde::Serialize + ?Sized>(
         &mut self,
         value: &ValueType,
     ) -> Result<(), WireError> {
