@@ -56,7 +56,7 @@ def start_scheduler_worker(
     """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
-    dir_path = dir_path / ".." / ".." / "src" / "spider"
+    dir_path = dir_path / ".." / ".." / ".." / "src" / "spider"
     env = add_storage_env_vars(storage_url)
     scheduler_cmds = [
         str(dir_path / "spider_scheduler"),
@@ -71,7 +71,7 @@ def start_scheduler_worker(
         "--host",
         "127.0.0.1",
         "--libs",
-        "tests/libworker_test.so",
+        "tests/wolf/libworker_test.so",
     ]
     worker_process = subprocess.Popen(worker_cmds, env=env)
     return scheduler_process, worker_process

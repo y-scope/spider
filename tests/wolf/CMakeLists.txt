@@ -23,17 +23,17 @@ set(SPIDER_TEST_SOURCES
 
 add_executable(unitTest)
 target_sources(unitTest PRIVATE ${SPIDER_TEST_SOURCES})
-target_include_directories(unitTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(unitTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 set(SPIDER_TEST_WORKER_SOURCES)
 foreach(worker_source ${SPIDER_WORKER_SOURCES})
-    list(APPEND SPIDER_TEST_WORKER_SOURCES "../src/spider/${worker_source}")
+    list(APPEND SPIDER_TEST_WORKER_SOURCES "../../src/spider/${worker_source}")
 endforeach()
 target_sources(unitTest PRIVATE ${SPIDER_TEST_WORKER_SOURCES})
 
 set(SPIDER_TEST_SCHEDULER_SOURCES)
 foreach(scheduler_source ${SPIDER_SCHEDULER_SOURCES})
-    list(APPEND SPIDER_TEST_SCHEDULER_SOURCES "../src/spider/${scheduler_source}")
+    list(APPEND SPIDER_TEST_SCHEDULER_SOURCES "../../src/spider/${scheduler_source}")
 endforeach()
 target_sources(unitTest PRIVATE ${SPIDER_TEST_SCHEDULER_SOURCES})
 
@@ -60,7 +60,7 @@ add_dependencies(unitTest worker_test)
 add_library(worker_test SHARED)
 target_sources(worker_test PUBLIC worker/worker-test.hpp)
 target_sources(worker_test PRIVATE worker/worker-test.cpp)
-target_include_directories(worker_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(worker_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 target_link_libraries(
     worker_test
     PRIVATE
@@ -83,7 +83,7 @@ target_link_libraries(
 add_library(signal_test SHARED)
 target_sources(signal_test PUBLIC worker/signal-test.hpp)
 target_sources(signal_test PRIVATE worker/signal-test.cpp)
-target_include_directories(signal_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(signal_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 target_link_libraries(
     signal_test
     PRIVATE
