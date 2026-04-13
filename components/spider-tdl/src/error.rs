@@ -6,7 +6,7 @@
 /// All possible errors produced while executing a user-defined task inside the task executor.
 /// This type can be serialized across the C-FFI boundary as a msgpack-encoded payload through
 /// [`serde`].
-#[derive(Debug, thiserror::Error, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Eq, PartialEq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum TdlError {
     #[error("task not found: {0}")]
     TaskNotFound(String),
@@ -38,10 +38,9 @@ mod tests {
             TdlError::Custom("custom".to_owned()),
         ];
         for error in errors_to_test {
-            let original_display = error.to_string();
             let encoded = rmp_serde::to_vec(&error)?;
             let decoded: TdlError = rmp_serde::from_slice(&encoded)?;
-            assert_eq!(decoded.to_string(), original_display);
+            assert_eq!(decoded, error);
         }
         Ok(())
     }
