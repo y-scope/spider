@@ -150,6 +150,9 @@ jobs:
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
+      - name: "Install dev dependencies"
+        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+
       - run: "task lint:py-check"
 
   lint-rust:
