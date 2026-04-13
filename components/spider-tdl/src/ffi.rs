@@ -193,6 +193,18 @@ impl TaskExecutionResult {
         if this.is_error { Err(vec) } else { Ok(vec) }
     }
 
+    /// Converts an [`ExecutionResult`] into its C-ABI-compatible form.
+    ///
+    /// This is the primary conversion used by the `register_tasks!` macro's generated
+    /// `__spider_tdl_package_execute` entry point.
+    #[must_use]
+    pub fn from_execution_result(result: crate::ExecutionResult) -> Self {
+        match result {
+            crate::ExecutionResult::Outputs(bytes) => Self::from_outputs(bytes),
+            crate::ExecutionResult::Error(bytes) => Self::from_error(bytes),
+        }
+    }
+
     fn from_buffer(is_error: bool, buffer: Vec<u8>) -> Self {
         let boxed: Box<[u8]> = buffer.into_boxed_slice();
         let length = boxed.len();

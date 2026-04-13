@@ -156,10 +156,26 @@ impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
     }
 }
 
+impl ExecutionResult {
+    /// Creates an [`ExecutionResult::Error`] by msgpack-serializing the given [`TdlError`].
+    ///
+    /// This is intended for use by the `register_tasks!` macro so that callers do not need a
+    /// direct dependency on `rmp_serde`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if msgpack serialization of `err` fails (should never happen for well-formed
+    /// [`TdlError`] values).
+    #[must_use]
+    pub fn from_tdl_error(err: &TdlError) -> Self {
+        let bytes = rmp_serde::to_vec(err).expect("TdlError msgpack serialization failed");
+        Self::Error(bytes)
+    }
+}
+
 /// Serializes a [`TdlError`] into an [`ExecutionResult::Error`].
 fn serialize_error(err: &TdlError) -> ExecutionResult {
-    let bytes = rmp_serde::to_vec(err).expect("TdlError msgpack serialization failed");
-    ExecutionResult::Error(bytes)
+    ExecutionResult::from_tdl_error(err)
 }
 
 #[cfg(test)]
