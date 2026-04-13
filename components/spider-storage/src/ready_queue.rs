@@ -33,7 +33,7 @@ pub struct ReadyQueueEntry {
 /// This trait is invoked by the cache layer to enqueue tasks that are ready for scheduling.
 #[async_trait]
 pub trait ReadyQueueSender: Clone + Send + Sync {
-    /// Enqueues regular tasks that have become ready for scheduling.
+    /// Enqueues a batch of tasks for the specified job which are ready to be scheduled.
     ///
     /// # Parameters
     ///
@@ -96,82 +96,176 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// * `job_id` - The job ID.
     /// * `task_id` - The task ID to remove.
-    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId);
+    ///
+    /// # Returns
+    ///
+    /// The removed entries.
+    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry>;
 
-    /// Removes all entries for the given job.
+    /// Removes all entries for the given job across all priority lanes.
     ///
     /// # Parameters
     ///
     /// * `job_id` - The job ID.
-    fn remove_job_entries(&self, job_id: JobId);
+    ///
+    /// # Returns
+    ///
+    /// All removed entries, across all three priority lanes.
+    fn remove_job_entries(&self, job_id: JobId) -> Vec<ReadyQueueEntry>;
 }
 
 /// Connector for consuming task execution events from the ready queue.
 ///
 /// This trait is invoked by the scheduler to dequeue tasks that are ready for dispatch. Each
-/// sub-queue (task, commit, cleanup) has its own cursor and `queue_id` sequence.
+/// priority lane (task, commit, cleanup) has its own cursor and `queue_id` sequence.
 pub trait ReadyQueueReceiver: Clone + Send + Sync {
-    /// Returns up to `limit` task entries with `queue_id > start_after`.
+    /// Fetches up to `limit` task entries with `queue_id` greater than `start_after`.
     ///
-    /// Returns immediately with 0 or more entries. Idempotent — repeated calls with the same cursor
-    /// return the same entries as long as no entries have been removed in between.
+    /// Returns immediately with zero or more entries. Idempotent — repeated calls with the same
+    /// cursor return the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
     /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
     ///   returns from the beginning.
     /// * `limit` - Maximum number of entries to return.
+    ///
+    /// # Returns
+    ///
+    /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
     fn recv_task_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the `queue_id` of the last task entry, or `None` if the task queue is empty.
+    /// Returns the highest `queue_id` in the task lane, or `None` if the lane is empty.
+    ///
+    /// # Returns
+    ///
+    /// `Some(queue_id)` of the most recently enqueued task entry, or `None` if no entries exist.
     fn latest_task_id(&self) -> Option<u64>;
 
-    /// Returns up to `limit` commit entries with `queue_id > start_after`.
+    /// Fetches up to `limit` commit entries with `queue_id` greater than `start_after`.
     ///
-    /// Returns immediately with 0 or more entries. Idempotent — repeated calls with the same cursor
-    /// return the same entries as long as no entries have been removed in between.
+    /// Returns immediately with zero or more entries. Idempotent — repeated calls with the same
+    /// cursor return the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
     /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
     ///   returns from the beginning.
     /// * `limit` - Maximum number of entries to return.
+    ///
+    /// # Returns
+    ///
+    /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
     fn recv_commit_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the `queue_id` of the last commit entry, or `None` if the commit queue is empty.
+    /// Returns the highest `queue_id` in the commit lane, or `None` if the lane is empty.
+    ///
+    /// # Returns
+    ///
+    /// `Some(queue_id)` of the most recently enqueued commit entry, or `None` if no entries
+    /// exist.
     fn latest_commit_id(&self) -> Option<u64>;
 
-    /// Returns up to `limit` cleanup entries with `queue_id > start_after`.
+    /// Fetches up to `limit` cleanup entries with `queue_id` greater than `start_after`.
     ///
-    /// Returns immediately with 0 or more entries. Idempotent — repeated calls with the same cursor
-    /// return the same entries as long as no entries have been removed in between.
+    /// Returns immediately with zero or more entries. Idempotent — repeated calls with the same
+    /// cursor return the same entries as long as no entries have been removed in between.
     ///
     /// # Parameters
     ///
     /// * `start_after` - If `Some(id)`, only returns entries with `queue_id > id`. If `None`,
     ///   returns from the beginning.
     /// * `limit` - Maximum number of entries to return.
+    ///
+    /// # Returns
+    ///
+    /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
     fn recv_cleanup_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the `queue_id` of the last cleanup entry, or `None` if the cleanup queue is empty.
+    /// Returns the highest `queue_id` in the cleanup lane, or `None` if the lane is empty.
+    ///
+    /// # Returns
+    ///
+    /// `Some(queue_id)` of the most recently enqueued cleanup entry, or `None` if no entries
+    /// exist.
     fn latest_cleanup_id(&self) -> Option<u64>;
 }
 
-/// A sub-queue backed by a [`BTreeMap`] for O(log n) paginated reads and removals.
+/// A priority-based ready queue for scheduling tasks.
+/// A shareable ready queue for scheduling tasks.
 ///
-/// Each sub-queue maintains its own monotonically increasing `queue_id` sequence and a secondary
+/// The queue maintains three priority queues (task, commit, cleanup), each with its own
+/// monotonically increasing `queue_id` sequence for cursor-based pagination.
+///
+/// Use [`SharedReadyQueue::sender`] to obtain a write handle for enqueuing tasks and
+/// [`SharedReadyQueue::receiver`] to obtain a read handle for dequeuing.
+pub struct SharedReadyQueue {
+    inner: Arc<std::sync::Mutex<ReadyQueue>>,
+}
+
+impl Default for SharedReadyQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SharedReadyQueue {
+    /// Creates a new empty ready queue.
+    ///
+    /// # Returns
+    ///
+    /// A new [`SharedReadyQueue`] instance.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(std::sync::Mutex::new(ReadyQueue {
+                task: TaskQueue::new(),
+                commit: TaskQueue::new(),
+                cleanup: TaskQueue::new(),
+            })),
+        }
+    }
+
+    /// Creates a sender handle for enqueueing tasks.
+    ///
+    /// # Returns
+    ///
+    /// A [`ReadyQueueSenderHandle`] backed by this queue.
+    #[must_use]
+    pub fn sender(&self) -> ReadyQueueSenderHandle {
+        ReadyQueueSenderHandle {
+            inner: self.inner.clone(),
+        }
+    }
+
+    /// Creates a receiver handle for dequeuing tasks.
+    ///
+    /// # Returns
+    ///
+    /// A [`ReadyQueueReceiverHandle`] backed by this queue.
+    #[must_use]
+    pub fn receiver(&self) -> ReadyQueueReceiverHandle {
+        ReadyQueueReceiverHandle {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+/// A queue of [`ReadyQueueEntry`] values backed by a [`BTreeMap`] for O(log n) paginated reads.
+///
+/// Each queue maintains its own monotonically increasing `queue_id` sequence and a secondary
 /// index mapping `(job_id, task_id)` to the set of `queue_id`s for O(1) removal by job or task.
-struct SubQueue {
+struct TaskQueue {
     /// Primary store: `queue_id` -> entry. Ordered by `queue_id` for O(log n) range queries.
     entries: BTreeMap<u64, ReadyQueueEntry>,
     /// Secondary index: `(job_id, task_id)` -> set of `queue_id`s. For O(1) removal.
     job_task_index: HashMap<(JobId, TaskId), BTreeSet<u64>>,
-    /// Monotonically increasing ID counter for this sub-queue.
+    /// Monotonically increasing ID counter for this lane.
     next_id: u64,
 }
 
-impl SubQueue {
-    /// Creates a new empty sub-queue with IDs starting at 1.
+impl TaskQueue {
+    /// Creates a new empty lane with IDs starting at 1.
     fn new() -> Self {
         Self {
             entries: BTreeMap::new(),
@@ -180,7 +274,7 @@ impl SubQueue {
         }
     }
 
-    /// Appends an entry to the sub-queue, updating both the primary store and secondary index.
+    /// Appends an entry to the lane, updating both the primary store and secondary index.
     fn push(&mut self, entry: ReadyQueueEntry) {
         let key = (entry.job_id, entry.task_id.clone());
         self.job_task_index
@@ -208,103 +302,76 @@ impl SubQueue {
         )
     }
 
-    /// Returns the highest `queue_id` in this sub-queue, or `None` if empty.
+    /// Returns the highest `queue_id` in this lane, or `None` if empty.
     fn latest_id(&self) -> Option<u64> {
         self.entries.last_key_value().map(|(id, _)| *id)
     }
 
     /// Removes all entries matching the given `(job_id, task_id)` pair.
     ///
-    /// Uses the secondary index for O(log n) lookup, then removes from the primary store.
-    fn remove_task_entries(&mut self, job_id: JobId, task_id: TaskId) {
-        if let Some(ids) = self.job_task_index.remove(&(job_id, task_id)) {
-            for id in ids {
-                self.entries.remove(&id);
-            }
-        }
+    /// Uses the secondary index for O(1) lookup, then removes from the primary store.
+    fn remove_task_entries(&mut self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry> {
+        let Some(ids) = self.job_task_index.remove(&(job_id, task_id)) else {
+            return Vec::new();
+        };
+        ids.into_iter()
+            .filter_map(|id| self.entries.remove(&id))
+            .collect()
     }
 
     /// Removes all entries for the given `job_id`.
     ///
     /// Scans the secondary index for all `(job_id, task_id)` pairs matching the job, then removes
     /// each from the primary store.
-    fn remove_job_entries(&mut self, job_id: JobId) {
+    fn remove_job_entries(&mut self, job_id: JobId) -> Vec<ReadyQueueEntry> {
         let keys_to_remove: Vec<(JobId, TaskId)> = self
             .job_task_index
             .keys()
             .filter(|(jid, _)| *jid == job_id)
             .cloned()
             .collect();
+        let mut removed = Vec::new();
         for key in keys_to_remove {
             if let Some(ids) = self.job_task_index.remove(&key) {
-                for id in ids {
-                    self.entries.remove(&id);
-                }
+                removed.extend(ids.into_iter().filter_map(|id| self.entries.remove(&id)));
             }
         }
+        removed
     }
 }
 
-/// Shared state for the ready queue, containing three priority sub-queues.
-#[allow(clippy::struct_field_names)]
-struct ReadyQueueInner {
-    task_queue: SubQueue,
-    commit_queue: SubQueue,
-    cleanup_queue: SubQueue,
-}
-
-struct ReadyQueueShared {
-    inner: std::sync::Mutex<ReadyQueueInner>,
-}
-
-/// Creates a new ready queue.
-///
-/// # Returns
-///
-/// A tuple of (sender, receiver) backed by three priority sub-queues (task, commit, cleanup) with
-/// indexed lookups for O(log n) paginated reads and removals.
-#[must_use]
-pub fn channel() -> (ReadyQueueSenderImpl, ReadyQueueReceiverImpl) {
-    let shared = Arc::new(ReadyQueueShared {
-        inner: std::sync::Mutex::new(ReadyQueueInner {
-            task_queue: SubQueue::new(),
-            commit_queue: SubQueue::new(),
-            cleanup_queue: SubQueue::new(),
-        }),
-    });
-    (
-        ReadyQueueSenderImpl {
-            shared: shared.clone(),
-        },
-        ReadyQueueReceiverImpl { shared },
-    )
+/// The ready queue data, containing three task queues.
+struct ReadyQueue {
+    task: TaskQueue,
+    commit: TaskQueue,
+    cleanup: TaskQueue,
 }
 
 #[derive(Clone)]
-pub struct ReadyQueueSenderImpl {
-    shared: Arc<ReadyQueueShared>,
+pub struct ReadyQueueSenderHandle {
+    inner: Arc<std::sync::Mutex<ReadyQueue>>,
 }
 
 #[async_trait]
-impl ReadyQueueSender for ReadyQueueSenderImpl {
+impl ReadyQueueSender for ReadyQueueSenderHandle {
     async fn send_task_ready(
         &self,
         job_id: JobId,
         resource_group_id: ResourceGroupId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
-        let mut inner = self.shared.inner.lock().unwrap();
+        let mut queue = self.inner.lock().unwrap();
         for task_index in task_indices {
-            let queue_id = inner.task_queue.next_id;
-            inner.task_queue.next_id += 1;
-            inner.task_queue.push(ReadyQueueEntry {
+            let queue_id = queue.task.next_id;
+            queue.task.next_id += 1;
+            queue.task.push(ReadyQueueEntry {
                 queue_id,
                 job_id,
                 resource_group_id,
                 task_id: TaskId::Index(task_index),
             });
         }
-        drop(inner);
+        drop(queue);
         Ok(())
     }
 
@@ -313,16 +380,16 @@ impl ReadyQueueSender for ReadyQueueSenderImpl {
         job_id: JobId,
         resource_group_id: ResourceGroupId,
     ) -> Result<(), InternalError> {
-        let mut inner = self.shared.inner.lock().unwrap();
-        let queue_id = inner.commit_queue.next_id;
-        inner.commit_queue.next_id += 1;
-        inner.commit_queue.push(ReadyQueueEntry {
+        let mut queue = self.inner.lock().unwrap();
+        let queue_id = queue.commit.next_id;
+        queue.commit.next_id += 1;
+        queue.commit.push(ReadyQueueEntry {
             queue_id,
             job_id,
             resource_group_id,
             task_id: TaskId::Commit,
         });
-        drop(inner);
+        drop(queue);
         Ok(())
     }
 
@@ -331,70 +398,72 @@ impl ReadyQueueSender for ReadyQueueSenderImpl {
         job_id: JobId,
         resource_group_id: ResourceGroupId,
     ) -> Result<(), InternalError> {
-        let mut inner = self.shared.inner.lock().unwrap();
-        let queue_id = inner.cleanup_queue.next_id;
-        inner.cleanup_queue.next_id += 1;
-        inner.cleanup_queue.push(ReadyQueueEntry {
+        let mut queue = self.inner.lock().unwrap();
+        let queue_id = queue.cleanup.next_id;
+        queue.cleanup.next_id += 1;
+        queue.cleanup.push(ReadyQueueEntry {
             queue_id,
             job_id,
             resource_group_id,
             task_id: TaskId::Cleanup,
         });
-        drop(inner);
+        drop(queue);
         Ok(())
     }
 
-    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId) {
-        let mut inner = self.shared.inner.lock().unwrap();
+    fn remove_task_entries(&self, job_id: JobId, task_id: TaskId) -> Vec<ReadyQueueEntry> {
+        let mut queue = self.inner.lock().unwrap();
         match task_id {
-            TaskId::Index(_) => inner.task_queue.remove_task_entries(job_id, task_id),
-            TaskId::Commit => inner.commit_queue.remove_task_entries(job_id, task_id),
-            TaskId::Cleanup => inner.cleanup_queue.remove_task_entries(job_id, task_id),
+            TaskId::Index(_) => queue.task.remove_task_entries(job_id, task_id),
+            TaskId::Commit => queue.commit.remove_task_entries(job_id, task_id),
+            TaskId::Cleanup => queue.cleanup.remove_task_entries(job_id, task_id),
         }
     }
 
-    fn remove_job_entries(&self, job_id: JobId) {
-        let mut inner = self.shared.inner.lock().unwrap();
-        inner.task_queue.remove_job_entries(job_id);
-        inner.commit_queue.remove_job_entries(job_id);
-        inner.cleanup_queue.remove_job_entries(job_id);
+    fn remove_job_entries(&self, job_id: JobId) -> Vec<ReadyQueueEntry> {
+        let mut queue = self.inner.lock().unwrap();
+        let mut removed = Vec::new();
+        removed.extend(queue.task.remove_job_entries(job_id));
+        removed.extend(queue.commit.remove_job_entries(job_id));
+        removed.extend(queue.cleanup.remove_job_entries(job_id));
+        removed
     }
 }
 
 #[derive(Clone)]
-pub struct ReadyQueueReceiverImpl {
-    shared: Arc<ReadyQueueShared>,
+pub struct ReadyQueueReceiverHandle {
+    inner: Arc<std::sync::Mutex<ReadyQueue>>,
 }
 
-impl ReadyQueueReceiver for ReadyQueueReceiverImpl {
+impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
     fn recv_task_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.task_queue.recv_batch(start_after, limit)
+        let queue = self.inner.lock().unwrap();
+        queue.task.recv_batch(start_after, limit)
     }
 
     fn latest_task_id(&self) -> Option<u64> {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.task_queue.latest_id()
+        let queue = self.inner.lock().unwrap();
+        queue.task.latest_id()
     }
 
     fn recv_commit_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.commit_queue.recv_batch(start_after, limit)
+        let queue = self.inner.lock().unwrap();
+        queue.commit.recv_batch(start_after, limit)
     }
 
     fn latest_commit_id(&self) -> Option<u64> {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.commit_queue.latest_id()
+        let queue = self.inner.lock().unwrap();
+        queue.commit.latest_id()
     }
 
     fn recv_cleanup_batch(&self, start_after: Option<u64>, limit: usize) -> Vec<ReadyQueueEntry> {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.cleanup_queue.recv_batch(start_after, limit)
+        let queue = self.inner.lock().unwrap();
+        queue.cleanup.recv_batch(start_after, limit)
     }
 
     fn latest_cleanup_id(&self) -> Option<u64> {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.cleanup_queue.latest_id()
+        let queue = self.inner.lock().unwrap();
+        queue.cleanup.latest_id()
     }
 }
 
@@ -408,9 +477,14 @@ mod tests {
         (JobId::default(), ResourceGroupId::default())
     }
 
+    fn create_queue() -> (ReadyQueueSenderHandle, ReadyQueueReceiverHandle) {
+        let queue = SharedReadyQueue::new();
+        (queue.sender(), queue.receiver())
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn send_and_recv_single_task() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         sender
             .send_task_ready(job_id, rg_id, vec![0])
@@ -427,7 +501,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn send_and_recv_batch() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -444,7 +518,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_with_start_after() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -461,7 +535,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_limit() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -477,7 +551,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_empty() {
-        let (_sender, receiver) = channel();
+        let (_sender, receiver) = create_queue();
         assert!(
             receiver.recv_task_batch(None, 10).is_empty(),
             "should return empty when no messages"
@@ -494,7 +568,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn latest_id_tracks_newest() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         assert!(
@@ -517,7 +591,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn per_queue_ids() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -533,7 +607,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        // Each sub-queue has its own ID sequence starting at 1.
+        // Each lane has its own ID sequence starting at 1.
         assert_eq!(receiver.latest_task_id(), Some(1));
         assert_eq!(receiver.latest_commit_id(), Some(1));
         assert_eq!(receiver.latest_cleanup_id(), Some(1));
@@ -541,7 +615,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn send_and_recv_commit() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -558,7 +632,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn send_and_recv_cleanup() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -575,7 +649,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn cloned_sender_sends_to_same_queue() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let sender2 = sender.clone();
         let (job_id, rg_id) = default_ids();
 
@@ -596,7 +670,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_task_batch_is_idempotent() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -616,7 +690,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn remove_task_entries_removes_matching() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         let other_job_id = JobId::new();
 
@@ -633,7 +707,9 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        sender.remove_task_entries(job_id, TaskId::Index(0));
+        let removed = sender.remove_task_entries(job_id, TaskId::Index(0));
+        assert_eq!(removed.len(), 1);
+        assert!(matches!(removed[0].task_id, TaskId::Index(0)));
 
         let remaining = receiver.recv_task_batch(None, 10);
         assert_eq!(remaining.len(), 2);
@@ -646,7 +722,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn remove_job_entries_removes_all_for_job() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         let other_job_id = JobId::new();
 
@@ -659,7 +735,9 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        sender.remove_job_entries(job_id);
+        let removed = sender.remove_job_entries(job_id);
+        assert_eq!(removed.len(), 2);
+        assert!(removed.iter().all(|e| e.job_id == job_id));
 
         let remaining = receiver.recv_task_batch(None, 10);
         assert_eq!(remaining.len(), 1);
@@ -668,7 +746,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_skips_removed_entries() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -685,7 +763,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_after_removal_filters_correctly() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
         sender
@@ -702,7 +780,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn latest_id_after_removal_reflects_remaining() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         let other_job_id = JobId::new();
 
@@ -726,7 +804,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_start_after_zero_behaves_like_none() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         sender
             .send_task_ready(job_id, rg_id, vec![0, 1])
@@ -741,7 +819,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_batch_start_after_u64_max_returns_empty() {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         sender
             .send_task_ready(job_id, rg_id, vec![0])

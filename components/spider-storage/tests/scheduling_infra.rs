@@ -106,9 +106,10 @@ use spider_storage::{
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::{
         ReadyQueueReceiver,
-        ReadyQueueReceiverImpl,
+        ReadyQueueReceiverHandle,
         ReadyQueueSender,
-        ReadyQueueSenderImpl,
+        ReadyQueueSenderHandle,
+        SharedReadyQueue,
     },
     task_instance_pool::TaskInstancePoolConnector,
 };
@@ -328,10 +329,11 @@ pub fn write_instrument_results(
 
 /// Creates a ready queue pair using the production implementation.
 ///
-/// Delegates to [`spider_storage::ready_queue::channel()`].
+/// Delegates to [`SharedReadyQueue::new`] and creates sender/receiver handles.
 #[must_use]
-pub fn mock_channel() -> (ReadyQueueSenderImpl, ReadyQueueReceiverImpl) {
-    spider_storage::ready_queue::channel()
+pub fn mock_channel() -> (ReadyQueueSenderHandle, ReadyQueueReceiverHandle) {
+    let queue = SharedReadyQueue::new();
+    (queue.sender(), queue.receiver())
 }
 
 /// Creates a JCB from the given task graph, starts it, spawns workers, and runs to completion.
