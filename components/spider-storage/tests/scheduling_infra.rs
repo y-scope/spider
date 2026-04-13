@@ -32,7 +32,7 @@
 //!
 //! The framework is generic over the ready queue implementation via [`ReadyQueueSender`] and
 //! [`ReadyQueueReceiver`] trait bounds. The [`mock_channel()`] function delegates directly to the
-//! production implementation ([`ReadyQueueSenderImpl`] / [`ReadyQueueReceiverImpl`]).
+//! production implementation ([`ReadyQueueSenderHandle`] / [`ReadyQueueReceiverHandle`]).
 //!
 //! # Mock components
 //!
@@ -264,10 +264,12 @@ pub fn noop_db_connector_factory() -> impl DbConnectorFactory<NoopDbConnector> {
     }
 }
 
+/// Creates a default output handler that produces a single zero-filled output of the given size.
+///
 /// # Returns
 ///
-/// A default (noop) output handler that produces one output of `output_size` bytes per task. This
-/// output is currently independent of the execution context.
+/// A [`TaskOutputHandler`] that produces one output of `output_size` bytes per task. This output is
+/// currently independent of the execution context.
 #[must_use]
 pub fn default_output_handler(output_size: usize) -> TaskOutputHandler {
     Arc::new(move |_: &ExecutionContext| -> Vec<TaskOutput> { vec![vec![0u8; output_size]] })
@@ -687,7 +689,7 @@ struct WorkerContext<
     R: ReadyQueueReceiver,
     DbConnectorType: InternalJobOrchestration,
 > {
-    /// The ready-queue receiver. Each clone can concurrently await messages.
+    /// The ready-queue receiver. Multiple workers poll this concurrently.
     receiver: R,
 
     /// The instrumented JCB under test.
@@ -893,7 +895,8 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 /// Runs a single worker that consumes [`ReadyQueueEntry`] items from the shared queue and drives
 /// task execution through the JCB.
 ///
-/// The worker loops until either the done signal fires or the receiver is closed (returns `None`).
+/// The worker polls the ready queue in priority order (cleanup > commit > task) until the done
+/// signal fires.
 ///
 /// # Failure injection
 ///
@@ -1130,7 +1133,7 @@ async fn process_task<
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
+/// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on failure.
 async fn process_commit<
     S: ReadyQueueSender,
     R: ReadyQueueReceiver,
@@ -1155,7 +1158,7 @@ async fn process_commit<
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
+/// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on failure.
 async fn process_cleanup<
     S: ReadyQueueSender,
     R: ReadyQueueReceiver,

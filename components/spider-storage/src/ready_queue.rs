@@ -191,7 +191,6 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     fn latest_cleanup_id(&self) -> Option<u64>;
 }
 
-/// A priority-based ready queue for scheduling tasks.
 /// A shareable ready queue for scheduling tasks.
 ///
 /// The queue maintains three priority queues (task, commit, cleanup), each with its own
@@ -233,9 +232,7 @@ impl SharedReadyQueue {
     /// A [`ReadyQueueSenderHandle`] backed by this queue.
     #[must_use]
     pub fn sender(&self) -> ReadyQueueSenderHandle {
-        ReadyQueueSenderHandle {
-            inner: self.inner.clone(),
-        }
+        ReadyQueueSenderHandle::new(self.inner.clone())
     }
 
     /// Creates a receiver handle for dequeuing tasks.
@@ -245,9 +242,7 @@ impl SharedReadyQueue {
     /// A [`ReadyQueueReceiverHandle`] backed by this queue.
     #[must_use]
     pub fn receiver(&self) -> ReadyQueueReceiverHandle {
-        ReadyQueueReceiverHandle {
-            inner: self.inner.clone(),
-        }
+        ReadyQueueReceiverHandle::new(self.inner.clone())
     }
 }
 
@@ -352,6 +347,12 @@ pub struct ReadyQueueSenderHandle {
     inner: Arc<std::sync::Mutex<ReadyQueue>>,
 }
 
+impl ReadyQueueSenderHandle {
+    const fn new(inner: Arc<std::sync::Mutex<ReadyQueue>>) -> Self {
+        Self { inner }
+    }
+}
+
 #[async_trait]
 impl ReadyQueueSender for ReadyQueueSenderHandle {
     async fn send_task_ready(
@@ -433,6 +434,12 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
 #[derive(Clone)]
 pub struct ReadyQueueReceiverHandle {
     inner: Arc<std::sync::Mutex<ReadyQueue>>,
+}
+
+impl ReadyQueueReceiverHandle {
+    const fn new(inner: Arc<std::sync::Mutex<ReadyQueue>>) -> Self {
+        Self { inner }
+    }
 }
 
 impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
@@ -828,5 +835,108 @@ mod tests {
 
         let batch = receiver.recv_task_batch(Some(u64::MAX), 10);
         assert!(batch.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn remove_task_entries_routes_commit_to_commit_lane() {
+        let (sender, receiver) = create_queue();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_commit_ready(job_id, rg_id)
+            .await
+            .expect("send commit should succeed");
+        sender
+            .send_cleanup_ready(job_id, rg_id)
+            .await
+            .expect("send cleanup should succeed");
+
+        let removed = sender.remove_task_entries(job_id, TaskId::Commit);
+        assert_eq!(removed.len(), 1);
+        assert!(matches!(removed[0].task_id, TaskId::Commit));
+
+        assert!(
+            receiver.recv_commit_batch(None, 10).is_empty(),
+            "commit lane should be empty after removal"
+        );
+        assert_eq!(
+            receiver.recv_cleanup_batch(None, 10).len(),
+            1,
+            "cleanup lane should still have its entry"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn remove_task_entries_routes_cleanup_to_cleanup_lane() {
+        let (sender, receiver) = create_queue();
+        let (job_id, rg_id) = default_ids();
+
+        sender
+            .send_commit_ready(job_id, rg_id)
+            .await
+            .expect("send commit should succeed");
+        sender
+            .send_cleanup_ready(job_id, rg_id)
+            .await
+            .expect("send cleanup should succeed");
+
+        let removed = sender.remove_task_entries(job_id, TaskId::Cleanup);
+        assert_eq!(removed.len(), 1);
+        assert!(matches!(removed[0].task_id, TaskId::Cleanup));
+
+        assert_eq!(
+            receiver.recv_commit_batch(None, 10).len(),
+            1,
+            "commit lane should still have its entry"
+        );
+        assert!(
+            receiver.recv_cleanup_batch(None, 10).is_empty(),
+            "cleanup lane should be empty after removal"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn remove_job_entries_removes_from_all_lanes() {
+        let (sender, receiver) = create_queue();
+        let (job_id, rg_id) = default_ids();
+        let other_job_id = JobId::new();
+
+        sender
+            .send_task_ready(job_id, rg_id, vec![0])
+            .await
+            .expect("send task should succeed");
+        sender
+            .send_commit_ready(job_id, rg_id)
+            .await
+            .expect("send commit should succeed");
+        sender
+            .send_cleanup_ready(job_id, rg_id)
+            .await
+            .expect("send cleanup should succeed");
+        sender
+            .send_task_ready(other_job_id, rg_id, vec![1])
+            .await
+            .expect("send other task should succeed");
+
+        let removed = sender.remove_job_entries(job_id);
+        assert_eq!(
+            removed.len(),
+            3,
+            "should remove entries from all three lanes"
+        );
+
+        assert_eq!(
+            receiver.recv_task_batch(None, 10).len(),
+            1,
+            "only other_job entry should remain in task lane"
+        );
+        assert!(
+            receiver.recv_commit_batch(None, 10).is_empty(),
+            "commit lane should be empty"
+        );
+        assert!(
+            receiver.recv_cleanup_batch(None, 10).is_empty(),
+            "cleanup lane should be empty"
+        );
     }
 }
