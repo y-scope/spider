@@ -112,7 +112,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
         task_id: TaskId,
     ) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 
-    /// Removes all entries for the given job across all priority lanes.
+    /// Removes all entries for the given job across all three queues.
     ///
     /// # Parameters
     ///
@@ -120,7 +120,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// # Returns
     ///
-    /// All removed entries, across all three priority lanes.
+    /// All removed entries, across all three sub-queues.
     ///
     /// # Errors
     ///
@@ -133,7 +133,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
 /// Connector for getting task execution events from the ready queue.
 ///
 /// This trait is invoked by the scheduler to dequeue tasks that are ready for dispatch. Each
-/// priority lane (task, commit, cleanup) has its own cursor and `queue_id` sequence.
+/// queue (task, commit, cleanup) has its own cursor and `queue_id` sequence.
 pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// Fetches up to `limit` task entries with `queue_id` greater than `start_after`.
     ///
@@ -151,7 +151,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
     fn recv_task_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the highest `queue_id` in the task lane, or `None` if the lane is empty.
+    /// Returns the highest `queue_id` among task entries, or `None` if none exist.
     ///
     /// # Returns
     ///
@@ -174,7 +174,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
     fn recv_commit_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the highest `queue_id` in the commit lane, or `None` if the lane is empty.
+    /// Returns the highest `queue_id` among commit entries, or `None` if none exist.
     ///
     /// # Returns
     ///
@@ -198,7 +198,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// A vector of matching [`ReadyQueueEntry`] values, up to `limit` in length.
     fn recv_cleanup_batch(&self, start_after: u64, limit: usize) -> Vec<ReadyQueueEntry>;
 
-    /// Returns the highest `queue_id` in the cleanup lane, or `None` if the lane is empty.
+    /// Returns the highest `queue_id` among cleanup entries, or `None` if none exist.
     ///
     /// # Returns
     ///
@@ -409,12 +409,12 @@ struct TaskQueue {
     entries: BTreeMap<u64, ReadyQueueEntry>,
     /// Secondary index: `(job_id, task_id)` -> set of `queue_id`s. For removal lookups.
     job_task_index: HashMap<(JobId, TaskId), BTreeSet<u64>>,
-    /// Monotonically increasing ID counter for this lane.
+    /// Monotonically increasing ID counter for this queue.
     next_id: u64,
 }
 
 impl TaskQueue {
-    /// Creates a new empty lane with IDs starting at 1.
+    /// Creates a new empty queue with IDs starting at 1.
     fn new() -> Self {
         Self {
             entries: BTreeMap::new(),
@@ -423,7 +423,7 @@ impl TaskQueue {
         }
     }
 
-    /// Appends an entry to the lane, updating both the primary store and secondary index.
+    /// Appends an entry to the queue, updating both the primary store and secondary index.
     fn push(&mut self, entry: ReadyQueueEntry) {
         let key = (entry.job_id, entry.task_id.clone());
         self.job_task_index
@@ -446,7 +446,7 @@ impl TaskQueue {
             .collect()
     }
 
-    /// Returns the highest `queue_id` in this lane, or `None` if empty.
+    /// Returns the highest `queue_id` in this queue, or `None` if empty.
     fn latest_id(&self) -> Option<u64> {
         self.entries.last_key_value().map(|(id, _)| *id)
     }
@@ -632,7 +632,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        // Each lane has its own ID sequence starting at 1.
+        // Each queue has its own ID sequence starting at 1.
         assert_eq!(receiver.latest_task_id(), Some(1));
         assert_eq!(receiver.latest_commit_id(), Some(1));
         assert_eq!(receiver.latest_cleanup_id(), Some(1));
@@ -853,7 +853,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn remove_task_entries_routes_commit_to_commit_lane() {
+    async fn remove_task_entries_routes_commit_to_commit_queue() {
         let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
@@ -874,17 +874,17 @@ mod tests {
 
         assert!(
             receiver.recv_commit_batch(0, 10).is_empty(),
-            "commit lane should be empty after removal"
+            "commit queue should be empty after removal"
         );
         assert_eq!(
             receiver.recv_cleanup_batch(0, 10).len(),
             1,
-            "cleanup lane should still have its entry"
+            "cleanup queue should still have its entry"
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn remove_task_entries_routes_cleanup_to_cleanup_lane() {
+    async fn remove_task_entries_routes_cleanup_to_cleanup_queue() {
         let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
 
@@ -906,16 +906,16 @@ mod tests {
         assert_eq!(
             receiver.recv_commit_batch(0, 10).len(),
             1,
-            "commit lane should still have its entry"
+            "commit queue should still have its entry"
         );
         assert!(
             receiver.recv_cleanup_batch(0, 10).is_empty(),
-            "cleanup lane should be empty after removal"
+            "cleanup queue should be empty after removal"
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn remove_job_entries_removes_from_all_lanes() {
+    async fn remove_job_entries_removes_from_all_queues() {
         let (sender, receiver) = create_queue();
         let (job_id, rg_id) = default_ids();
         let other_job_id = JobId::new();
@@ -943,21 +943,21 @@ mod tests {
         assert_eq!(
             removed.len(),
             3,
-            "should remove entries from all three lanes"
+            "should remove entries from all three sub-queues"
         );
 
         assert_eq!(
             receiver.recv_task_batch(0, 10).len(),
             1,
-            "only other_job entry should remain in task lane"
+            "only other_job entry should remain in task queue"
         );
         assert!(
             receiver.recv_commit_batch(0, 10).is_empty(),
-            "commit lane should be empty"
+            "commit queue should be empty"
         );
         assert!(
             receiver.recv_cleanup_batch(0, 10).is_empty(),
-            "cleanup lane should be empty"
+            "cleanup queue should be empty"
         );
     }
 }
