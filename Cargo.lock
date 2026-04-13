@@ -309,6 +309,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-tdl-package-complex"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "spider-tdl",
+]
+
+[[package]]
 name = "flume"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1649,6 +1657,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tdl-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rmp-serde",
+ "serde",
+ "spider-core",
+ "spider-task-executor",
+ "spider-tdl",
 ]
 
 [[package]]

@@ -1,0 +1,14 @@
+[package]
+name = "example-tdl-package-complex"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "example_tdl_package_complex"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+spider-tdl = { path = "../../components/spider-tdl" }

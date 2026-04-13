@@ -126,6 +126,7 @@ pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
     };
 
     let expanded = quote! {
+        #[allow(non_camel_case_types)]
         #vis struct #func_name;
 
         impl #func_name {
@@ -295,6 +296,7 @@ mod tests {
         );
 
         let expected = normalize(&quote! {
+            #[allow(non_camel_case_types)]
             struct add;
 
             impl add {
@@ -352,6 +354,7 @@ mod tests {
         );
 
         let expected = normalize(&quote! {
+            #[allow(non_camel_case_types)]
             struct noop;
 
             impl noop {
@@ -403,6 +406,7 @@ mod tests {
         );
 
         let expected = normalize(&quote! {
+            #[allow(non_camel_case_types)]
             struct single;
 
             impl single {

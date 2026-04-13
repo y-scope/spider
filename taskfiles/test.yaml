@@ -214,6 +214,7 @@ tasks:
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
       MARIADB_USERNAME: "{{.MARIADB_USERNAME}}"
       MARIADB_PASSWORD: "{{.MARIADB_PASSWORD}}"
+      SPIDER_TDL_PACKAGE_COMPLEX: "{{.G_RUST_BUILD_DIR}}/release/libexample_tdl_package_complex.so"
       SPIDER_TEST_INSTRUMENT_OUTPUT_DIR:
         sh: "echo {{.G_BUILD_DIR}}/spider-instrument-$(uuidgen)"
     requires:
@@ -225,6 +226,7 @@ tasks:
       - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        cargo build --package example-tdl-package-complex --release
         cargo nextest run --all --all-features --run-ignored all --release
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
