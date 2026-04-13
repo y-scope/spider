@@ -397,7 +397,9 @@ pub async fn run_workload<
     let task_success_count = Arc::new(AtomicUsize::new(0));
     let commit_count = Arc::new(AtomicUsize::new(0));
     let cleanup_count = Arc::new(AtomicUsize::new(0));
-    let shared_cursor = Arc::new(AtomicU64::new(0));
+    let task_cursor = Arc::new(AtomicU64::new(0));
+    let commit_cursor = Arc::new(AtomicU64::new(0));
+    let cleanup_cursor = Arc::new(AtomicU64::new(0));
 
     let ctx = WorkerContext {
         receiver: ready_queue_receiver,
@@ -410,7 +412,9 @@ pub async fn run_workload<
         commit_count: commit_count.clone(),
         cleanup_count: cleanup_count.clone(),
         always_fail: config.always_fail,
-        shared_cursor: shared_cursor.clone(),
+        task_cursor: task_cursor.clone(),
+        commit_cursor: commit_cursor.clone(),
+        cleanup_cursor: cleanup_cursor.clone(),
     };
 
     // Spawn workers.
@@ -712,8 +716,14 @@ struct WorkerContext<
     /// policy. Used by the always-fail test case.
     always_fail: bool,
 
-    /// Shared cursor for MPMC coordination via CAS on `recv_batch`.
-    shared_cursor: Arc<AtomicU64>,
+    /// Shared cursor for MPMC coordination on the task sub-queue.
+    task_cursor: Arc<AtomicU64>,
+
+    /// Shared cursor for MPMC coordination on the commit sub-queue.
+    commit_cursor: Arc<AtomicU64>,
+
+    /// Shared cursor for MPMC coordination on the cleanup sub-queue.
+    cleanup_cursor: Arc<AtomicU64>,
 }
 
 /// A single row in the instrumentation output table.
@@ -907,48 +917,123 @@ async fn run_worker<
 ) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
-        let cursor = ctx.shared_cursor.load(Ordering::Acquire);
-        let entries = ctx.receiver.recv_batch(Some(cursor), 1);
-        let Some(entry) = entries.first() else {
-            if *ctx.done_receiver.borrow() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        // Priority: cleanup > commit > task.
+        if try_process_cleanup(&ctx).await? {
             continue;
-        };
-        if ctx
-            .shared_cursor
-            .compare_exchange(cursor, entry.queue_id, Ordering::AcqRel, Ordering::Relaxed)
-            .is_err()
-        {
+        }
+        if try_process_commit(&ctx).await? {
+            continue;
+        }
+        if try_process_task(&ctx, &mut rng).await? {
             continue;
         }
 
-        match entry.task_id {
-            TaskId::Index(task_index) => {
-                if let Err(e) = process_task(&ctx, &mut rng, task_index).await
-                    && !is_stale_state(&e)
-                {
-                    bail!(e);
-                }
-            }
-            TaskId::Commit => {
-                if let Err(e) = process_commit(&ctx).await
-                    && !is_stale_state(&e)
-                {
-                    bail!(e);
-                }
-            }
-            TaskId::Cleanup => {
-                if let Err(e) = process_cleanup(&ctx).await
-                    && !is_stale_state(&e)
-                {
-                    bail!(e);
-                }
-            }
+        if *ctx.done_receiver.borrow() {
+            break;
         }
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
     Ok(())
+}
+
+/// Attempts to claim and process a cleanup entry via CAS on the cleanup cursor.
+///
+/// # Returns
+///
+/// `Ok(true)` if an entry was processed, `Ok(false)` if no entry was available or CAS failed.
+async fn try_process_cleanup<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
+    ctx: &WorkerContext<S, R, DbConnectorType>,
+) -> anyhow::Result<bool> {
+    let cursor = ctx.cleanup_cursor.load(Ordering::Acquire);
+    let entries = ctx.receiver.recv_cleanup_batch(Some(cursor), 1);
+    let Some(entry) = entries.first() else {
+        return Ok(false);
+    };
+    if ctx
+        .cleanup_cursor
+        .compare_exchange(cursor, entry.queue_id, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return Ok(false);
+    }
+    if let Err(e) = process_cleanup(ctx).await
+        && !is_stale_state(&e)
+    {
+        bail!(e);
+    }
+    Ok(true)
+}
+
+/// Attempts to claim and process a commit entry via CAS on the commit cursor.
+///
+/// # Returns
+///
+/// `Ok(true)` if an entry was processed, `Ok(false)` if no entry was available or CAS failed.
+async fn try_process_commit<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
+    ctx: &WorkerContext<S, R, DbConnectorType>,
+) -> anyhow::Result<bool> {
+    let cursor = ctx.commit_cursor.load(Ordering::Acquire);
+    let entries = ctx.receiver.recv_commit_batch(Some(cursor), 1);
+    let Some(entry) = entries.first() else {
+        return Ok(false);
+    };
+    if ctx
+        .commit_cursor
+        .compare_exchange(cursor, entry.queue_id, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return Ok(false);
+    }
+    if let Err(e) = process_commit(ctx).await
+        && !is_stale_state(&e)
+    {
+        bail!(e);
+    }
+    Ok(true)
+}
+
+/// Attempts to claim and process a task entry via CAS on the task cursor.
+///
+/// # Returns
+///
+/// `Ok(true)` if an entry was processed, `Ok(false)` if no entry was available or CAS failed.
+async fn try_process_task<
+    S: ReadyQueueSender + 'static,
+    R: ReadyQueueReceiver + 'static,
+    DbConnectorType: InternalJobOrchestration + 'static,
+>(
+    ctx: &WorkerContext<S, R, DbConnectorType>,
+    rng: &mut impl Rng,
+) -> anyhow::Result<bool> {
+    let cursor = ctx.task_cursor.load(Ordering::Acquire);
+    let entries = ctx.receiver.recv_task_batch(Some(cursor), 1);
+    let Some(entry) = entries.first() else {
+        return Ok(false);
+    };
+    if ctx
+        .task_cursor
+        .compare_exchange(cursor, entry.queue_id, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return Ok(false);
+    }
+    let TaskId::Index(task_index) = entry.task_id else {
+        return Ok(true);
+    };
+    if let Err(e) = process_task(ctx, rng, task_index).await
+        && !is_stale_state(&e)
+    {
+        bail!(e);
+    }
+    Ok(true)
 }
 
 /// Processes a single task index to simulate task execution according to the given policy.
