@@ -1,0 +1,57 @@
+name: "Filter relevant changes"
+description: "Detect which categories of source files have changed relative to main."
+
+inputs:
+  workflow_path:
+    description: "Path to the calling workflow file (e.g., .github/workflows/tests.yaml)."
+    required: true
+
+outputs:
+  cpp_changed:
+    description: "Whether C++ related files have changed."
+    value: "${{steps.paths-filter.outputs.cpp}}"
+  python_changed:
+    description: "Whether Python related files have changed."
+    value: "${{steps.paths-filter.outputs.python}}"
+  rust_changed:
+    description: "Whether Rust related files have changed."
+    value: "${{steps.paths-filter.outputs.rust}}"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Filter relevant changes"
+      uses: "dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36"
+      id: "paths-filter"
+      with:
+        base: "main"
+        filters: |
+          # NOTE: This filter defines a reusable YAML anchor; its output is unused.
+          _common: &_common
+            - "${{inputs.workflow_path}}"
+            - ".gitmodules"
+            - "requirements-dev.txt"
+            - "taskfile.yaml"
+            - "taskfiles/**"
+            - "tools/scripts/**"
+            - "tools/yscope-dev-utils"
+          cpp:
+            - *_common
+            - ".gersemirc"
+            - "CMakeLists.txt"
+            - "cmake/Modules/**"
+            - "examples/wolf/**"
+            - "src/spider/**"
+            - "tests/wolf/**"
+          python:
+            - *_common
+            - "mypy.ini"
+            - "python/**"
+            - "ruff.toml"
+            - "tests/wolf/**"
+          rust:
+            - *_common
+            - ".cargo/**"
+            - "Cargo.lock"
+            - "Cargo.toml"
+            - "components/**"

@@ -17,7 +17,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tests:
+  filter-relevant-changes:
+    runs-on: "ubuntu-latest"
+    outputs:
+      cpp_changed: "${{steps.filter.outputs.cpp_changed}}"
+      python_changed: "${{steps.filter.outputs.python_changed}}"
+      rust_changed: "${{steps.filter.outputs.rust_changed}}"
+    steps:
+      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+        with:
+          submodules: "recursive"
+
+      - id: "filter"
+        uses: "./.github/actions/filter-relevant-changes"
+        with:
+          workflow_path: ".github/workflows/tests.yaml"
+
+  wolf-tests:
+    needs: "filter-relevant-changes"
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || needs.filter-relevant-changes.outputs.cpp_changed == 'true'
+      || needs.filter-relevant-changes.outputs.python_changed == 'true'
     strategy:
       matrix:
         os: ["ubuntu-22.04", "ubuntu-24.04"]
@@ -49,8 +71,34 @@ jobs:
 
       - run: "task test:cpp-unit-tests"
 
-      - run: "task test:rust-unit-tests"
+      - run: "task test:cpp-integration"
 
       - run: "task test:spider-py-unit-tests"
 
-      - run: "task test:cpp-integration"
+  huntsman-tests:
+    needs: "filter-relevant-changes"
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || needs.filter-relevant-changes.outputs.rust_changed == 'true'
+    strategy:
+      matrix:
+        os: ["ubuntu-22.04", "ubuntu-24.04"]
+    runs-on: "${{matrix.os}}"
+    steps:
+      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+        with:
+          submodules: "recursive"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
+
+      - name: "Install dev dependencies"
+        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
+
+      - run: "task test:rust-unit-tests"
