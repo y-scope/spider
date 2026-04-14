@@ -309,6 +309,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-tdl-package-complex"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "spider-tdl",
+]
+
+[[package]]
 name = "flume"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -685,6 +693,16 @@ name = "libc"
 version = "0.2.184"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48f5d2a454e16a5ea0f4ced81bd44e4cfc7bd3a507b61887c99fd3538b28e4af"
+
+[[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "libm"
@@ -1352,6 +1370,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "spider-task-executor"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "rmp-serde",
+ "spider-tdl",
+ "thiserror",
+]
+
+[[package]]
+name = "spider-tdl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rmp-serde",
+ "serde",
+ "spider-core",
+ "spider-tdl-derive",
+ "thiserror",
+]
+
+[[package]]
+name = "spider-tdl-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1658,6 +1707,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tdl-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rmp-serde",
+ "serde",
+ "spider-core",
+ "spider-task-executor",
+ "spider-tdl",
 ]
 
 [[package]]
