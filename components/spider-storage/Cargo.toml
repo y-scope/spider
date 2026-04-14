@@ -29,7 +29,7 @@ uuid = { version = "1.19.0", features = ["serde"] }
 anyhow = "1.0.98"
 async-channel = "2.3.1"
 dashmap = "6.1.0"
-rand = "0.9.1"
+rand = "0.9.3"
 serial_test = "3.2.0"
 tabled = "0.20.0"
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
