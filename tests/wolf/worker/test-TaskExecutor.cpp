@@ -29,7 +29,7 @@
 #include <spider/storage/StorageFactory.hpp>
 #include <spider/worker/FunctionManager.hpp>
 #include <spider/worker/TaskExecutor.hpp>
-#include <tests/storage/StorageTestHelper.hpp>
+#include <tests/wolf/storage/StorageTestHelper.hpp>
 
 // NOLINTBEGIN(cert-err58-cpp,cppcoreguidelines-avoid-do-while,readability-function-cognitive-complexity,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,clang-analyzer-unix.BlockInCriticalSection)
 
@@ -39,7 +39,7 @@ auto get_environment_variable() -> absl::flat_hash_map<
         boost::process::v2::environment::value
 > {
     boost::filesystem::path const executable_dir = boost::dll::program_location().parent_path();
-    boost::filesystem::path const src_dir = executable_dir.parent_path() / "src" / "spider";
+    auto const src_dir = executable_dir.parent_path().parent_path() / "src" / "spider";
 
     // NOLINTNEXTLINE(concurrency-mt-unsafe)
     char const* path_env_str = std::getenv("PATH");

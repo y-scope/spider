@@ -18,8 +18,8 @@
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
-#include <tests/storage/StorageTestHelper.hpp>
-#include <tests/utils/CoreDataUtils.hpp>
+#include <tests/wolf/storage/StorageTestHelper.hpp>
+#include <tests/wolf/utils/CoreDataUtils.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(

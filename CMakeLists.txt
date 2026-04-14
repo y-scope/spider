@@ -190,5 +190,5 @@ find_package(Threads REQUIRED)
 add_subdirectory(src/spider)
 
 if(SPIDER_ENABLE_TESTS)
-    add_subdirectory(tests)
+    add_subdirectory(tests/wolf)
 endif()
