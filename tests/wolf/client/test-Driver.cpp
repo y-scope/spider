@@ -10,7 +10,7 @@
 #include <spider/client/Driver.hpp>
 #include <spider/client/TaskContext.hpp>
 #include <spider/client/TaskGraph.hpp>
-#include <tests/storage/StorageTestHelper.hpp>
+#include <tests/wolf/storage/StorageTestHelper.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE(
