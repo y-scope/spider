@@ -29,6 +29,7 @@ runs:
           # NOTE: This filter defines a reusable YAML anchor; its output is unused.
           _common: &_common
             - "${{inputs.workflow_path}}"
+            - ".github/actions/filter-relevant-changes/**"
             - ".gitmodules"
             - "requirements-dev.txt"
             - "taskfile.yaml"
