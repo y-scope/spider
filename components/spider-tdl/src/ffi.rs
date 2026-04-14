@@ -4,9 +4,12 @@
 //! so buffers allocated on one side can be reclaimed on the other via [`Box::into_raw`] /
 //! [`Box::from_raw`].
 
-use std::{ffi::c_char, fmt, marker::PhantomData, mem::ManuallyDrop, str::Utf8Error};
+use std::{ffi::c_char, fmt, marker::PhantomData, mem::ManuallyDrop, ops::Deref, str::Utf8Error};
 
 /// Borrowed, C-ABI-compatible view of a contiguous slice `&'borrow_lifetime [ElementType]`.
+///
+/// [`CArray`] implements [`Deref<Target = [ElementType]>`][Deref] so that all slice methods
+/// are available directly, without requiring a conversion call.
 ///
 /// # Type Parameters
 ///
@@ -48,28 +51,13 @@ impl<'borrow_lifetime, ElementType> CArray<'borrow_lifetime, ElementType> {
     /// # Returns
     ///
     /// The constructed C array from the given slice.
+    #[must_use]
     pub const fn from_slice(slice: &'borrow_lifetime [ElementType]) -> Self {
         Self {
             pointer: slice.as_ptr(),
             length: slice.len(),
             _lifetime: PhantomData,
         }
-    }
-
-    /// # Returns
-    ///
-    /// The length of the array (the number of elements).
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.length
-    }
-
-    /// # Returns
-    ///
-    /// Whether the array is empty.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.length == 0
     }
 
     /// Reconstructs a Rust slice from the raw pointer and length.
@@ -88,6 +76,14 @@ impl<'borrow_lifetime, ElementType> CArray<'borrow_lifetime, ElementType> {
     #[must_use]
     pub const fn as_slice(&self) -> &'borrow_lifetime [ElementType] {
         unsafe { std::slice::from_raw_parts(self.pointer, self.length) }
+    }
+}
+
+impl<ElementType> Deref for CArray<'_, ElementType> {
+    type Target = [ElementType];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
     }
 }
 
@@ -206,7 +202,7 @@ impl TaskExecutionResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{CByteArray, CCharArray, TaskExecutionResult};
+    use super::*;
     use crate::TdlError;
 
     #[test]
@@ -217,6 +213,34 @@ mod tests {
         assert!(!view.is_empty());
         let reconstructed = view.as_slice();
         assert_eq!(reconstructed, &data[..]);
+    }
+
+    #[test]
+    fn c_byte_array_deref_to_slice() {
+        let data: [u8; 4] = [10, 20, 30, 40];
+        let view = CByteArray::from_slice(&data);
+        // Slice methods are available directly via `Deref`.
+        assert_eq!(view.iter().sum::<u8>(), 100);
+        assert_eq!(view[1], 20);
+        assert_eq!(&view[..2], &[10, 20]);
+    }
+
+    #[test]
+    fn c_byte_array_deserializes_msgpack_via_deref() -> anyhow::Result<()> {
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct Point {
+            x: i32,
+            y: i32,
+        }
+        let original = Point { x: -7, y: 42 };
+        let encoded = rmp_serde::to_vec(&original)?;
+
+        let view = CByteArray::from_slice(&encoded);
+        // `&*view` triggers `Deref`, yielding `&[u8]` directly — no `as_slice()` call.
+        let decoded: Point = rmp_serde::from_slice(&view)?;
+
+        assert_eq!(decoded, original);
+        Ok(())
     }
 
     #[test]
