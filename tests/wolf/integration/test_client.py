@@ -25,7 +25,7 @@ def start_scheduler_workers(
     """
     # Start the scheduler
     dir_path = Path(__file__).resolve().parent
-    dir_path = dir_path / ".." / ".." / "src" / "spider"
+    dir_path = dir_path / ".." / ".." / ".." / "src" / "spider"
     scheduler_cmds = [
         str(dir_path / "spider_scheduler"),
         "--host",
@@ -43,7 +43,7 @@ def start_scheduler_workers(
         "--storage_url",
         storage_url,
         "--libs",
-        "tests/libworker_test.so",
+        "tests/wolf/libworker_test.so",
     ]
     worker_process_0 = subprocess.Popen(worker_cmds)
     worker_process_1 = subprocess.Popen(worker_cmds)

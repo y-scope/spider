@@ -40,8 +40,8 @@ def start_scheduler_worker(
       - The scheduler process.
       - The worker process.
     """
-    root_dir = Path(__file__).resolve().parents[2]
-    bin_dir = root_dir / "src" / "spider"
+    dir_path = Path(__file__).resolve().parent
+    bin_dir = dir_path / ".." / ".." / ".." / "src" / "spider"
     popen_opts: dict[str, Any] = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
@@ -86,7 +86,7 @@ def scheduler_worker_signal(
     scheduler_process, worker_process = start_scheduler_worker(
         storage_url=get_storage_url(),
         scheduler_port=g_scheduler_port,
-        lib="tests/libsignal_test.so",
+        lib="tests/wolf/libsignal_test.so",
     )
     # Wait for 5 second to make sure the scheduler and worker are started
     time.sleep(5)

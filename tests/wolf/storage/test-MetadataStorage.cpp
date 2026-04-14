@@ -22,8 +22,8 @@
 #include <spider/storage/MetadataStorage.hpp>
 #include <spider/storage/StorageConnection.hpp>
 #include <spider/storage/StorageFactory.hpp>
-#include <tests/storage/StorageTestHelper.hpp>
-#include <tests/utils/CoreTaskUtils.hpp>
+#include <tests/wolf/storage/StorageTestHelper.hpp>
+#include <tests/wolf/utils/CoreTaskUtils.hpp>
 
 namespace {
 TEMPLATE_LIST_TEST_CASE("Driver heartbeat", "[storage]", spider::test::StorageFactoryTypeList) {
