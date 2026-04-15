@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use spider_core::{task::TaskIndex, types::id::JobId};
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{Mutex, mpsc};
 
 use crate::cache::{TaskId, error::InternalError};
 
@@ -228,30 +228,24 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
             return Ok(());
         }
 
-        self.inner
-            .send_task_ready_batch(TaskReadyMessage {
-                job_id,
-                task_indices,
-            })
-            .await
+        self.inner.send_task_ready_batch(TaskReadyMessage {
+            job_id,
+            task_indices,
+        })
     }
 
     async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
-        self.inner
-            .send_termination_ready(ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Commit,
-            })
-            .await
+        self.inner.send_termination_ready(ReadyQueueEntry {
+            job_id,
+            task_id: TaskId::Commit,
+        })
     }
 
     async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
-        self.inner
-            .send_termination_ready(ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Cleanup,
-            })
-            .await
+        self.inner.send_termination_ready(ReadyQueueEntry {
+            job_id,
+            task_id: TaskId::Cleanup,
+        })
     }
 }
 
@@ -267,8 +261,7 @@ impl ReadyQueue {
             IngressSenderSet::create(config.ingress_capacity);
         Self {
             inner: Arc::new(ReadyQueueInner {
-                config,
-                ingress_senders: RwLock::new(ingress_senders),
+                ingress_senders,
                 state: Mutex::new(ReadyQueueState::new(config, ingress_receivers)),
             }),
         }
@@ -307,8 +300,7 @@ impl ReadyQueue {
 
     /// Rebuilds the resident queues from a fresh snapshot of ready entries.
     ///
-    /// The caller is responsible for coordinating with higher-level state so the snapshot is
-    /// authoritative for the rebuild window.
+    /// This operation clears and repopulates the resident queues.
     ///
     /// # Errors
     ///
@@ -353,8 +345,7 @@ impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
 }
 
 struct ReadyQueueInner {
-    config: ReadyQueueConfig,
-    ingress_senders: RwLock<IngressSenderSet>,
+    ingress_senders: IngressSenderSet,
     state: Mutex<ReadyQueueState>,
 }
 
@@ -411,28 +402,18 @@ impl ReadyQueueInner {
         self.state.lock().await
     }
 
-    async fn read_ingress_senders(&self) -> tokio::sync::RwLockReadGuard<'_, IngressSenderSet> {
-        self.ingress_senders.read().await
-    }
-
-    async fn write_ingress_senders(&self) -> tokio::sync::RwLockWriteGuard<'_, IngressSenderSet> {
-        self.ingress_senders.write().await
-    }
-
-    async fn send_task_ready_batch(
+    fn send_task_ready_batch(
         &self,
         ready_task_batch: TaskReadyMessage,
     ) -> Result<(), InternalError> {
-        self.send_ingress_message(IngressQueue::Task, ready_task_batch, |ingress_senders| {
-            ingress_senders.tasks.clone()
-        })
-        .await
+        Self::send_ingress_message(
+            IngressQueue::Task,
+            ready_task_batch,
+            &self.ingress_senders.tasks,
+        )
     }
 
-    async fn send_termination_ready(
-        &self,
-        ready_entry: ReadyQueueEntry,
-    ) -> Result<(), InternalError> {
+    fn send_termination_ready(&self, ready_entry: ReadyQueueEntry) -> Result<(), InternalError> {
         let ingress_queue = match ready_entry.task_id {
             TaskId::Index(_) => {
                 return Err(InternalError::ReadyQueueSendFailure(
@@ -443,45 +424,30 @@ impl ReadyQueueInner {
             TaskId::Cleanup => IngressQueue::Cleanup,
         };
 
-        self.send_ingress_message(ingress_queue, ready_entry, |ingress_senders| {
-            if matches!(ingress_queue, IngressQueue::Cleanup) {
-                ingress_senders.cleanups.clone()
-            } else {
-                ingress_senders.commits.clone()
-            }
-        })
-        .await
+        let ingress_sender = if matches!(ingress_queue, IngressQueue::Cleanup) {
+            self.ingress_senders.cleanups.clone()
+        } else {
+            self.ingress_senders.commits.clone()
+        };
+
+        Self::send_ingress_message(ingress_queue, ready_entry, &ingress_sender)
     }
 
-    async fn send_ingress_message<Message, SelectSender>(
-        &self,
+    fn send_ingress_message<Message>(
         ingress_queue: IngressQueue,
-        mut message: Message,
-        select_sender: SelectSender,
+        message: Message,
+        ingress_sender: &mpsc::Sender<Message>,
     ) -> Result<(), InternalError>
     where
-        Message: Send,
-        SelectSender: Fn(&IngressSenderSet) -> mpsc::Sender<Message>, {
-        loop {
-            let ingress_sender = {
-                let ingress_senders = self.read_ingress_senders().await;
-                select_sender(&ingress_senders)
-            };
-
-            match ingress_sender.try_send(message) {
-                Ok(()) => return Ok(()),
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    return Err(InternalError::ReadyQueueSendFailure(format!(
-                        "{} ready queue ingress is full",
-                        ingress_queue.as_str()
-                    )));
-                }
-                Err(mpsc::error::TrySendError::Closed(returned_message)) => {
-                    // Rebuild swaps the active ingress channels before replacing resident state, so
-                    // senders that race with the swap retry on the new current channel.
-                    message = returned_message;
-                }
-            }
+        Message: Send, {
+        match ingress_sender.try_send(message) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(InternalError::ReadyQueueSendFailure(
+                format!("{} ready queue ingress is full", ingress_queue.as_str()),
+            )),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(InternalError::ReadyQueueSendFailure(
+                format!("{} ready queue ingress is closed", ingress_queue.as_str()),
+            )),
         }
     }
 
@@ -529,16 +495,7 @@ impl ReadyQueueInner {
     async fn rebuild<I>(&self, entries: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = ReadyQueueEntry>, {
-        let (ingress_senders, ingress_receivers) =
-            IngressSenderSet::create(self.config.ingress_capacity);
-        let rebuilt_state = ReadyQueueState::rebuild(self.config, ingress_receivers, entries)?;
-
-        {
-            let mut current_ingress_senders = self.write_ingress_senders().await;
-            *current_ingress_senders = ingress_senders;
-        }
-
-        *self.lock_state().await = rebuilt_state;
+        self.lock_state().await.rebuild(entries)?;
         Ok(())
     }
 }
@@ -554,25 +511,23 @@ impl ReadyQueueState {
         }
     }
 
-    fn rebuild<I>(
-        config: ReadyQueueConfig,
-        ingress_receivers: IngressReceiverSet,
-        entries: I,
-    ) -> Result<Self, InternalError>
+    fn rebuild<I>(&mut self, entries: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = ReadyQueueEntry>, {
-        let mut rebuilt_state = Self::new(config, ingress_receivers);
+        self.task_queue.clear();
+        self.commit_queue.clear();
+        self.cleanup_queue.clear();
 
         for ready_entry in entries {
             let queue = match ready_entry.task_id {
-                TaskId::Index(_) => &mut rebuilt_state.task_queue,
-                TaskId::Commit => &mut rebuilt_state.commit_queue,
-                TaskId::Cleanup => &mut rebuilt_state.cleanup_queue,
+                TaskId::Index(_) => &mut self.task_queue,
+                TaskId::Commit => &mut self.commit_queue,
+                TaskId::Cleanup => &mut self.cleanup_queue,
             };
             queue.push_for_rebuild(ready_entry)?;
         }
 
-        Ok(rebuilt_state)
+        Ok(())
     }
 
     fn flatten(&mut self) {
@@ -710,6 +665,11 @@ impl ResidentQueue {
             ready_entries.push(ready_entry);
         }
         Ok(ready_entries)
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.entry_set.clear();
     }
 
     fn len(&self) -> usize {
@@ -895,36 +855,34 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn rebuild_replaces_resident_state_and_drops_stale_buffer() {
+    async fn rebuild_preserves_buffered_ingress_backlog() {
         let (sender, receiver, ready_queue) = test_queue();
-        let stale_job_id = JobId::default();
-        let fresh_job_id = JobId::default();
+        let buffered_job_id = JobId::default();
+        let rebuilt_job_id = JobId::default();
 
         sender
-            .send_task_ready(stale_job_id, vec![1, 2])
+            .send_task_ready(buffered_job_id, vec![1, 2])
             .await
-            .expect("stale send should succeed");
+            .expect("buffered send should succeed");
 
         ready_queue
             .rebuild([
                 ReadyQueueEntry {
-                    job_id: fresh_job_id,
+                    job_id: rebuilt_job_id,
                     task_id: TaskId::Index(9),
                 },
                 ReadyQueueEntry {
-                    job_id: fresh_job_id,
+                    job_id: rebuilt_job_id,
                     task_id: TaskId::Cleanup,
                 },
             ])
             .await
             .expect("rebuild should succeed");
 
-        ready_queue.flatten().await.expect("flatten should succeed");
-
         assert_eq!(
             receiver.recv_tasks(10).await.expect("recv should succeed"),
             vec![ReadyQueueEntry {
-                job_id: fresh_job_id,
+                job_id: rebuilt_job_id,
                 task_id: TaskId::Index(9),
             }]
         );
@@ -934,21 +892,30 @@ mod tests {
                 .await
                 .expect("recv should succeed"),
             vec![ReadyQueueEntry {
-                job_id: fresh_job_id,
+                job_id: rebuilt_job_id,
                 task_id: TaskId::Cleanup,
             }]
         );
-        assert!(
-            receiver
-                .recv_tasks(10)
-                .await
-                .expect("recv should succeed")
-                .is_empty()
+
+        ready_queue.flatten().await.expect("flatten should succeed");
+
+        assert_eq!(
+            receiver.recv_tasks(10).await.expect("recv should succeed"),
+            vec![
+                ReadyQueueEntry {
+                    job_id: buffered_job_id,
+                    task_id: TaskId::Index(1),
+                },
+                ReadyQueueEntry {
+                    job_id: buffered_job_id,
+                    task_id: TaskId::Index(2),
+                },
+            ]
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn sender_handles_survive_rebuild_channel_swap() {
+    async fn sender_handles_survive_rebuild() {
         let (sender, receiver, ready_queue) = test_queue();
         let job_id = JobId::default();
 
@@ -968,6 +935,106 @@ mod tests {
             vec![ReadyQueueEntry {
                 job_id,
                 task_id: TaskId::Index(4),
+            }]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rebuild_preserves_pending_task_overflow() {
+        let ready_queue = ReadyQueue::create(ReadyQueueConfig {
+            ingress_capacity: 8,
+            task_ready_capacity: 1,
+            commit_ready_capacity: 4,
+            cleanup_ready_capacity: 4,
+        });
+        let sender = ready_queue.sender();
+        let receiver = ready_queue.receiver();
+        let buffered_job_id = JobId::default();
+        let rebuilt_job_id = JobId::default();
+
+        sender
+            .send_task_ready(buffered_job_id, vec![1, 2, 3])
+            .await
+            .expect("buffered send should succeed");
+        ready_queue.flatten().await.expect("flatten should succeed");
+
+        ready_queue
+            .rebuild([ReadyQueueEntry {
+                job_id: rebuilt_job_id,
+                task_id: TaskId::Index(9),
+            }])
+            .await
+            .expect("rebuild should succeed");
+
+        assert_eq!(
+            receiver.recv_tasks(10).await.expect("recv should succeed"),
+            vec![ReadyQueueEntry {
+                job_id: rebuilt_job_id,
+                task_id: TaskId::Index(9),
+            }]
+        );
+
+        ready_queue.flatten().await.expect("flatten should succeed");
+        assert_eq!(
+            receiver.recv_tasks(10).await.expect("recv should succeed"),
+            vec![ReadyQueueEntry {
+                job_id: buffered_job_id,
+                task_id: TaskId::Index(2),
+            }]
+        );
+
+        ready_queue.flatten().await.expect("flatten should succeed");
+        assert_eq!(
+            receiver.recv_tasks(10).await.expect("recv should succeed"),
+            vec![ReadyQueueEntry {
+                job_id: buffered_job_id,
+                task_id: TaskId::Index(3),
+            }]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rebuild_dedups_duplicate_snapshot_entries() {
+        let (_, receiver, ready_queue) = test_queue();
+        let job_id = JobId::default();
+
+        ready_queue
+            .rebuild([
+                ReadyQueueEntry {
+                    job_id,
+                    task_id: TaskId::Index(1),
+                },
+                ReadyQueueEntry {
+                    job_id,
+                    task_id: TaskId::Index(1),
+                },
+                ReadyQueueEntry {
+                    job_id,
+                    task_id: TaskId::Commit,
+                },
+                ReadyQueueEntry {
+                    job_id,
+                    task_id: TaskId::Commit,
+                },
+            ])
+            .await
+            .expect("rebuild should succeed");
+
+        assert_eq!(
+            receiver.recv_tasks(10).await.expect("recv should succeed"),
+            vec![ReadyQueueEntry {
+                job_id,
+                task_id: TaskId::Index(1),
+            }]
+        );
+        assert_eq!(
+            receiver
+                .recv_commits(10)
+                .await
+                .expect("recv should succeed"),
+            vec![ReadyQueueEntry {
+                job_id,
+                task_id: TaskId::Commit,
             }]
         );
     }
