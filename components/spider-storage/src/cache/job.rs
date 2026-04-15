@@ -587,25 +587,6 @@ impl<
         drop(job);
         Ok(ready_queue_entries)
     }
-
-    /// Gets the ready queue entries for the job's current state.
-    ///
-    /// # Returns
-    ///
-    /// The ready queue entries implied by the current job state. Returns an empty vector when the
-    /// job is not in a schedulable state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::UndefinedCommitTask`] if the job is in [`JobState::CommitReady`] but has
-    ///   no commit task.
-    /// * [`InternalError::UndefinedCleanupTask`] if the job is in [`JobState::CleanupReady`] but
-    ///   has no cleanup task.
-    pub async fn snapshot_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
-        self.get_ready_queue_entries().await
-    }
 }
 
 /// The control block for a job.
