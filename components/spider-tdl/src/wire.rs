@@ -366,28 +366,23 @@ impl WireFrameBuilder {
     /// * [`WireError::InvalidFormat`] if the buffer is too small to contain the count header, or if
     ///   the declared field length extends past the end of the buffer.
     fn unframe_payloads(data: &[u8]) -> Result<Vec<Vec<u8>>, WireError> {
-        if data.len() < COUNT_HEADER_LEN {
-            return Err(WireError::InvalidFormat(
-                "buffer too small for the payload count header",
-            ));
-        }
-        let count_bytes: [u8; COUNT_HEADER_LEN] = data[..COUNT_HEADER_LEN]
-            .try_into()
-            .expect("slice length checked above");
-        let count = u32::from_le_bytes(count_bytes) as usize;
+        let count_bytes =
+            data.first_chunk::<COUNT_HEADER_LEN>()
+                .ok_or(WireError::InvalidFormat(
+                    "buffer too small for the payload count header",
+                ))?;
+        let count = u32::from_le_bytes(*count_bytes) as usize;
 
         let mut pos = COUNT_HEADER_LEN;
         let mut payloads = Vec::with_capacity(count);
         for _ in 0..count {
-            if pos + FIELD_LEN_PREFIX_LEN > data.len() {
-                return Err(WireError::InvalidFormat(
+            let len_bytes = data
+                .get(pos..)
+                .and_then(<[u8]>::first_chunk::<FIELD_LEN_PREFIX_LEN>)
+                .ok_or(WireError::InvalidFormat(
                     "unexpected end of buffer reading payload length",
-                ));
-            }
-            let len_bytes: [u8; FIELD_LEN_PREFIX_LEN] = data[pos..pos + FIELD_LEN_PREFIX_LEN]
-                .try_into()
-                .expect("slice length checked above");
-            let field_len = u32::from_le_bytes(len_bytes) as usize;
+                ))?;
+            let field_len = u32::from_le_bytes(*len_bytes) as usize;
             pos += FIELD_LEN_PREFIX_LEN;
 
             if pos + field_len > data.len() {
@@ -438,15 +433,12 @@ impl<'de> StreamDeserializer<'de> {
     ///
     /// * [`WireError::InvalidFormat`] if `data` is shorter than the 4-byte count header.
     fn new(data: &'de [u8]) -> Result<Self, WireError> {
-        if data.len() < COUNT_HEADER_LEN {
-            return Err(WireError::InvalidFormat(
-                "buffer too small for the payload count header",
-            ));
-        }
-        let count_bytes: [u8; COUNT_HEADER_LEN] = data[..COUNT_HEADER_LEN]
-            .try_into()
-            .expect("slice length checked above");
-        let count = u32::from_le_bytes(count_bytes) as usize;
+        let count_bytes =
+            data.first_chunk::<COUNT_HEADER_LEN>()
+                .ok_or(WireError::InvalidFormat(
+                    "buffer too small for the payload count header",
+                ))?;
+        let count = u32::from_le_bytes(*count_bytes) as usize;
         Ok(Self {
             data,
             pos: COUNT_HEADER_LEN,
@@ -475,16 +467,14 @@ impl<'de> StreamDeserializer<'de> {
     ///   * The buffer ends before the payload length prefix can be read.
     ///   * The declared payload length extends past the end of the buffer.
     fn next_field_bytes(&mut self) -> Result<&'de [u8], WireError> {
-        if self.pos + FIELD_LEN_PREFIX_LEN > self.data.len() {
-            return Err(WireError::InvalidFormat(
+        let len_bytes = self
+            .data
+            .get(self.pos..)
+            .and_then(<[u8]>::first_chunk::<FIELD_LEN_PREFIX_LEN>)
+            .ok_or(WireError::InvalidFormat(
                 "unexpected end of buffer reading payload length",
-            ));
-        }
-        let len_bytes: [u8; FIELD_LEN_PREFIX_LEN] = self.data
-            [self.pos..self.pos + FIELD_LEN_PREFIX_LEN]
-            .try_into()
-            .expect("slice length checked above");
-        let field_len = u32::from_le_bytes(len_bytes) as usize;
+            ))?;
+        let field_len = u32::from_le_bytes(*len_bytes) as usize;
         self.pos += FIELD_LEN_PREFIX_LEN;
 
         if self.pos + field_len > self.data.len() {
