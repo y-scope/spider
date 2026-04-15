@@ -535,13 +535,22 @@ impl<
         Ok(job.state)
     }
 
-    /// Snapshots the work items that are currently schedulable for this job.
+    /// Gets the ready queue entries for the job's current state.
+    ///
+    /// # Returns
+    ///
+    /// The ready queue entries implied by the current job state. Returns an empty vector when the
+    /// job is not in a schedulable state.
     ///
     /// # Errors
     ///
-    /// Returns an error if the job is in a termination-ready state without the corresponding
-    /// termination task definition.
-    pub async fn snapshot_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCommitTask`] if the job is in [`JobState::CommitReady`] but has
+    ///   no commit task.
+    /// * [`InternalError::UndefinedCleanupTask`] if the job is in
+    ///   [`JobState::CleanupReady`] but has no cleanup task.
+    pub async fn get_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
         let jcb = &self.inner;
         let job = jcb.job_execution_state.inner.read().await;
         let ready_queue_entries = match job.state {
@@ -577,6 +586,25 @@ impl<
         };
         drop(job);
         Ok(ready_queue_entries)
+    }
+
+    /// Gets the ready queue entries for the job's current state.
+    ///
+    /// # Returns
+    ///
+    /// The ready queue entries implied by the current job state. Returns an empty vector when the
+    /// job is not in a schedulable state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCommitTask`] if the job is in [`JobState::CommitReady`] but has
+    ///   no commit task.
+    /// * [`InternalError::UndefinedCleanupTask`] if the job is in
+    ///   [`JobState::CleanupReady`] but has no cleanup task.
+    pub async fn snapshot_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
+        self.get_ready_queue_entries().await
     }
 }
 
