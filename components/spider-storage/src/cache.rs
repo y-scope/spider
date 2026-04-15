@@ -7,6 +7,7 @@ mod sync;
 pub mod task;
 
 /// Identifier of a task inside a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskId {
     /// The index of the task in the job's task graph.
     Index(TaskIndex),

@@ -20,7 +20,7 @@ use crate::{
         task::TaskGraph,
     },
     db::InternalJobOrchestration,
-    ready_queue::ReadyQueueSender,
+    ready_queue::{ReadyQueueEntry, ReadyQueueSender},
     task_instance_pool::TaskInstancePoolConnector,
 };
 
@@ -533,6 +533,50 @@ impl<
             job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
         }
         Ok(job.state)
+    }
+
+    /// Snapshots the work items that are currently schedulable for this job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the job is in a termination-ready state without the corresponding
+    /// termination task definition.
+    pub async fn snapshot_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
+        let jcb = &self.inner;
+        let job = jcb.job_execution_state.inner.read().await;
+        let ready_queue_entries = match job.state {
+            JobState::Running => job
+                .task_graph
+                .get_all_ready_task_indices()
+                .await
+                .into_iter()
+                .map(|task_index| ReadyQueueEntry {
+                    job_id: jcb.id,
+                    task_id: TaskId::Index(task_index),
+                })
+                .collect(),
+            JobState::CommitReady => {
+                if !job.task_graph.has_commit_task() {
+                    return Err(InternalError::UndefinedCommitTask.into());
+                }
+                vec![ReadyQueueEntry {
+                    job_id: jcb.id,
+                    task_id: TaskId::Commit,
+                }]
+            }
+            JobState::CleanupReady => {
+                if !job.task_graph.has_cleanup_task() {
+                    return Err(InternalError::UndefinedCleanupTask.into());
+                }
+                vec![ReadyQueueEntry {
+                    job_id: jcb.id,
+                    task_id: TaskId::Cleanup,
+                }]
+            }
+            _ => Vec::new(),
+        };
+        drop(job);
+        Ok(ready_queue_entries)
     }
 }
 
