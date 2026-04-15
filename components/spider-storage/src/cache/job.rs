@@ -548,8 +548,8 @@ impl<
     ///
     /// * [`InternalError::UndefinedCommitTask`] if the job is in [`JobState::CommitReady`] but has
     ///   no commit task.
-    /// * [`InternalError::UndefinedCleanupTask`] if the job is in
-    ///   [`JobState::CleanupReady`] but has no cleanup task.
+    /// * [`InternalError::UndefinedCleanupTask`] if the job is in [`JobState::CleanupReady`] but
+    ///   has no cleanup task.
     pub async fn get_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
         let jcb = &self.inner;
         let job = jcb.job_execution_state.inner.read().await;
@@ -601,8 +601,8 @@ impl<
     ///
     /// * [`InternalError::UndefinedCommitTask`] if the job is in [`JobState::CommitReady`] but has
     ///   no commit task.
-    /// * [`InternalError::UndefinedCleanupTask`] if the job is in
-    ///   [`JobState::CleanupReady`] but has no cleanup task.
+    /// * [`InternalError::UndefinedCleanupTask`] if the job is in [`JobState::CleanupReady`] but
+    ///   has no cleanup task.
     pub async fn snapshot_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
         self.get_ready_queue_entries().await
     }

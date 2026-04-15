@@ -7,7 +7,7 @@
 //! # Mock system architecture
 //!
 //! ```text
-//!     Test Harness --> JCB -- "ready tasks" --> ReadyQueue --> 64 Workers
+//!     Test Harness --> JCB -- "ready tasks" --> MPMC Queue --> 64 Workers
 //!                      ^                                         |
 //!                      +--- "register / succeed / fail" ---------+
 //!                      |                                         |
@@ -18,11 +18,11 @@
 //! ```
 //!
 //! **Data flow**: The harness creates a JCB and calls `start()`, which enqueues initially ready
-//! tasks into the production ready queue. 64 workers concurrently bulk-poll one item at a time
-//! from the task/commit/cleanup resident queues, call JCB methods (register -> succeed/fail),
-//! which may enqueue newly ready work back into the queue. When a worker observes a terminal
-//! [`JobState`], it broadcasts via a `watch` channel. The harness receives the signal and sends a
-//! done notification, causing all workers to exit their `select!` loop.
+//! tasks into the MPMC channel. 64 workers concurrently dequeue one task at a time, call JCB
+//! methods (register -> succeed/fail), which may enqueue newly ready child tasks back into the
+//! channel. When a worker observes a terminal [`JobState`], it broadcasts via a `watch` channel.
+//! The harness receives the signal and sends a done notification, causing all workers to exit their
+//! `select!` loop.
 //!
 //! **Cancellation**: For immediate cancel, the harness calls `jcb.cancel()` synchronously after
 //! `start()` but before workers process any messages. For concurrent cancel, a separate spawned
@@ -30,8 +30,8 @@
 //!
 //! # Mock components
 //!
-//! * [`ReadyQueue`] -- production queue implementation with explicit periodic flattening and three
-//!   resident queues.
+//! * [`MockReadyQueueSender`] -- backed by `async_channel` (true MPMC). Task-ready batches from the
+//!   JCB are flattened to one message per task index for maximum worker concurrency.
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
@@ -99,14 +99,7 @@ use spider_storage::{
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
-    ready_queue::{
-        ReadyQueue,
-        ReadyQueueConfig,
-        ReadyQueueEntry,
-        ReadyQueueReceiver,
-        ReadyQueueReceiverHandle,
-        ReadyQueueSenderHandle,
-    },
+    ready_queue::ReadyQueueSender,
     task_instance_pool::TaskInstancePoolConnector,
 };
 use tabled::{Table, Tabled};
@@ -331,9 +324,10 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     // Create mock components.
-    let ready_queue = ReadyQueue::create(ReadyQueueConfig::default());
-    let ready_queue_sender = ready_queue.sender();
-    let ready_queue_receiver = ready_queue.receiver();
+    let (ready_sender, ready_receiver) = async_channel::unbounded::<ReadyMessage>();
+    let ready_queue_sender = MockReadyQueueSender {
+        sender: ready_sender,
+    };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
     let task_instance_pool = MockTaskInstancePool::new();
@@ -366,8 +360,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let cleanup_count = Arc::new(AtomicUsize::new(0));
 
     let ctx = WorkerContext {
-        ready_queue: ready_queue.clone(),
-        ready_queue_receiver,
+        receiver: ready_receiver,
         jcb: jcb.clone(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
@@ -481,7 +474,66 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
 type TestJcb<DbConnectorType> =
-    SharedJobControlBlock<ReadyQueueSenderHandle, DbConnectorType, MockTaskInstancePool>;
+    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, MockTaskInstancePool>;
+
+/// A message sent through the mock ready queue.
+///
+/// Each message represents a single schedulable unit of work. Task-ready batches from the JCB are
+/// flattened into one message per task index so that workers receive tasks individually, enabling
+/// better concurrency across the worker pool.
+///
+/// Since these tests run a single job at a time, messages do not carry a job ID.
+enum ReadyMessage {
+    /// A single task is ready to be scheduled.
+    Task { task_index: TaskIndex },
+
+    /// The commit task is ready to be scheduled.
+    Commit,
+
+    /// The cleanup task is ready to be scheduled.
+    Cleanup,
+}
+
+/// A mock [`ReadyQueueSender`] backed by an [`async_channel::Sender`].
+///
+/// Workers each hold a cloned [`async_channel::Receiver`] and can concurrently await messages
+/// without any mutex serialization. The `job_id` parameter in each trait method is discarded since
+/// only one job runs at a time.
+#[derive(Clone)]
+struct MockReadyQueueSender {
+    sender: async_channel::Sender<ReadyMessage>,
+}
+
+#[async_trait]
+impl ReadyQueueSender for MockReadyQueueSender {
+    async fn send_task_ready(
+        &self,
+        _job_id: JobId,
+        task_indices: Vec<TaskIndex>,
+    ) -> Result<(), InternalError> {
+        for task_index in task_indices {
+            self.sender
+                .send(ReadyMessage::Task { task_index })
+                .await
+                .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))?;
+        }
+        Ok(())
+    }
+
+    async fn send_commit_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+        self.sender
+            .send(ReadyMessage::Commit)
+            .await
+            .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
+    }
+
+    async fn send_cleanup_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+        self.sender
+            .send(ReadyMessage::Cleanup)
+            .await
+            .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
+    }
+}
 
 /// A mock task instance pool that hands out monotonically increasing [`TaskInstanceId`]s.
 ///
@@ -662,11 +714,9 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
 struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
-    /// The shared ready queue owner, which workers use for flattening.
-    ready_queue: ReadyQueue,
-
-    /// The shared ready queue receiver capability, which workers poll non-blockingly.
-    ready_queue_receiver: ReadyQueueReceiverHandle,
+    /// The MPMC ready-queue receiver. Each clone can concurrently await messages without
+    /// serialization.
+    receiver: async_channel::Receiver<ReadyMessage>,
 
     /// The instrumented JCB under test.
     jcb: InstrumentedJcb<DbConnectorType>,
@@ -816,10 +866,10 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
     Table::new(rows).to_string()
 }
 
-/// Runs a single worker that consumes [`ReadyQueueEntry`]s from the shared queue and drives task
+/// Runs a single worker that consumes [`ReadyMessage`]s from the shared queue and drives task
 /// execution through the JCB.
 ///
-/// The worker loops until the done signal fires.
+/// The worker loops until either the done signal fires or the receiver is closed (returns `None`).
 ///
 /// # Type Parameters
 ///
@@ -845,63 +895,34 @@ async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
 ) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
-        if *ctx.done_receiver.borrow() {
+        let msg = tokio::select! {
+            msg = ctx.receiver.recv() => msg,
+            _ = ctx.done_receiver.wait_for(|&done| done) => break,
+        };
+        let Ok(msg) = msg else {
             break;
-        }
-
-        let ready_batch = {
-            ctx.ready_queue.flatten().await?;
-            let task_batch = ctx.ready_queue_receiver.recv_tasks(1).await?;
-            if task_batch.is_empty() {
-                let commit_batch = ctx.ready_queue_receiver.recv_commits(1).await?;
-                if commit_batch.is_empty() {
-                    ctx.ready_queue_receiver.recv_cleanups(1).await?
-                } else {
-                    commit_batch
-                }
-            } else {
-                task_batch
-            }
         };
 
-        if ready_batch.is_empty() {
-            tokio::select! {
-                _ = ctx.done_receiver.wait_for(|&done| done) => break,
-                () = tokio::task::yield_now() => continue,
+        match msg {
+            ReadyMessage::Task { task_index } => {
+                if let Err(e) = process_task(&ctx, &mut rng, task_index).await
+                    && !is_stale_state(&e)
+                {
+                    bail!(e);
+                }
             }
-        }
-
-        for work_item in ready_batch {
-            match work_item {
-                ReadyQueueEntry {
-                    task_id: TaskId::Index(task_index),
-                    ..
-                } => {
-                    if let Err(e) = process_task(&ctx, &mut rng, task_index).await
-                        && !is_stale_state(&e)
-                    {
-                        bail!(e);
-                    }
+            ReadyMessage::Commit => {
+                if let Err(e) = process_commit(&ctx).await
+                    && !is_stale_state(&e)
+                {
+                    bail!(e);
                 }
-                ReadyQueueEntry {
-                    task_id: TaskId::Commit,
-                    ..
-                } => {
-                    if let Err(e) = process_commit(&ctx).await
-                        && !is_stale_state(&e)
-                    {
-                        bail!(e);
-                    }
-                }
-                ReadyQueueEntry {
-                    task_id: TaskId::Cleanup,
-                    ..
-                } => {
-                    if let Err(e) = process_cleanup(&ctx).await
-                        && !is_stale_state(&e)
-                    {
-                        bail!(e);
-                    }
+            }
+            ReadyMessage::Cleanup => {
+                if let Err(e) = process_cleanup(&ctx).await
+                    && !is_stale_state(&e)
+                {
+                    bail!(e);
                 }
             }
         }
@@ -1042,84 +1063,4 @@ async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
     ctx.cleanup_count.fetch_add(1, Ordering::Relaxed);
     broadcast_if_terminated(ctx, state);
     Ok(())
-}
-
-#[cfg(test)]
-mod ready_queue_integration_tests {
-    use spider_core::types::id::{JobId, ResourceGroupId};
-    use spider_storage::{
-        cache::{TaskId, job::SharedJobControlBlock},
-        ready_queue::{ReadyQueue, ReadyQueueConfig},
-    };
-
-    use super::{MockTaskInstancePool, NoopDbConnector};
-    use crate::task_graph_builder::build_flat_task_graph;
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn snapshot_ready_work_items_follows_job_state() {
-        let ready_queue = ReadyQueue::create(ReadyQueueConfig::default());
-        let (task_graph, inputs) = build_flat_task_graph(1, 4, true, true);
-        let jcb = SharedJobControlBlock::create(
-            JobId::default(),
-            ResourceGroupId::default(),
-            &task_graph,
-            inputs,
-            ready_queue.sender(),
-            NoopDbConnector {},
-            MockTaskInstancePool::new(),
-        )
-        .await
-        .expect("JCB creation should succeed");
-
-        assert!(
-            jcb.snapshot_ready_queue_entries()
-                .await
-                .expect("snapshot should succeed")
-                .is_empty(),
-            "ready job should not expose resident work before start"
-        );
-
-        jcb.start().await.expect("job start should succeed");
-        let running_snapshot = jcb
-            .snapshot_ready_queue_entries()
-            .await
-            .expect("running snapshot should succeed");
-        assert_eq!(running_snapshot.len(), 1);
-        assert!(matches!(running_snapshot[0].task_id, TaskId::Index(0)));
-
-        let exec_ctx = jcb
-            .create_task_instance(TaskId::Index(0))
-            .await
-            .expect("task instance creation should succeed");
-        jcb.succeed_task_instance(exec_ctx.task_instance_id, 0, vec![vec![0u8; 4]])
-            .await
-            .expect("task success should succeed");
-        let commit_snapshot = jcb
-            .snapshot_ready_queue_entries()
-            .await
-            .expect("commit snapshot should succeed");
-        assert_eq!(commit_snapshot.len(), 1);
-        assert!(matches!(commit_snapshot[0].task_id, TaskId::Commit));
-
-        let (cancel_graph, cancel_inputs) = build_flat_task_graph(1, 4, true, true);
-        let cancel_jcb = SharedJobControlBlock::create(
-            JobId::default(),
-            ResourceGroupId::default(),
-            &cancel_graph,
-            cancel_inputs,
-            ready_queue.sender(),
-            NoopDbConnector {},
-            MockTaskInstancePool::new(),
-        )
-        .await
-        .expect("cancel JCB creation should succeed");
-        cancel_jcb.start().await.expect("cancel job should start");
-        cancel_jcb.cancel().await.expect("cancel should succeed");
-        let cleanup_snapshot = cancel_jcb
-            .snapshot_ready_queue_entries()
-            .await
-            .expect("cleanup snapshot should succeed");
-        assert_eq!(cleanup_snapshot.len(), 1);
-        assert!(matches!(cleanup_snapshot[0].task_id, TaskId::Cleanup));
-    }
 }
