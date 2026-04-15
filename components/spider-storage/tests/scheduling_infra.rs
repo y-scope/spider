@@ -99,7 +99,14 @@ use spider_storage::{
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
-    ready_queue::{ReadyQueue, ReadyQueueConfig, ReadyQueueEntry, ReadyQueueSenderHandle},
+    ready_queue::{
+        ReadyQueue,
+        ReadyQueueConfig,
+        ReadyQueueEntry,
+        ReadyQueueReceiver,
+        ReadyQueueReceiverHandle,
+        ReadyQueueSenderHandle,
+    },
     task_instance_pool::TaskInstancePoolConnector,
 };
 use tabled::{Table, Tabled};
@@ -326,6 +333,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     // Create mock components.
     let ready_queue = ReadyQueue::create(ReadyQueueConfig::default());
     let ready_queue_sender = ready_queue.sender();
+    let ready_queue_receiver = ready_queue.receiver();
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
     let task_instance_pool = MockTaskInstancePool::new();
@@ -359,6 +367,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
 
     let ctx = WorkerContext {
         ready_queue: ready_queue.clone(),
+        ready_queue_receiver,
         jcb: jcb.clone(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
@@ -653,8 +662,11 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
 struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
-    /// The shared ready queue, which workers flatten and poll non-blockingly.
+    /// The shared ready queue owner, which workers use for flattening.
     ready_queue: ReadyQueue,
+
+    /// The shared ready queue receiver capability, which workers poll non-blockingly.
+    ready_queue_receiver: ReadyQueueReceiverHandle,
 
     /// The instrumented JCB under test.
     jcb: InstrumentedJcb<DbConnectorType>,
@@ -838,12 +850,12 @@ async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
         }
 
         let ready_batch = {
-            ctx.ready_queue.flatten();
-            let task_batch = ctx.ready_queue.recv_tasks(1);
+            ctx.ready_queue.flatten().await?;
+            let task_batch = ctx.ready_queue_receiver.recv_tasks(1).await?;
             if task_batch.is_empty() {
-                let commit_batch = ctx.ready_queue.recv_commits(1);
+                let commit_batch = ctx.ready_queue_receiver.recv_commits(1).await?;
                 if commit_batch.is_empty() {
-                    ctx.ready_queue.recv_cleanups(1)
+                    ctx.ready_queue_receiver.recv_cleanups(1).await?
                 } else {
                     commit_batch
                 }
