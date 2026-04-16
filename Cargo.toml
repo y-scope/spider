@@ -4,4 +4,5 @@ members = [
   "components/spider-core",
   "components/spider-derive",
   "components/spider-storage",
+  "components/spider-tdl",
 ]
