@@ -204,7 +204,7 @@ impl TaskOutputsSerializer {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`WireFrameBuilder::append_payload`]'s return values on failure.
+    /// * Forwards [`WireFrameBuilder::append_serialize`]'s return values on failure.
     pub fn append<ValueType: serde::Serialize>(
         &mut self,
         value: &ValueType,
