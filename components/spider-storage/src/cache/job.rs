@@ -1,13 +1,16 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::SystemTime,
 };
 
 use spider_core::{
     job::JobState,
     task::{TaskGraph as SubmittedTaskGraph, TaskIndex, TaskState},
     types::{
-        id::{JobId, ResourceGroupId, TaskInstanceId},
+        id::{JobId, ResourceGroupId, TaskInstanceId, WorkerId},
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
@@ -21,7 +24,7 @@ use crate::{
     },
     db::InternalJobOrchestration,
     ready_queue::ReadyQueueSender,
-    task_instance_pool::TaskInstancePoolConnector,
+    task_instance_pool::{TaskInstancePoolConnector, TaskInstanceRecord},
 };
 
 /// A shareable control block for a job.
@@ -160,6 +163,7 @@ impl<
     pub async fn create_task_instance(
         &self,
         task_id: TaskId,
+        worker_id: WorkerId,
     ) -> Result<ExecutionContext, CacheError> {
         let jcb = &self.inner;
         match task_id {
@@ -173,9 +177,22 @@ impl<
                     .task_instance_pool_connector
                     .get_next_available_task_instance_id();
                 let execution_context = tcb.register_task_instance(task_instance_id).await?;
-                job.task_instance_pool_connector
-                    .register_task_instance(task_instance_id, tcb)
-                    .await?;
+                let registration = TaskInstanceRecord {
+                    job_id: jcb.id,
+                    task_id: TaskId::Index(task_index),
+                    task_instance_id,
+                    worker_id,
+                    registered_at: SystemTime::now(),
+                    timeout_policy: execution_context.timeout_policy.clone(),
+                };
+                if let Err(error) = job
+                    .task_instance_pool_connector
+                    .register_task_instance(tcb.clone(), registration)
+                    .await
+                {
+                    let _ = tcb.force_remove_task_instance(task_instance_id).await;
+                    return Err(error.into());
+                }
 
                 // The lock is intentionally held until just before return so all TCB accesses
                 // observe a consistent state within the lock's scope.
@@ -194,9 +211,24 @@ impl<
                     .get_next_available_task_instance_id();
                 let (tdl_context, timeout_policy) =
                     commit_tcb.register_task_instance(task_instance_id).await?;
-                job.task_instance_pool_connector
-                    .register_termination_task_instance(task_instance_id, commit_tcb)
-                    .await?;
+                let registration = TaskInstanceRecord {
+                    job_id: jcb.id,
+                    task_id: TaskId::Commit,
+                    task_instance_id,
+                    worker_id,
+                    registered_at: SystemTime::now(),
+                    timeout_policy: timeout_policy.clone(),
+                };
+                if let Err(error) = job
+                    .task_instance_pool_connector
+                    .register_termination_task_instance(commit_tcb.clone(), registration)
+                    .await
+                {
+                    let _ = commit_tcb
+                        .force_remove_task_instance(task_instance_id)
+                        .await;
+                    return Err(error.into());
+                }
 
                 // The lock is intentionally held until just before return so all TCB accesses
                 // observe a consistent state within the lock's scope.
@@ -220,9 +252,24 @@ impl<
                     .get_next_available_task_instance_id();
                 let (tdl_context, timeout_policy) =
                     cleanup_tcb.register_task_instance(task_instance_id).await?;
-                job.task_instance_pool_connector
-                    .register_termination_task_instance(task_instance_id, cleanup_tcb)
-                    .await?;
+                let registration = TaskInstanceRecord {
+                    job_id: jcb.id,
+                    task_id: TaskId::Cleanup,
+                    task_instance_id,
+                    worker_id,
+                    registered_at: SystemTime::now(),
+                    timeout_policy: timeout_policy.clone(),
+                };
+                if let Err(error) = job
+                    .task_instance_pool_connector
+                    .register_termination_task_instance(cleanup_tcb.clone(), registration)
+                    .await
+                {
+                    let _ = cleanup_tcb
+                        .force_remove_task_instance(task_instance_id)
+                        .await;
+                    return Err(error.into());
+                }
 
                 // The lock is intentionally held until just before return so all TCB accesses
                 // observe a consistent state within the lock's scope.
@@ -274,6 +321,9 @@ impl<
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let job = jcb.job_execution_state.read_running().await?;
+        job.task_instance_pool_connector
+            .unregister_running_task_instance(task_instance_id)
+            .await?;
         let tcb = job
             .task_graph
             .get_task_control_block(task_index)
@@ -352,6 +402,9 @@ impl<
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_commit_ready().await?;
+        job.task_instance_pool_connector
+            .unregister_running_task_instance(task_instance_id)
+            .await?;
         job.task_graph
             .get_commit_task_control_block()
             .ok_or(InternalError::UndefinedCommitTask)?
@@ -387,6 +440,9 @@ impl<
     ) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_cleanup_ready().await?;
+        job.task_instance_pool_connector
+            .unregister_running_task_instance(task_instance_id)
+            .await?;
         job.task_graph
             .get_cleanup_task_control_block()
             .ok_or(InternalError::UndefinedCleanupTask)?
@@ -441,6 +497,9 @@ impl<
         match task_id {
             TaskId::Index(task_index) => {
                 let job = jcb.job_execution_state.read_running().await?;
+                job.task_instance_pool_connector
+                    .unregister_running_task_instance(task_instance_id)
+                    .await?;
                 let task_state = job
                     .task_graph
                     .get_task_control_block(task_index)
@@ -456,6 +515,9 @@ impl<
             }
             TaskId::Commit => {
                 let job = jcb.job_execution_state.read_commit_ready().await?;
+                job.task_instance_pool_connector
+                    .unregister_running_task_instance(task_instance_id)
+                    .await?;
                 let task_state = job
                     .task_graph
                     .get_commit_task_control_block()
@@ -469,6 +531,9 @@ impl<
             }
             TaskId::Cleanup => {
                 let job = jcb.job_execution_state.read_cleanup_ready().await?;
+                job.task_instance_pool_connector
+                    .unregister_running_task_instance(task_instance_id)
+                    .await?;
                 let task_state = job
                     .task_graph
                     .get_cleanup_task_control_block()
@@ -499,6 +564,60 @@ impl<
         job.state = JobState::Failed;
         drop(job);
         Ok(JobState::Failed)
+    }
+
+    /// Forcefully removes a task instance from the matching task control block.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the task instance was live and removed from the matching TCB, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskIndexOutOfBound`] if the task index is out of range.
+    /// * [`InternalError::UndefinedCommitTask`] if the job has no commit task.
+    /// * [`InternalError::UndefinedCleanupTask`] if the job has no cleanup task.
+    /// * Forwards the relevant job-state guard errors on failure.
+    pub async fn force_remove_task_instance(
+        &self,
+        task_instance_id: TaskInstanceId,
+        task_id: TaskId,
+    ) -> Result<bool, CacheError> {
+        let jcb = &self.inner;
+        match task_id {
+            TaskId::Index(task_index) => {
+                let job = jcb.job_execution_state.read_running().await?;
+                let removed = job
+                    .task_graph
+                    .get_task_control_block(task_index)
+                    .ok_or(InternalError::TaskIndexOutOfBound)?
+                    .force_remove_task_instance(task_instance_id)
+                    .await;
+                Ok(removed)
+            }
+            TaskId::Commit => {
+                let job = jcb.job_execution_state.read_commit_ready().await?;
+                let removed = job
+                    .task_graph
+                    .get_commit_task_control_block()
+                    .ok_or(InternalError::UndefinedCommitTask)?
+                    .force_remove_task_instance(task_instance_id)
+                    .await;
+                Ok(removed)
+            }
+            TaskId::Cleanup => {
+                let job = jcb.job_execution_state.read_cleanup_ready().await?;
+                let removed = job
+                    .task_graph
+                    .get_cleanup_task_control_block()
+                    .ok_or(InternalError::UndefinedCleanupTask)?
+                    .force_remove_task_instance(task_instance_id)
+                    .await;
+                Ok(removed)
+            }
+        }
     }
 
     /// Cancels the job and enqueues the cleanup task (if any).
@@ -907,5 +1026,407 @@ impl<
             return Err(StaleStateError::JobAlreadyStarted.into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    };
+
+    use async_trait::async_trait;
+    use spider_core::{
+        task::{
+            DataTypeDescriptor, ExecutionPolicy, TaskDescriptor, TaskGraph as SubmittedTaskGraph,
+            TdlContext, TerminationTaskDescriptor, ValueTypeDescriptor,
+        },
+        types::{
+            id::{ResourceGroupId, WorkerId},
+            io::TaskInput,
+        },
+    };
+
+    use super::*;
+    use crate::{db::DbError, task_instance_pool::TaskInstanceRecord};
+
+    #[derive(Clone, Default)]
+    struct NoopReadyQueueSender {}
+
+    #[async_trait]
+    impl ReadyQueueSender for NoopReadyQueueSender {
+        async fn send_task_ready(
+            &self,
+            _job_id: JobId,
+            _task_indices: Vec<TaskIndex>,
+        ) -> Result<(), InternalError> {
+            Ok(())
+        }
+
+        async fn send_commit_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+            Ok(())
+        }
+
+        async fn send_cleanup_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct NoopDbConnector {}
+
+    #[async_trait]
+    impl InternalJobOrchestration for NoopDbConnector {
+        async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        async fn commit_outputs(
+            &self,
+            _job_id: JobId,
+            _job_outputs: Vec<TaskOutput>,
+            _has_commit_task: bool,
+        ) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        async fn delete_expired_terminated_jobs(
+            &self,
+            _expire_after_sec: u64,
+        ) -> Result<Vec<JobId>, DbError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingTaskInstancePool {
+        next_id: Arc<AtomicU64>,
+        fail_next_registration: Arc<AtomicBool>,
+        registered: Arc<Mutex<Vec<TaskInstanceRecord>>>,
+        unregistered: Arc<Mutex<Vec<TaskInstanceId>>>,
+    }
+
+    impl RecordingTaskInstancePool {
+        fn fail_next_registration(&self) {
+            self.fail_next_registration.store(true, Ordering::Relaxed);
+        }
+
+        fn take_registered(&self) -> Vec<TaskInstanceRecord> {
+            std::mem::take(
+                &mut *self
+                    .registered
+                    .lock()
+                    .expect("registered mutex should not be poisoned"),
+            )
+        }
+
+        fn take_unregistered(&self) -> Vec<TaskInstanceId> {
+            std::mem::take(
+                &mut *self
+                    .unregistered
+                    .lock()
+                    .expect("unregistered mutex should not be poisoned"),
+            )
+        }
+    }
+
+    #[async_trait]
+    impl TaskInstancePoolConnector for RecordingTaskInstancePool {
+        fn get_next_available_task_instance_id(&self) -> TaskInstanceId {
+            self.next_id.fetch_add(1, Ordering::Relaxed) + 1
+        }
+
+        async fn register_task_instance(
+            &self,
+            _tcb: crate::cache::task::SharedTaskControlBlock,
+            registration: TaskInstanceRecord,
+        ) -> Result<(), InternalError> {
+            if self.fail_next_registration.swap(false, Ordering::Relaxed) {
+                return Err(InternalError::TaskInstancePoolCorrupted(
+                    "injected registration failure".to_owned(),
+                ));
+            }
+            self.registered
+                .lock()
+                .expect("registered mutex should not be poisoned")
+                .push(registration);
+            Ok(())
+        }
+
+        async fn register_termination_task_instance(
+            &self,
+            _termination_tcb: crate::cache::task::SharedTerminationTaskControlBlock,
+            registration: TaskInstanceRecord,
+        ) -> Result<(), InternalError> {
+            if self.fail_next_registration.swap(false, Ordering::Relaxed) {
+                return Err(InternalError::TaskInstancePoolCorrupted(
+                    "injected registration failure".to_owned(),
+                ));
+            }
+            self.registered
+                .lock()
+                .expect("registered mutex should not be poisoned")
+                .push(registration);
+            Ok(())
+        }
+
+        async fn unregister_running_task_instance(
+            &self,
+            task_instance_id: TaskInstanceId,
+        ) -> Result<(), InternalError> {
+            self.unregistered
+                .lock()
+                .expect("unregistered mutex should not be poisoned")
+                .push(task_instance_id);
+            Ok(())
+        }
+
+        async fn drain_worker_task_instances(
+            &self,
+            _worker_id: WorkerId,
+        ) -> Result<Vec<TaskInstanceRecord>, InternalError> {
+            Ok(Vec::new())
+        }
+    }
+
+    type TestJcb =
+        SharedJobControlBlock<NoopReadyQueueSender, NoopDbConnector, RecordingTaskInstancePool>;
+
+    fn build_task_graph(
+        with_commit: bool,
+        with_cleanup: bool,
+    ) -> (SubmittedTaskGraph, Vec<TaskInput>) {
+        let termination_execution_policy = Some(ExecutionPolicy::default());
+        let commit_task = with_commit.then(|| TerminationTaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: "commit_fn".to_owned(),
+            },
+            execution_policy: termination_execution_policy.clone(),
+        });
+        let cleanup_task = with_cleanup.then(|| TerminationTaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: "cleanup_fn".to_owned(),
+            },
+            execution_policy: termination_execution_policy,
+        });
+
+        let mut submitted = SubmittedTaskGraph::new(commit_task, cleanup_task)
+            .expect("task graph creation should succeed");
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        submitted
+            .insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "task_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+                inputs: vec![bytes_type.clone()],
+                outputs: vec![bytes_type],
+                input_sources: None,
+            })
+            .expect("task insertion should succeed");
+
+        (submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+    }
+
+    async fn create_started_jcb(
+        with_commit: bool,
+        with_cleanup: bool,
+    ) -> (TestJcb, RecordingTaskInstancePool) {
+        let (submitted_task_graph, inputs) = build_task_graph(with_commit, with_cleanup);
+        let pool = RecordingTaskInstancePool::default();
+        let jcb = SharedJobControlBlock::create(
+            JobId::default(),
+            ResourceGroupId::default(),
+            &submitted_task_graph,
+            inputs,
+            NoopReadyQueueSender::default(),
+            NoopDbConnector::default(),
+            pool.clone(),
+        )
+        .await
+        .expect("jcb creation should succeed");
+        jcb.start().await.expect("jcb start should succeed");
+        (jcb, pool)
+    }
+
+    #[tokio::test]
+    async fn create_task_instance_rolls_back_tcb_when_pool_registration_fails() {
+        let (submitted_task_graph, inputs) = build_task_graph(false, false);
+        let pool = RecordingTaskInstancePool::default();
+        pool.fail_next_registration();
+        let jcb = SharedJobControlBlock::create(
+            JobId::default(),
+            ResourceGroupId::default(),
+            &submitted_task_graph,
+            inputs,
+            NoopReadyQueueSender::default(),
+            NoopDbConnector::default(),
+            pool.clone(),
+        )
+        .await
+        .expect("jcb creation should succeed");
+        jcb.start().await.expect("jcb start should succeed");
+
+        let first_worker = WorkerId::new();
+        let error = jcb
+            .create_task_instance(TaskId::Index(0), first_worker)
+            .await
+            .expect_err("first registration should fail");
+        assert!(matches!(
+            error,
+            CacheError::Internal(InternalError::TaskInstancePoolCorrupted(_))
+        ));
+
+        let second_worker = WorkerId::new();
+        let execution_context = jcb
+            .create_task_instance(TaskId::Index(0), second_worker)
+            .await
+            .expect("second registration should succeed after rollback");
+        let registered = pool.take_registered();
+        assert_eq!(registered.len(), 1);
+        assert_eq!(registered[0].worker_id, second_worker);
+        assert_eq!(
+            registered[0].task_instance_id,
+            execution_context.task_instance_id
+        );
+    }
+
+    #[tokio::test]
+    async fn regular_success_unregisters_running_record() {
+        let (jcb, pool) = create_started_jcb(false, false).await;
+        let worker_id = WorkerId::new();
+        let execution_context = jcb
+            .create_task_instance(TaskId::Index(0), worker_id)
+            .await
+            .expect("task instance creation should succeed");
+
+        let state = jcb
+            .succeed_task_instance(execution_context.task_instance_id, 0, vec![vec![1u8; 4]])
+            .await
+            .expect("task success should succeed");
+
+        assert_eq!(state, JobState::Succeeded);
+        assert_eq!(
+            pool.take_unregistered(),
+            vec![execution_context.task_instance_id]
+        );
+    }
+
+    #[tokio::test]
+    async fn regular_failure_unregisters_running_record() {
+        let (jcb, pool) = create_started_jcb(false, false).await;
+        let worker_id = WorkerId::new();
+        let execution_context = jcb
+            .create_task_instance(TaskId::Index(0), worker_id)
+            .await
+            .expect("task instance creation should succeed");
+
+        let state = jcb
+            .fail_task_instance(
+                execution_context.task_instance_id,
+                TaskId::Index(0),
+                "failure".to_owned(),
+            )
+            .await
+            .expect("task failure should succeed");
+
+        assert_eq!(state, JobState::Failed);
+        assert_eq!(
+            pool.take_unregistered(),
+            vec![execution_context.task_instance_id]
+        );
+    }
+
+    #[tokio::test]
+    async fn termination_success_unregisters_running_record() {
+        let (commit_jcb, commit_pool) = create_started_jcb(true, false).await;
+        let worker_id = WorkerId::new();
+        let task_execution_context = commit_jcb
+            .create_task_instance(TaskId::Index(0), worker_id)
+            .await
+            .expect("task instance creation should succeed");
+        let state = commit_jcb
+            .succeed_task_instance(
+                task_execution_context.task_instance_id,
+                0,
+                vec![vec![1u8; 4]],
+            )
+            .await
+            .expect("task success should succeed");
+        assert_eq!(state, JobState::CommitReady);
+        let _ = commit_pool.take_unregistered();
+
+        let commit_execution_context = commit_jcb
+            .create_task_instance(TaskId::Commit, worker_id)
+            .await
+            .expect("commit task instance creation should succeed");
+        let state = commit_jcb
+            .succeed_commit_task_instance(commit_execution_context.task_instance_id)
+            .await
+            .expect("commit task success should succeed");
+        assert_eq!(state, JobState::Succeeded);
+        assert_eq!(
+            commit_pool.take_unregistered(),
+            vec![commit_execution_context.task_instance_id]
+        );
+
+        let (cleanup_jcb, cleanup_pool) = create_started_jcb(false, true).await;
+        let state = cleanup_jcb.cancel().await.expect("cancel should succeed");
+        assert_eq!(state, JobState::CleanupReady);
+
+        let cleanup_execution_context = cleanup_jcb
+            .create_task_instance(TaskId::Cleanup, worker_id)
+            .await
+            .expect("cleanup task instance creation should succeed");
+        let state = cleanup_jcb
+            .succeed_cleanup_task_instance(cleanup_execution_context.task_instance_id)
+            .await
+            .expect("cleanup task success should succeed");
+        assert_eq!(state, JobState::Cancelled);
+        assert_eq!(
+            cleanup_pool.take_unregistered(),
+            vec![cleanup_execution_context.task_instance_id]
+        );
+    }
+
+    #[tokio::test]
+    async fn force_remove_task_instance_rejects_stale_completion() {
+        let (jcb, _) = create_started_jcb(false, false).await;
+        let worker_id = WorkerId::new();
+        let execution_context = jcb
+            .create_task_instance(TaskId::Index(0), worker_id)
+            .await
+            .expect("task instance creation should succeed");
+
+        assert!(
+            jcb.force_remove_task_instance(execution_context.task_instance_id, TaskId::Index(0))
+                .await
+                .expect("force remove should succeed")
+        );
+
+        let error = jcb
+            .succeed_task_instance(execution_context.task_instance_id, 0, vec![vec![1u8; 4]])
+            .await
+            .expect_err("stale completion should be rejected");
+        assert!(matches!(
+            error,
+            CacheError::StaleState(StaleStateError::InvalidTaskInstanceId)
+        ));
     }
 }

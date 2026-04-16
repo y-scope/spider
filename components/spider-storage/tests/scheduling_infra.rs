@@ -35,7 +35,7 @@
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
-//! * [`MockTaskInstancePool`] -- atomic counter for ID allocation, no-op registration.
+//! * [`TaskInstancePool`] -- the in-memory running-instance pool used by storage.
 //!
 //! # Worker architecture
 //!
@@ -87,7 +87,7 @@ use spider_core::{
     job::JobState,
     task::{TaskGraph as SubmittedTaskGraph, TaskIndex},
     types::{
-        id::{JobId, ResourceGroupId, TaskInstanceId},
+        id::{JobId, ResourceGroupId, TaskInstanceId, WorkerId},
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
@@ -96,11 +96,10 @@ use spider_storage::{
         TaskId,
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
-        task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::ReadyQueueSender,
-    task_instance_pool::TaskInstancePoolConnector,
+    task_instance_pool::TaskInstancePool,
 };
 use tabled::{Table, Tabled};
 use tokio::sync::{mpsc, watch};
@@ -209,7 +208,8 @@ pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroup
 /// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
 /// use for the JCB.
 pub trait DbConnectorFactory<DbConnectorType: InternalJobOrchestration>:
-    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send {
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send
+{
 }
 
 impl<DbConnectorType: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<DbConnectorType>
@@ -330,7 +330,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
-    let task_instance_pool = MockTaskInstancePool::new();
+    let task_instance_pool = TaskInstancePool::new(ready_queue_sender.clone());
 
     // Create and start the JCB.
     let inner_jcb = SharedJobControlBlock::create(
@@ -362,6 +362,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let ctx = WorkerContext {
         receiver: ready_receiver,
         jcb: jcb.clone(),
+        worker_id: WorkerId::new(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
         seen_tasks: Arc::new(DashMap::new()),
@@ -375,7 +376,8 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     // Spawn workers.
     let mut join_set = tokio::task::JoinSet::new();
     for _ in 0..NUM_WORKERS {
-        let worker_ctx = ctx.clone();
+        let mut worker_ctx = ctx.clone();
+        worker_ctx.worker_id = WorkerId::new();
         join_set.spawn(async move { run_worker(worker_ctx).await });
     }
 
@@ -473,8 +475,11 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
-type TestJcb<DbConnectorType> =
-    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, MockTaskInstancePool>;
+type TestJcb<DbConnectorType> = SharedJobControlBlock<
+    MockReadyQueueSender,
+    DbConnectorType,
+    TaskInstancePool<MockReadyQueueSender>,
+>;
 
 /// A message sent through the mock ready queue.
 ///
@@ -535,46 +540,6 @@ impl ReadyQueueSender for MockReadyQueueSender {
     }
 }
 
-/// A mock task instance pool that hands out monotonically increasing [`TaskInstanceId`]s.
-///
-/// Registration calls are no-ops — the pool does not track which instances are registered.
-#[derive(Clone)]
-struct MockTaskInstancePool {
-    next_id: Arc<std::sync::atomic::AtomicU64>,
-}
-
-impl MockTaskInstancePool {
-    /// Creates a new pool with IDs starting at 1.
-    fn new() -> Self {
-        Self {
-            next_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
-        }
-    }
-}
-
-#[async_trait]
-impl TaskInstancePoolConnector for MockTaskInstancePool {
-    fn get_next_available_task_instance_id(&self) -> TaskInstanceId {
-        self.next_id.fetch_add(1, Ordering::Relaxed)
-    }
-
-    async fn register_task_instance(
-        &self,
-        _task_instance_id: TaskInstanceId,
-        _tcb: SharedTaskControlBlock,
-    ) -> Result<(), InternalError> {
-        Ok(())
-    }
-
-    async fn register_termination_task_instance(
-        &self,
-        _task_instance_id: TaskInstanceId,
-        _termination_tcb: SharedTerminationTaskControlBlock,
-    ) -> Result<(), InternalError> {
-        Ok(())
-    }
-}
-
 /// Thin wrapper around [`TestJcb`] that optionally records latency samples for each JCB
 /// operation. When `instrument_sender` is `None`, calls are forwarded without any timing
 /// overhead.
@@ -590,17 +555,21 @@ struct InstrumentedJcb<DbConnectorType: InternalJobOrchestration> {
 
 impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType> {
     /// Wraps [`SharedJobControlBlock::create_task_instance`] with optional latency recording.
-    async fn create_task_instance(&self, task_id: TaskId) -> Result<ExecutionContext, CacheError> {
+    async fn create_task_instance(
+        &self,
+        task_id: TaskId,
+        worker_id: WorkerId,
+    ) -> Result<ExecutionContext, CacheError> {
         if let Some(sender) = &self.instrument_sender {
             let start = Instant::now();
-            let result = self.jcb.create_task_instance(task_id).await;
+            let result = self.jcb.create_task_instance(task_id, worker_id).await;
             let _ = sender.send(InstrumentSample::Registration {
                 elapsed: start.elapsed(),
                 ok: result.is_ok(),
             });
             result
         } else {
-            self.jcb.create_task_instance(task_id).await
+            self.jcb.create_task_instance(task_id, worker_id).await
         }
     }
 
@@ -720,6 +689,9 @@ struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
 
     /// The instrumented JCB under test.
     jcb: InstrumentedJcb<DbConnectorType>,
+
+    /// Stable worker identity used when registering task instances.
+    worker_id: WorkerId,
 
     /// Watch channel sender — workers send the terminal [`JobState`] when observed.
     terminal_state_sender: watch::Sender<Option<JobState>>,
@@ -951,7 +923,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
     if ctx.always_fail {
         let exec_ctx = ctx
             .jcb
-            .create_task_instance(TaskId::Index(task_index))
+            .create_task_instance(TaskId::Index(task_index), ctx.worker_id)
             .await?;
         let state = ctx
             .jcb
@@ -971,9 +943,12 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
         let handles: Vec<_> = (0..2)
             .map(|_| {
                 let jcb = ctx.jcb.clone();
+                let worker_id = ctx.worker_id;
                 let terminal_sender = ctx.terminal_state_sender.clone();
                 tokio::spawn(async move {
-                    let exec_ctx = jcb.create_task_instance(TaskId::Index(task_index)).await?;
+                    let exec_ctx = jcb
+                        .create_task_instance(TaskId::Index(task_index), worker_id)
+                        .await?;
                     let state = jcb
                         .fail_task_instance(
                             exec_ctx.task_instance_id,
@@ -1003,7 +978,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 
     let exec_ctx = ctx
         .jcb
-        .create_task_instance(TaskId::Index(task_index))
+        .create_task_instance(TaskId::Index(task_index), ctx.worker_id)
         .await?;
     let outputs = (ctx.output_handler)(&exec_ctx);
     let state = ctx
@@ -1030,7 +1005,10 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 async fn process_commit<DbConnectorType: InternalJobOrchestration>(
     ctx: &WorkerContext<DbConnectorType>,
 ) -> Result<(), CacheError> {
-    let exec_ctx = ctx.jcb.create_task_instance(TaskId::Commit).await?;
+    let exec_ctx = ctx
+        .jcb
+        .create_task_instance(TaskId::Commit, ctx.worker_id)
+        .await?;
     let state = ctx
         .jcb
         .succeed_commit_task_instance(exec_ctx.task_instance_id)
@@ -1055,7 +1033,10 @@ async fn process_commit<DbConnectorType: InternalJobOrchestration>(
 async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
     ctx: &WorkerContext<DbConnectorType>,
 ) -> Result<(), CacheError> {
-    let exec_ctx = ctx.jcb.create_task_instance(TaskId::Cleanup).await?;
+    let exec_ctx = ctx
+        .jcb
+        .create_task_instance(TaskId::Cleanup, ctx.worker_id)
+        .await?;
     let state = ctx
         .jcb
         .succeed_cleanup_task_instance(exec_ctx.task_instance_id)
