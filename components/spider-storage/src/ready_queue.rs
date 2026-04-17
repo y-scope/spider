@@ -1,3 +1,11 @@
+//! In-memory ready queue for schedulable tasks.
+//!
+//! The queue is split into three independent lanes: regular tasks, commit tasks, and cleanup
+//! tasks. Each lane has a bounded ingress channel plus a resident deduplicating queue. A
+//! dedicated flusher task forwards channel messages into resident state, while the resident queue
+//! exposes writer, resetter, and receiver interfaces for blocking writes, snapshot rebuilds, and
+//! blocking receives.
+
 use std::{
     collections::{HashSet, VecDeque},
     sync::Arc,
@@ -9,18 +17,6 @@ use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::cache::{TaskId, error::InternalError};
 
-/// Default resident ready-task queue capacity.
-const DEFAULT_TASK_READY_CAPACITY: usize = 65_536;
-
-/// Default resident commit-task queue capacity.
-const DEFAULT_COMMIT_READY_CAPACITY: usize = 1024;
-
-/// Default resident cleanup-task queue capacity.
-const DEFAULT_CLEANUP_READY_CAPACITY: usize = 1024;
-
-/// Default ingress queue capacity.
-const DEFAULT_INGRESS_CAPACITY: usize = DEFAULT_TASK_READY_CAPACITY;
-
 /// A ready queue entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReadyQueueEntry {
@@ -31,10 +27,47 @@ pub struct ReadyQueueEntry {
 /// Configuration of a ready queue.
 #[derive(Debug, Clone, Copy)]
 pub struct ReadyQueueConfig {
+    /// The capacity of each ingress channel. Must be greater than zero.
     pub ingress_capacity: usize,
+    /// The resident capacity of the task lane. Must be greater than zero.
     pub task_ready_capacity: usize,
+    /// The resident capacity of the commit lane. Must be greater than zero.
     pub commit_ready_capacity: usize,
+    /// The resident capacity of the cleanup lane. Must be greater than zero.
     pub cleanup_ready_capacity: usize,
+}
+
+impl Default for ReadyQueueConfig {
+    fn default() -> Self {
+        Self {
+            ingress_capacity: DEFAULT_INGRESS_CAPACITY,
+            task_ready_capacity: DEFAULT_TASK_READY_CAPACITY,
+            commit_ready_capacity: DEFAULT_COMMIT_READY_CAPACITY,
+            cleanup_ready_capacity: DEFAULT_CLEANUP_READY_CAPACITY,
+        }
+    }
+}
+
+impl ReadyQueueConfig {
+    /// Panics if any configured capacity is zero.
+    fn assert_valid(self) {
+        assert!(
+            self.ingress_capacity > 0,
+            "ready queue ingress_capacity must be > 0"
+        );
+        assert!(
+            self.task_ready_capacity > 0,
+            "ready queue task_ready_capacity must be > 0"
+        );
+        assert!(
+            self.commit_ready_capacity > 0,
+            "ready queue commit_ready_capacity must be > 0"
+        );
+        assert!(
+            self.cleanup_ready_capacity > 0,
+            "ready queue cleanup_ready_capacity must be > 0"
+        );
+    }
 }
 
 /// A shareable ready-queue sender.
@@ -167,46 +200,22 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     /// # Returns
     ///
     /// The number of resident regular task entries.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
-    async fn num_tasks(&self) -> Result<usize, InternalError>;
+    async fn num_tasks(&self) -> usize;
 
     /// # Returns
     ///
     /// The number of resident commit entries.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
-    async fn num_commits(&self) -> Result<usize, InternalError>;
+    async fn num_commits(&self) -> usize;
 
     /// # Returns
     ///
     /// The number of resident cleanup entries.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
-    async fn num_cleanups(&self) -> Result<usize, InternalError>;
+    async fn num_cleanups(&self) -> usize;
 
     /// # Returns
     ///
     /// The total number of resident entries across all queues.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
-    async fn total_len(&self) -> Result<usize, InternalError>;
+    async fn num_all(&self) -> usize;
 }
 
 /// Connector for rebuilding resident ready-queue state from a snapshot.
@@ -232,16 +241,17 @@ pub struct ReadyQueue {
     inner: Arc<ReadyQueueInner>,
 }
 
-impl Default for ReadyQueueConfig {
-    fn default() -> Self {
-        Self {
-            ingress_capacity: DEFAULT_INGRESS_CAPACITY,
-            task_ready_capacity: DEFAULT_TASK_READY_CAPACITY,
-            commit_ready_capacity: DEFAULT_COMMIT_READY_CAPACITY,
-            cleanup_ready_capacity: DEFAULT_CLEANUP_READY_CAPACITY,
-        }
-    }
-}
+/// Default resident ready-task queue capacity.
+const DEFAULT_TASK_READY_CAPACITY: usize = 65_536;
+
+/// Default resident commit-task queue capacity.
+const DEFAULT_COMMIT_READY_CAPACITY: usize = 1024;
+
+/// Default resident cleanup-task queue capacity.
+const DEFAULT_CLEANUP_READY_CAPACITY: usize = 1024;
+
+/// Default ingress queue capacity.
+const DEFAULT_INGRESS_CAPACITY: usize = DEFAULT_TASK_READY_CAPACITY;
 
 #[async_trait]
 impl ReadyQueueSender for ReadyQueueSenderHandle {
@@ -292,6 +302,7 @@ impl ReadyQueue {
     /// The created ready queue.
     #[must_use]
     pub fn create(config: ReadyQueueConfig, runtime_handle: &tokio::runtime::Handle) -> Self {
+        config.assert_valid();
         let task_queue = ResidentQueue::new(config.task_ready_capacity);
         let commit_queue = ResidentQueue::new(config.commit_ready_capacity);
         let cleanup_queue = ResidentQueue::new(config.cleanup_ready_capacity);
@@ -387,20 +398,20 @@ impl ReadyQueueReceiver for ReadyQueueReceiverHandle {
         self.inner.recv_cleanups(max_items).await
     }
 
-    async fn num_tasks(&self) -> Result<usize, InternalError> {
+    async fn num_tasks(&self) -> usize {
         self.inner.num_tasks().await
     }
 
-    async fn num_commits(&self) -> Result<usize, InternalError> {
+    async fn num_commits(&self) -> usize {
         self.inner.num_commits().await
     }
 
-    async fn num_cleanups(&self) -> Result<usize, InternalError> {
+    async fn num_cleanups(&self) -> usize {
         self.inner.num_cleanups().await
     }
 
-    async fn total_len(&self) -> Result<usize, InternalError> {
-        self.inner.total_len().await
+    async fn num_all(&self) -> usize {
+        self.inner.num_all().await
     }
 }
 
@@ -556,23 +567,23 @@ impl ReadyQueueInner {
     }
 
     /// Returns the resident task-queue length.
-    async fn num_tasks(&self) -> Result<usize, InternalError> {
-        Ok(self.task_queue.receiver.len().await)
+    async fn num_tasks(&self) -> usize {
+        self.task_queue.receiver.len().await
     }
 
     /// Returns the resident commit-queue length.
-    async fn num_commits(&self) -> Result<usize, InternalError> {
-        Ok(self.commit_queue.receiver.len().await)
+    async fn num_commits(&self) -> usize {
+        self.commit_queue.receiver.len().await
     }
 
     /// Returns the resident cleanup-queue length.
-    async fn num_cleanups(&self) -> Result<usize, InternalError> {
-        Ok(self.cleanup_queue.receiver.len().await)
+    async fn num_cleanups(&self) -> usize {
+        self.cleanup_queue.receiver.len().await
     }
 
     /// Returns the combined resident length across all queues.
-    async fn total_len(&self) -> Result<usize, InternalError> {
-        Ok(self.num_tasks().await? + self.num_commits().await? + self.num_cleanups().await?)
+    async fn num_all(&self) -> usize {
+        self.num_tasks().await + self.num_commits().await + self.num_cleanups().await
     }
 
     /// Replaces resident queue contents from a rebuilt snapshot while preserving channel backlog.
@@ -804,7 +815,7 @@ mod tests {
     async fn wait_for_task_resident_len(receiver: &ReadyQueueReceiverHandle, expected_len: usize) {
         timeout(Duration::from_millis(100), async {
             loop {
-                if receiver.num_tasks().await.expect("count should succeed") == expected_len {
+                if receiver.num_tasks().await == expected_len {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -840,6 +851,20 @@ mod tests {
                     task_id: TaskId::Index(3),
                 },
             ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[should_panic(expected = "ready queue ingress_capacity must be > 0")]
+    async fn create_rejects_zero_capacity_config() {
+        let _ = ReadyQueue::create(
+            ReadyQueueConfig {
+                ingress_capacity: 0,
+                task_ready_capacity: 1,
+                commit_ready_capacity: 1,
+                cleanup_ready_capacity: 1,
+            },
+            &tokio::runtime::Handle::current(),
         );
     }
 
@@ -970,12 +995,9 @@ mod tests {
 
         let task_batch = receiver.recv_tasks(1).await.expect("recv should succeed");
         assert_eq!(task_batch.len(), 1);
-        assert_eq!(receiver.num_tasks().await.expect("count should succeed"), 1);
-        assert_eq!(
-            receiver.num_commits().await.expect("count should succeed"),
-            1
-        );
-        assert_eq!(receiver.total_len().await.expect("count should succeed"), 2);
+        assert_eq!(receiver.num_tasks().await, 1);
+        assert_eq!(receiver.num_commits().await, 1);
+        assert_eq!(receiver.num_all().await, 2);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1291,7 +1313,7 @@ mod tests {
             .expect("first commit send should succeed");
         timeout(Duration::from_millis(100), async {
             loop {
-                if receiver.num_commits().await.expect("count should succeed") == 1 {
+                if receiver.num_commits().await == 1 {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -1379,7 +1401,7 @@ mod tests {
             .expect("first cleanup send should succeed");
         timeout(Duration::from_millis(100), async {
             loop {
-                if receiver.num_cleanups().await.expect("count should succeed") == 1 {
+                if receiver.num_cleanups().await == 1 {
                     break;
                 }
                 tokio::task::yield_now().await;

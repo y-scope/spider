@@ -552,39 +552,47 @@ impl<
     ///   has no cleanup task.
     pub async fn get_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
         let jcb = &self.inner;
-        let job = jcb.job_execution_state.inner.read().await;
-        let ready_queue_entries = match job.state {
-            JobState::Running => job
-                .task_graph
-                .get_all_ready_task_indices()
-                .await
-                .into_iter()
-                .map(|task_index| ReadyQueueEntry {
-                    job_id: jcb.id,
-                    task_id: TaskId::Index(task_index),
-                })
-                .collect(),
-            JobState::CommitReady => {
-                if !job.task_graph.has_commit_task() {
-                    return Err(InternalError::UndefinedCommitTask.into());
+        let ready_queue_entries = {
+            // This method needs to inspect every schedulable and non-schedulable job state, so it
+            // reads the raw state guard directly instead of using JobExecutionStateHandle helpers
+            // that enforce a narrower state invariant.
+            let job = jcb.job_execution_state.inner.read().await;
+            let ready_queue_entries = match job.state {
+                JobState::Running => job
+                    .task_graph
+                    .get_all_ready_task_indices()
+                    .await
+                    .into_iter()
+                    .map(|task_index| ReadyQueueEntry {
+                        job_id: jcb.id,
+                        task_id: TaskId::Index(task_index),
+                    })
+                    .collect(),
+                JobState::CommitReady => {
+                    if !job.task_graph.has_commit_task() {
+                        return Err(InternalError::UndefinedCommitTask.into());
+                    }
+                    vec![ReadyQueueEntry {
+                        job_id: jcb.id,
+                        task_id: TaskId::Commit,
+                    }]
                 }
-                vec![ReadyQueueEntry {
-                    job_id: jcb.id,
-                    task_id: TaskId::Commit,
-                }]
-            }
-            JobState::CleanupReady => {
-                if !job.task_graph.has_cleanup_task() {
-                    return Err(InternalError::UndefinedCleanupTask.into());
+                JobState::CleanupReady => {
+                    if !job.task_graph.has_cleanup_task() {
+                        return Err(InternalError::UndefinedCleanupTask.into());
+                    }
+                    vec![ReadyQueueEntry {
+                        job_id: jcb.id,
+                        task_id: TaskId::Cleanup,
+                    }]
                 }
-                vec![ReadyQueueEntry {
-                    job_id: jcb.id,
-                    task_id: TaskId::Cleanup,
-                }]
-            }
-            _ => Vec::new(),
+                _ => Vec::new(),
+            };
+            // Drop the read guard before returning so callers do not retain the job-state lock
+            // longer than the entry snapshot derivation requires.
+            drop(job);
+            ready_queue_entries
         };
-        drop(job);
         Ok(ready_queue_entries)
     }
 }
