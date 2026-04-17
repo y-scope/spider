@@ -23,6 +23,10 @@ use crate::{
     ready_queue::ReadyQueueSender,
 };
 
+/// Metadata for one running task instance tracked by the task instance pool.
+///
+/// This record carries the information needed to re-enqueue soft-timed-out work and to remove all
+/// live task instances associated with a worker during recovery.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskInstanceRecord {
     pub job_id: JobId,
@@ -31,185 +35,6 @@ pub struct TaskInstanceRecord {
     pub worker_id: WorkerId,
     pub registered_at: SystemTime,
     pub timeout_policy: TimeoutPolicy,
-}
-
-#[allow(dead_code)]
-#[derive(Clone)]
-enum TaskControlBlockHandle {
-    Regular(SharedTaskControlBlock),
-    Termination(SharedTerminationTaskControlBlock),
-}
-
-#[allow(dead_code)]
-#[derive(Clone)]
-struct RunningTaskInstanceEntry {
-    record: TaskInstanceRecord,
-    task_control_block: TaskControlBlockHandle,
-    gc_processed: bool,
-}
-
-struct TaskInstancePoolState {
-    running_task_instances: HashMap<TaskInstanceId, RunningTaskInstanceEntry>,
-    worker_task_instances: HashMap<WorkerId, HashSet<TaskInstanceId>>,
-}
-
-impl TaskInstancePoolState {
-    fn new() -> Self {
-        Self {
-            running_task_instances: HashMap::new(),
-            worker_task_instances: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct TaskInstancePool<ReadyQueueSenderType: ReadyQueueSender> {
-    ready_queue_sender: ReadyQueueSenderType,
-    next_task_instance_id: Arc<AtomicU64>,
-    state: Arc<Mutex<TaskInstancePoolState>>,
-}
-
-impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
-    #[must_use]
-    pub fn new(ready_queue_sender: ReadyQueueSenderType) -> Self {
-        Self {
-            ready_queue_sender,
-            next_task_instance_id: Arc::new(AtomicU64::new(1)),
-            state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
-        }
-    }
-
-    /// Runs one soft-timeout GC cycle using the current wall-clock time as the evaluation time.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if timed-out task re-enqueueing fails.
-    pub async fn run_gc_cycle(&self) -> Result<(), InternalError> {
-        self.run_gc_cycle_at(SystemTime::now()).await
-    }
-
-    pub(crate) async fn run_gc_cycle_at(
-        &self,
-        gc_started_at: SystemTime,
-    ) -> Result<(), InternalError> {
-        let timed_out = {
-            let mut state = self
-                .state
-                .lock()
-                .expect("task instance pool mutex should not be poisoned");
-
-            state
-                .running_task_instances
-                .values_mut()
-                .filter_map(|entry| {
-                    let soft_timeout_deadline =
-                        entry
-                            .record
-                            .registered_at
-                            .checked_add(Duration::from_millis(
-                                entry.record.timeout_policy.soft_timeout_ms,
-                            ))?;
-                    if !entry.gc_processed && soft_timeout_deadline <= gc_started_at {
-                        entry.gc_processed = true;
-                        return Some(entry.record.clone());
-                    }
-                    None
-                })
-                .collect::<Vec<_>>()
-        };
-
-        for record in timed_out {
-            if let Err(error) = self.reenqueue_task(record.clone()).await {
-                self.set_gc_processed(record.task_instance_id, false);
-                return Err(error);
-            }
-        }
-        Ok(())
-    }
-
-    fn set_gc_processed(&self, task_instance_id: TaskInstanceId, gc_processed: bool) {
-        let mut state = self
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        if let Some(entry) = state.running_task_instances.get_mut(&task_instance_id) {
-            entry.gc_processed = gc_processed;
-        }
-    }
-
-    fn register_running_task_instance(
-        &self,
-        task_control_block: TaskControlBlockHandle,
-        record: TaskInstanceRecord,
-    ) -> Result<(), InternalError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        let task_instance_id = record.task_instance_id;
-        let worker_id = record.worker_id;
-        if state.running_task_instances.contains_key(&task_instance_id) {
-            return Err(InternalError::TaskInstancePoolCorrupted(format!(
-                "task instance {task_instance_id} already registered"
-            )));
-        }
-        state.running_task_instances.insert(
-            task_instance_id,
-            RunningTaskInstanceEntry {
-                record,
-                task_control_block,
-                gc_processed: false,
-            },
-        );
-        state
-            .worker_task_instances
-            .entry(worker_id)
-            .or_default()
-            .insert(task_instance_id);
-        drop(state);
-        Ok(())
-    }
-
-    fn unregister_running_task_instance_inner(
-        &self,
-        task_instance_id: TaskInstanceId,
-    ) -> Option<RunningTaskInstanceEntry> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        let entry = state.running_task_instances.remove(&task_instance_id)?;
-        if let Some(worker_task_instances) =
-            state.worker_task_instances.get_mut(&entry.record.worker_id)
-        {
-            worker_task_instances.remove(&task_instance_id);
-            if worker_task_instances.is_empty() {
-                state.worker_task_instances.remove(&entry.record.worker_id);
-            }
-        }
-        drop(state);
-        Some(entry)
-    }
-
-    async fn reenqueue_task(&self, record: TaskInstanceRecord) -> Result<(), InternalError> {
-        match record.task_id {
-            TaskId::Index(task_index) => {
-                self.ready_queue_sender
-                    .send_task_ready(record.job_id, vec![task_index])
-                    .await
-            }
-            TaskId::Commit => {
-                self.ready_queue_sender
-                    .send_commit_ready(record.job_id)
-                    .await
-            }
-            TaskId::Cleanup => {
-                self.ready_queue_sender
-                    .send_cleanup_ready(record.job_id)
-                    .await
-            }
-        }
-    }
 }
 
 /// Connector for creating and registering task instances in the task instance pool.
@@ -273,10 +98,230 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ) -> Result<(), InternalError>;
 
     /// Removes and returns all live task instances associated with the given worker.
+    ///
+    /// The returned task-instance records are no longer tracked by the pool after this call. If
+    /// the worker has no live task instances, an empty vector is returned.
     async fn drain_worker_task_instances(
         &self,
         worker_id: WorkerId,
     ) -> Result<Vec<TaskInstanceRecord>, InternalError>;
+}
+
+/// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
+#[derive(Clone)]
+pub struct TaskInstancePool<ReadyQueueSenderType: ReadyQueueSender> {
+    ready_queue_sender: ReadyQueueSenderType,
+    next_task_instance_id: Arc<AtomicU64>,
+    state: Arc<Mutex<TaskInstancePoolState>>,
+}
+
+impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The created [`TaskInstancePool`].
+    #[must_use]
+    pub fn new(ready_queue_sender: ReadyQueueSenderType) -> Self {
+        Self {
+            ready_queue_sender,
+            next_task_instance_id: Arc::new(AtomicU64::new(1)),
+            state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
+        }
+    }
+
+    /// Runs one soft-timeout GC cycle using the current wall-clock time as the evaluation time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if timed-out task re-enqueueing fails.
+    pub async fn run_gc_cycle(&self) -> Result<(), InternalError> {
+        self.run_gc_cycle_at(SystemTime::now()).await
+    }
+}
+
+/// A running task-instance entry tracked by the task instance pool.
+///
+/// This entry combines the externally visible [`TaskInstanceRecord`] with the internal GC
+/// bookkeeping state.
+#[derive(Clone)]
+struct RunningTaskInstanceEntry {
+    record: TaskInstanceRecord,
+    gc_processed: bool,
+}
+
+/// The mutable state held by the task instance pool.
+///
+/// This state maintains one index by task-instance ID for direct lookup and one index by worker ID
+/// for dead-worker recovery.
+struct TaskInstancePoolState {
+    running_task_instances: HashMap<TaskInstanceId, RunningTaskInstanceEntry>,
+    worker_task_instances: HashMap<WorkerId, HashSet<TaskInstanceId>>,
+}
+
+impl TaskInstancePoolState {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The created [`TaskInstancePoolState`].
+    fn new() -> Self {
+        Self {
+            running_task_instances: HashMap::new(),
+            worker_task_instances: HashMap::new(),
+        }
+    }
+}
+
+impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
+    /// Runs one soft-timeout GC cycle using the given wall-clock time as the evaluation time.
+    ///
+    /// Each running task instance is re-enqueued at most once per registration unless the
+    /// re-enqueue operation fails, in which case the GC bookkeeping is rolled back so a later cycle
+    /// can retry it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError`] if timed-out task re-enqueueing fails.
+    async fn run_gc_cycle_at(&self, gc_started_at: SystemTime) -> Result<(), InternalError> {
+        let timed_out = {
+            let mut state = self
+                .state
+                .lock()
+                .expect("task instance pool mutex should not be poisoned");
+
+            state
+                .running_task_instances
+                .values_mut()
+                .filter_map(|entry| {
+                    let soft_timeout_deadline =
+                        entry
+                            .record
+                            .registered_at
+                            .checked_add(Duration::from_millis(
+                                entry.record.timeout_policy.soft_timeout_ms,
+                            ))?;
+                    if !entry.gc_processed && soft_timeout_deadline <= gc_started_at {
+                        entry.gc_processed = true;
+                        return Some(entry.record.clone());
+                    }
+                    None
+                })
+                .collect::<Vec<_>>()
+        };
+
+        for record in timed_out {
+            if let Err(error) = self.re_enqueue_task(record.clone()).await {
+                self.set_gc_processed(record.task_instance_id, false);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Updates the per-entry GC bookkeeping flag if the entry is still tracked by the pool.
+    fn set_gc_processed(&self, task_instance_id: TaskInstanceId, gc_processed: bool) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        if let Some(entry) = state.running_task_instances.get_mut(&task_instance_id) {
+            entry.gc_processed = gc_processed;
+        }
+    }
+
+    /// Registers a running task instance in both task-instance and worker indexes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance ID is already tracked.
+    fn register_running_task_instance(
+        &self,
+        record: TaskInstanceRecord,
+    ) -> Result<(), InternalError> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        let task_instance_id = record.task_instance_id;
+        let worker_id = record.worker_id;
+        if state.running_task_instances.contains_key(&task_instance_id) {
+            return Err(InternalError::TaskInstancePoolCorrupted(format!(
+                "task instance {task_instance_id} already registered"
+            )));
+        }
+        state.running_task_instances.insert(
+            task_instance_id,
+            RunningTaskInstanceEntry {
+                record,
+                gc_processed: false,
+            },
+        );
+        state
+            .worker_task_instances
+            .entry(worker_id)
+            .or_default()
+            .insert(task_instance_id);
+        drop(state);
+        Ok(())
+    }
+
+    /// Unregisters a running task instance from both indexes.
+    ///
+    /// # Returns
+    ///
+    /// The removed [`RunningTaskInstanceEntry`] if the task instance was tracked, `None` otherwise.
+    fn unregister_running_task_instance_inner(
+        &self,
+        task_instance_id: TaskInstanceId,
+    ) -> Option<RunningTaskInstanceEntry> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        let entry = state.running_task_instances.remove(&task_instance_id)?;
+        if let Some(worker_task_instances) =
+            state.worker_task_instances.get_mut(&entry.record.worker_id)
+        {
+            worker_task_instances.remove(&task_instance_id);
+            if worker_task_instances.is_empty() {
+                state.worker_task_instances.remove(&entry.record.worker_id);
+            }
+        }
+        drop(state);
+        Some(entry)
+    }
+
+    /// Re-enqueues the task corresponding to the given running-record metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError`] if sending the corresponding ready-queue event fails.
+    async fn re_enqueue_task(&self, record: TaskInstanceRecord) -> Result<(), InternalError> {
+        match record.task_id {
+            TaskId::Index(task_index) => {
+                self.ready_queue_sender
+                    .send_task_ready(record.job_id, vec![task_index])
+                    .await
+            }
+            TaskId::Commit => {
+                self.ready_queue_sender
+                    .send_commit_ready(record.job_id)
+                    .await
+            }
+            TaskId::Cleanup => {
+                self.ready_queue_sender
+                    .send_cleanup_ready(record.job_id)
+                    .await
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -289,21 +334,18 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePoolConnector
 
     async fn register_task_instance(
         &self,
-        tcb: SharedTaskControlBlock,
+        _tcb: SharedTaskControlBlock,
         registration: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(TaskControlBlockHandle::Regular(tcb), registration)
+        self.register_running_task_instance(registration)
     }
 
     async fn register_termination_task_instance(
         &self,
-        termination_tcb: SharedTerminationTaskControlBlock,
+        _termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(
-            TaskControlBlockHandle::Termination(termination_tcb),
-            registration,
-        )
+        self.register_running_task_instance(registration)
     }
 
     async fn unregister_running_task_instance(
