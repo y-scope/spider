@@ -472,7 +472,12 @@ impl ReadyQueueInner {
             };
 
             if self
-                .send_ingress_message(ready_entry, &self.ingress_senders.tasks, DrainScope::Tasks)
+                .send_ingress_message(
+                    ready_entry,
+                    &self.ingress_senders.tasks,
+                    DrainScope::Tasks,
+                    "task",
+                )
                 .await
                 .is_err()
             {
@@ -516,13 +521,8 @@ impl ReadyQueueInner {
             ),
         };
 
-        self.send_ingress_message(ready_entry, ingress_sender, drain_scope)
+        self.send_ingress_message(ready_entry, ingress_sender, drain_scope, ingress_queue_name)
             .await
-            .map_err(|()| {
-                InternalError::ReadyQueueSendFailure(format!(
-                    "{ingress_queue_name} ready queue ingress is closed"
-                ))
-            })
     }
 
     /// Sends one message to an ingress queue.
@@ -540,41 +540,66 @@ impl ReadyQueueInner {
     ///
     /// # Errors
     ///
-    /// Returns `Err(())` if the ingress channel is closed.
+    /// Returns [`InternalError::ReadyQueueSendFailure`] if the ingress channel is closed.
     async fn send_ingress_message<Message>(
         self: &Arc<Self>,
         message: Message,
         ingress_sender: &mpsc::Sender<Message>,
         drain_scope: DrainScope,
-    ) -> Result<(), ()>
+        ingress_queue_name: &str,
+    ) -> Result<(), InternalError>
     where
         Message: Send, {
-        let message = match ingress_sender.try_send(message) {
-            Ok(()) => {
-                self.after_successful_enqueue(ingress_sender, drain_scope)
-                    .await;
-                return Ok(());
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => return Err(()),
-            Err(mpsc::error::TrySendError::Full(message)) => message,
+        let Some(message) =
+            Self::try_send_ingress_message(message, ingress_sender, ingress_queue_name)?
+        else {
+            self.after_successful_enqueue(ingress_sender, drain_scope)
+                .await;
+            return Ok(());
         };
 
         let _ = self.poll_inline(drain_scope).await;
 
-        let message = match ingress_sender.try_send(message) {
-            Ok(()) => {
-                self.after_successful_enqueue(ingress_sender, drain_scope)
-                    .await;
-                return Ok(());
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => return Err(()),
-            Err(mpsc::error::TrySendError::Full(message)) => message,
+        let Some(message) =
+            Self::try_send_ingress_message(message, ingress_sender, ingress_queue_name)?
+        else {
+            self.after_successful_enqueue(ingress_sender, drain_scope)
+                .await;
+            return Ok(());
         };
 
-        ingress_sender.send(message).await.map_err(|_| ())?;
+        ingress_sender.send(message).await.map_err(|_| {
+            InternalError::ReadyQueueSendFailure(format!(
+                "{ingress_queue_name} ready queue ingress is closed"
+            ))
+        })?;
         self.after_successful_enqueue(ingress_sender, drain_scope)
             .await;
         Ok(())
+    }
+
+    /// Attempts one non-blocking ingress enqueue.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(None)` if the enqueue succeeds immediately.
+    /// * `Ok(Some(message))` if the ingress channel is full and the caller should retry or await.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InternalError::ReadyQueueSendFailure`] if the ingress channel is closed.
+    fn try_send_ingress_message<Message>(
+        message: Message,
+        ingress_sender: &mpsc::Sender<Message>,
+        ingress_queue_name: &str,
+    ) -> Result<Option<Message>, InternalError> {
+        match ingress_sender.try_send(message) {
+            Ok(()) => Ok(None),
+            Err(mpsc::error::TrySendError::Full(message)) => Ok(Some(message)),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(InternalError::ReadyQueueSendFailure(
+                format!("{ingress_queue_name} ready queue ingress is closed"),
+            )),
+        }
     }
 
     /// Completes post-enqueue work after a successful ingress send.
