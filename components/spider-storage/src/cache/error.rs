@@ -65,8 +65,20 @@ pub enum InternalError {
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 
-    #[error("failed to send to the ready queue: {0}")]
-    ReadyQueueSendFailure(String),
+    #[error("ready queue config field `{field}` must be > 0")]
+    ReadyQueueInvalidConfig { field: &'static str },
+
+    #[error("ready queue {lane} ingress channel is closed")]
+    ReadyQueueIngressClosed { lane: crate::ready_queue::QueueType },
+
+    #[error("regular tasks must use send_task_ready")]
+    ReadyQueueInvalidTaskType,
+
+    #[error("ready queue rebuild exceeds resident capacity {capacity}")]
+    ReadyQueueCapacityExceeded { capacity: usize },
+
+    #[error("resident queue invariant violated")]
+    ReadyQueueCorrupted,
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

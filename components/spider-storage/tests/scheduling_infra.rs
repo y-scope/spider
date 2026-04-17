@@ -516,7 +516,9 @@ impl ReadyQueueSender for MockReadyQueueSender {
             self.sender
                 .send(ReadyMessage::Task { task_index })
                 .await
-                .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))?;
+                .map_err(|_| InternalError::ReadyQueueIngressClosed {
+                    lane: spider_storage::ready_queue::QueueType::Task,
+                })?;
         }
         Ok(())
     }
@@ -526,10 +528,11 @@ impl ReadyQueueSender for MockReadyQueueSender {
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
     ) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Commit)
-            .await
-            .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
+        self.sender.send(ReadyMessage::Commit).await.map_err(|_| {
+            InternalError::ReadyQueueIngressClosed {
+                lane: spider_storage::ready_queue::QueueType::Commit,
+            }
+        })
     }
 
     async fn send_cleanup_ready(
@@ -537,10 +540,11 @@ impl ReadyQueueSender for MockReadyQueueSender {
         _resource_group_id: ResourceGroupId,
         _job_id: JobId,
     ) -> Result<(), InternalError> {
-        self.sender
-            .send(ReadyMessage::Cleanup)
-            .await
-            .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
+        self.sender.send(ReadyMessage::Cleanup).await.map_err(|_| {
+            InternalError::ReadyQueueIngressClosed {
+                lane: spider_storage::ready_queue::QueueType::Cleanup,
+            }
+        })
     }
 }
 

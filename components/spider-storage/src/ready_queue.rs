@@ -20,6 +20,27 @@ use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::cache::{TaskId, error::InternalError};
 
+/// Identifies a ready-queue type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueType {
+    /// Regular task lane.
+    Task,
+    /// Commit-task lane.
+    Commit,
+    /// Cleanup-task lane.
+    Cleanup,
+}
+
+impl std::fmt::Display for QueueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Task => write!(f, "task"),
+            Self::Commit => write!(f, "commit"),
+            Self::Cleanup => write!(f, "cleanup"),
+        }
+    }
+}
+
 /// A ready queue entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReadyQueueEntry {
@@ -56,7 +77,7 @@ impl Default for ReadyQueueConfig {
 }
 
 impl ReadyQueueConfig {
-    fn validate(self) -> Result<(), InternalError> {
+    const fn validate(self) -> Result<(), InternalError> {
         let field = if self.ingress_capacity == 0 {
             Some("ingress_capacity")
         } else if self.task_ready_capacity == 0 {
@@ -69,9 +90,7 @@ impl ReadyQueueConfig {
             None
         };
         if let Some(field) = field {
-            return Err(InternalError::ReadyQueueSendFailure(format!(
-                "ready queue {field} must be > 0"
-            )));
+            return Err(InternalError::ReadyQueueInvalidConfig { field });
         }
         Ok(())
     }
@@ -112,7 +131,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the tasks fail to be sent to the ready queue.
+    /// * [`InternalError::ReadyQueueIngressClosed`] if the task ingress channel is closed.
     async fn send_task_ready(
         &self,
         resource_group_id: ResourceGroupId,
@@ -132,7 +151,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the message fails to be sent to the ready queue.
+    /// * [`InternalError::ReadyQueueIngressClosed`] if the commit ingress channel is closed.
     async fn send_commit_ready(
         &self,
         resource_group_id: ResourceGroupId,
@@ -151,7 +170,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the message fails to be sent to the ready queue.
+    /// * [`InternalError::ReadyQueueIngressClosed`] if the cleanup ingress channel is closed.
     async fn send_cleanup_ready(
         &self,
         resource_group_id: ResourceGroupId,
@@ -177,7 +196,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
+    /// * [`InternalError::ReadyQueueCorrupted`] if the resident queue invariant is violated.
     async fn recv_tasks(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 
     /// Receives a batch of commit task entries.
@@ -195,7 +214,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
+    /// * [`InternalError::ReadyQueueCorrupted`] if the resident queue invariant is violated.
     async fn recv_commits(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 
     /// Receives a batch of cleanup task entries.
@@ -213,7 +232,7 @@ pub trait ReadyQueueReceiver: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the ready queue is corrupted or unavailable.
+    /// * [`InternalError::ReadyQueueCorrupted`] if the resident queue invariant is violated.
     async fn recv_cleanups(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError>;
 
     /// # Returns
@@ -247,8 +266,10 @@ pub trait ReadyQueueResetter: Clone + Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns [`InternalError::ReadyQueueSendFailure`] if the rebuilt snapshot exceeds resident
-    /// queue capacity.
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueCapacityExceeded`] if the rebuilt snapshot exceeds resident
+    ///   queue capacity.
     async fn rebuild<I>(&self, entries: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = ReadyQueueEntry> + Send;
@@ -335,7 +356,7 @@ impl ReadyQueue {
     ///
     /// # Errors
     ///
-    /// Returns [`InternalError::ReadyQueueSendFailure`] if any configured capacity is zero.
+    /// * [`InternalError::ReadyQueueInvalidConfig`] if any configured capacity is zero.
     pub fn create(
         config: ReadyQueueConfig,
         runtime_handle: &tokio::runtime::Handle,
@@ -414,8 +435,8 @@ impl ReadyQueue {
     ///
     /// # Errors
     ///
-    /// Returns [`InternalError::ReadyQueueSendFailure`] if the rebuilt snapshot exceeds resident
-    /// queue capacity.
+    /// * [`InternalError::ReadyQueueCapacityExceeded`] if the rebuilt snapshot exceeds resident
+    ///   queue capacity.
     pub async fn rebuild<I>(&self, entries: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = ReadyQueueEntry> + Send, {
@@ -497,21 +518,26 @@ struct ResidentQueue {
     receiver: ResidentQueueReceiverHandleInner,
 }
 
+/// Write interface for a resident deduplicating queue.
 #[derive(Clone)]
 struct ResidentQueueWriter {
     inner: Arc<ResidentQueueInner>,
 }
 
+/// Reset interface for rebuilding a resident deduplicating queue.
 #[derive(Clone)]
 struct ResidentQueueResetter {
     inner: Arc<ResidentQueueInner>,
 }
 
+/// Receive interface for consuming from a resident deduplicating queue.
 #[derive(Clone)]
 struct ResidentQueueReceiverHandleInner {
     inner: Arc<ResidentQueueInner>,
 }
 
+/// Shared state of a single resident lane: a mutex-protected deduplicating queue plus `Notify`
+/// primitives for blocking writers and receivers.
 struct ResidentQueueInner {
     state: Mutex<ResidentQueueState>,
     receiver_notify: Notify,
@@ -564,6 +590,12 @@ impl ReadyQueueInner {
     }
 
     /// Enqueues one task-ready batch without unpacking it at the channel boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueIngressClosed`] if the task ingress channel is closed.
     async fn send_task_ready_batch(
         &self,
         resource_group_id: ResourceGroupId,
@@ -577,46 +609,65 @@ impl ReadyQueueInner {
                 task_indices,
             })
             .await
-            .map_err(|_| {
-                InternalError::ReadyQueueSendFailure(
-                    "task ready queue ingress is closed".to_owned(),
-                )
+            .map_err(|_| InternalError::ReadyQueueIngressClosed {
+                lane: QueueType::Task,
             })
     }
 
     /// Enqueues a commit-ready or cleanup-ready signal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueInvalidTaskType`] if the entry contains a regular task index.
+    /// * [`InternalError::ReadyQueueIngressClosed`] if the matching ingress channel is closed.
     async fn send_termination_ready(
         &self,
         ready_entry: ReadyQueueEntry,
     ) -> Result<(), InternalError> {
-        let (ingress_queue_name, ingress_sender) = match ready_entry.task_id {
-            TaskId::Index(_) => {
-                return Err(InternalError::ReadyQueueSendFailure(
-                    "regular tasks must be sent through send_task_ready".to_owned(),
-                ));
-            }
-            TaskId::Commit => ("commit", &self.commit_sender),
-            TaskId::Cleanup => ("cleanup", &self.cleanup_sender),
+        let result = match ready_entry.task_id {
+            TaskId::Index(_) => return Err(InternalError::ReadyQueueInvalidTaskType),
+            TaskId::Commit => self.commit_sender.send(ready_entry).await,
+            TaskId::Cleanup => self.cleanup_sender.send(ready_entry).await,
         };
-
-        ingress_sender.send(ready_entry).await.map_err(|_| {
-            InternalError::ReadyQueueSendFailure(format!(
-                "{ingress_queue_name} ready queue ingress is closed"
-            ))
-        })
+        let lane = match ready_entry.task_id {
+            TaskId::Commit => QueueType::Commit,
+            TaskId::Cleanup => QueueType::Cleanup,
+            TaskId::Index(_) => unreachable!(),
+        };
+        result.map_err(|_| InternalError::ReadyQueueIngressClosed { lane })
     }
 
     /// Receives regular task entries from the resident queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// Forwards [`ResidentQueueReceiverHandleInner::recv`]'s return values on failure.
     async fn recv_tasks(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         self.task_queue.receiver.recv(max_items).await
     }
 
     /// Receives commit entries from the resident queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// Forwards [`ResidentQueueReceiverHandleInner::recv`]'s return values on failure.
     async fn recv_commits(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         self.commit_queue.receiver.recv(max_items).await
     }
 
     /// Receives cleanup entries from the resident queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// Forwards [`ResidentQueueReceiverHandleInner::recv`]'s return values on failure.
     async fn recv_cleanups(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         self.cleanup_queue.receiver.recv(max_items).await
     }
@@ -642,6 +693,13 @@ impl ReadyQueueInner {
     }
 
     /// Replaces resident queue contents from a rebuilt snapshot while preserving channel backlog.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueCapacityExceeded`] if the rebuilt snapshot exceeds any lane's
+    ///   resident capacity.
     async fn rebuild<I>(&self, entries: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = ReadyQueueEntry>, {
@@ -724,6 +782,12 @@ impl ResidentQueueWriter {
 
 impl ResidentQueueResetter {
     /// Replaces resident contents from a rebuilt snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// Forwards [`ResidentQueueState::push_for_rebuild`]'s return values on failure.
     async fn reset<I>(&self, entries: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = ReadyQueueEntry>, {
@@ -746,6 +810,17 @@ impl ResidentQueueResetter {
 
 impl ResidentQueueReceiverHandleInner {
     /// Receives up to `max_items` entries, blocking until resident data is available.
+    ///
+    /// # Returns
+    ///
+    /// A batch of up to `max_items` entries. Returns an empty vector when `max_items == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueCorrupted`] if the resident queue invariant is violated during
+    ///   [`ResidentQueueState::pop_bulk`].
     async fn recv(&self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         if max_items == 0 {
             return Ok(Vec::new());
@@ -788,6 +863,12 @@ impl ResidentQueueState {
     }
 
     /// Attempts to append an entry to the resident queue.
+    ///
+    /// # Returns
+    ///
+    /// * [`EnqueueResult::Enqueued`] if the entry was appended.
+    /// * [`EnqueueResult::Duplicate`] if the entry already exists.
+    /// * [`EnqueueResult::Full`] if the queue is at capacity.
     fn try_push(&mut self, ready_entry: ReadyQueueEntry) -> EnqueueResult {
         if self.entry_set.contains(&ready_entry) {
             return EnqueueResult::Duplicate;
@@ -802,25 +883,38 @@ impl ResidentQueueState {
     }
 
     /// Appends an entry during rebuild.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueCapacityExceeded`] if the queue is at capacity.
     fn push_for_rebuild(&mut self, ready_entry: ReadyQueueEntry) -> Result<(), InternalError> {
         match self.try_push(ready_entry) {
             EnqueueResult::Enqueued | EnqueueResult::Duplicate => Ok(()),
-            EnqueueResult::Full => Err(InternalError::ReadyQueueSendFailure(format!(
-                "ready queue rebuild exceeds capacity {}",
-                self.capacity
-            ))),
+            EnqueueResult::Full => Err(InternalError::ReadyQueueCapacityExceeded {
+                capacity: self.capacity,
+            }),
         }
     }
 
     /// Pops up to `max_items` entries from the resident queue.
+    ///
+    /// # Returns
+    ///
+    /// A vector of popped entries in FIFO order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::ReadyQueueCorrupted`] if the entry deque and dedup set fall out of sync.
     fn pop_bulk(&mut self, max_items: usize) -> Result<Vec<ReadyQueueEntry>, InternalError> {
         let num_entries = max_items.min(self.entries.len());
         let mut ready_entries = Vec::with_capacity(num_entries);
         for _ in 0..num_entries {
             let Some(ready_entry) = self.entries.pop_front() else {
-                return Err(InternalError::ReadyQueueSendFailure(
-                    "resident queue is corrupted".to_owned(),
-                ));
+                return Err(InternalError::ReadyQueueCorrupted);
             };
             self.entry_set.remove(&ready_entry);
             ready_entries.push(ready_entry);
