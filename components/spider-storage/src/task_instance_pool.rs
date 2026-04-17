@@ -45,20 +45,19 @@ enum TaskControlBlockHandle {
 struct RunningTaskInstanceEntry {
     record: TaskInstanceRecord,
     task_control_block: TaskControlBlockHandle,
+    gc_processed: bool,
 }
 
 struct TaskInstancePoolState {
     running_task_instances: HashMap<TaskInstanceId, RunningTaskInstanceEntry>,
     worker_task_instances: HashMap<WorkerId, HashSet<TaskInstanceId>>,
-    previous_gc_cycle_start: SystemTime,
 }
 
 impl TaskInstancePoolState {
-    fn new(previous_gc_cycle_start: SystemTime) -> Self {
+    fn new() -> Self {
         Self {
             running_task_instances: HashMap::new(),
             worker_task_instances: HashMap::new(),
-            previous_gc_cycle_start,
         }
     }
 }
@@ -73,23 +72,14 @@ pub struct TaskInstancePool<ReadyQueueSenderType: ReadyQueueSender> {
 impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
     #[must_use]
     pub fn new(ready_queue_sender: ReadyQueueSenderType) -> Self {
-        Self::new_with_gc_window_start(ready_queue_sender, SystemTime::now())
-    }
-
-    fn new_with_gc_window_start(
-        ready_queue_sender: ReadyQueueSenderType,
-        previous_gc_cycle_start: SystemTime,
-    ) -> Self {
         Self {
             ready_queue_sender,
             next_task_instance_id: Arc::new(AtomicU64::new(1)),
-            state: Arc::new(Mutex::new(TaskInstancePoolState::new(
-                previous_gc_cycle_start,
-            ))),
+            state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
         }
     }
 
-    /// Runs one soft-timeout GC cycle using the current wall-clock time as the end of the window.
+    /// Runs one soft-timeout GC cycle using the current wall-clock time as the evaluation time.
     ///
     /// # Errors
     ///
@@ -100,19 +90,17 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
 
     pub(crate) async fn run_gc_cycle_at(
         &self,
-        current_gc_cycle_start: SystemTime,
+        gc_started_at: SystemTime,
     ) -> Result<(), InternalError> {
-        let timed_out_entries = {
+        let timed_out = {
             let mut state = self
                 .state
                 .lock()
                 .expect("task instance pool mutex should not be poisoned");
-            let previous_gc_cycle_start = state.previous_gc_cycle_start;
-            state.previous_gc_cycle_start = current_gc_cycle_start;
 
             state
                 .running_task_instances
-                .values()
+                .values_mut()
                 .filter_map(|entry| {
                     let soft_timeout_deadline =
                         entry
@@ -121,34 +109,32 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                             .checked_add(Duration::from_millis(
                                 entry.record.timeout_policy.soft_timeout_ms,
                             ))?;
-                    if previous_gc_cycle_start < soft_timeout_deadline
-                        && soft_timeout_deadline <= current_gc_cycle_start
-                    {
-                        return Some(entry.clone());
+                    if !entry.gc_processed && soft_timeout_deadline <= gc_started_at {
+                        entry.gc_processed = true;
+                        return Some(entry.record.clone());
                     }
                     None
                 })
                 .collect::<Vec<_>>()
         };
 
-        for entry in timed_out_entries {
-            self.handle_timed_out_task_instance(entry).await?;
+        for record in timed_out {
+            if let Err(error) = self.reenqueue_task(record.clone()).await {
+                self.set_gc_processed(record.task_instance_id, false);
+                return Err(error);
+            }
         }
         Ok(())
     }
 
-    async fn handle_timed_out_task_instance(
-        &self,
-        entry: RunningTaskInstanceEntry,
-    ) -> Result<(), InternalError> {
-        if entry
-            .task_control_block
-            .force_remove_task_instance(entry.record.task_instance_id)
-            .await
-        {
-            self.reenqueue_task(entry.record).await?;
+    fn set_gc_processed(&self, task_instance_id: TaskInstanceId, gc_processed: bool) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        if let Some(entry) = state.running_task_instances.get_mut(&task_instance_id) {
+            entry.gc_processed = gc_processed;
         }
-        Ok(())
     }
 
     fn register_running_task_instance(
@@ -172,6 +158,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
             RunningTaskInstanceEntry {
                 record,
                 task_control_block,
+                gc_processed: false,
             },
         );
         state
@@ -221,15 +208,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                     .send_cleanup_ready(record.job_id)
                     .await
             }
-        }
-    }
-}
-
-impl TaskControlBlockHandle {
-    async fn force_remove_task_instance(&self, task_instance_id: TaskInstanceId) -> bool {
-        match self {
-            Self::Regular(tcb) => tcb.force_remove_task_instance(task_instance_id).await,
-            Self::Termination(tcb) => tcb.force_remove_task_instance(task_instance_id).await,
         }
     }
 }
@@ -382,6 +360,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::cache::error::{CacheError, StaleStateError};
 
     #[derive(Debug, PartialEq, Eq)]
     enum ReadyMessage {
@@ -413,6 +392,68 @@ mod tests {
             job_id: JobId,
             task_indices: Vec<usize>,
         ) -> Result<(), InternalError> {
+            for task_index in task_indices {
+                self.sent_messages
+                    .lock()
+                    .expect("ready queue mutex should not be poisoned")
+                    .push(ReadyMessage::Task(job_id, task_index));
+            }
+            Ok(())
+        }
+
+        async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
+            self.sent_messages
+                .lock()
+                .expect("ready queue mutex should not be poisoned")
+                .push(ReadyMessage::Commit(job_id));
+            Ok(())
+        }
+
+        async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
+            self.sent_messages
+                .lock()
+                .expect("ready queue mutex should not be poisoned")
+                .push(ReadyMessage::Cleanup(job_id));
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct FlakyReadyQueueSender {
+        fail_task_ready_once: Arc<Mutex<bool>>,
+        sent_messages: Arc<Mutex<Vec<ReadyMessage>>>,
+    }
+
+    impl FlakyReadyQueueSender {
+        fn take_messages(&self) -> Vec<ReadyMessage> {
+            std::mem::take(
+                &mut *self
+                    .sent_messages
+                    .lock()
+                    .expect("ready queue mutex should not be poisoned"),
+            )
+        }
+    }
+
+    #[async_trait]
+    impl ReadyQueueSender for FlakyReadyQueueSender {
+        async fn send_task_ready(
+            &self,
+            job_id: JobId,
+            task_indices: Vec<usize>,
+        ) -> Result<(), InternalError> {
+            let mut fail_task_ready_once = self
+                .fail_task_ready_once
+                .lock()
+                .expect("ready queue mutex should not be poisoned");
+            if *fail_task_ready_once {
+                *fail_task_ready_once = false;
+                return Err(InternalError::ReadyQueueSendFailure(
+                    "injected failure".to_owned(),
+                ));
+            }
+            drop(fail_task_ready_once);
+
             for task_index in task_indices {
                 self.sent_messages
                     .lock()
@@ -577,16 +618,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn soft_timeout_reenqueues_exactly_once_and_clears_tcb_instance() {
+    async fn soft_timeout_reenqueues_exactly_once_and_keeps_original_instance_live() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let initial_gc_window_start = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
-        let pool = TaskInstancePool::new_with_gc_window_start(
-            ready_queue_sender.clone(),
-            initial_gc_window_start,
-        );
+        let pool = TaskInstancePool::new(ready_queue_sender.clone());
+        let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let tcb = build_single_task_tcb().await;
         let worker_id = WorkerId::new();
-        let registered_at = initial_gc_window_start + Duration::from_millis(50);
+        let registered_at = initial_gc_cycle_at + Duration::from_millis(50);
         let record = make_record(TaskId::Index(0), 1, worker_id, registered_at);
 
         tcb.register_task_instance(record.task_instance_id)
@@ -596,12 +634,12 @@ mod tests {
             .await
             .expect("registration should succeed");
 
-        pool.run_gc_cycle_at(initial_gc_window_start + Duration::from_millis(149))
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(149))
             .await
             .expect("gc should succeed");
         assert!(ready_queue_sender.take_messages().is_empty());
 
-        pool.run_gc_cycle_at(initial_gc_window_start + Duration::from_millis(150))
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(150))
             .await
             .expect("gc should succeed");
         assert_eq!(
@@ -609,9 +647,16 @@ mod tests {
             vec![ReadyMessage::Task(record.job_id, 0)]
         );
 
-        tcb.register_task_instance(2)
-            .await
-            .expect("timed-out instance should be removed from the task control block");
+        let replacement_result = tcb.register_task_instance(2).await;
+        assert!(
+            matches!(
+                replacement_result,
+                Err(CacheError::StaleState(
+                    StaleStateError::TaskInstanceLimitExceeded
+                ))
+            ),
+            "soft-timeout should not evict the original instance, got: {replacement_result:?}"
+        );
 
         {
             let state = pool
@@ -630,9 +675,65 @@ mod tests {
             drop(state);
         }
 
-        pool.run_gc_cycle_at(initial_gc_window_start + Duration::from_millis(250))
+        pool.unregister_running_task_instance(record.task_instance_id)
+            .await
+            .expect("late completion should still be able to unregister from the pool");
+        tcb.succeed_task_instance(record.task_instance_id, vec![vec![0u8; 4]])
+            .await
+            .expect("late completion should still succeed against the original instance");
+
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(250))
             .await
             .expect("gc should succeed");
+        assert!(ready_queue_sender.take_messages().is_empty());
+    }
+
+    #[tokio::test]
+    async fn soft_timeout_retries_after_ready_queue_send_failure() {
+        let ready_queue_sender = FlakyReadyQueueSender {
+            fail_task_ready_once: Arc::new(Mutex::new(true)),
+            ..FlakyReadyQueueSender::default()
+        };
+        let pool = TaskInstancePool::new(ready_queue_sender.clone());
+        let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        let tcb = build_single_task_tcb().await;
+        let record = make_record(
+            TaskId::Index(0),
+            1,
+            WorkerId::new(),
+            initial_gc_cycle_at + Duration::from_millis(50),
+        );
+
+        tcb.register_task_instance(record.task_instance_id)
+            .await
+            .expect("task control block registration should succeed");
+        pool.register_task_instance(tcb, record.clone())
+            .await
+            .expect("registration should succeed");
+
+        let first_gc_result = pool
+            .run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(150))
+            .await;
+        assert!(
+            matches!(
+                first_gc_result,
+                Err(InternalError::ReadyQueueSendFailure(_))
+            ),
+            "first GC cycle should surface the ready-queue failure, got: {first_gc_result:?}"
+        );
+        assert!(ready_queue_sender.take_messages().is_empty());
+
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(250))
+            .await
+            .expect("gc should retry a previously failed soft-timeout re-enqueue");
+        assert_eq!(
+            ready_queue_sender.take_messages(),
+            vec![ReadyMessage::Task(record.job_id, 0)]
+        );
+
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(350))
+            .await
+            .expect("gc should not re-enqueue the same soft-timeout twice");
         assert!(ready_queue_sender.take_messages().is_empty());
     }
 }
