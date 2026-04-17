@@ -217,23 +217,30 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                     .state
                     .lock()
                     .expect("task instance pool mutex should not be poisoned");
-                let Some(entry) = state.running_task_instances.get(&task_instance_id) else {
+                let record = state
+                    .running_task_instances
+                    .get(&task_instance_id)
+                    .and_then(|entry| {
+                        match entry
+                            .record
+                            .registered_at
+                            .checked_add(Duration::from_millis(
+                                entry.record.timeout_policy.soft_timeout_ms,
+                            )) {
+                            Some(soft_timeout_deadline)
+                                if !entry.gc_processed
+                                    && soft_timeout_deadline <= gc_started_at =>
+                            {
+                                Some(entry.record.clone())
+                            }
+                            _ => None,
+                        }
+                    });
+                drop(state);
+                let Some(record) = record else {
                     continue;
                 };
-                let Some(soft_timeout_deadline) =
-                    entry
-                        .record
-                        .registered_at
-                        .checked_add(Duration::from_millis(
-                            entry.record.timeout_policy.soft_timeout_ms,
-                        ))
-                else {
-                    continue;
-                };
-                if entry.gc_processed || soft_timeout_deadline > gc_started_at {
-                    continue;
-                }
-                entry.record.clone()
+                record
             };
 
             self.re_enqueue_task(record).await?;
