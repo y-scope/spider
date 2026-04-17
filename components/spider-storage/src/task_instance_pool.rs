@@ -176,9 +176,9 @@ impl TaskInstancePoolState {
 impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
     /// Runs one soft-timeout GC cycle using the given wall-clock time as the evaluation time.
     ///
-    /// Each running task instance is re-enqueued at most once per registration unless the
-    /// re-enqueue operation fails, in which case the GC bookkeeping is rolled back so a later cycle
-    /// can retry it.
+    /// Each running task instance is re-enqueued at most once per registration. The GC
+    /// bookkeeping flag is updated only after a successful re-enqueue so a later cycle can retry a
+    /// failed send.
     ///
     /// # Errors
     ///
@@ -186,16 +186,16 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
     ///
     /// * [`InternalError`] if timed-out task re-enqueueing fails.
     async fn run_gc_cycle_at(&self, gc_started_at: SystemTime) -> Result<(), InternalError> {
-        let timed_out = {
-            let mut state = self
+        let timed_out_ids = {
+            let state = self
                 .state
                 .lock()
                 .expect("task instance pool mutex should not be poisoned");
 
             state
                 .running_task_instances
-                .values_mut()
-                .filter_map(|entry| {
+                .iter()
+                .filter_map(|(task_instance_id, entry)| {
                     let soft_timeout_deadline =
                         entry
                             .record
@@ -204,19 +204,40 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                                 entry.record.timeout_policy.soft_timeout_ms,
                             ))?;
                     if !entry.gc_processed && soft_timeout_deadline <= gc_started_at {
-                        entry.gc_processed = true;
-                        return Some(entry.record.clone());
+                        return Some(*task_instance_id);
                     }
                     None
                 })
                 .collect::<Vec<_>>()
         };
 
-        for record in timed_out {
-            if let Err(error) = self.re_enqueue_task(record.clone()).await {
-                self.set_gc_processed(record.task_instance_id, false);
-                return Err(error);
-            }
+        for task_instance_id in timed_out_ids {
+            let record = {
+                let state = self
+                    .state
+                    .lock()
+                    .expect("task instance pool mutex should not be poisoned");
+                let Some(entry) = state.running_task_instances.get(&task_instance_id) else {
+                    continue;
+                };
+                let Some(soft_timeout_deadline) =
+                    entry
+                        .record
+                        .registered_at
+                        .checked_add(Duration::from_millis(
+                            entry.record.timeout_policy.soft_timeout_ms,
+                        ))
+                else {
+                    continue;
+                };
+                if entry.gc_processed || soft_timeout_deadline > gc_started_at {
+                    continue;
+                }
+                entry.record.clone()
+            };
+
+            self.re_enqueue_task(record).await?;
+            self.set_gc_processed(task_instance_id, true);
         }
         Ok(())
     }
