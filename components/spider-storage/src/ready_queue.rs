@@ -12,7 +12,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use spider_core::{task::TaskIndex, types::id::JobId};
+use spider_core::{
+    task::TaskIndex,
+    types::id::{JobId, ResourceGroupId},
+};
 use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::cache::{TaskId, error::InternalError};
@@ -20,7 +23,11 @@ use crate::cache::{TaskId, error::InternalError};
 /// A ready queue entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReadyQueueEntry {
+    /// The owning resource group for the ready job.
+    pub resource_group_id: ResourceGroupId,
+    /// The job that became schedulable.
     pub job_id: JobId,
+    /// The specific ready task within the job.
     pub task_id: TaskId,
 }
 
@@ -97,6 +104,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// # Parameters
     ///
+    /// * `resource_group_id` - The owning resource group ID.
     /// * `job_id` - The job ID.
     /// * `task_indices` - The indices of the tasks that are ready.
     ///
@@ -107,6 +115,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// * [`InternalError`] if the tasks fail to be sent to the ready queue.
     async fn send_task_ready(
         &self,
+        resource_group_id: ResourceGroupId,
         job_id: JobId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError>;
@@ -116,6 +125,7 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ///
     /// # Parameters
     ///
+    /// * `resource_group_id` - The owning resource group ID.
     /// * `job_id` - The job ID.
     ///
     /// # Errors
@@ -123,13 +133,18 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// Returns an error if:
     ///
     /// * [`InternalError`] if the message fails to be sent to the ready queue.
-    async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError>;
+    async fn send_commit_ready(
+        &self,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
+    ) -> Result<(), InternalError>;
 
     /// Enqueues a signal indicating that the cleanup task of the given job is ready to be
     /// scheduled.
     ///
     /// # Parameters
     ///
+    /// * `resource_group_id` - The owning resource group ID.
     /// * `job_id` - The job ID.
     ///
     /// # Errors
@@ -137,7 +152,11 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     /// Returns an error if:
     ///
     /// * [`InternalError`] if the message fails to be sent to the ready queue.
-    async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError>;
+    async fn send_cleanup_ready(
+        &self,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
+    ) -> Result<(), InternalError>;
 }
 
 /// Connector for consuming ready tasks from the ready queue.
@@ -257,6 +276,7 @@ const DEFAULT_INGRESS_CAPACITY: usize = DEFAULT_TASK_READY_CAPACITY;
 impl ReadyQueueSender for ReadyQueueSenderHandle {
     async fn send_task_ready(
         &self,
+        resource_group_id: ResourceGroupId,
         job_id: JobId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
@@ -264,21 +284,33 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
             return Ok(());
         }
 
-        self.inner.send_task_ready_batch(job_id, task_indices).await
+        self.inner
+            .send_task_ready_batch(resource_group_id, job_id, task_indices)
+            .await
     }
 
-    async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
+    async fn send_commit_ready(
+        &self,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
+    ) -> Result<(), InternalError> {
         self.inner
             .send_termination_ready(ReadyQueueEntry {
+                resource_group_id,
                 job_id,
                 task_id: TaskId::Commit,
             })
             .await
     }
 
-    async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
+    async fn send_cleanup_ready(
+        &self,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
+    ) -> Result<(), InternalError> {
         self.inner
             .send_termination_ready(ReadyQueueEntry {
+                resource_group_id,
                 job_id,
                 task_id: TaskId::Cleanup,
             })
@@ -436,6 +468,7 @@ struct ReadyQueueInner {
 
 /// Channel payload for regular task-ready batches.
 struct TaskReadyBatch {
+    resource_group_id: ResourceGroupId,
     job_id: JobId,
     task_indices: Vec<TaskIndex>,
 }
@@ -513,11 +546,13 @@ impl ReadyQueueInner {
     /// Enqueues one task-ready batch without unpacking it at the channel boundary.
     async fn send_task_ready_batch(
         &self,
+        resource_group_id: ResourceGroupId,
         job_id: JobId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
         self.task_sender
             .send(TaskReadyBatch {
+                resource_group_id,
                 job_id,
                 task_indices,
             })
@@ -634,6 +669,7 @@ impl ResidentQueueWriter {
     async fn write_task_batch(&self, task_batch: TaskReadyBatch) {
         for task_index in task_batch.task_indices {
             self.write_entry(ReadyQueueEntry {
+                resource_group_id: task_batch.resource_group_id,
                 job_id: task_batch.job_id,
                 task_id: TaskId::Index(task_index),
             })
@@ -797,7 +833,13 @@ mod tests {
 
     use super::*;
 
-    fn test_queue() -> (ReadyQueueSenderHandle, ReadyQueueReceiverHandle, ReadyQueue) {
+    fn test_queue() -> (
+        ResourceGroupId,
+        ReadyQueueSenderHandle,
+        ReadyQueueReceiverHandle,
+        ReadyQueue,
+    ) {
+        let resource_group_id = ResourceGroupId::default();
         let ready_queue = ReadyQueue::create(
             ReadyQueueConfig {
                 ingress_capacity: 8,
@@ -809,7 +851,19 @@ mod tests {
         );
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
-        (sender, receiver, ready_queue)
+        (resource_group_id, sender, receiver, ready_queue)
+    }
+
+    fn ready_entry(
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
+        task_id: TaskId,
+    ) -> ReadyQueueEntry {
+        ReadyQueueEntry {
+            resource_group_id,
+            job_id,
+            task_id,
+        }
     }
 
     async fn wait_for_task_resident_len(receiver: &ReadyQueueReceiverHandle, expected_len: usize) {
@@ -827,29 +881,21 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn task_ready_batches_are_flattened_by_queue() {
-        let (sender, receiver, _) = test_queue();
+        let (resource_group_id, sender, receiver, _) = test_queue();
         let job_id = JobId::default();
 
         sender
-            .send_task_ready(job_id, vec![1, 2, 3])
+            .send_task_ready(resource_group_id, job_id, vec![1, 2, 3])
             .await
             .expect("send should succeed");
+        wait_for_task_resident_len(&receiver, 3).await;
 
         assert_eq!(
             receiver.recv_tasks(10).await.expect("recv should succeed"),
             vec![
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(1),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(2),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(3),
-                },
+                ready_entry(resource_group_id, job_id, TaskId::Index(1)),
+                ready_entry(resource_group_id, job_id, TaskId::Index(2)),
+                ready_entry(resource_group_id, job_id, TaskId::Index(3)),
             ]
         );
     }
@@ -870,7 +916,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn receiver_blocks_until_flusher_writes_task_batch() {
-        let (sender, receiver, _) = test_queue();
+        let (resource_group_id, sender, receiver, _) = test_queue();
         let job_id = JobId::default();
         let receiver_clone = receiver.clone();
 
@@ -888,30 +934,27 @@ mod tests {
         );
 
         sender
-            .send_task_ready(job_id, vec![7])
+            .send_task_ready(resource_group_id, job_id, vec![7])
             .await
             .expect("send should succeed");
 
         assert_eq!(
             recv_handle.await.expect("recv task should not panic"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(7),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(7))]
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn commit_and_cleanup_use_separate_queues() {
-        let (sender, receiver, _) = test_queue();
+        let (resource_group_id, sender, receiver, _) = test_queue();
         let job_id = JobId::default();
 
         sender
-            .send_commit_ready(job_id)
+            .send_commit_ready(resource_group_id, job_id)
             .await
             .expect("commit send should succeed");
         sender
-            .send_cleanup_ready(job_id)
+            .send_cleanup_ready(resource_group_id, job_id)
             .await
             .expect("cleanup send should succeed");
 
@@ -920,30 +963,24 @@ mod tests {
                 .recv_commits(1)
                 .await
                 .expect("commit recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Commit,
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Commit)]
         );
         assert_eq!(
             receiver
                 .recv_cleanups(1)
                 .await
                 .expect("cleanup recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Cleanup)]
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn resident_duplicates_are_suppressed_until_pop() {
-        let (sender, receiver, _) = test_queue();
+        let (resource_group_id, sender, receiver, _) = test_queue();
         let job_id = JobId::default();
 
         sender
-            .send_task_ready(job_id, vec![7, 7])
+            .send_task_ready(resource_group_id, job_id, vec![7, 7])
             .await
             .expect("duplicate task send should succeed");
 
@@ -957,7 +994,7 @@ mod tests {
         );
 
         sender
-            .send_task_ready(job_id, vec![7])
+            .send_task_ready(resource_group_id, job_id, vec![7])
             .await
             .expect("re-enqueue after pop should succeed");
         assert_eq!(
@@ -972,23 +1009,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn len_tracks_resident_entries() {
-        let (_, receiver, ready_queue) = test_queue();
+        let (resource_group_id, _, receiver, ready_queue) = test_queue();
         let job_id = JobId::default();
 
         ready_queue
             .rebuild([
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(1),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(2),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Commit,
-                },
+                ready_entry(resource_group_id, job_id, TaskId::Index(1)),
+                ready_entry(resource_group_id, job_id, TaskId::Index(2)),
+                ready_entry(resource_group_id, job_id, TaskId::Commit),
             ])
             .await
             .expect("rebuild should succeed");
@@ -1002,40 +1030,28 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn resetter_handle_rebuilds_resident_state() {
-        let (_, receiver, ready_queue) = test_queue();
+        let (resource_group_id, _, receiver, ready_queue) = test_queue();
         let job_id = JobId::default();
 
         ready_queue
             .resetter()
             .rebuild([
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(5),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Cleanup,
-                },
+                ready_entry(resource_group_id, job_id, TaskId::Index(5)),
+                ready_entry(resource_group_id, job_id, TaskId::Cleanup),
             ])
             .await
             .expect("rebuild should succeed");
 
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(5),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(5))]
         );
         assert_eq!(
             receiver
                 .recv_cleanups(1)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Cleanup)]
         );
     }
 
@@ -1052,58 +1068,56 @@ mod tests {
         );
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
+        let resource_group_id = ResourceGroupId::default();
         let buffered_job_id = JobId::default();
         let rebuilt_job_id = JobId::default();
 
         sender
-            .send_task_ready(buffered_job_id, vec![1, 2])
+            .send_task_ready(resource_group_id, buffered_job_id, vec![1, 2])
             .await
             .expect("buffered send should succeed");
         wait_for_task_resident_len(&receiver, 1).await;
 
         ready_queue
             .rebuild([
-                ReadyQueueEntry {
-                    job_id: rebuilt_job_id,
-                    task_id: TaskId::Index(9),
-                },
-                ReadyQueueEntry {
-                    job_id: rebuilt_job_id,
-                    task_id: TaskId::Cleanup,
-                },
+                ready_entry(resource_group_id, rebuilt_job_id, TaskId::Index(9)),
+                ready_entry(resource_group_id, rebuilt_job_id, TaskId::Cleanup),
             ])
             .await
             .expect("rebuild should succeed");
 
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: rebuilt_job_id,
-                task_id: TaskId::Index(9),
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                rebuilt_job_id,
+                TaskId::Index(9)
+            )]
         );
         assert_eq!(
             receiver
                 .recv_cleanups(10)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: rebuilt_job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                rebuilt_job_id,
+                TaskId::Cleanup
+            )]
         );
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: buffered_job_id,
-                task_id: TaskId::Index(2),
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                buffered_job_id,
+                TaskId::Index(2)
+            )]
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn sender_handles_survive_rebuild() {
-        let (sender, receiver, ready_queue) = test_queue();
+        let (resource_group_id, sender, receiver, ready_queue) = test_queue();
         let job_id = JobId::default();
 
         ready_queue
@@ -1111,16 +1125,13 @@ mod tests {
             .await
             .expect("empty rebuild should succeed");
         sender
-            .send_task_ready(job_id, vec![4])
+            .send_task_ready(resource_group_id, job_id, vec![4])
             .await
             .expect("send after rebuild should succeed");
 
         assert_eq!(
             receiver.recv_tasks(10).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(4),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(4))]
         );
     }
 
@@ -1137,79 +1148,53 @@ mod tests {
         );
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
+        let resource_group_id = ResourceGroupId::default();
         let job_id = JobId::default();
 
         sender
-            .send_task_ready(job_id, vec![1, 2, 3])
+            .send_task_ready(resource_group_id, job_id, vec![1, 2, 3])
             .await
             .expect("batch send should complete");
 
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(1),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(1))]
         );
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(2),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(2))]
         );
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(3),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(3))]
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn rebuild_dedups_duplicate_snapshot_entries() {
-        let (_, receiver, ready_queue) = test_queue();
+        let (resource_group_id, _, receiver, ready_queue) = test_queue();
         let job_id = JobId::default();
 
         ready_queue
             .rebuild([
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(1),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Index(1),
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Commit,
-                },
-                ReadyQueueEntry {
-                    job_id,
-                    task_id: TaskId::Commit,
-                },
+                ready_entry(resource_group_id, job_id, TaskId::Index(1)),
+                ready_entry(resource_group_id, job_id, TaskId::Index(1)),
+                ready_entry(resource_group_id, job_id, TaskId::Commit),
+                ready_entry(resource_group_id, job_id, TaskId::Commit),
             ])
             .await
             .expect("rebuild should succeed");
 
         assert_eq!(
             receiver.recv_tasks(10).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(1),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(1))]
         );
         assert_eq!(
             receiver
                 .recv_commits(10)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Commit,
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Commit)]
         );
     }
 
@@ -1226,26 +1211,30 @@ mod tests {
         );
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
+        let resource_group_id = ResourceGroupId::default();
         let job_id = JobId::default();
 
         sender
-            .send_task_ready(job_id, vec![1])
+            .send_task_ready(resource_group_id, job_id, vec![1])
             .await
             .expect("first send should succeed");
         wait_for_task_resident_len(&receiver, 1).await;
 
         sender
-            .send_task_ready(job_id, vec![2])
+            .send_task_ready(resource_group_id, job_id, vec![2])
             .await
             .expect("second send should be accepted");
         sender
-            .send_task_ready(job_id, vec![3])
+            .send_task_ready(resource_group_id, job_id, vec![3])
             .await
             .expect("third send should fill ingress");
 
         let sender_clone = sender.clone();
-        let mut send_handle =
-            tokio::spawn(async move { sender_clone.send_task_ready(job_id, vec![4]).await });
+        let mut send_handle = tokio::spawn(async move {
+            sender_clone
+                .send_task_ready(resource_group_id, job_id, vec![4])
+                .await
+        });
         assert!(
             timeout(Duration::from_millis(50), &mut send_handle)
                 .await
@@ -1255,10 +1244,7 @@ mod tests {
 
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(1),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(1))]
         );
 
         send_handle
@@ -1268,24 +1254,15 @@ mod tests {
 
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(2),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(2))]
         );
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(3),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(3))]
         );
         assert_eq!(
             receiver.recv_tasks(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id,
-                task_id: TaskId::Index(4),
-            }]
+            vec![ready_entry(resource_group_id, job_id, TaskId::Index(4))]
         );
     }
 
@@ -1302,13 +1279,14 @@ mod tests {
         );
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
+        let resource_group_id = ResourceGroupId::default();
         let first_job_id = JobId::default();
         let second_job_id = JobId::default();
         let third_job_id = JobId::default();
         let fourth_job_id = JobId::default();
 
         sender
-            .send_commit_ready(first_job_id)
+            .send_commit_ready(resource_group_id, first_job_id)
             .await
             .expect("first commit send should succeed");
         timeout(Duration::from_millis(100), async {
@@ -1323,17 +1301,20 @@ mod tests {
         .expect("resident commit queue should fill");
 
         sender
-            .send_commit_ready(second_job_id)
+            .send_commit_ready(resource_group_id, second_job_id)
             .await
             .expect("second commit send should be accepted");
         sender
-            .send_commit_ready(third_job_id)
+            .send_commit_ready(resource_group_id, third_job_id)
             .await
             .expect("third commit send should fill ingress");
 
         let sender_clone = sender.clone();
-        let mut send_handle =
-            tokio::spawn(async move { sender_clone.send_commit_ready(fourth_job_id).await });
+        let mut send_handle = tokio::spawn(async move {
+            sender_clone
+                .send_commit_ready(resource_group_id, fourth_job_id)
+                .await
+        });
         assert!(
             timeout(Duration::from_millis(50), &mut send_handle)
                 .await
@@ -1343,10 +1324,7 @@ mod tests {
 
         assert_eq!(
             receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: first_job_id,
-                task_id: TaskId::Commit,
-            }]
+            vec![ready_entry(resource_group_id, first_job_id, TaskId::Commit)]
         );
 
         send_handle
@@ -1356,24 +1334,23 @@ mod tests {
 
         assert_eq!(
             receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: second_job_id,
-                task_id: TaskId::Commit,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                second_job_id,
+                TaskId::Commit
+            )]
         );
         assert_eq!(
             receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: third_job_id,
-                task_id: TaskId::Commit,
-            }]
+            vec![ready_entry(resource_group_id, third_job_id, TaskId::Commit)]
         );
         assert_eq!(
             receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: fourth_job_id,
-                task_id: TaskId::Commit,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                fourth_job_id,
+                TaskId::Commit
+            )]
         );
     }
 
@@ -1390,13 +1367,14 @@ mod tests {
         );
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
+        let resource_group_id = ResourceGroupId::default();
         let first_job_id = JobId::default();
         let second_job_id = JobId::default();
         let third_job_id = JobId::default();
         let fourth_job_id = JobId::default();
 
         sender
-            .send_cleanup_ready(first_job_id)
+            .send_cleanup_ready(resource_group_id, first_job_id)
             .await
             .expect("first cleanup send should succeed");
         timeout(Duration::from_millis(100), async {
@@ -1411,17 +1389,20 @@ mod tests {
         .expect("resident cleanup queue should fill");
 
         sender
-            .send_cleanup_ready(second_job_id)
+            .send_cleanup_ready(resource_group_id, second_job_id)
             .await
             .expect("second cleanup send should be accepted");
         sender
-            .send_cleanup_ready(third_job_id)
+            .send_cleanup_ready(resource_group_id, third_job_id)
             .await
             .expect("third cleanup send should fill ingress");
 
         let sender_clone = sender.clone();
-        let mut send_handle =
-            tokio::spawn(async move { sender_clone.send_cleanup_ready(fourth_job_id).await });
+        let mut send_handle = tokio::spawn(async move {
+            sender_clone
+                .send_cleanup_ready(resource_group_id, fourth_job_id)
+                .await
+        });
         assert!(
             timeout(Duration::from_millis(50), &mut send_handle)
                 .await
@@ -1434,10 +1415,11 @@ mod tests {
                 .recv_cleanups(1)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: first_job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                first_job_id,
+                TaskId::Cleanup
+            )]
         );
 
         send_handle
@@ -1450,30 +1432,33 @@ mod tests {
                 .recv_cleanups(1)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: second_job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                second_job_id,
+                TaskId::Cleanup
+            )]
         );
         assert_eq!(
             receiver
                 .recv_cleanups(1)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: third_job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                third_job_id,
+                TaskId::Cleanup
+            )]
         );
         assert_eq!(
             receiver
                 .recv_cleanups(1)
                 .await
                 .expect("recv should succeed"),
-            vec![ReadyQueueEntry {
-                job_id: fourth_job_id,
-                task_id: TaskId::Cleanup,
-            }]
+            vec![ready_entry(
+                resource_group_id,
+                fourth_job_id,
+                TaskId::Cleanup
+            )]
         );
     }
 }

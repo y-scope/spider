@@ -508,6 +508,7 @@ struct MockReadyQueueSender {
 impl ReadyQueueSender for MockReadyQueueSender {
     async fn send_task_ready(
         &self,
+        _resource_group_id: ResourceGroupId,
         _job_id: JobId,
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
@@ -520,14 +521,22 @@ impl ReadyQueueSender for MockReadyQueueSender {
         Ok(())
     }
 
-    async fn send_commit_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+    async fn send_commit_ready(
+        &self,
+        _resource_group_id: ResourceGroupId,
+        _job_id: JobId,
+    ) -> Result<(), InternalError> {
         self.sender
             .send(ReadyMessage::Commit)
             .await
             .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
     }
 
-    async fn send_cleanup_ready(&self, _job_id: JobId) -> Result<(), InternalError> {
+    async fn send_cleanup_ready(
+        &self,
+        _resource_group_id: ResourceGroupId,
+        _job_id: JobId,
+    ) -> Result<(), InternalError> {
         self.sender
             .send(ReadyMessage::Cleanup)
             .await
