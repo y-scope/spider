@@ -208,8 +208,7 @@ pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroup
 /// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
 /// use for the JCB.
 pub trait DbConnectorFactory<DbConnectorType: InternalJobOrchestration>:
-    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send
-{
+    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send {
 }
 
 impl<DbConnectorType: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<DbConnectorType>
@@ -314,6 +313,7 @@ pub fn write_instrument_results(
 /// # Returns
 ///
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
+#[allow(clippy::too_many_lines)]
 pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     submitted_task_graph: &SubmittedTaskGraph,
     inputs: Vec<TaskInput>,

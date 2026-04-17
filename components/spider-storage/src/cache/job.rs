@@ -160,6 +160,7 @@ impl<
     /// * Forwards [`TaskInstancePoolConnector::register_task_instance`]'s return values on failure.
     /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
     ///   on failure.
+    #[allow(clippy::too_many_lines)]
     pub async fn create_task_instance(
         &self,
         task_id: TaskId,
@@ -595,6 +596,7 @@ impl<
                     .ok_or(InternalError::TaskIndexOutOfBound)?
                     .force_remove_task_instance(task_instance_id)
                     .await;
+                drop(job);
                 Ok(removed)
             }
             TaskId::Commit => {
@@ -605,6 +607,7 @@ impl<
                     .ok_or(InternalError::UndefinedCommitTask)?
                     .force_remove_task_instance(task_instance_id)
                     .await;
+                drop(job);
                 Ok(removed)
             }
             TaskId::Cleanup => {
@@ -615,6 +618,7 @@ impl<
                     .ok_or(InternalError::UndefinedCleanupTask)?
                     .force_remove_task_instance(task_instance_id)
                     .await;
+                drop(job);
                 Ok(removed)
             }
         }
@@ -1032,15 +1036,21 @@ impl<
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        Arc, Mutex,
+        Arc,
+        Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     };
 
     use async_trait::async_trait;
     use spider_core::{
         task::{
-            DataTypeDescriptor, ExecutionPolicy, TaskDescriptor, TaskGraph as SubmittedTaskGraph,
-            TdlContext, TerminationTaskDescriptor, ValueTypeDescriptor,
+            DataTypeDescriptor,
+            ExecutionPolicy,
+            TaskDescriptor,
+            TaskGraph as SubmittedTaskGraph,
+            TdlContext,
+            TerminationTaskDescriptor,
+            ValueTypeDescriptor,
         },
         types::{
             id::{ResourceGroupId, WorkerId},

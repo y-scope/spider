@@ -1,7 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc, Mutex,
+        Arc,
+        Mutex,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, SystemTime},
@@ -88,6 +89,11 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
         }
     }
 
+    /// Runs one soft-timeout GC cycle using the current wall-clock time as the end of the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if timed-out task re-enqueueing fails.
     pub async fn run_gc_cycle(&self) -> Result<(), InternalError> {
         self.run_gc_cycle_at(SystemTime::now()).await
     }
@@ -96,7 +102,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
         &self,
         current_gc_cycle_start: SystemTime,
     ) -> Result<(), InternalError> {
-        let timed_out_records = {
+        let timed_out_entries = {
             let mut state = self
                 .state
                 .lock()
@@ -118,20 +124,34 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                     if previous_gc_cycle_start < soft_timeout_deadline
                         && soft_timeout_deadline <= current_gc_cycle_start
                     {
-                        return Some(entry.record.clone());
+                        return Some(entry.clone());
                     }
                     None
                 })
                 .collect::<Vec<_>>()
         };
 
-        for record in timed_out_records {
-            self.reenqueue_task(record).await?;
+        for entry in timed_out_entries {
+            self.handle_timed_out_task_instance(entry).await?;
         }
         Ok(())
     }
 
-    async fn register_running_task_instance(
+    async fn handle_timed_out_task_instance(
+        &self,
+        entry: RunningTaskInstanceEntry,
+    ) -> Result<(), InternalError> {
+        if entry
+            .task_control_block
+            .force_remove_task_instance(entry.record.task_instance_id)
+            .await
+        {
+            self.reenqueue_task(entry.record).await?;
+        }
+        Ok(())
+    }
+
+    fn register_running_task_instance(
         &self,
         task_control_block: TaskControlBlockHandle,
         record: TaskInstanceRecord,
@@ -141,6 +161,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
             .lock()
             .expect("task instance pool mutex should not be poisoned");
         let task_instance_id = record.task_instance_id;
+        let worker_id = record.worker_id;
         if state.running_task_instances.contains_key(&task_instance_id) {
             return Err(InternalError::TaskInstancePoolCorrupted(format!(
                 "task instance {task_instance_id} already registered"
@@ -149,15 +170,16 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
         state.running_task_instances.insert(
             task_instance_id,
             RunningTaskInstanceEntry {
-                record: record.clone(),
+                record,
                 task_control_block,
             },
         );
         state
             .worker_task_instances
-            .entry(record.worker_id)
+            .entry(worker_id)
             .or_default()
             .insert(task_instance_id);
+        drop(state);
         Ok(())
     }
 
@@ -178,6 +200,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                 state.worker_task_instances.remove(&entry.record.worker_id);
             }
         }
+        drop(state);
         Some(entry)
     }
 
@@ -198,6 +221,15 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
                     .send_cleanup_ready(record.job_id)
                     .await
             }
+        }
+    }
+}
+
+impl TaskControlBlockHandle {
+    async fn force_remove_task_instance(&self, task_instance_id: TaskInstanceId) -> bool {
+        match self {
+            Self::Regular(tcb) => tcb.force_remove_task_instance(task_instance_id).await,
+            Self::Termination(tcb) => tcb.force_remove_task_instance(task_instance_id).await,
         }
     }
 }
@@ -283,7 +315,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePoolConnector
         registration: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
         self.register_running_task_instance(TaskControlBlockHandle::Regular(tcb), registration)
-            .await
     }
 
     async fn register_termination_task_instance(
@@ -295,7 +326,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePoolConnector
             TaskControlBlockHandle::Termination(termination_tcb),
             registration,
         )
-        .await
     }
 
     async fn unregister_running_task_instance(
@@ -338,8 +368,12 @@ mod tests {
     use async_trait::async_trait;
     use spider_core::{
         task::{
-            DataTypeDescriptor, ExecutionPolicy, TaskDescriptor, TaskGraph as SubmittedTaskGraph,
-            TdlContext, ValueTypeDescriptor,
+            DataTypeDescriptor,
+            ExecutionPolicy,
+            TaskDescriptor,
+            TaskGraph as SubmittedTaskGraph,
+            TdlContext,
+            ValueTypeDescriptor,
         },
         types::{
             id::{JobId, WorkerId},
@@ -379,12 +413,11 @@ mod tests {
             job_id: JobId,
             task_indices: Vec<usize>,
         ) -> Result<(), InternalError> {
-            let mut sent_messages = self
-                .sent_messages
-                .lock()
-                .expect("ready queue mutex should not be poisoned");
             for task_index in task_indices {
-                sent_messages.push(ReadyMessage::Task(job_id, task_index));
+                self.sent_messages
+                    .lock()
+                    .expect("ready queue mutex should not be poisoned")
+                    .push(ReadyMessage::Task(job_id, task_index));
             }
             Ok(())
         }
@@ -478,6 +511,7 @@ mod tests {
                 state.worker_task_instances.get(&worker_id),
                 Some(&HashSet::from([record.task_instance_id]))
             );
+            drop(state);
         }
 
         pool.unregister_running_task_instance(record.task_instance_id)
@@ -490,6 +524,7 @@ mod tests {
             .expect("task instance pool mutex should not be poisoned");
         assert!(state.running_task_instances.is_empty());
         assert!(state.worker_task_instances.is_empty());
+        drop(state);
     }
 
     #[tokio::test]
@@ -538,10 +573,11 @@ mod tests {
             state.worker_task_instances.get(&worker_b),
             Some(&HashSet::from([record_c.task_instance_id]))
         );
+        drop(state);
     }
 
     #[tokio::test]
-    async fn soft_timeout_reenqueues_exactly_once_without_removing_running_record() {
+    async fn soft_timeout_reenqueues_exactly_once_and_clears_tcb_instance() {
         let ready_queue_sender = MockReadyQueueSender::default();
         let initial_gc_window_start = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let pool = TaskInstancePool::new_with_gc_window_start(
@@ -551,9 +587,12 @@ mod tests {
         let tcb = build_single_task_tcb().await;
         let worker_id = WorkerId::new();
         let registered_at = initial_gc_window_start + Duration::from_millis(50);
-        let record = make_record(TaskId::Index(7), 1, worker_id, registered_at);
+        let record = make_record(TaskId::Index(0), 1, worker_id, registered_at);
 
-        pool.register_task_instance(tcb, record.clone())
+        tcb.register_task_instance(record.task_instance_id)
+            .await
+            .expect("task control block registration should succeed");
+        pool.register_task_instance(tcb.clone(), record.clone())
             .await
             .expect("registration should succeed");
 
@@ -567,8 +606,12 @@ mod tests {
             .expect("gc should succeed");
         assert_eq!(
             ready_queue_sender.take_messages(),
-            vec![ReadyMessage::Task(record.job_id, 7)]
+            vec![ReadyMessage::Task(record.job_id, 0)]
         );
+
+        tcb.register_task_instance(2)
+            .await
+            .expect("timed-out instance should be removed from the task control block");
 
         {
             let state = pool
@@ -584,6 +627,7 @@ mod tests {
                 state.worker_task_instances.get(&worker_id),
                 Some(&HashSet::from([record.task_instance_id]))
             );
+            drop(state);
         }
 
         pool.run_gc_cycle_at(initial_gc_window_start + Duration::from_millis(250))

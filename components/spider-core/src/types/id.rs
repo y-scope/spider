@@ -130,8 +130,7 @@ pub type TaskInstanceId = u64;
 /// * [`TypeMarker`] - A marker type used to differentiate between different resource types.
 pub struct SignedId<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-{
+    TypeMarker: Debug + PartialEq + Eq, {
     signature: ResourceGroupId,
     id: Id<TypeMarker>,
 }
