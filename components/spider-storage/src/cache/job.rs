@@ -599,8 +599,6 @@ impl<
                 }
                 _ => Vec::new(),
             };
-            // Drop the read guard before returning so callers do not retain the job-state lock
-            // longer than the entry snapshot derivation requires.
             drop(job);
             ready_queue_entries
         };

@@ -56,24 +56,24 @@ impl Default for ReadyQueueConfig {
 }
 
 impl ReadyQueueConfig {
-    /// Panics if any configured capacity is zero.
-    fn assert_valid(self) {
-        assert!(
-            self.ingress_capacity > 0,
-            "ready queue ingress_capacity must be > 0"
-        );
-        assert!(
-            self.task_ready_capacity > 0,
-            "ready queue task_ready_capacity must be > 0"
-        );
-        assert!(
-            self.commit_ready_capacity > 0,
-            "ready queue commit_ready_capacity must be > 0"
-        );
-        assert!(
-            self.cleanup_ready_capacity > 0,
-            "ready queue cleanup_ready_capacity must be > 0"
-        );
+    fn validate(self) -> Result<(), InternalError> {
+        let field = if self.ingress_capacity == 0 {
+            Some("ingress_capacity")
+        } else if self.task_ready_capacity == 0 {
+            Some("task_ready_capacity")
+        } else if self.commit_ready_capacity == 0 {
+            Some("commit_ready_capacity")
+        } else if self.cleanup_ready_capacity == 0 {
+            Some("cleanup_ready_capacity")
+        } else {
+            None
+        };
+        if let Some(field) = field {
+            return Err(InternalError::ReadyQueueSendFailure(format!(
+                "ready queue {field} must be > 0"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -332,9 +332,15 @@ impl ReadyQueue {
     /// # Returns
     ///
     /// The created ready queue.
-    #[must_use]
-    pub fn create(config: ReadyQueueConfig, runtime_handle: &tokio::runtime::Handle) -> Self {
-        config.assert_valid();
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InternalError::ReadyQueueSendFailure`] if any configured capacity is zero.
+    pub fn create(
+        config: ReadyQueueConfig,
+        runtime_handle: &tokio::runtime::Handle,
+    ) -> Result<Self, InternalError> {
+        config.validate()?;
         let task_queue = ResidentQueue::new(config.task_ready_capacity);
         let commit_queue = ResidentQueue::new(config.commit_ready_capacity);
         let cleanup_queue = ResidentQueue::new(config.cleanup_ready_capacity);
@@ -343,17 +349,17 @@ impl ReadyQueue {
         let (commit_sender, commit_receiver) = mpsc::channel(config.ingress_capacity);
         let (cleanup_sender, cleanup_receiver) = mpsc::channel(config.ingress_capacity);
 
-        ReadyQueueInner::spawn_task_flusher(
+        let task_flusher = ReadyQueueInner::spawn_task_flusher(
             runtime_handle,
             task_receiver,
             task_queue.writer.clone(),
         );
-        ReadyQueueInner::spawn_entry_flusher(
+        let commit_flusher = ReadyQueueInner::spawn_entry_flusher(
             runtime_handle,
             commit_receiver,
             commit_queue.writer.clone(),
         );
-        ReadyQueueInner::spawn_entry_flusher(
+        let cleanup_flusher = ReadyQueueInner::spawn_entry_flusher(
             runtime_handle,
             cleanup_receiver,
             cleanup_queue.writer.clone(),
@@ -366,8 +372,9 @@ impl ReadyQueue {
             task_queue,
             commit_queue,
             cleanup_queue,
+            flushers: [task_flusher, commit_flusher, cleanup_flusher],
         });
-        Self { inner }
+        Ok(Self { inner })
     }
 
     /// # Returns
@@ -464,6 +471,15 @@ struct ReadyQueueInner {
     task_queue: ResidentQueue,
     commit_queue: ResidentQueue,
     cleanup_queue: ResidentQueue,
+    flushers: [tokio::task::AbortHandle; 3],
+}
+
+impl Drop for ReadyQueueInner {
+    fn drop(&mut self) {
+        for handle in &self.flushers {
+            handle.abort();
+        }
+    }
 }
 
 /// Channel payload for regular task-ready batches.
@@ -522,12 +538,14 @@ impl ReadyQueueInner {
         runtime_handle: &tokio::runtime::Handle,
         mut receiver: mpsc::Receiver<TaskReadyBatch>,
         writer: ResidentQueueWriter,
-    ) {
-        runtime_handle.spawn(async move {
-            while let Some(task_batch) = receiver.recv().await {
-                writer.write_task_batch(task_batch).await;
-            }
-        });
+    ) -> tokio::task::AbortHandle {
+        runtime_handle
+            .spawn(async move {
+                while let Some(task_batch) = receiver.recv().await {
+                    writer.write_task_batch(task_batch).await;
+                }
+            })
+            .abort_handle()
     }
 
     /// Starts the entry flusher for one ingress lane.
@@ -535,12 +553,14 @@ impl ReadyQueueInner {
         runtime_handle: &tokio::runtime::Handle,
         mut receiver: mpsc::Receiver<ReadyQueueEntry>,
         writer: ResidentQueueWriter,
-    ) {
-        runtime_handle.spawn(async move {
-            while let Some(ready_entry) = receiver.recv().await {
-                writer.write_entry(ready_entry).await;
-            }
-        });
+    ) -> tokio::task::AbortHandle {
+        runtime_handle
+            .spawn(async move {
+                while let Some(ready_entry) = receiver.recv().await {
+                    writer.write_entry(ready_entry).await;
+                }
+            })
+            .abort_handle()
     }
 
     /// Enqueues one task-ready batch without unpacking it at the channel boundary.
@@ -848,7 +868,8 @@ mod tests {
                 cleanup_ready_capacity: 4,
             },
             &tokio::runtime::Handle::current(),
-        );
+        )
+        .expect("valid config should succeed");
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
         (resource_group_id, sender, receiver, ready_queue)
@@ -901,9 +922,8 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    #[should_panic(expected = "ready queue ingress_capacity must be > 0")]
     async fn create_rejects_zero_capacity_config() {
-        let _ = ReadyQueue::create(
+        let result = ReadyQueue::create(
             ReadyQueueConfig {
                 ingress_capacity: 0,
                 task_ready_capacity: 1,
@@ -912,6 +932,7 @@ mod tests {
             },
             &tokio::runtime::Handle::current(),
         );
+        assert!(result.is_err(), "zero ingress_capacity should be rejected");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1065,7 +1086,8 @@ mod tests {
                 cleanup_ready_capacity: 4,
             },
             &tokio::runtime::Handle::current(),
-        );
+        )
+        .expect("valid config should succeed");
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
         let resource_group_id = ResourceGroupId::default();
@@ -1145,7 +1167,8 @@ mod tests {
                 cleanup_ready_capacity: 4,
             },
             &tokio::runtime::Handle::current(),
-        );
+        )
+        .expect("valid config should succeed");
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
         let resource_group_id = ResourceGroupId::default();
@@ -1208,7 +1231,8 @@ mod tests {
                 cleanup_ready_capacity: 1,
             },
             &tokio::runtime::Handle::current(),
-        );
+        )
+        .expect("valid config should succeed");
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
         let resource_group_id = ResourceGroupId::default();
@@ -1266,96 +1290,55 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn full_commit_ingress_channel_blocks_until_recv_frees_space() {
-        let ready_queue = ReadyQueue::create(
-            ReadyQueueConfig {
-                ingress_capacity: 1,
-                task_ready_capacity: 1,
-                commit_ready_capacity: 1,
-                cleanup_ready_capacity: 1,
-            },
-            &tokio::runtime::Handle::current(),
-        );
-        let sender = ready_queue.sender();
-        let receiver = ready_queue.receiver();
-        let resource_group_id = ResourceGroupId::default();
-        let first_job_id = JobId::default();
-        let second_job_id = JobId::default();
-        let third_job_id = JobId::default();
-        let fourth_job_id = JobId::default();
-
-        sender
-            .send_commit_ready(resource_group_id, first_job_id)
-            .await
-            .expect("first commit send should succeed");
-        timeout(Duration::from_millis(100), async {
-            loop {
-                if receiver.num_commits().await == 1 {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("resident commit queue should fill");
-
-        sender
-            .send_commit_ready(resource_group_id, second_job_id)
-            .await
-            .expect("second commit send should be accepted");
-        sender
-            .send_commit_ready(resource_group_id, third_job_id)
-            .await
-            .expect("third commit send should fill ingress");
-
-        let sender_clone = sender.clone();
-        let mut send_handle = tokio::spawn(async move {
-            sender_clone
-                .send_commit_ready(resource_group_id, fourth_job_id)
-                .await
-        });
-        assert!(
-            timeout(Duration::from_millis(50), &mut send_handle)
-                .await
-                .is_err(),
-            "fourth commit send should block while ingress is full"
-        );
-
-        assert_eq!(
-            receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ready_entry(resource_group_id, first_job_id, TaskId::Commit)]
-        );
-
-        send_handle
-            .await
-            .expect("send task should not panic")
-            .expect("blocked send should complete");
-
-        assert_eq!(
-            receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ready_entry(
-                resource_group_id,
-                second_job_id,
-                TaskId::Commit
-            )]
-        );
-        assert_eq!(
-            receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ready_entry(resource_group_id, third_job_id, TaskId::Commit)]
-        );
-        assert_eq!(
-            receiver.recv_commits(1).await.expect("recv should succeed"),
-            vec![ready_entry(
-                resource_group_id,
-                fourth_job_id,
-                TaskId::Commit
-            )]
-        );
+    async fn send_termination(
+        sender: &ReadyQueueSenderHandle,
+        task_id_variant: TaskId,
+        resource_group_id: ResourceGroupId,
+        job_id: JobId,
+    ) -> Result<(), InternalError> {
+        match task_id_variant {
+            TaskId::Commit => sender.send_commit_ready(resource_group_id, job_id).await,
+            TaskId::Cleanup => sender.send_cleanup_ready(resource_group_id, job_id).await,
+            TaskId::Index(_) => panic!("only commit and cleanup are termination lanes"),
+        }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn full_cleanup_ingress_channel_blocks_until_recv_frees_space() {
+    async fn recv_termination(
+        receiver: &ReadyQueueReceiverHandle,
+        task_id_variant: TaskId,
+    ) -> Result<Vec<ReadyQueueEntry>, InternalError> {
+        match task_id_variant {
+            TaskId::Commit => receiver.recv_commits(1).await,
+            TaskId::Cleanup => receiver.recv_cleanups(1).await,
+            TaskId::Index(_) => panic!("only commit and cleanup are termination lanes"),
+        }
+    }
+
+    async fn wait_for_termination_resident_len(
+        receiver: &ReadyQueueReceiverHandle,
+        task_id_variant: TaskId,
+        expected_len: usize,
+    ) {
+        timeout(Duration::from_millis(100), async {
+            loop {
+                let len = match task_id_variant {
+                    TaskId::Commit => receiver.num_commits().await,
+                    TaskId::Cleanup => receiver.num_cleanups().await,
+                    TaskId::Index(_) => unreachable!(),
+                };
+                if len == expected_len {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("resident queue should reach expected length");
+    }
+
+    async fn full_termination_ingress_channel_blocks_until_recv_frees_space(
+        task_id_variant: TaskId,
+    ) {
         let ready_queue = ReadyQueue::create(
             ReadyQueueConfig {
                 ingress_capacity: 1,
@@ -1364,7 +1347,8 @@ mod tests {
                 cleanup_ready_capacity: 1,
             },
             &tokio::runtime::Handle::current(),
-        );
+        )
+        .expect("valid config should succeed");
         let sender = ready_queue.sender();
         let receiver = ready_queue.receiver();
         let resource_group_id = ResourceGroupId::default();
@@ -1373,52 +1357,43 @@ mod tests {
         let third_job_id = JobId::default();
         let fourth_job_id = JobId::default();
 
-        sender
-            .send_cleanup_ready(resource_group_id, first_job_id)
+        send_termination(&sender, task_id_variant, resource_group_id, first_job_id)
             .await
-            .expect("first cleanup send should succeed");
-        timeout(Duration::from_millis(100), async {
-            loop {
-                if receiver.num_cleanups().await == 1 {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("resident cleanup queue should fill");
+            .expect("first send should succeed");
+        wait_for_termination_resident_len(&receiver, task_id_variant, 1).await;
 
-        sender
-            .send_cleanup_ready(resource_group_id, second_job_id)
+        send_termination(&sender, task_id_variant, resource_group_id, second_job_id)
             .await
-            .expect("second cleanup send should be accepted");
-        sender
-            .send_cleanup_ready(resource_group_id, third_job_id)
+            .expect("second send should be accepted");
+        send_termination(&sender, task_id_variant, resource_group_id, third_job_id)
             .await
-            .expect("third cleanup send should fill ingress");
+            .expect("third send should fill ingress");
 
         let sender_clone = sender.clone();
         let mut send_handle = tokio::spawn(async move {
-            sender_clone
-                .send_cleanup_ready(resource_group_id, fourth_job_id)
-                .await
+            send_termination(
+                &sender_clone,
+                task_id_variant,
+                resource_group_id,
+                fourth_job_id,
+            )
+            .await
         });
         assert!(
             timeout(Duration::from_millis(50), &mut send_handle)
                 .await
                 .is_err(),
-            "fourth cleanup send should block while ingress is full"
+            "fourth send should block while ingress is full"
         );
 
         assert_eq!(
-            receiver
-                .recv_cleanups(1)
+            recv_termination(&receiver, task_id_variant)
                 .await
                 .expect("recv should succeed"),
             vec![ready_entry(
                 resource_group_id,
                 first_job_id,
-                TaskId::Cleanup
+                task_id_variant
             )]
         );
 
@@ -1428,37 +1403,44 @@ mod tests {
             .expect("blocked send should complete");
 
         assert_eq!(
-            receiver
-                .recv_cleanups(1)
+            recv_termination(&receiver, task_id_variant)
                 .await
                 .expect("recv should succeed"),
             vec![ready_entry(
                 resource_group_id,
                 second_job_id,
-                TaskId::Cleanup
+                task_id_variant
             )]
         );
         assert_eq!(
-            receiver
-                .recv_cleanups(1)
+            recv_termination(&receiver, task_id_variant)
                 .await
                 .expect("recv should succeed"),
             vec![ready_entry(
                 resource_group_id,
                 third_job_id,
-                TaskId::Cleanup
+                task_id_variant
             )]
         );
         assert_eq!(
-            receiver
-                .recv_cleanups(1)
+            recv_termination(&receiver, task_id_variant)
                 .await
                 .expect("recv should succeed"),
             vec![ready_entry(
                 resource_group_id,
                 fourth_job_id,
-                TaskId::Cleanup
+                task_id_variant
             )]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn full_commit_ingress_channel_blocks_until_recv_frees_space() {
+        full_termination_ingress_channel_blocks_until_recv_frees_space(TaskId::Commit).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn full_cleanup_ingress_channel_blocks_until_recv_frees_space() {
+        full_termination_ingress_channel_blocks_until_recv_frees_space(TaskId::Cleanup).await;
     }
 }
