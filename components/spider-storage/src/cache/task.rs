@@ -336,6 +336,14 @@ impl SharedTaskControlBlock {
         tcb.base.force_remove_task_instance(instance_id)
     }
 
+    /// # Returns
+    ///
+    /// Whether the given task instance is currently tracked in the control block.
+    pub async fn has_task_instance(&self, instance_id: TaskInstanceId) -> bool {
+        let tcb = self.inner.lock().await;
+        tcb.base.instance_pool.contains(instance_id)
+    }
+
     /// Resets the task control block to the initial state.
     pub async fn reset(&self) {
         let mut tcb = self.inner.lock().await;
@@ -555,6 +563,14 @@ impl SharedTerminationTaskControlBlock {
         tcb.base.force_remove_task_instance(instance_id)
     }
 
+    /// # Returns
+    ///
+    /// Whether the given task instance is currently tracked in the control block.
+    pub async fn has_task_instance(&self, instance_id: TaskInstanceId) -> bool {
+        let tcb = self.inner.lock().await;
+        tcb.base.instance_pool.contains(instance_id)
+    }
+
     /// Marks the TCB state cancelled.
     pub async fn cancel_non_terminal(&self) {
         let mut tcb = self.inner.lock().await;
@@ -642,6 +658,13 @@ impl InstancePool {
     /// Whether the pool is empty (i.e., has no living task instance).
     fn is_empty(&self) -> bool {
         self.instance_ids.is_empty()
+    }
+
+    /// # Returns
+    ///
+    /// Whether the given task instance is currently tracked in the pool.
+    fn contains(&self, instance_id: TaskInstanceId) -> bool {
+        self.instance_ids.contains(&instance_id)
     }
 
     fn reset(&mut self) {

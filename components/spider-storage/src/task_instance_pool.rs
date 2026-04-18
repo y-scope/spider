@@ -48,10 +48,7 @@ pub trait WorkerLivenessStore: Clone + Send + Sync {
     ///
     /// This operation is atomic: once a worker is returned by this method, it will not be returned
     /// again in subsequent calls.
-    async fn get_dead_workers(
-        &self,
-        stale_before: SystemTime,
-    ) -> Result<Vec<WorkerId>, DbError>;
+    async fn get_dead_workers(&self, stale_before: SystemTime) -> Result<Vec<WorkerId>, DbError>;
 }
 
 /// Connector for creating and registering task instances in the task instance pool.
@@ -104,14 +101,6 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceRecord,
-    ) -> Result<(), InternalError>;
-
-    /// Unregisters a running task instance.
-    ///
-    /// Missing task-instance IDs must be treated as a no-op to keep completion paths race-safe.
-    async fn unregister_running_task_instance(
-        &self,
-        task_instance_id: TaskInstanceId,
     ) -> Result<(), InternalError>;
 
     /// Removes and returns all live task instances associated with the given worker.
@@ -178,6 +167,13 @@ impl AnySharedControlBlock {
             Self::Termination(tcb) => tcb.force_remove_task_instance(instance_id).await,
         }
     }
+
+    async fn has_task_instance(&self, instance_id: TaskInstanceId) -> bool {
+        match self {
+            Self::Task(tcb) => tcb.has_task_instance(instance_id).await,
+            Self::Termination(tcb) => tcb.has_task_instance(instance_id).await,
+        }
+    }
 }
 
 /// A running task-instance entry tracked by the task instance pool.
@@ -205,7 +201,7 @@ impl TaskInstancePoolState {
     /// # Returns
     ///
     /// The created [`TaskInstancePoolState`].
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             running_task_instances: Vec::new(),
         }
@@ -224,8 +220,8 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     /// 2. **Soft-timeout re-enqueue**: Instances whose soft timeout has elapsed (and have not yet
     ///    been processed by a prior cycle) are re-enqueued. The entry stays in the pool so the
     ///    original instance can still complete normally.
-    /// 3. **Already-terminated cleanup**: Instances whose TCB has already terminated (e.g. via a
-    ///    race with a late completion) are simply removed from the pool.
+    /// 3. **Already-terminated cleanup**: Instances whose TCB no longer tracks them (task completed
+    ///    via the normal succeed/fail path) are simply removed from the pool.
     ///
     /// # Errors
     ///
@@ -242,7 +238,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         let dead_worker_set: Vec<WorkerId> = dead_workers;
 
         // Phase 1: Collect work to do under a single lock acquisition.
-        let (dead_worker_entries, soft_timeout_entries) = {
+        let (dead_worker_entries, soft_timeout_entries, live_entries) = {
             let state = self
                 .state
                 .lock()
@@ -250,23 +246,39 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 
             let mut dead_worker_entries = Vec::new();
             let mut soft_timeout_entries = Vec::new();
+            let mut live_entries = Vec::new();
 
             for (idx, entry) in state.running_task_instances.iter().enumerate() {
                 if dead_worker_set.contains(&entry.record.worker_id) {
-                    dead_worker_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
+                    dead_worker_entries.push((
+                        idx,
+                        entry.record.clone(),
+                        entry.control_block.clone(),
+                    ));
                 } else if !entry.gc_processed {
-                    let Some(soft_timeout_deadline) = entry.record.registered_at.checked_add(
-                        Duration::from_millis(entry.record.timeout_policy.soft_timeout_ms),
-                    ) else {
+                    let Some(soft_timeout_deadline) =
+                        entry
+                            .record
+                            .registered_at
+                            .checked_add(Duration::from_millis(
+                                entry.record.timeout_policy.soft_timeout_ms,
+                            ))
+                    else {
+                        live_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
                         continue;
                     };
                     if soft_timeout_deadline <= gc_started_at {
                         soft_timeout_entries.push(entry.record.clone());
+                    } else {
+                        live_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
                     }
+                } else {
+                    live_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
                 }
             }
 
-            (dead_worker_entries, soft_timeout_entries)
+            drop(state);
+            (dead_worker_entries, soft_timeout_entries, live_entries)
         };
 
         // Phase 2: Force-remove dead-worker instances from their TCBs and re-enqueue.
@@ -283,10 +295,25 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             self.set_gc_processed(record.task_instance_id, true);
         }
 
-        // Phase 4: Remove dead-worker entries from the pool (swap-remove from highest index to
-        // lowest so earlier indices remain valid).
-        let mut indices_to_remove: Vec<usize> =
-            dead_worker_entries.into_iter().map(|(idx, _, _)| idx).collect();
+        // Phase 4: Check if live entries' TCBs still track them. If not, the task completed
+        // via the normal path — just remove the stale pool entry.
+        let mut terminated_indices: Vec<usize> = Vec::new();
+        for (idx, record, control_block) in &live_entries {
+            if !control_block
+                .has_task_instance(record.task_instance_id)
+                .await
+            {
+                terminated_indices.push(*idx);
+            }
+        }
+
+        // Phase 5: Remove dead-worker and terminated entries from the pool (swap-remove from
+        // highest index to lowest so earlier indices remain valid).
+        let mut indices_to_remove: Vec<usize> = dead_worker_entries
+            .into_iter()
+            .map(|(idx, ..)| idx)
+            .chain(terminated_indices)
+            .collect();
         indices_to_remove.sort_unstable_by(|a, b| b.cmp(a));
         {
             let mut state = self
@@ -400,25 +427,10 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(AnySharedControlBlock::Termination(termination_tcb), registration)
-    }
-
-    async fn unregister_running_task_instance(
-        &self,
-        task_instance_id: TaskInstanceId,
-    ) -> Result<(), InternalError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        if let Some(pos) = state
-            .running_task_instances
-            .iter()
-            .position(|entry| entry.record.task_instance_id == task_instance_id)
-        {
-            state.running_task_instances.swap_remove(pos);
-        }
-        Ok(())
+        self.register_running_task_instance(
+            AnySharedControlBlock::Termination(termination_tcb),
+            registration,
+        )
     }
 
     async fn drain_worker_task_instances(
@@ -439,6 +451,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
                 i += 1;
             }
         }
+        drop(state);
         Ok(records)
     }
 }
@@ -870,6 +883,52 @@ mod tests {
         assert!(
             new_instance_result.is_ok(),
             "force_remove should have freed a slot, got: {new_instance_result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn gc_removes_entries_whose_tcb_has_completed() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
+        let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+
+        let tcb = build_single_task_tcb().await;
+        let worker_id = WorkerId::new();
+        let record = make_record(
+            TaskId::Index(0),
+            1,
+            worker_id,
+            initial_gc_cycle_at + Duration::from_millis(10),
+        );
+
+        tcb.register_task_instance(record.task_instance_id)
+            .await
+            .expect("task control block registration should succeed");
+        pool.register_task_instance(tcb.clone(), record.clone())
+            .await
+            .expect("registration should succeed");
+
+        assert!(pool_has_entry(&pool, record.task_instance_id));
+
+        // Simulate the task completing via the normal succeed path (TCB removes the instance).
+        tcb.succeed_task_instance(record.task_instance_id, vec![vec![0u8; 4]])
+            .await
+            .expect("task success should succeed");
+
+        // The pool still has the entry — GC should detect the TCB no longer tracks it.
+        assert!(pool_has_entry(&pool, record.task_instance_id));
+
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(50))
+            .await
+            .expect("gc should succeed");
+
+        assert!(
+            !pool_has_entry(&pool, record.task_instance_id),
+            "completed-task entry should be removed by GC"
+        );
+        assert!(
+            ready_queue_sender.take_messages().is_empty(),
+            "no re-enqueue for a task that completed normally"
         );
     }
 }
