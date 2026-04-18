@@ -280,6 +280,29 @@ impl TaskOutputsSerializer {
     }
 }
 
+/// Generates `serialize_*` methods on a `serde::Serializer` impl that all return the same error
+/// forwarded from [`unsupported_type_error`]. Covers the two method shapes in the trait:
+///
+/// * `primitive`: `fn method(self, _: Type) -> Result<Self::Ok, Self::Error>`
+/// * `compound`: `fn method(self, ...) -> Result<Self::AssocType, Self::Error>`
+macro_rules! reject_non_tuple {
+    (primitive: $($method:ident($prim:ty)),* $(,)?) => {
+        $(
+            fn $method(self, _: $prim) -> Result<Self::Ok, Self::Error> {
+                Err(unsupported_type_error())
+            }
+        )*
+    };
+
+    (compound: $($method:ident($($arg:ident: $ty:ty),*) -> $assoc:ty),* $(,)?) => {
+        $(
+            fn $method(self, $($arg: $ty),*) -> Result<$assoc, Self::Error> {
+                Err(unsupported_type_error())
+            }
+        )*
+    };
+}
+
 /// Length of the wire header recording the payload count, in bytes.
 const COUNT_HEADER_LEN: usize = 4;
 
@@ -637,29 +660,6 @@ impl<'de> SeqAccess<'de> for FieldSeqAccess<'_, 'de> {
 /// serialization methods return an error to indicate type rejection at runtime.
 struct TupleOutputSerializer {
     outputs: TaskOutputsSerializer,
-}
-
-/// Generates `serialize_*` methods on a `serde::Serializer` impl that all return the same error
-/// forwarded from [`unsupported_type_error`]. Covers the two method shapes in the trait:
-///
-/// * `primitive`: `fn method(self, _: Type) -> Result<Self::Ok, Self::Error>`
-/// * `compound`: `fn method(self, ...) -> Result<Self::AssocType, Self::Error>`
-macro_rules! reject_non_tuple {
-    (primitive: $($method:ident($prim:ty)),* $(,)?) => {
-        $(
-            fn $method(self, _: $prim) -> Result<Self::Ok, Self::Error> {
-                Err(unsupported_type_error())
-            }
-        )*
-    };
-
-    (compound: $($method:ident($($arg:ident: $ty:ty),*) -> $assoc:ty),* $(,)?) => {
-        $(
-            fn $method(self, $($arg: $ty),*) -> Result<$assoc, Self::Error> {
-                Err(unsupported_type_error())
-            }
-        )*
-    };
 }
 
 impl serde::Serializer for TupleOutputSerializer {
