@@ -216,12 +216,12 @@ mod tests {
         }
     }
 
-    struct FailTask;
-
     #[derive(Deserialize)]
     struct EmptyParams {}
 
-    impl Task for FailTask {
+    struct AlwaysFail;
+
+    impl Task for AlwaysFail {
         type Params = EmptyParams;
         type Return = (int32,);
 
@@ -240,9 +240,9 @@ mod tests {
     /// Illegal [`Task`] impl: `Return` is a struct rather than a tuple. Because the tuple
     /// constraint is runtime-checked (see the [`Task::Return`] docstring), such an impl compiles
     /// but fails inside [`TaskHandler::execute_raw`] at the serialization step.
-    struct IllegalTask;
+    struct Illegal;
 
-    impl Task for IllegalTask {
+    impl Task for Illegal {
         type Params = EmptyParams;
         type Return = IllegalReturn;
 
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn handler_task_error() -> anyhow::Result<()> {
-        let handler = TaskHandlerImpl::<FailTask>::new();
+        let handler = TaskHandlerImpl::<AlwaysFail>::new();
 
         let raw_ctx = make_encoded_ctx();
         let raw_args = TaskInputsSerializer::new().release();
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn handler_illegal_non_tuple_return() -> anyhow::Result<()> {
-        let handler = TaskHandlerImpl::<IllegalTask>::new();
+        let handler = TaskHandlerImpl::<Illegal>::new();
         let raw_ctx = make_encoded_ctx();
         let raw_args = TaskInputsSerializer::new().release();
 
