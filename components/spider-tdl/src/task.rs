@@ -147,9 +147,7 @@ impl<TaskType: Task + Send + Sync> TaskHandler for TaskHandlerImpl<TaskType> {
         })?;
         let params: TaskType::Params = TaskInputsSerializer::deserialize(raw_args)
             .map_err(|e| serialize_error(&TdlError::DeserializationError(e.to_string())))?;
-
         let result_tuple = TaskType::execute(ctx, params).map_err(|e| serialize_error(&e))?;
-
         TaskType::serialize_return(&result_tuple).map_err(|e| serialize_error(&e))
     }
 
