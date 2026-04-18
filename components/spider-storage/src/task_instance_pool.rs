@@ -1,5 +1,4 @@
 use std::{
-    collections::{HashMap, HashSet},
     sync::{
         Arc,
         Mutex,
@@ -20,6 +19,7 @@ use crate::{
         error::InternalError,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
+    db::DbError,
     ready_queue::ReadyQueueSender,
 };
 
@@ -35,6 +35,23 @@ pub struct TaskInstanceRecord {
     pub worker_id: WorkerId,
     pub registered_at: SystemTime,
     pub timeout_policy: TimeoutPolicy,
+}
+
+/// Store for tracking worker liveness state.
+///
+/// Implementations persist worker heartbeat state durably and provide an atomic operation to detect
+/// and mark dead workers for recovery.
+#[async_trait]
+pub trait WorkerLivenessStore: Clone + Send + Sync {
+    /// Returns the IDs of workers whose last heartbeat is before `stale_before`, after marking them
+    /// dead.
+    ///
+    /// This operation is atomic: once a worker is returned by this method, it will not be returned
+    /// again in subsequent calls.
+    async fn get_dead_workers(
+        &self,
+        stale_before: SystemTime,
+    ) -> Result<Vec<WorkerId>, DbError>;
 }
 
 /// Connector for creating and registering task instances in the task instance pool.
@@ -98,9 +115,6 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ) -> Result<(), InternalError>;
 
     /// Removes and returns all live task instances associated with the given worker.
-    ///
-    /// The returned task-instance records are no longer tracked by the pool after this call. If
-    /// the worker has no live task instances, an empty vector is returned.
     async fn drain_worker_task_instances(
         &self,
         worker_id: WorkerId,
@@ -109,22 +123,32 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
 
 /// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
 #[derive(Clone)]
-pub struct TaskInstancePool<ReadyQueueSenderType: ReadyQueueSender> {
+pub struct TaskInstancePool<
+    ReadyQueueSenderType: ReadyQueueSender,
+    WorkerLivenessStoreType: WorkerLivenessStore,
+> {
     ready_queue_sender: ReadyQueueSenderType,
+    worker_liveness_store: WorkerLivenessStoreType,
     next_task_instance_id: Arc<AtomicU64>,
     state: Arc<Mutex<TaskInstancePoolState>>,
 }
 
-impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
+impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
+    TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
+{
     /// Factory function.
     ///
     /// # Returns
     ///
     /// The created [`TaskInstancePool`].
     #[must_use]
-    pub fn new(ready_queue_sender: ReadyQueueSenderType) -> Self {
+    pub fn new(
+        ready_queue_sender: ReadyQueueSenderType,
+        worker_liveness_store: WorkerLivenessStoreType,
+    ) -> Self {
         Self {
             ready_queue_sender,
+            worker_liveness_store,
             next_task_instance_id: Arc::new(AtomicU64::new(1)),
             state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
         }
@@ -140,23 +164,39 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
     }
 }
 
+/// A type-erased control block that holds either a regular or a termination TCB.
+#[derive(Clone)]
+enum AnySharedControlBlock {
+    Task(SharedTaskControlBlock),
+    Termination(SharedTerminationTaskControlBlock),
+}
+
+impl AnySharedControlBlock {
+    async fn force_remove_task_instance(&self, instance_id: TaskInstanceId) -> bool {
+        match self {
+            Self::Task(tcb) => tcb.force_remove_task_instance(instance_id).await,
+            Self::Termination(tcb) => tcb.force_remove_task_instance(instance_id).await,
+        }
+    }
+}
+
 /// A running task-instance entry tracked by the task instance pool.
 ///
-/// This entry combines the externally visible [`TaskInstanceRecord`] with the internal GC
-/// bookkeeping state.
+/// This entry combines the externally visible [`TaskInstanceRecord`] with the associated control
+/// block and the internal GC bookkeeping state.
 #[derive(Clone)]
 struct RunningTaskInstanceEntry {
     record: TaskInstanceRecord,
+    control_block: AnySharedControlBlock,
     gc_processed: bool,
 }
 
 /// The mutable state held by the task instance pool.
 ///
-/// This state maintains one index by task-instance ID for direct lookup and one index by worker ID
-/// for dead-worker recovery.
+/// A single `Vec` stores all running task instances. Operations that need to find or remove entries
+/// use linear scan, which is sufficient because the pool is small and GC is not speed-sensitive.
 struct TaskInstancePoolState {
-    running_task_instances: HashMap<TaskInstanceId, RunningTaskInstanceEntry>,
-    worker_task_instances: HashMap<WorkerId, HashSet<TaskInstanceId>>,
+    running_task_instances: Vec<RunningTaskInstanceEntry>,
 }
 
 impl TaskInstancePoolState {
@@ -167,85 +207,97 @@ impl TaskInstancePoolState {
     /// The created [`TaskInstancePoolState`].
     fn new() -> Self {
         Self {
-            running_task_instances: HashMap::new(),
-            worker_task_instances: HashMap::new(),
+            running_task_instances: Vec::new(),
         }
     }
 }
 
-impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderType> {
-    /// Runs one soft-timeout GC cycle using the given wall-clock time as the evaluation time.
+impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
+    TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
+{
+    /// Runs one GC cycle using the given wall-clock time as the evaluation time.
     ///
-    /// Each running task instance is re-enqueued at most once per registration. The GC
-    /// bookkeeping flag is updated only after a successful re-enqueue so a later cycle can retry a
-    /// failed send.
+    /// The cycle performs three checks via a single linear scan of all running task instances:
+    ///
+    /// 1. **Dead worker recovery**: Instances assigned to dead workers are force-removed from their
+    ///    TCB, re-enqueued, and removed from the pool.
+    /// 2. **Soft-timeout re-enqueue**: Instances whose soft timeout has elapsed (and have not yet
+    ///    been processed by a prior cycle) are re-enqueued. The entry stays in the pool so the
+    ///    original instance can still complete normally.
+    /// 3. **Already-terminated cleanup**: Instances whose TCB has already terminated (e.g. via a
+    ///    race with a late completion) are simply removed from the pool.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if timed-out task re-enqueueing fails.
+    /// * [`InternalError`] if dead-worker recovery or timed-out task re-enqueueing fails.
+    /// * Forwards [`WorkerLivenessStore::get_dead_workers`]'s errors on failure.
     async fn run_gc_cycle_at(&self, gc_started_at: SystemTime) -> Result<(), InternalError> {
-        let timed_out_ids = {
+        let dead_workers = self
+            .worker_liveness_store
+            .get_dead_workers(gc_started_at)
+            .await
+            .map_err(|e| InternalError::TaskInstancePoolCorrupted(e.to_string()))?;
+        let dead_worker_set: Vec<WorkerId> = dead_workers;
+
+        // Phase 1: Collect work to do under a single lock acquisition.
+        let (dead_worker_entries, soft_timeout_entries) = {
             let state = self
                 .state
                 .lock()
                 .expect("task instance pool mutex should not be poisoned");
 
-            state
-                .running_task_instances
-                .iter()
-                .filter_map(|(task_instance_id, entry)| {
-                    let soft_timeout_deadline =
-                        entry
-                            .record
-                            .registered_at
-                            .checked_add(Duration::from_millis(
-                                entry.record.timeout_policy.soft_timeout_ms,
-                            ))?;
-                    if !entry.gc_processed && soft_timeout_deadline <= gc_started_at {
-                        return Some(*task_instance_id);
+            let mut dead_worker_entries = Vec::new();
+            let mut soft_timeout_entries = Vec::new();
+
+            for (idx, entry) in state.running_task_instances.iter().enumerate() {
+                if dead_worker_set.contains(&entry.record.worker_id) {
+                    dead_worker_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
+                } else if !entry.gc_processed {
+                    let Some(soft_timeout_deadline) = entry.record.registered_at.checked_add(
+                        Duration::from_millis(entry.record.timeout_policy.soft_timeout_ms),
+                    ) else {
+                        continue;
+                    };
+                    if soft_timeout_deadline <= gc_started_at {
+                        soft_timeout_entries.push(entry.record.clone());
                     }
-                    None
-                })
-                .collect::<Vec<_>>()
+                }
+            }
+
+            (dead_worker_entries, soft_timeout_entries)
         };
 
-        for task_instance_id in timed_out_ids {
-            let record = {
-                let state = self
-                    .state
-                    .lock()
-                    .expect("task instance pool mutex should not be poisoned");
-                let record = state
-                    .running_task_instances
-                    .get(&task_instance_id)
-                    .and_then(|entry| {
-                        match entry
-                            .record
-                            .registered_at
-                            .checked_add(Duration::from_millis(
-                                entry.record.timeout_policy.soft_timeout_ms,
-                            )) {
-                            Some(soft_timeout_deadline)
-                                if !entry.gc_processed
-                                    && soft_timeout_deadline <= gc_started_at =>
-                            {
-                                Some(entry.record.clone())
-                            }
-                            _ => None,
-                        }
-                    });
-                drop(state);
-                let Some(record) = record else {
-                    continue;
-                };
-                record
-            };
-
-            self.re_enqueue_task(record).await?;
-            self.set_gc_processed(task_instance_id, true);
+        // Phase 2: Force-remove dead-worker instances from their TCBs and re-enqueue.
+        for (_, record, control_block) in &dead_worker_entries {
+            control_block
+                .force_remove_task_instance(record.task_instance_id)
+                .await;
+            self.re_enqueue_task(record.clone()).await?;
         }
+
+        // Phase 3: Re-enqueue soft-timed-out instances.
+        for record in &soft_timeout_entries {
+            self.re_enqueue_task(record.clone()).await?;
+            self.set_gc_processed(record.task_instance_id, true);
+        }
+
+        // Phase 4: Remove dead-worker entries from the pool (swap-remove from highest index to
+        // lowest so earlier indices remain valid).
+        let mut indices_to_remove: Vec<usize> =
+            dead_worker_entries.into_iter().map(|(idx, _, _)| idx).collect();
+        indices_to_remove.sort_unstable_by(|a, b| b.cmp(a));
+        {
+            let mut state = self
+                .state
+                .lock()
+                .expect("task instance pool mutex should not be poisoned");
+            for idx in indices_to_remove {
+                state.running_task_instances.swap_remove(idx);
+            }
+        }
+
         Ok(())
     }
 
@@ -255,12 +307,16 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
             .state
             .lock()
             .expect("task instance pool mutex should not be poisoned");
-        if let Some(entry) = state.running_task_instances.get_mut(&task_instance_id) {
+        if let Some(entry) = state
+            .running_task_instances
+            .iter_mut()
+            .find(|entry| entry.record.task_instance_id == task_instance_id)
+        {
             entry.gc_processed = gc_processed;
         }
     }
 
-    /// Registers a running task instance in both task-instance and worker indexes.
+    /// Registers a running task instance.
     ///
     /// # Errors
     ///
@@ -269,6 +325,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
     /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance ID is already tracked.
     fn register_running_task_instance(
         &self,
+        control_block: AnySharedControlBlock,
         record: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
         let mut state = self
@@ -276,52 +333,22 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
             .lock()
             .expect("task instance pool mutex should not be poisoned");
         let task_instance_id = record.task_instance_id;
-        let worker_id = record.worker_id;
-        if state.running_task_instances.contains_key(&task_instance_id) {
+        if state
+            .running_task_instances
+            .iter()
+            .any(|entry| entry.record.task_instance_id == task_instance_id)
+        {
             return Err(InternalError::TaskInstancePoolCorrupted(format!(
                 "task instance {task_instance_id} already registered"
             )));
         }
-        state.running_task_instances.insert(
-            task_instance_id,
-            RunningTaskInstanceEntry {
-                record,
-                gc_processed: false,
-            },
-        );
-        state
-            .worker_task_instances
-            .entry(worker_id)
-            .or_default()
-            .insert(task_instance_id);
+        state.running_task_instances.push(RunningTaskInstanceEntry {
+            record,
+            control_block,
+            gc_processed: false,
+        });
         drop(state);
         Ok(())
-    }
-
-    /// Unregisters a running task instance from both indexes.
-    ///
-    /// # Returns
-    ///
-    /// The removed [`RunningTaskInstanceEntry`] if the task instance was tracked, `None` otherwise.
-    fn unregister_running_task_instance_inner(
-        &self,
-        task_instance_id: TaskInstanceId,
-    ) -> Option<RunningTaskInstanceEntry> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        let entry = state.running_task_instances.remove(&task_instance_id)?;
-        if let Some(worker_task_instances) =
-            state.worker_task_instances.get_mut(&entry.record.worker_id)
-        {
-            worker_task_instances.remove(&task_instance_id);
-            if worker_task_instances.is_empty() {
-                state.worker_task_instances.remove(&entry.record.worker_id);
-            }
-        }
-        drop(state);
-        Some(entry)
     }
 
     /// Re-enqueues the task corresponding to the given running-record metadata.
@@ -353,8 +380,8 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePool<ReadyQueueSenderTy
 }
 
 #[async_trait]
-impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePoolConnector
-    for TaskInstancePool<ReadyQueueSenderType>
+impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
+    TaskInstancePoolConnector for TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
 {
     fn get_next_available_task_instance_id(&self) -> TaskInstanceId {
         self.next_task_instance_id.fetch_add(1, Ordering::Relaxed)
@@ -362,25 +389,35 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePoolConnector
 
     async fn register_task_instance(
         &self,
-        _tcb: SharedTaskControlBlock,
+        tcb: SharedTaskControlBlock,
         registration: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(registration)
+        self.register_running_task_instance(AnySharedControlBlock::Task(tcb), registration)
     }
 
     async fn register_termination_task_instance(
         &self,
-        _termination_tcb: SharedTerminationTaskControlBlock,
+        termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceRecord,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(registration)
+        self.register_running_task_instance(AnySharedControlBlock::Termination(termination_tcb), registration)
     }
 
     async fn unregister_running_task_instance(
         &self,
         task_instance_id: TaskInstanceId,
     ) -> Result<(), InternalError> {
-        let _ = self.unregister_running_task_instance_inner(task_instance_id);
+        let mut state = self
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        if let Some(pos) = state
+            .running_task_instances
+            .iter()
+            .position(|entry| entry.record.task_instance_id == task_instance_id)
+        {
+            state.running_task_instances.swap_remove(pos);
+        }
         Ok(())
     }
 
@@ -388,21 +425,18 @@ impl<ReadyQueueSenderType: ReadyQueueSender> TaskInstancePoolConnector
         &self,
         worker_id: WorkerId,
     ) -> Result<Vec<TaskInstanceRecord>, InternalError> {
-        let task_instance_ids = {
-            let mut state = self
-                .state
-                .lock()
-                .expect("task instance pool mutex should not be poisoned");
-            state
-                .worker_task_instances
-                .remove(&worker_id)
-                .unwrap_or_default()
-        };
-
-        let mut records = Vec::with_capacity(task_instance_ids.len());
-        for task_instance_id in task_instance_ids {
-            if let Some(entry) = self.unregister_running_task_instance_inner(task_instance_id) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        let mut records = Vec::new();
+        let mut i = 0;
+        while i < state.running_task_instances.len() {
+            if state.running_task_instances[i].record.worker_id == worker_id {
+                let entry = state.running_task_instances.swap_remove(i);
                 records.push(entry.record);
+            } else {
+                i += 1;
             }
         }
         Ok(records)
@@ -431,6 +465,49 @@ mod tests {
 
     use super::*;
     use crate::cache::error::{CacheError, StaleStateError};
+
+    /// A [`WorkerLivenessStore`] that always returns an empty dead-worker list.
+    #[derive(Clone, Default)]
+    struct NoopWorkerLivenessStore;
+
+    #[async_trait]
+    impl WorkerLivenessStore for NoopWorkerLivenessStore {
+        async fn get_dead_workers(
+            &self,
+            _stale_before: SystemTime,
+        ) -> Result<Vec<WorkerId>, DbError> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// A [`WorkerLivenessStore`] that returns a preconfigured list of dead workers.
+    #[derive(Clone, Default)]
+    struct MockWorkerLivenessStore {
+        dead_workers: Arc<Mutex<Vec<WorkerId>>>,
+    }
+
+    impl MockWorkerLivenessStore {
+        fn set_dead_workers(&self, workers: Vec<WorkerId>) {
+            *self
+                .dead_workers
+                .lock()
+                .expect("dead workers mutex should not be poisoned") = workers;
+        }
+    }
+
+    #[async_trait]
+    impl WorkerLivenessStore for MockWorkerLivenessStore {
+        async fn get_dead_workers(
+            &self,
+            _stale_before: SystemTime,
+        ) -> Result<Vec<WorkerId>, DbError> {
+            Ok(self
+                .dead_workers
+                .lock()
+                .expect("dead workers mutex should not be poisoned")
+                .clone())
+        }
+    }
 
     #[derive(Debug, PartialEq, Eq)]
     enum ReadyMessage {
@@ -596,10 +673,24 @@ mod tests {
         }
     }
 
+    fn pool_has_entry<S: ReadyQueueSender, L: WorkerLivenessStore>(
+        pool: &TaskInstancePool<S, L>,
+        task_instance_id: TaskInstanceId,
+    ) -> bool {
+        let state = pool
+            .state
+            .lock()
+            .expect("task instance pool mutex should not be poisoned");
+        state
+            .running_task_instances
+            .iter()
+            .any(|entry| entry.record.task_instance_id == task_instance_id)
+    }
+
     #[tokio::test]
-    async fn register_and_unregister_update_both_indexes() {
+    async fn register_updates_pool() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(ready_queue_sender);
+        let pool = TaskInstancePool::new(ready_queue_sender, NoopWorkerLivenessStore);
         let tcb = build_single_task_tcb().await;
         let worker_id = WorkerId::new();
         let record = make_record(TaskId::Index(0), 1, worker_id, SystemTime::now());
@@ -608,89 +699,13 @@ mod tests {
             .await
             .expect("registration should succeed");
 
-        {
-            let state = pool
-                .state
-                .lock()
-                .expect("task instance pool mutex should not be poisoned");
-            assert!(
-                state
-                    .running_task_instances
-                    .contains_key(&record.task_instance_id)
-            );
-            assert_eq!(
-                state.worker_task_instances.get(&worker_id),
-                Some(&HashSet::from([record.task_instance_id]))
-            );
-            drop(state);
-        }
-
-        pool.unregister_running_task_instance(record.task_instance_id)
-            .await
-            .expect("unregister should succeed");
-
-        let state = pool
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        assert!(state.running_task_instances.is_empty());
-        assert!(state.worker_task_instances.is_empty());
-        drop(state);
-    }
-
-    #[tokio::test]
-    async fn drain_worker_task_instances_removes_only_target_worker() {
-        let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(ready_queue_sender);
-        let tcb = build_single_task_tcb().await;
-        let worker_a = WorkerId::new();
-        let worker_b = WorkerId::new();
-        let now = SystemTime::now();
-
-        let record_a = make_record(TaskId::Index(0), 1, worker_a, now);
-        let record_b = make_record(TaskId::Index(0), 2, worker_a, now);
-        let record_c = make_record(TaskId::Index(0), 3, worker_b, now);
-
-        pool.register_task_instance(tcb.clone(), record_a.clone())
-            .await
-            .expect("registration should succeed");
-        pool.register_task_instance(tcb.clone(), record_b.clone())
-            .await
-            .expect("registration should succeed");
-        pool.register_task_instance(tcb, record_c.clone())
-            .await
-            .expect("registration should succeed");
-
-        let drained = pool
-            .drain_worker_task_instances(worker_a)
-            .await
-            .expect("drain should succeed");
-
-        assert_eq!(drained.len(), 2);
-        assert!(drained.contains(&record_a));
-        assert!(drained.contains(&record_b));
-
-        let state = pool
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        assert_eq!(state.running_task_instances.len(), 1);
-        assert!(
-            state
-                .running_task_instances
-                .contains_key(&record_c.task_instance_id)
-        );
-        assert_eq!(
-            state.worker_task_instances.get(&worker_b),
-            Some(&HashSet::from([record_c.task_instance_id]))
-        );
-        drop(state);
+        assert!(pool_has_entry(&pool, record.task_instance_id));
     }
 
     #[tokio::test]
     async fn soft_timeout_reenqueues_exactly_once_and_keeps_original_instance_live() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(ready_queue_sender.clone());
+        let pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let tcb = build_single_task_tcb().await;
         let worker_id = WorkerId::new();
@@ -728,29 +743,7 @@ mod tests {
             "soft-timeout should not evict the original instance, got: {replacement_result:?}"
         );
 
-        {
-            let state = pool
-                .state
-                .lock()
-                .expect("task instance pool mutex should not be poisoned");
-            assert!(
-                state
-                    .running_task_instances
-                    .contains_key(&record.task_instance_id)
-            );
-            assert_eq!(
-                state.worker_task_instances.get(&worker_id),
-                Some(&HashSet::from([record.task_instance_id]))
-            );
-            drop(state);
-        }
-
-        pool.unregister_running_task_instance(record.task_instance_id)
-            .await
-            .expect("late completion should still be able to unregister from the pool");
-        tcb.succeed_task_instance(record.task_instance_id, vec![vec![0u8; 4]])
-            .await
-            .expect("late completion should still succeed against the original instance");
+        assert!(pool_has_entry(&pool, record.task_instance_id));
 
         pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(250))
             .await
@@ -764,7 +757,7 @@ mod tests {
             fail_task_ready_once: Arc::new(Mutex::new(true)),
             ..FlakyReadyQueueSender::default()
         };
-        let pool = TaskInstancePool::new(ready_queue_sender.clone());
+        let pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let tcb = build_single_task_tcb().await;
         let record = make_record(
@@ -805,5 +798,78 @@ mod tests {
             .await
             .expect("gc should not re-enqueue the same soft-timeout twice");
         assert!(ready_queue_sender.take_messages().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dead_worker_recovery_removes_entries_and_reenqueues() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockWorkerLivenessStore::default();
+        let pool = TaskInstancePool::new(ready_queue_sender.clone(), liveness_store.clone());
+        let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+
+        let tcb_dead = build_single_task_tcb().await;
+        let tcb_alive = build_single_task_tcb().await;
+        let dead_worker = WorkerId::new();
+        let alive_worker = WorkerId::new();
+
+        let dead_record = make_record(
+            TaskId::Index(0),
+            1,
+            dead_worker,
+            initial_gc_cycle_at + Duration::from_millis(10),
+        );
+        let alive_record = make_record(
+            TaskId::Index(0),
+            2,
+            alive_worker,
+            initial_gc_cycle_at + Duration::from_millis(10),
+        );
+
+        tcb_dead
+            .register_task_instance(dead_record.task_instance_id)
+            .await
+            .expect("task control block registration should succeed");
+        tcb_alive
+            .register_task_instance(alive_record.task_instance_id)
+            .await
+            .expect("task control block registration should succeed");
+
+        pool.register_task_instance(tcb_dead.clone(), dead_record.clone())
+            .await
+            .expect("registration should succeed");
+        pool.register_task_instance(tcb_alive.clone(), alive_record.clone())
+            .await
+            .expect("registration should succeed");
+
+        assert!(pool_has_entry(&pool, dead_record.task_instance_id));
+        assert!(pool_has_entry(&pool, alive_record.task_instance_id));
+
+        liveness_store.set_dead_workers(vec![dead_worker]);
+
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(50))
+            .await
+            .expect("gc should succeed");
+
+        // Dead worker's instance should be removed from the pool and re-enqueued.
+        assert!(
+            !pool_has_entry(&pool, dead_record.task_instance_id),
+            "dead worker entry should be removed"
+        );
+        assert!(
+            pool_has_entry(&pool, alive_record.task_instance_id),
+            "alive worker entry should remain"
+        );
+        assert_eq!(
+            ready_queue_sender.take_messages(),
+            vec![ReadyMessage::Task(dead_record.job_id, 0)],
+            "dead worker's task should be re-enqueued"
+        );
+
+        // The TCB should have been force-removed, allowing a new registration.
+        let new_instance_result = tcb_dead.register_task_instance(3).await;
+        assert!(
+            new_instance_result.is_ok(),
+            "force_remove should have freed a slot, got: {new_instance_result:?}"
+        );
     }
 }

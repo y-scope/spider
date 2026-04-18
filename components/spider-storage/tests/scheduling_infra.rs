@@ -99,10 +99,24 @@ use spider_storage::{
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::ReadyQueueSender,
-    task_instance_pool::TaskInstancePool,
+    task_instance_pool::{TaskInstancePool, WorkerLivenessStore},
 };
 use tabled::{Table, Tabled};
 use tokio::sync::{mpsc, watch};
+
+/// A [`WorkerLivenessStore`] that always returns an empty dead-worker list.
+#[derive(Clone, Default)]
+struct NoopWorkerLivenessStore;
+
+#[async_trait]
+impl WorkerLivenessStore for NoopWorkerLivenessStore {
+    async fn get_dead_workers(
+        &self,
+        _stale_before: std::time::SystemTime,
+    ) -> Result<Vec<spider_core::types::id::WorkerId>, DbError> {
+        Ok(Vec::new())
+    }
+}
 
 /// A handler that generates mock task outputs from an [`ExecutionContext`], which simulates the
 /// execution of a TDL task.
@@ -330,7 +344,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
-    let task_instance_pool = TaskInstancePool::new(ready_queue_sender.clone());
+    let task_instance_pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
 
     // Create and start the JCB.
     let inner_jcb = SharedJobControlBlock::create(
@@ -478,7 +492,7 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 type TestJcb<DbConnectorType> = SharedJobControlBlock<
     MockReadyQueueSender,
     DbConnectorType,
-    TaskInstancePool<MockReadyQueueSender>,
+    TaskInstancePool<MockReadyQueueSender, NoopWorkerLivenessStore>,
 >;
 
 /// A message sent through the mock ready queue.
