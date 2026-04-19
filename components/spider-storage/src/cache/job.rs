@@ -212,6 +212,22 @@ impl<
         Ok(execution_context)
     }
 
+    /// Creates a task instance for the commit task and registers it in the task instance pool.
+    ///
+    /// # Returns
+    ///
+    /// The execution context for the created task instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCommitTask`] if the job has no commit task.
+    /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
+    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
+    ///   failure.
+    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
+    ///   on failure.
     async fn create_commit_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         worker_id: WorkerId,
@@ -254,6 +270,22 @@ impl<
         })
     }
 
+    /// Creates a task instance for the cleanup task and registers it in the task instance pool.
+    ///
+    /// # Returns
+    ///
+    /// The execution context for the created task instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCleanupTask`] if the job has no cleanup task.
+    /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
+    ///   failure.
+    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
+    ///   on failure.
     async fn create_cleanup_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         worker_id: WorkerId,
@@ -645,8 +677,6 @@ struct JobExecutionStateHandle<
 impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
     JobExecutionStateHandle<R, D, T>
 {
-    /// Acquires a read lock on the job execution state after validating that the job is running.
-    ///
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
@@ -663,8 +693,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a write lock on the job execution state after validating that the job is running.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
@@ -681,9 +709,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a read lock on the job execution state after validating that the job is
-    /// commit-ready.
-    ///
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
@@ -700,9 +725,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a write lock on the job execution state after validating that the job is
-    /// commit-ready.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
@@ -719,9 +741,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a read lock on the job execution state after validating that the job is
-    /// cleanup-ready.
-    ///
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
@@ -738,9 +757,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a write lock on the job execution state after validating that the job is
-    /// cleanup-ready.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
@@ -757,9 +773,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a write lock on the job execution state after validating that the job is not
-    /// terminated.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
@@ -776,8 +789,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a write lock on the job execution state after validating that the job is ready.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
@@ -794,9 +805,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a write lock on the job execution state after validating that the job is
-    /// cancellable.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
@@ -813,8 +821,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
             .await
     }
 
-    /// Acquires a read lock and validates the job execution state using the given validator.
-    ///
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
@@ -833,8 +839,6 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
         Ok(guard)
     }
 
-    /// Acquires a write lock and validates the job execution state using the given validator.
-    ///
     /// # Returns
     ///
     /// A writer guard of the underlying job execution state on success.
