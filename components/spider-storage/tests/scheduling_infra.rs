@@ -344,8 +344,11 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
-    let task_instance_pool =
-        TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
+    let task_instance_pool = TaskInstancePool::new(
+        ready_queue_sender.clone(),
+        NoopWorkerLivenessStore,
+        Duration::from_mins(1),
+    );
 
     // Create and start the JCB.
     let inner_jcb = SharedJobControlBlock::create(

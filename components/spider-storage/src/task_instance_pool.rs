@@ -1,4 +1,20 @@
+//! Task instance pool for tracking running task instances and re-enqueuing timed-out work.
+//!
+//! This module provides the [`TaskInstancePool`] which tracks in-flight task instances across
+//! workers. It serves two purposes:
+//!
+//! * **Soft-timeout recovery**: When a task instance exceeds its soft timeout, the pool re-enqueues
+//!   the task so a new instance can be scheduled, while the original instance remains live until it
+//!   completes or is force-removed.
+//! * **Dead-worker recovery**: During each GC cycle, the pool queries the [`WorkerLivenessStore`]
+//!   to detect dead workers, force-removes their instances from the task control blocks, and
+//!   re-enqueues the corresponding tasks.
+//!
+//! The pool is also responsible for draining all instances associated with a worker when the
+//! scheduler needs to reclaim work.
+
 use std::{
+    collections::HashSet,
     sync::{
         Arc,
         Mutex,
@@ -140,6 +156,7 @@ pub struct TaskInstancePool<
 > {
     ready_queue_sender: ReadyQueueSenderType,
     worker_liveness_store: WorkerLivenessStoreType,
+    worker_stale_cutoff: Duration,
     next_task_instance_id: Arc<AtomicU64>,
     state: Arc<Mutex<TaskInstancePoolState>>,
 }
@@ -149,6 +166,13 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 {
     /// Factory function.
     ///
+    /// # Parameters
+    ///
+    /// * `ready_queue_sender` - The sender for re-enqueuing tasks to the ready queue.
+    /// * `worker_liveness_store` - The store for querying dead workers during GC.
+    /// * `worker_stale_cutoff` - The duration after which a worker with no heartbeat is considered
+    ///   stale by the pool's GC cycle.
+    ///
     /// # Returns
     ///
     /// The created [`TaskInstancePool`].
@@ -156,10 +180,12 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     pub fn new(
         ready_queue_sender: ReadyQueueSenderType,
         worker_liveness_store: WorkerLivenessStoreType,
+        worker_stale_cutoff: Duration,
     ) -> Self {
         Self {
             ready_queue_sender,
             worker_liveness_store,
+            worker_stale_cutoff,
             next_task_instance_id: Arc::new(AtomicU64::new(1)),
             state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
         }
@@ -256,7 +282,11 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     async fn run_gc_cycle_at(&self, gc_started_at: SystemTime) -> Result<(), InternalError> {
         let dead_workers = self
             .worker_liveness_store
-            .get_dead_workers(gc_started_at)
+            .get_dead_workers(
+                gc_started_at
+                    .checked_sub(self.worker_stale_cutoff)
+                    .unwrap_or(SystemTime::UNIX_EPOCH),
+            )
             .await
             .map_err(|e| InternalError::TaskInstancePoolCorrupted(e.to_string()))?;
         let dead_worker_set: Vec<WorkerId> = dead_workers;
@@ -272,13 +302,9 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             let mut soft_timeout_entries = Vec::new();
             let mut live_entries = Vec::new();
 
-            for (idx, entry) in state.running_task_instances.iter().enumerate() {
+            for entry in &state.running_task_instances {
                 if dead_worker_set.contains(&entry.record.worker_id) {
-                    dead_worker_entries.push((
-                        idx,
-                        entry.record.clone(),
-                        entry.control_block.clone(),
-                    ));
+                    dead_worker_entries.push((entry.record.clone(), entry.control_block.clone()));
                 } else if !entry.gc_processed {
                     let Some(soft_timeout_deadline) =
                         entry
@@ -288,16 +314,16 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
                                 entry.record.timeout_policy.soft_timeout_ms,
                             ))
                     else {
-                        live_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
+                        live_entries.push((entry.record.clone(), entry.control_block.clone()));
                         continue;
                     };
                     if soft_timeout_deadline <= gc_started_at {
                         soft_timeout_entries.push(entry.record.clone());
                     } else {
-                        live_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
+                        live_entries.push((entry.record.clone(), entry.control_block.clone()));
                     }
                 } else {
-                    live_entries.push((idx, entry.record.clone(), entry.control_block.clone()));
+                    live_entries.push((entry.record.clone(), entry.control_block.clone()));
                 }
             }
 
@@ -305,12 +331,12 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             (dead_worker_entries, soft_timeout_entries, live_entries)
         };
 
-        // Phase 2: Force-remove dead-worker instances from their TCBs and re-enqueue.
-        for (_, record, control_block) in &dead_worker_entries {
+        // Phase 2: Re-enqueue dead-worker instances, then force-remove from TCBs.
+        for (record, control_block) in &dead_worker_entries {
+            self.re_enqueue_task(record.clone()).await?;
             control_block
                 .force_remove_task_instance(record.task_instance_id)
                 .await;
-            self.re_enqueue_task(record.clone()).await?;
         }
 
         // Phase 3: Re-enqueue soft-timed-out instances.
@@ -320,33 +346,31 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         }
 
         // Phase 4: Check if live entries' TCBs still track them. If not, the task completed
-        // via the normal path — just remove the stale pool entry.
-        let mut terminated_indices: Vec<usize> = Vec::new();
-        for (idx, record, control_block) in &live_entries {
+        // via the normal path — collect IDs for removal.
+        let mut terminated_ids: Vec<TaskInstanceId> = Vec::new();
+        for (record, control_block) in &live_entries {
             if !control_block
                 .has_task_instance(record.task_instance_id)
                 .await
             {
-                terminated_indices.push(*idx);
+                terminated_ids.push(record.task_instance_id);
             }
         }
 
-        // Phase 5: Remove dead-worker and terminated entries from the pool (swap-remove from
-        // highest index to lowest so earlier indices remain valid).
-        let mut indices_to_remove: Vec<usize> = dead_worker_entries
+        // Phase 5: Remove dead-worker and terminated entries from the pool by ID.
+        let ids_to_remove: HashSet<TaskInstanceId> = dead_worker_entries
             .into_iter()
-            .map(|(idx, ..)| idx)
-            .chain(terminated_indices)
+            .map(|(record, _)| record.task_instance_id)
+            .chain(terminated_ids)
             .collect();
-        indices_to_remove.sort_unstable_by(|a, b| b.cmp(a));
         {
             let mut state = self
                 .state
                 .lock()
                 .expect("task instance pool mutex should not be poisoned");
-            for idx in indices_to_remove {
-                state.running_task_instances.swap_remove(idx);
-            }
+            state
+                .running_task_instances
+                .retain(|entry| !ids_to_remove.contains(&entry.record.task_instance_id));
         }
 
         Ok(())
@@ -727,7 +751,11 @@ mod tests {
     #[tokio::test]
     async fn register_updates_pool() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(ready_queue_sender, NoopWorkerLivenessStore);
+        let pool = TaskInstancePool::new(
+            ready_queue_sender,
+            NoopWorkerLivenessStore,
+            Duration::from_mins(1),
+        );
         let tcb = build_single_task_tcb().await;
         let worker_id = WorkerId::new();
         let record = make_record(TaskId::Index(0), 1, worker_id, SystemTime::now());
@@ -742,7 +770,11 @@ mod tests {
     #[tokio::test]
     async fn soft_timeout_reenqueues_exactly_once_and_keeps_original_instance_live() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
+        let pool = TaskInstancePool::new(
+            ready_queue_sender.clone(),
+            NoopWorkerLivenessStore,
+            Duration::from_mins(1),
+        );
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let tcb = build_single_task_tcb().await;
         let worker_id = WorkerId::new();
@@ -794,7 +826,11 @@ mod tests {
             fail_task_ready_once: Arc::new(Mutex::new(true)),
             ..FlakyReadyQueueSender::default()
         };
-        let pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
+        let pool = TaskInstancePool::new(
+            ready_queue_sender.clone(),
+            NoopWorkerLivenessStore,
+            Duration::from_mins(1),
+        );
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let tcb = build_single_task_tcb().await;
         let record = make_record(
@@ -841,7 +877,11 @@ mod tests {
     async fn dead_worker_recovery_removes_entries_and_reenqueues() {
         let ready_queue_sender = MockReadyQueueSender::default();
         let liveness_store = MockWorkerLivenessStore::default();
-        let pool = TaskInstancePool::new(ready_queue_sender.clone(), liveness_store.clone());
+        let pool = TaskInstancePool::new(
+            ready_queue_sender.clone(),
+            liveness_store.clone(),
+            Duration::from_mins(1),
+        );
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
 
         let tcb_dead = build_single_task_tcb().await;
@@ -913,7 +953,11 @@ mod tests {
     #[tokio::test]
     async fn gc_removes_entries_whose_tcb_has_completed() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(ready_queue_sender.clone(), NoopWorkerLivenessStore);
+        let pool = TaskInstancePool::new(
+            ready_queue_sender.clone(),
+            NoopWorkerLivenessStore,
+            Duration::from_mins(1),
+        );
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
 
         let tcb = build_single_task_tcb().await;
