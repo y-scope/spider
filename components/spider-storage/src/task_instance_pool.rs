@@ -48,6 +48,16 @@ pub trait WorkerLivenessStore: Clone + Send + Sync {
     ///
     /// This operation is atomic: once a worker is returned by this method, it will not be returned
     /// again in subsequent calls.
+    ///
+    /// # Returns
+    ///
+    /// A vector of dead worker IDs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards the underlying store's return values on failure.
     async fn get_dead_workers(&self, stale_before: SystemTime) -> Result<Vec<WorkerId>, DbError>;
 }
 
@@ -78,7 +88,8 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the task instance cannot be registered in the pool.
+    /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance cannot be registered in
+    ///   the pool.
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
@@ -96,7 +107,8 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError`] if the task instance cannot be registered in the pool.
+    /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance cannot be registered in
+    ///   the pool.
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
@@ -104,6 +116,16 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ) -> Result<(), InternalError>;
 
     /// Removes and returns all live task instances associated with the given worker.
+    ///
+    /// # Returns
+    ///
+    /// The records of all task instances that were associated with the given worker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError`] if the pool is in an inconsistent state.
     async fn drain_worker_task_instances(
         &self,
         worker_id: WorkerId,
@@ -147,7 +169,9 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     ///
     /// # Errors
     ///
-    /// Returns an error if timed-out task re-enqueueing fails.
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::run_gc_cycle_at`]'s return values on failure.
     pub async fn run_gc_cycle(&self) -> Result<(), InternalError> {
         self.run_gc_cycle_at(SystemTime::now()).await
     }

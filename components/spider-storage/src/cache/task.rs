@@ -336,6 +336,8 @@ impl SharedTaskControlBlock {
         tcb.base.force_remove_task_instance(instance_id)
     }
 
+    /// Checks whether the given task instance is still tracked by this control block.
+    ///
     /// # Returns
     ///
     /// Whether the given task instance is currently tracked in the control block.
@@ -563,6 +565,8 @@ impl SharedTerminationTaskControlBlock {
         tcb.base.force_remove_task_instance(instance_id)
     }
 
+    /// Checks whether the given task instance is still tracked by this control block.
+    ///
     /// # Returns
     ///
     /// Whether the given task instance is currently tracked in the control block.
@@ -660,6 +664,8 @@ impl InstancePool {
         self.instance_ids.is_empty()
     }
 
+    /// Checks whether the given task instance is tracked in the pool.
+    ///
     /// # Returns
     ///
     /// Whether the given task instance is currently tracked in the pool.
