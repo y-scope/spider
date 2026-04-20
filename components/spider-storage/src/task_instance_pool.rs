@@ -289,7 +289,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             )
             .await
             .map_err(|e| InternalError::TaskInstancePoolCorrupted(e.to_string()))?;
-        let dead_worker_set: Vec<WorkerId> = dead_workers;
 
         // Phase 1: Collect work to do under a single lock acquisition.
         let (dead_worker_entries, soft_timeout_entries, live_entries) = {
@@ -303,7 +302,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             let mut live_entries = Vec::new();
 
             for entry in &state.running_task_instances {
-                if dead_worker_set.contains(&entry.record.worker_id) {
+                if dead_workers.contains(&entry.record.worker_id) {
                     dead_worker_entries.push((entry.record.clone(), entry.control_block.clone()));
                 } else if !entry.gc_processed {
                     let Some(soft_timeout_deadline) =
