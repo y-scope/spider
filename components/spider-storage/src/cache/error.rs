@@ -111,4 +111,7 @@ pub enum StaleStateError {
 
     #[error("job already started")]
     JobAlreadyStarted,
+
+    #[error("worker is dead")]
+    WorkerIsDead,
 }

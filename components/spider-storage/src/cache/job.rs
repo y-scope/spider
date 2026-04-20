@@ -203,7 +203,7 @@ impl<
             .await
         {
             let _ = tcb.force_remove_task_instance(task_instance_id).await;
-            return Err(error.into());
+            return Err(error);
         }
 
         // The lock is intentionally held until just before return so all TCB accesses
@@ -258,7 +258,7 @@ impl<
             let _ = commit_tcb
                 .force_remove_task_instance(task_instance_id)
                 .await;
-            return Err(error.into());
+            return Err(error);
         }
 
         drop(job);
@@ -316,7 +316,7 @@ impl<
             let _ = cleanup_tcb
                 .force_remove_task_instance(task_instance_id)
                 .await;
-            return Err(error.into());
+            return Err(error);
         }
 
         drop(job);

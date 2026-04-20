@@ -32,7 +32,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     cache::{
         TaskId,
-        error::InternalError,
+        error::{CacheError, InternalError, StaleStateError},
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::DbError,
@@ -106,11 +106,12 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance cannot be registered in
     ///   the pool.
+    /// * [`StaleStateError::WorkerIsDead`] if the worker is known to be dead.
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
         registration: TaskInstanceMetadata,
-    ) -> Result<(), InternalError>;
+    ) -> Result<(), CacheError>;
 
     /// Registers a termination task instance with the given termination task control block.
     ///
@@ -125,11 +126,12 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance cannot be registered in
     ///   the pool.
+    /// * [`StaleStateError::WorkerIsDead`] if the worker is known to be dead.
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
-    ) -> Result<(), InternalError>;
+    ) -> Result<(), CacheError>;
 }
 
 /// A type-erased control block that holds either a regular or a termination TCB.
@@ -172,6 +174,7 @@ struct RunningTaskInstanceEntry {
 /// use linear scan, which is sufficient because the pool is small and GC is not speed-sensitive.
 struct TaskInstancePoolState {
     running_task_instances: Vec<RunningTaskInstanceEntry>,
+    known_dead_workers: HashSet<WorkerId>,
 }
 
 impl TaskInstancePoolState {
@@ -180,9 +183,10 @@ impl TaskInstancePoolState {
     /// # Returns
     ///
     /// The created [`TaskInstancePoolState`].
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             running_task_instances: Vec::new(),
+            known_dead_workers: HashSet::new(),
         }
     }
 }
@@ -194,7 +198,7 @@ enum PoolMessage {
     Register {
         control_block: Tcb,
         record: TaskInstanceMetadata,
-        response_tx: oneshot::Sender<Result<(), InternalError>>,
+        response_tx: oneshot::Sender<Result<(), CacheError>>,
     },
 
     /// Run a GC cycle at a specific time (used for testing).
@@ -346,14 +350,19 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
                 record,
                 response_tx,
             } => {
-                self.state
-                    .running_task_instances
-                    .push(RunningTaskInstanceEntry {
-                        record,
-                        control_block,
-                        gc_processed: false,
-                    });
-                let _ = response_tx.send(Ok(()));
+                let result = if self.state.known_dead_workers.contains(&record.worker_id) {
+                    Err(CacheError::StaleState(StaleStateError::WorkerIsDead))
+                } else {
+                    self.state
+                        .running_task_instances
+                        .push(RunningTaskInstanceEntry {
+                            record,
+                            control_block,
+                            gc_processed: false,
+                        });
+                    Ok(())
+                };
+                let _ = response_tx.send(result);
             }
             PoolMessage::RunGcAt {
                 gc_started_at,
@@ -398,6 +407,10 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             )
             .await
             .map_err(|e| InternalError::TaskInstancePoolCorrupted(e.to_string()))?;
+
+        for worker_id in &dead_workers {
+            self.state.known_dead_workers.insert(*worker_id);
+        }
 
         // Phase 1: Collect work to do.
         let mut dead_worker_entries = Vec::new();
@@ -536,7 +549,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         &self,
         tcb: SharedTaskControlBlock,
         registration: TaskInstanceMetadata,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), CacheError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.sender
             .send(PoolMessage::Register {
@@ -557,7 +570,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), CacheError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.sender
             .send(PoolMessage::Register {
