@@ -348,6 +348,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         ready_queue_sender.clone(),
         NoopWorkerLivenessStore,
         Duration::from_mins(1),
+        Duration::from_mins(1),
     );
 
     // Create and start the JCB.
