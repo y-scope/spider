@@ -276,7 +276,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 
         // Phase 1: Collect work to do under a single lock acquisition.
         let (dead_worker_entries, soft_timeout_entries, live_entries) = {
-            let state = self
+            let mut state = self
                 .state
                 .lock()
                 .expect("task instance pool mutex should not be poisoned");
@@ -285,7 +285,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             let mut soft_timeout_entries = Vec::new();
             let mut live_entries = Vec::new();
 
-            for entry in &state.running_task_instances {
+            for entry in &mut state.running_task_instances {
                 if dead_workers.contains(&entry.record.worker_id) {
                     dead_worker_entries.push((entry.record.clone(), entry.control_block.clone()));
                 } else if !entry.gc_processed {
@@ -301,6 +301,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
                         continue;
                     };
                     if soft_timeout_deadline <= gc_started_at {
+                        entry.gc_processed = true;
                         soft_timeout_entries.push(entry.record.clone());
                     } else {
                         live_entries.push((entry.record.clone(), entry.control_block.clone()));
@@ -323,9 +324,14 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         }
 
         // Phase 3: Re-enqueue soft-timed-out instances.
-        for record in &soft_timeout_entries {
-            self.re_enqueue_task(record).await?;
-            self.set_gc_processed(record.task_instance_id, true);
+        for (i, record) in soft_timeout_entries.iter().enumerate() {
+            if let Err(e) = self.re_enqueue_task(record).await {
+                // Roll back gc_processed for this and all remaining entries.
+                for remaining in &soft_timeout_entries[i..] {
+                    self.set_gc_processed(remaining.task_instance_id, false);
+                }
+                return Err(e);
+            }
         }
 
         // Phase 4: Check if live entries' TCBs still track them. If not, the task completed
@@ -441,10 +447,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(
-            Tcb::Termination(termination_tcb),
-            registration,
-        )
+        self.register_running_task_instance(Tcb::Termination(termination_tcb), registration)
     }
 }
 
