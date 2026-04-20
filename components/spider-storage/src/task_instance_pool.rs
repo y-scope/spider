@@ -316,11 +316,20 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         };
 
         // Phase 2: Re-enqueue dead-worker instances, then force-remove from TCBs.
+        // Check TCB membership first: if the task already completed, skip re-enqueue.
+        let mut dead_worker_ids_to_remove: Vec<TaskInstanceId> = Vec::new();
         for (record, control_block) in &dead_worker_entries {
-            self.re_enqueue_task(record).await?;
-            control_block
-                .force_remove_task_instance(record.task_instance_id)
-                .await;
+            if !control_block
+                .has_task_instance(record.task_instance_id)
+                .await
+            {
+                dead_worker_ids_to_remove.push(record.task_instance_id);
+            } else {
+                self.re_enqueue_task(record).await?;
+                control_block
+                    .force_remove_task_instance(record.task_instance_id)
+                    .await;
+            }
         }
 
         // Phase 3: Re-enqueue soft-timed-out instances.
@@ -350,6 +359,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         let ids_to_remove: HashSet<TaskInstanceId> = dead_worker_entries
             .into_iter()
             .map(|(record, _)| record.task_instance_id)
+            .chain(dead_worker_ids_to_remove)
             .chain(terminated_ids)
             .collect();
         {
