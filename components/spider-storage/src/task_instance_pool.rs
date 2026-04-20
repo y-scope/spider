@@ -391,12 +391,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     }
 
     /// Registers a running task instance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance ID is already tracked.
     fn register_running_task_instance(
         &self,
         control_block: Tcb,
@@ -406,22 +400,11 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             .state
             .lock()
             .expect("task instance pool mutex should not be poisoned");
-        let task_instance_id = record.task_instance_id;
-        if state
-            .running_task_instances
-            .iter()
-            .any(|entry| entry.record.task_instance_id == task_instance_id)
-        {
-            return Err(InternalError::TaskInstancePoolCorrupted(format!(
-                "task instance {task_instance_id} already registered"
-            )));
-        }
         state.running_task_instances.push(RunningTaskInstanceEntry {
             record,
             control_block,
             gc_processed: false,
         });
-        drop(state);
         Ok(())
     }
 
