@@ -205,12 +205,12 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 
 /// A type-erased control block that holds either a regular or a termination TCB.
 #[derive(Clone)]
-enum AnySharedControlBlock {
+enum Tcb {
     Task(SharedTaskControlBlock),
     Termination(SharedTerminationTaskControlBlock),
 }
 
-impl AnySharedControlBlock {
+impl Tcb {
     async fn force_remove_task_instance(&self, instance_id: TaskInstanceId) -> bool {
         match self {
             Self::Task(tcb) => tcb.force_remove_task_instance(instance_id).await,
@@ -233,7 +233,7 @@ impl AnySharedControlBlock {
 #[derive(Clone)]
 struct RunningTaskInstanceEntry {
     record: TaskInstanceMetadata,
-    control_block: AnySharedControlBlock,
+    control_block: Tcb,
     gc_processed: bool,
 }
 
@@ -400,7 +400,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance ID is already tracked.
     fn register_running_task_instance(
         &self,
-        control_block: AnySharedControlBlock,
+        control_block: Tcb,
         record: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
         let mut state = self
@@ -467,7 +467,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         tcb: SharedTaskControlBlock,
         registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(AnySharedControlBlock::Task(tcb), registration)
+        self.register_running_task_instance(Tcb::Task(tcb), registration)
     }
 
     async fn register_termination_task_instance(
@@ -476,7 +476,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
         self.register_running_task_instance(
-            AnySharedControlBlock::Termination(termination_tcb),
+            Tcb::Termination(termination_tcb),
             registration,
         )
     }
