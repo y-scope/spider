@@ -332,7 +332,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 
         // Phase 2: Re-enqueue dead-worker instances, then force-remove from TCBs.
         for (record, control_block) in &dead_worker_entries {
-            self.re_enqueue_task(record.clone()).await?;
+            self.re_enqueue_task(record).await?;
             control_block
                 .force_remove_task_instance(record.task_instance_id)
                 .await;
@@ -340,7 +340,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 
         // Phase 3: Re-enqueue soft-timed-out instances.
         for record in &soft_timeout_entries {
-            self.re_enqueue_task(record.clone()).await?;
+            self.re_enqueue_task(record).await?;
             self.set_gc_processed(record.task_instance_id, true);
         }
 
@@ -432,7 +432,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     /// Returns an error if:
     ///
     /// * [`InternalError`] if sending the corresponding ready-queue event fails.
-    async fn re_enqueue_task(&self, record: TaskInstanceMetadata) -> Result<(), InternalError> {
+    async fn re_enqueue_task(&self, record: &TaskInstanceMetadata) -> Result<(), InternalError> {
         match record.task_id {
             TaskId::Index(task_index) => {
                 self.ready_queue_sender
