@@ -41,10 +41,10 @@ use crate::{
 
 /// Metadata for one running task instance tracked by the task instance pool.
 ///
-/// This record carries the information needed to re-enqueue soft-timed-out work and to remove all
+/// This metadata carries the information needed to re-enqueue soft-timed-out work and to remove all
 /// live task instances associated with a worker during recovery.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TaskInstanceRecord {
+pub struct TaskInstanceMetadata {
     pub job_id: JobId,
     pub task_id: TaskId,
     pub task_instance_id: TaskInstanceId,
@@ -98,7 +98,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     /// # Parameters
     ///
     /// * `tcb` - The task control block associated with the task instance.
-    /// * `registration` - The running-record metadata associated with the task instance.
+    /// * `registration` - The metadata associated with the task instance.
     ///
     /// # Errors
     ///
@@ -109,7 +109,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
-        registration: TaskInstanceRecord,
+        registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError>;
 
     /// Registers a termination task instance with the given termination task control block.
@@ -117,7 +117,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     /// # Parameters
     ///
     /// * `termination_tcb` - The termination task control block associated with the task instance.
-    /// * `registration` - The running-record metadata associated with the task instance.
+    /// * `registration` - The metadata associated with the task instance.
     ///
     /// # Errors
     ///
@@ -128,7 +128,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
-        registration: TaskInstanceRecord,
+        registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError>;
 
     /// Removes and returns all live task instances associated with the given worker.
@@ -145,7 +145,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     async fn drain_worker_task_instances(
         &self,
         worker_id: WorkerId,
-    ) -> Result<Vec<TaskInstanceRecord>, InternalError>;
+    ) -> Result<Vec<TaskInstanceMetadata>, InternalError>;
 }
 
 /// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
@@ -228,11 +228,11 @@ impl AnySharedControlBlock {
 
 /// A running task-instance entry tracked by the task instance pool.
 ///
-/// This entry combines the externally visible [`TaskInstanceRecord`] with the associated control
-/// block and the internal GC bookkeeping state.
+/// This entry combines the externally visible [`TaskInstanceMetadata`] with the associated control
+/// block and the internal GC bookkeeping flag.
 #[derive(Clone)]
 struct RunningTaskInstanceEntry {
-    record: TaskInstanceRecord,
+    record: TaskInstanceMetadata,
     control_block: AnySharedControlBlock,
     gc_processed: bool,
 }
@@ -401,7 +401,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     fn register_running_task_instance(
         &self,
         control_block: AnySharedControlBlock,
-        record: TaskInstanceRecord,
+        record: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
         let mut state = self
             .state
@@ -426,14 +426,14 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         Ok(())
     }
 
-    /// Re-enqueues the task corresponding to the given running-record metadata.
+    /// Re-enqueues the task corresponding to the given metadata.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`InternalError`] if sending the corresponding ready-queue event fails.
-    async fn re_enqueue_task(&self, record: TaskInstanceRecord) -> Result<(), InternalError> {
+    async fn re_enqueue_task(&self, record: TaskInstanceMetadata) -> Result<(), InternalError> {
         match record.task_id {
             TaskId::Index(task_index) => {
                 self.ready_queue_sender
@@ -465,7 +465,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
-        registration: TaskInstanceRecord,
+        registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
         self.register_running_task_instance(AnySharedControlBlock::Task(tcb), registration)
     }
@@ -473,7 +473,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
-        registration: TaskInstanceRecord,
+        registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
         self.register_running_task_instance(
             AnySharedControlBlock::Termination(termination_tcb),
@@ -484,7 +484,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     async fn drain_worker_task_instances(
         &self,
         worker_id: WorkerId,
-    ) -> Result<Vec<TaskInstanceRecord>, InternalError> {
+    ) -> Result<Vec<TaskInstanceMetadata>, InternalError> {
         let mut state = self
             .state
             .lock()
@@ -720,8 +720,8 @@ mod tests {
         task_instance_id: TaskInstanceId,
         worker_id: WorkerId,
         registered_at: SystemTime,
-    ) -> TaskInstanceRecord {
-        TaskInstanceRecord {
+    ) -> TaskInstanceMetadata {
+        TaskInstanceMetadata {
             job_id: JobId::new(),
             task_id,
             task_instance_id,

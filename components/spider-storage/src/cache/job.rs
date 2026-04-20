@@ -24,7 +24,7 @@ use crate::{
     },
     db::InternalJobOrchestration,
     ready_queue::ReadyQueueSender,
-    task_instance_pool::{TaskInstancePoolConnector, TaskInstanceRecord},
+    task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
 
 /// A shareable control block for a job.
@@ -189,7 +189,7 @@ impl<
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
         let execution_context = tcb.register_task_instance(task_instance_id).await?;
-        let registration = TaskInstanceRecord {
+        let registration = TaskInstanceMetadata {
             job_id: jcb.id,
             task_id: TaskId::Index(task_index),
             task_instance_id,
@@ -242,7 +242,7 @@ impl<
             .get_next_available_task_instance_id();
         let (tdl_context, timeout_policy) =
             commit_tcb.register_task_instance(task_instance_id).await?;
-        let registration = TaskInstanceRecord {
+        let registration = TaskInstanceMetadata {
             job_id: jcb.id,
             task_id: TaskId::Commit,
             task_instance_id,
@@ -300,7 +300,7 @@ impl<
             .get_next_available_task_instance_id();
         let (tdl_context, timeout_policy) =
             cleanup_tcb.register_task_instance(task_instance_id).await?;
-        let registration = TaskInstanceRecord {
+        let registration = TaskInstanceMetadata {
             job_id: jcb.id,
             task_id: TaskId::Cleanup,
             task_instance_id,
