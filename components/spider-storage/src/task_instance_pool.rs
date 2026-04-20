@@ -1,14 +1,14 @@
 //! Task instance pool for tracking running task instances and re-enqueuing timed-out work.
 //!
 //! This module provides the [`TaskInstancePool`] which tracks in-flight task instances across
-//! workers. It serves two purposes:
+//! execution managers. It serves two purposes:
 //!
 //! * **Soft-timeout recovery**: When a task instance exceeds its soft timeout, the pool re-enqueues
 //!   the task so a new instance can be scheduled, while the original instance remains live until it
 //!   completes or is force-removed.
-//! * **Dead-worker recovery**: During each GC cycle, the pool queries the [`WorkerLivenessStore`]
-//!   to detect dead workers, force-removes their instances from the task control blocks, and
-//!   re-enqueues the corresponding tasks.
+//! * **Dead-execution-manager recovery**: During each GC cycle, the pool queries the
+//!   [`ExecutionManagerLivenessStore`] to detect dead execution managers, force-removes their
+//!   instances from the task control blocks, and re-enqueues the corresponding tasks.
 //!
 //! Internally, the pool runs as a single-owner coroutine: a tokio task owns the mutable state
 //! directly (no mutex), processing registration messages and GC timers via `tokio::select!`.
@@ -25,7 +25,7 @@ use std::{
 use async_trait::async_trait;
 use spider_core::{
     task::TimeoutPolicy,
-    types::id::{JobId, TaskInstanceId, WorkerId},
+    types::id::{ExecutionManagerId, JobId, TaskInstanceId},
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -42,39 +42,42 @@ use crate::{
 /// Metadata for one running task instance tracked by the task instance pool.
 ///
 /// This metadata carries the information needed to re-enqueue soft-timed-out work and to remove all
-/// live task instances associated with a worker during recovery.
+/// live task instances associated with an execution manager during recovery.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskInstanceMetadata {
     pub job_id: JobId,
     pub task_id: TaskId,
     pub task_instance_id: TaskInstanceId,
-    pub worker_id: WorkerId,
+    pub execution_manager_id: ExecutionManagerId,
     pub registered_at: SystemTime,
     pub timeout_policy: TimeoutPolicy,
 }
 
-/// Store for tracking worker liveness state.
+/// Store for tracking execution manager liveness state.
 ///
-/// Implementations persist worker heartbeat state durably and provide an atomic operation to detect
-/// and mark dead workers for recovery.
+/// Implementations persist execution manager heartbeat state durably and provide an atomic
+/// operation to detect and mark dead execution managers for recovery.
 #[async_trait]
-pub trait WorkerLivenessStore: Clone + Send + Sync {
-    /// Returns the IDs of workers whose last heartbeat is before `stale_before`, after marking them
-    /// dead.
+pub trait ExecutionManagerLivenessStore: Clone + Send + Sync {
+    /// Returns the IDs of execution managers whose last heartbeat is before `stale_before`, after
+    /// marking them dead.
     ///
-    /// This operation is atomic: once a worker is returned by this method, it will not be returned
-    /// again in subsequent calls.
+    /// This operation is atomic: once an execution manager is returned by this method, it will not
+    /// be returned again in subsequent calls.
     ///
     /// # Returns
     ///
-    /// A vector of dead worker IDs on success.
+    /// A vector of dead execution manager IDs on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * Forwards the underlying store's return values on failure.
-    async fn get_dead_workers(&self, stale_before: SystemTime) -> Result<Vec<WorkerId>, DbError>;
+    async fn get_dead_execution_managers(
+        &self,
+        stale_before: SystemTime,
+    ) -> Result<Vec<ExecutionManagerId>, DbError>;
 }
 
 /// Connector for creating and registering task instances in the task instance pool.
@@ -106,7 +109,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance cannot be registered in
     ///   the pool.
-    /// * [`StaleStateError::WorkerIsDead`] if the worker is known to be dead.
+    /// * [`StaleStateError::ExecutionManagerIsDead`] if the execution manager is known to be dead.
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
@@ -126,7 +129,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// * [`InternalError::TaskInstancePoolCorrupted`] if the task instance cannot be registered in
     ///   the pool.
-    /// * [`StaleStateError::WorkerIsDead`] if the worker is known to be dead.
+    /// * [`StaleStateError::ExecutionManagerIsDead`] if the execution manager is known to be dead.
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
@@ -174,7 +177,7 @@ struct RunningTaskInstanceEntry {
 /// use linear scan, which is sufficient because the pool is small and GC is not speed-sensitive.
 struct TaskInstancePoolState {
     running_task_instances: Vec<RunningTaskInstanceEntry>,
-    known_dead_workers: HashSet<WorkerId>,
+    known_dead_execution_managers: HashSet<ExecutionManagerId>,
 }
 
 impl TaskInstancePoolState {
@@ -186,7 +189,7 @@ impl TaskInstancePoolState {
     fn new() -> Self {
         Self {
             running_task_instances: Vec::new(),
-            known_dead_workers: HashSet::new(),
+            known_dead_execution_managers: HashSet::new(),
         }
     }
 }
@@ -222,26 +225,27 @@ enum PoolMessage {
 #[derive(Clone)]
 pub struct TaskInstancePool<
     ReadyQueueSenderType: ReadyQueueSender,
-    WorkerLivenessStoreType: WorkerLivenessStore,
+    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
 > {
     next_task_instance_id: Arc<AtomicU64>,
     sender: mpsc::Sender<PoolMessage>,
-    _phantom: std::marker::PhantomData<(ReadyQueueSenderType, WorkerLivenessStoreType)>,
+    _phantom: std::marker::PhantomData<(ReadyQueueSenderType, ExecutionManagerLivenessStoreType)>,
 }
 
 impl<
     ReadyQueueSenderType: ReadyQueueSender + 'static,
-    WorkerLivenessStoreType: WorkerLivenessStore + 'static,
-> TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
+    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore + 'static,
+> TaskInstancePool<ReadyQueueSenderType, ExecutionManagerLivenessStoreType>
 {
     /// Factory function.
     ///
     /// # Parameters
     ///
     /// * `ready_queue_sender` - The sender for re-enqueuing tasks to the ready queue.
-    /// * `worker_liveness_store` - The store for querying dead workers during GC.
-    /// * `worker_stale_cutoff` - The duration after which a worker with no heartbeat is considered
-    ///   stale by the pool's GC cycle.
+    /// * `execution_manager_liveness_store` - The store for querying dead execution managers during
+    ///   GC.
+    /// * `execution_manager_stale_cutoff` - The duration after which an execution manager with no
+    ///   heartbeat is considered stale by the pool's GC cycle.
     /// * `gc_interval` - The interval between automatic GC cycles.
     ///
     /// # Returns
@@ -250,8 +254,8 @@ impl<
     #[must_use]
     pub fn new(
         ready_queue_sender: ReadyQueueSenderType,
-        worker_liveness_store: WorkerLivenessStoreType,
-        worker_stale_cutoff: Duration,
+        execution_manager_liveness_store: ExecutionManagerLivenessStoreType,
+        execution_manager_stale_cutoff: Duration,
         gc_interval: Duration,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(128);
@@ -263,8 +267,8 @@ impl<
 
         let coroutine_state = CoroutineState {
             ready_queue_sender,
-            worker_liveness_store,
-            worker_stale_cutoff,
+            execution_manager_liveness_store,
+            execution_manager_stale_cutoff,
             state: TaskInstancePoolState::new(),
             receiver,
         };
@@ -305,17 +309,19 @@ impl<
 /// State owned by the pool coroutine.
 struct CoroutineState<
     ReadyQueueSenderType: ReadyQueueSender,
-    WorkerLivenessStoreType: WorkerLivenessStore,
+    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
 > {
     ready_queue_sender: ReadyQueueSenderType,
-    worker_liveness_store: WorkerLivenessStoreType,
-    worker_stale_cutoff: Duration,
+    execution_manager_liveness_store: ExecutionManagerLivenessStoreType,
+    execution_manager_stale_cutoff: Duration,
     state: TaskInstancePoolState,
     receiver: mpsc::Receiver<PoolMessage>,
 }
 
-impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
-    CoroutineState<ReadyQueueSenderType, WorkerLivenessStoreType>
+impl<
+    ReadyQueueSenderType: ReadyQueueSender,
+    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
+> CoroutineState<ReadyQueueSenderType, ExecutionManagerLivenessStoreType>
 {
     /// Runs the coroutine loop, processing messages and GC timer ticks.
     async fn run(mut self, gc_interval: Duration) {
@@ -350,8 +356,14 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
                 record,
                 response_tx,
             } => {
-                let result = if self.state.known_dead_workers.contains(&record.worker_id) {
-                    Err(CacheError::StaleState(StaleStateError::WorkerIsDead))
+                let result = if self
+                    .state
+                    .known_dead_execution_managers
+                    .contains(&record.execution_manager_id)
+                {
+                    Err(CacheError::StaleState(
+                        StaleStateError::ExecutionManagerIsDead,
+                    ))
                 } else {
                     self.state
                         .running_task_instances
@@ -390,36 +402,39 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     ///
     /// The cycle performs three checks via a single linear scan of all running task instances:
     ///
-    /// 1. **Dead worker recovery**: Instances assigned to dead workers are force-removed from their
-    ///    TCB, re-enqueued, and removed from the pool.
+    /// 1. **Dead execution manager recovery**: Instances assigned to dead execution managers are
+    ///    force-removed from their TCB, re-enqueued, and removed from the pool.
     /// 2. **Soft-timeout re-enqueue**: Instances whose soft timeout has elapsed (and have not yet
     ///    been processed by a prior cycle) are re-enqueued. The entry stays in the pool so the
     ///    original instance can still complete normally.
     /// 3. **Already-terminated cleanup**: Instances whose TCB no longer tracks them (task completed
     ///    via the normal succeed/fail path) are simply removed from the pool.
     async fn run_gc_cycle_at(&mut self, gc_started_at: SystemTime) -> Result<(), InternalError> {
-        let dead_workers = self
-            .worker_liveness_store
-            .get_dead_workers(
+        let dead_execution_managers = self
+            .execution_manager_liveness_store
+            .get_dead_execution_managers(
                 gc_started_at
-                    .checked_sub(self.worker_stale_cutoff)
+                    .checked_sub(self.execution_manager_stale_cutoff)
                     .unwrap_or(SystemTime::UNIX_EPOCH),
             )
             .await
             .map_err(|e| InternalError::TaskInstancePoolCorrupted(e.to_string()))?;
 
-        for worker_id in &dead_workers {
-            self.state.known_dead_workers.insert(*worker_id);
+        for execution_manager_id in &dead_execution_managers {
+            self.state
+                .known_dead_execution_managers
+                .insert(*execution_manager_id);
         }
 
         // Phase 1: Collect work to do.
-        let mut dead_worker_entries = Vec::new();
+        let mut dead_execution_manager_entries = Vec::new();
         let mut soft_timeout_entries = Vec::new();
         let mut live_entries = Vec::new();
 
         for entry in &mut self.state.running_task_instances {
-            if dead_workers.contains(&entry.record.worker_id) {
-                dead_worker_entries.push((entry.record.clone(), entry.control_block.clone()));
+            if dead_execution_managers.contains(&entry.record.execution_manager_id) {
+                dead_execution_manager_entries
+                    .push((entry.record.clone(), entry.control_block.clone()));
             } else if !entry.gc_processed {
                 let Some(soft_timeout_deadline) =
                     entry
@@ -443,10 +458,10 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             }
         }
 
-        // Phase 2: Re-enqueue dead-worker instances, then force-remove from TCBs.
+        // Phase 2: Re-enqueue dead-execution-manager instances, then force-remove from TCBs.
         // Check TCB membership first: if the task already completed, skip re-enqueue.
-        let mut dead_worker_ids_to_remove: Vec<TaskInstanceId> = Vec::new();
-        for (record, control_block) in &dead_worker_entries {
+        let mut dead_em_ids_to_remove: Vec<TaskInstanceId> = Vec::new();
+        for (record, control_block) in &dead_execution_manager_entries {
             if control_block
                 .has_task_instance(record.task_instance_id)
                 .await
@@ -456,7 +471,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
                     .force_remove_task_instance(record.task_instance_id)
                     .await;
             } else {
-                dead_worker_ids_to_remove.push(record.task_instance_id);
+                dead_em_ids_to_remove.push(record.task_instance_id);
             }
         }
 
@@ -483,11 +498,11 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             }
         }
 
-        // Phase 5: Remove dead-worker and terminated entries from the pool by ID.
-        let ids_to_remove: HashSet<TaskInstanceId> = dead_worker_entries
+        // Phase 5: Remove dead-execution-manager and terminated entries from the pool by ID.
+        let ids_to_remove: HashSet<TaskInstanceId> = dead_execution_manager_entries
             .into_iter()
             .map(|(record, _)| record.task_instance_id)
-            .chain(dead_worker_ids_to_remove)
+            .chain(dead_em_ids_to_remove)
             .chain(terminated_ids)
             .collect();
         self.state
@@ -538,8 +553,11 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
 }
 
 #[async_trait]
-impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
-    TaskInstancePoolConnector for TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
+impl<
+    ReadyQueueSenderType: ReadyQueueSender,
+    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
+> TaskInstancePoolConnector
+    for TaskInstancePool<ReadyQueueSenderType, ExecutionManagerLivenessStoreType>
 {
     fn get_next_available_task_instance_id(&self) -> TaskInstanceId {
         self.next_task_instance_id.fetch_add(1, Ordering::Relaxed)
@@ -603,7 +621,7 @@ mod tests {
             ValueTypeDescriptor,
         },
         types::{
-            id::{JobId, WorkerId},
+            id::{ExecutionManagerId, JobId},
             io::TaskInput,
         },
     };
@@ -612,39 +630,41 @@ mod tests {
     use super::*;
     use crate::cache::error::{CacheError, StaleStateError};
 
-    /// A [`WorkerLivenessStore`] that always returns an empty dead-worker list.
+    /// A [`ExecutionManagerLivenessStore`] that always returns an empty dead-execution-manager
+    /// list.
     #[derive(Clone, Default)]
-    struct NoopWorkerLivenessStore;
+    struct NoopExecutionManagerLivenessStore;
 
     #[async_trait]
-    impl WorkerLivenessStore for NoopWorkerLivenessStore {
-        async fn get_dead_workers(
+    impl ExecutionManagerLivenessStore for NoopExecutionManagerLivenessStore {
+        async fn get_dead_execution_managers(
             &self,
             _stale_before: SystemTime,
-        ) -> Result<Vec<WorkerId>, DbError> {
+        ) -> Result<Vec<ExecutionManagerId>, DbError> {
             Ok(Vec::new())
         }
     }
 
-    /// A [`WorkerLivenessStore`] that returns a preconfigured list of dead workers.
+    /// A [`ExecutionManagerLivenessStore`] that returns a preconfigured list of dead execution
+    /// managers.
     #[derive(Clone, Default)]
-    struct MockWorkerLivenessStore {
-        dead_workers: Arc<Mutex<Vec<WorkerId>>>,
+    struct MockExecutionManagerLivenessStore {
+        dead_execution_managers: Arc<Mutex<Vec<ExecutionManagerId>>>,
     }
 
-    impl MockWorkerLivenessStore {
-        async fn set_dead_workers(&self, workers: Vec<WorkerId>) {
-            *self.dead_workers.lock().await = workers;
+    impl MockExecutionManagerLivenessStore {
+        async fn set_dead_execution_managers(&self, execution_managers: Vec<ExecutionManagerId>) {
+            *self.dead_execution_managers.lock().await = execution_managers;
         }
     }
 
     #[async_trait]
-    impl WorkerLivenessStore for MockWorkerLivenessStore {
-        async fn get_dead_workers(
+    impl ExecutionManagerLivenessStore for MockExecutionManagerLivenessStore {
+        async fn get_dead_execution_managers(
             &self,
             _stale_before: SystemTime,
-        ) -> Result<Vec<WorkerId>, DbError> {
-            Ok(self.dead_workers.lock().await.clone())
+        ) -> Result<Vec<ExecutionManagerId>, DbError> {
+            Ok(self.dead_execution_managers.lock().await.clone())
         }
     }
 
@@ -783,14 +803,14 @@ mod tests {
     fn make_record(
         task_id: TaskId,
         task_instance_id: TaskInstanceId,
-        worker_id: WorkerId,
+        execution_manager_id: ExecutionManagerId,
         registered_at: SystemTime,
     ) -> TaskInstanceMetadata {
         TaskInstanceMetadata {
             job_id: JobId::new(),
             task_id,
             task_instance_id,
-            worker_id,
+            execution_manager_id,
             registered_at,
             timeout_policy: TimeoutPolicy {
                 soft_timeout_ms: 100,
@@ -799,7 +819,7 @@ mod tests {
         }
     }
 
-    async fn pool_has_entry<S: ReadyQueueSender, L: WorkerLivenessStore>(
+    async fn pool_has_entry<S: ReadyQueueSender, L: ExecutionManagerLivenessStore>(
         pool: &TaskInstancePool<S, L>,
         task_instance_id: TaskInstanceId,
     ) -> bool {
@@ -819,13 +839,13 @@ mod tests {
         let ready_queue_sender = MockReadyQueueSender::default();
         let pool = TaskInstancePool::new(
             ready_queue_sender,
-            NoopWorkerLivenessStore,
+            NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
             Duration::from_mins(1),
         );
         let tcb = build_single_task_tcb().await;
-        let worker_id = WorkerId::new();
-        let record = make_record(TaskId::Index(0), 1, worker_id, SystemTime::now());
+        let execution_manager_id = ExecutionManagerId::new();
+        let record = make_record(TaskId::Index(0), 1, execution_manager_id, SystemTime::now());
 
         pool.register_task_instance(tcb, record.clone())
             .await
@@ -839,15 +859,15 @@ mod tests {
         let ready_queue_sender = MockReadyQueueSender::default();
         let pool = TaskInstancePool::new(
             ready_queue_sender.clone(),
-            NoopWorkerLivenessStore,
+            NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
             Duration::from_mins(1),
         );
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
         let tcb = build_single_task_tcb().await;
-        let worker_id = WorkerId::new();
+        let execution_manager_id = ExecutionManagerId::new();
         let registered_at = initial_gc_cycle_at + Duration::from_millis(50);
-        let record = make_record(TaskId::Index(0), 1, worker_id, registered_at);
+        let record = make_record(TaskId::Index(0), 1, execution_manager_id, registered_at);
 
         tcb.register_task_instance(record.task_instance_id)
             .await
@@ -896,7 +916,7 @@ mod tests {
         };
         let pool = TaskInstancePool::new(
             ready_queue_sender.clone(),
-            NoopWorkerLivenessStore,
+            NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
             Duration::from_mins(1),
         );
@@ -905,7 +925,7 @@ mod tests {
         let record = make_record(
             TaskId::Index(0),
             1,
-            WorkerId::new(),
+            ExecutionManagerId::new(),
             initial_gc_cycle_at + Duration::from_millis(50),
         );
 
@@ -943,9 +963,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dead_worker_recovery_removes_entries_and_reenqueues() {
+    async fn dead_execution_manager_recovery_removes_entries_and_reenqueues() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockWorkerLivenessStore::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
         let pool = TaskInstancePool::new(
             ready_queue_sender.clone(),
             liveness_store.clone(),
@@ -956,19 +976,19 @@ mod tests {
 
         let tcb_dead = build_single_task_tcb().await;
         let tcb_alive = build_single_task_tcb().await;
-        let dead_worker = WorkerId::new();
-        let alive_worker = WorkerId::new();
+        let dead_em = ExecutionManagerId::new();
+        let alive_em = ExecutionManagerId::new();
 
         let dead_record = make_record(
             TaskId::Index(0),
             1,
-            dead_worker,
+            dead_em,
             initial_gc_cycle_at + Duration::from_millis(10),
         );
         let alive_record = make_record(
             TaskId::Index(0),
             2,
-            alive_worker,
+            alive_em,
             initial_gc_cycle_at + Duration::from_millis(10),
         );
 
@@ -991,25 +1011,27 @@ mod tests {
         assert!(pool_has_entry(&pool, dead_record.task_instance_id).await);
         assert!(pool_has_entry(&pool, alive_record.task_instance_id).await);
 
-        liveness_store.set_dead_workers(vec![dead_worker]).await;
+        liveness_store
+            .set_dead_execution_managers(vec![dead_em])
+            .await;
 
         pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(50))
             .await
             .expect("gc should succeed");
 
-        // Dead worker's instance should be removed from the pool and re-enqueued.
+        // Dead execution manager's instance should be removed from the pool and re-enqueued.
         assert!(
             !pool_has_entry(&pool, dead_record.task_instance_id).await,
-            "dead worker entry should be removed"
+            "dead execution manager entry should be removed"
         );
         assert!(
             pool_has_entry(&pool, alive_record.task_instance_id).await,
-            "alive worker entry should remain"
+            "alive execution manager entry should remain"
         );
         assert_eq!(
             ready_queue_sender.take_messages().await,
             vec![ReadyMessage::Task(dead_record.job_id, 0)],
-            "dead worker's task should be re-enqueued"
+            "dead execution manager's task should be re-enqueued"
         );
 
         // The TCB should have been force-removed, allowing a new registration.
@@ -1025,18 +1047,18 @@ mod tests {
         let ready_queue_sender = MockReadyQueueSender::default();
         let pool = TaskInstancePool::new(
             ready_queue_sender.clone(),
-            NoopWorkerLivenessStore,
+            NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
             Duration::from_mins(1),
         );
         let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
 
         let tcb = build_single_task_tcb().await;
-        let worker_id = WorkerId::new();
+        let execution_manager_id = ExecutionManagerId::new();
         let record = make_record(
             TaskId::Index(0),
             1,
-            worker_id,
+            execution_manager_id,
             initial_gc_cycle_at + Duration::from_millis(10),
         );
 

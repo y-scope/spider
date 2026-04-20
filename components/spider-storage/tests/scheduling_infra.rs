@@ -1,47 +1,47 @@
 //! Reusable mock scheduling framework for concurrent JCB integration testing.
 //!
 //! This module provides a complete test harness that drives concurrent job execution through the
-//! [`SharedJobControlBlock`] with 64 async worker tasks. It is designed to be reused across
-//! different test files and DB connector implementations.
+//! [`SharedJobControlBlock`] with 64 async execution manager tasks. It is designed to be reused
+//! across different test files and DB connector implementations.
 //!
 //! # Mock system architecture
 //!
 //! ```text
-//!     Test Harness --> JCB -- "ready tasks" --> MPMC Queue --> 64 Workers
+//!     Test Harness --> JCB -- "ready tasks" --> MPMC Queue --> 64 Execution Managers
 //!                      ^                                         |
 //!                      +--- "register / succeed / fail" ---------+
 //!                      |                                         |
 //!                      +--- "new ready tasks" --> Queue          |
 //!                                                                |
-//!     Workers -- "terminal state" --> Harness                    |
-//!     Workers -- "latency samples" --> Instrumentation           |
+//!     Execution Managers -- "terminal state" --> Harness         |
+//!     Execution Managers -- "latency samples" --> Instrumentation|
 //! ```
 //!
 //! **Data flow**: The harness creates a JCB and calls `start()`, which enqueues initially ready
-//! tasks into the MPMC channel. 64 workers concurrently dequeue one task at a time, call JCB
-//! methods (register -> succeed/fail), which may enqueue newly ready child tasks back into the
-//! channel. When a worker observes a terminal [`JobState`], it broadcasts via a `watch` channel.
-//! The harness receives the signal and sends a done notification, causing all workers to exit their
-//! `select!` loop.
+//! tasks into the MPMC channel. 64 execution managers concurrently dequeue one task at a time, call
+//! JCB methods (register -> succeed/fail), which may enqueue newly ready child tasks back into the
+//! channel. When an execution manager observes a terminal [`JobState`], it broadcasts via a `watch`
+//! channel. The harness receives the signal and sends a done notification, causing all execution
+//! managers to exit their `select!` loop.
 //!
 //! **Cancellation**: For immediate cancel, the harness calls `jcb.cancel()` synchronously after
-//! `start()` but before workers process any messages. For concurrent cancel, a separate spawned
-//! task cancels after a 1ms delay, racing against worker execution.
+//! `start()` but before execution managers process any messages. For concurrent cancel, a separate
+//! spawned task cancels after a 1ms delay, racing against execution manager execution.
 //!
 //! # Mock components
 //!
 //! * [`MockReadyQueueSender`] -- backed by `async_channel` (true MPMC). Task-ready batches from the
-//!   JCB are flattened to one message per task index for maximum worker concurrency.
+//!   JCB are flattened to one message per task index for maximum execution manager concurrency.
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
 //! * [`TaskInstancePool`] -- the in-memory running-instance pool used by storage.
 //!
-//! # Worker architecture
+//! # Execution manager architecture
 //!
-//! Each worker owns a cloned [`WorkerContext`] (no shared `Arc` indirection -- all fields are
-//! cheaply cloneable via `Arc` or built-in `Clone`). Workers `tokio::select!` between the
-//! ready-queue receiver and a done signal (`watch<bool>`).
+//! Each execution manager owns a cloned [`EmContext`] (no shared `Arc` indirection -- all fields
+//! are cheaply cloneable via `Arc` or built-in `Clone`). Execution managers `tokio::select!`
+//! between the ready-queue receiver and a done signal (`watch<bool>`).
 //!
 //! **Failure injection**: 50% of first-seen tasks spawn 2 concurrent `tokio::spawn` coroutines
 //! that each independently register and fail a task instance. This exercises both the retry
@@ -87,7 +87,7 @@ use spider_core::{
     job::JobState,
     task::{TaskGraph as SubmittedTaskGraph, TaskIndex},
     types::{
-        id::{JobId, ResourceGroupId, TaskInstanceId, WorkerId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
@@ -99,21 +99,21 @@ use spider_storage::{
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::ReadyQueueSender,
-    task_instance_pool::{TaskInstancePool, WorkerLivenessStore},
+    task_instance_pool::{ExecutionManagerLivenessStore, TaskInstancePool},
 };
 use tabled::{Table, Tabled};
 use tokio::sync::{mpsc, watch};
 
-/// A [`WorkerLivenessStore`] that always returns an empty dead-worker list.
+/// A [`ExecutionManagerLivenessStore`] that always returns an empty dead-execution-manager list.
 #[derive(Clone, Default)]
-struct NoopWorkerLivenessStore;
+struct NoopExecutionManagerLivenessStore;
 
 #[async_trait]
-impl WorkerLivenessStore for NoopWorkerLivenessStore {
-    async fn get_dead_workers(
+impl ExecutionManagerLivenessStore for NoopExecutionManagerLivenessStore {
+    async fn get_dead_execution_managers(
         &self,
         _stale_before: std::time::SystemTime,
-    ) -> Result<Vec<spider_core::types::id::WorkerId>, DbError> {
+    ) -> Result<Vec<spider_core::types::id::ExecutionManagerId>, DbError> {
         Ok(Vec::new())
     }
 }
@@ -122,7 +122,7 @@ impl WorkerLivenessStore for NoopWorkerLivenessStore {
 /// execution of a TDL task.
 pub type TaskOutputHandler = Arc<dyn Fn(&ExecutionContext) -> Vec<TaskOutput> + Send + Sync>;
 
-/// Sender half for instrument samples. Workers send timing data through this channel.
+/// Sender half for instrument samples. Execution managers send timing data through this channel.
 pub type InstrumentSender = mpsc::UnboundedSender<InstrumentSample>;
 
 /// A single latency sample collected from a JCB operation.
@@ -145,7 +145,7 @@ pub enum CancelPolicy {
     /// Do not cancel.
     Never,
 
-    /// Cancel immediately after `start()`, before any worker processes a message.
+    /// Cancel immediately after `start()`, before any execution manager processes a message.
     Immediate,
 
     /// Cancel concurrently — spawn a separate task that cancels after a short delay.
@@ -196,10 +196,10 @@ pub struct WorkloadResult {
     /// The [`JobId`] of the job that was run.
     pub job_id: JobId,
 
-    /// The terminal [`JobState`] observed by a worker.
+    /// The terminal [`JobState`] observed by an execution manager.
     pub terminal_state: JobState,
 
-    /// The number of regular tasks that were successfully completed by workers.
+    /// The number of regular tasks that were successfully completed by execution managers.
     pub task_success_count: usize,
 
     /// The number of times a commit task was successfully processed.
@@ -308,20 +308,21 @@ pub fn write_instrument_results(
     });
 }
 
-/// Creates a JCB from the given task graph, starts it, spawns workers, and runs to completion.
+/// Creates a JCB from the given task graph, starts it, spawns execution managers, and runs to
+/// completion.
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Panics
 ///
 /// Panics if:
 ///
 /// * JCB creation or startup fails.
-/// * A worker task panics.
-/// * A worker returns an unexpected (non-stale-state) error.
+/// * An execution manager task panics.
+/// * An execution manager returns an unexpected (non-stale-state) error.
 /// * A cancel operation returns an unexpected error.
 ///
 /// # Returns
@@ -346,7 +347,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         db_connector_factory(submitted_task_graph, &inputs).await;
     let task_instance_pool = TaskInstancePool::new(
         ready_queue_sender.clone(),
-        NoopWorkerLivenessStore,
+        NoopExecutionManagerLivenessStore,
         Duration::from_mins(1),
         Duration::from_mins(1),
     );
@@ -378,10 +379,10 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let commit_count = Arc::new(AtomicUsize::new(0));
     let cleanup_count = Arc::new(AtomicUsize::new(0));
 
-    let ctx = WorkerContext {
+    let ctx = EmContext {
         receiver: ready_receiver,
         jcb: jcb.clone(),
-        worker_id: WorkerId::new(),
+        execution_manager_id: ExecutionManagerId::new(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
         seen_tasks: Arc::new(DashMap::new()),
@@ -392,12 +393,12 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         always_fail,
     };
 
-    // Spawn workers.
+    // Spawn execution managers.
     let mut join_set = tokio::task::JoinSet::new();
-    for _ in 0..NUM_WORKERS {
-        let mut worker_ctx = ctx.clone();
-        worker_ctx.worker_id = WorkerId::new();
-        join_set.spawn(async move { run_worker(worker_ctx).await });
+    for _ in 0..NUM_EXECUTION_MANAGERS {
+        let mut em_ctx = ctx.clone();
+        em_ctx.execution_manager_id = ExecutionManagerId::new();
+        join_set.spawn(async move { run_execution_manager(em_ctx).await });
     }
 
     // Apply cancellation policy.
@@ -430,7 +431,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         }
     };
 
-    // Wait for a terminal state, then signal workers to exit.
+    // Wait for a terminal state, then signal execution managers to exit.
     terminal_state_receiver
         .wait_for(Option::is_some)
         .await
@@ -443,8 +444,8 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
 
     while let Some(result) = join_set.join_next().await {
         result
-            .expect("worker task should not panic")
-            .expect("worker early returns on error");
+            .expect("execution manager task should not panic")
+            .expect("execution manager early returns on error");
     }
 
     if let Some(handle) = cancel_handle {
@@ -482,8 +483,8 @@ pub fn mariadb_db_connector_factory(
     }
 }
 
-/// The number of concurrent worker tasks to spawn.
-const NUM_WORKERS: usize = 64;
+/// The number of concurrent execution manager tasks to spawn.
+const NUM_EXECUTION_MANAGERS: usize = 64;
 
 /// The environment variable that, when set, enables instrumentation output. Its value is the
 /// directory path where the instrumentation file will be written.
@@ -497,14 +498,14 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 type TestJcb<DbConnectorType> = SharedJobControlBlock<
     MockReadyQueueSender,
     DbConnectorType,
-    TaskInstancePool<MockReadyQueueSender, NoopWorkerLivenessStore>,
+    TaskInstancePool<MockReadyQueueSender, NoopExecutionManagerLivenessStore>,
 >;
 
 /// A message sent through the mock ready queue.
 ///
 /// Each message represents a single schedulable unit of work. Task-ready batches from the JCB are
-/// flattened into one message per task index so that workers receive tasks individually, enabling
-/// better concurrency across the worker pool.
+/// flattened into one message per task index so that execution managers receive tasks individually,
+/// enabling better concurrency across the execution manager pool.
 ///
 /// Since these tests run a single job at a time, messages do not carry a job ID.
 enum ReadyMessage {
@@ -520,9 +521,9 @@ enum ReadyMessage {
 
 /// A mock [`ReadyQueueSender`] backed by an [`async_channel::Sender`].
 ///
-/// Workers each hold a cloned [`async_channel::Receiver`] and can concurrently await messages
-/// without any mutex serialization. The `job_id` parameter in each trait method is discarded since
-/// only one job runs at a time.
+/// Execution managers each hold a cloned [`async_channel::Receiver`] and can concurrently await
+/// messages without any mutex serialization. The `job_id` parameter in each trait method is
+/// discarded since only one job runs at a time.
 #[derive(Clone)]
 struct MockReadyQueueSender {
     sender: async_channel::Sender<ReadyMessage>,
@@ -577,18 +578,23 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
     async fn create_task_instance(
         &self,
         task_id: TaskId,
-        worker_id: WorkerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         if let Some(sender) = &self.instrument_sender {
             let start = Instant::now();
-            let result = self.jcb.create_task_instance(task_id, worker_id).await;
+            let result = self
+                .jcb
+                .create_task_instance(task_id, execution_manager_id)
+                .await;
             let _ = sender.send(InstrumentSample::Registration {
                 elapsed: start.elapsed(),
                 ok: result.is_ok(),
             });
             result
         } else {
-            self.jcb.create_task_instance(task_id, worker_id).await
+            self.jcb
+                .create_task_instance(task_id, execution_manager_id)
+                .await
         }
     }
 
@@ -694,14 +700,14 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
     }
 }
 
-/// Per-worker context. All fields are cheaply cloneable (via `Arc` or built-in `Clone` impls),
-/// so each worker owns its own copy without shared `Arc<WorkerContext>` indirection.
+/// Per-execution-manager context. All fields are cheaply cloneable (via `Arc` or built-in `Clone`
+/// impls), so each execution manager owns its own copy without shared `Arc<EmContext>` indirection.
 ///
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
-struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
+struct EmContext<DbConnectorType: InternalJobOrchestration> {
     /// The MPMC ready-queue receiver. Each clone can concurrently await messages without
     /// serialization.
     receiver: async_channel::Receiver<ReadyMessage>,
@@ -709,13 +715,13 @@ struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
     /// The instrumented JCB under test.
     jcb: InstrumentedJcb<DbConnectorType>,
 
-    /// Stable worker identity used when registering task instances.
-    worker_id: WorkerId,
+    /// Stable execution manager identity used when registering task instances.
+    execution_manager_id: ExecutionManagerId,
 
-    /// Watch channel sender — workers send the terminal [`JobState`] when observed.
+    /// Watch channel sender — execution managers send the terminal [`JobState`] when observed.
     terminal_state_sender: watch::Sender<Option<JobState>>,
 
-    /// Watch channel receiver — workers use this to detect shutdown.
+    /// Watch channel receiver — execution managers use this to detect shutdown.
     done_receiver: watch::Receiver<bool>,
 
     /// Tracks which [`TaskIndex`](es) have been seen for failure injection.
@@ -733,8 +739,8 @@ struct WorkerContext<DbConnectorType: InternalJobOrchestration> {
     /// Counter incremented when a cleanup task is successfully processed.
     cleanup_count: Arc<AtomicUsize>,
 
-    /// If `true`, workers always fail task instances instead of applying the random injection
-    /// policy. Used by the always-fail test case.
+    /// If `true`, execution managers always fail task instances instead of applying the random
+    /// injection policy. Used by the always-fail test case.
     always_fail: bool,
 }
 
@@ -797,7 +803,7 @@ impl LatencyRow {
 /// Whether the error is a [`CacheError::StaleState`] variant.
 ///
 /// Stale-state errors are expected during concurrent execution (e.g., a task was already succeeded
-/// by another worker) and should be silently ignored.
+/// by another execution manager) and should be silently ignored.
 const fn is_stale_state(err: &CacheError) -> bool {
     matches!(err, CacheError::StaleState(_))
 }
@@ -808,7 +814,7 @@ const fn is_stale_state(err: &CacheError) -> bool {
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 fn broadcast_if_terminated<DbConnectorType: InternalJobOrchestration>(
-    ctx: &WorkerContext<DbConnectorType>,
+    ctx: &EmContext<DbConnectorType>,
     state: JobState,
 ) {
     if state.is_terminal() {
@@ -857,10 +863,11 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
     Table::new(rows).to_string()
 }
 
-/// Runs a single worker that consumes [`ReadyMessage`]s from the shared queue and drives task
-/// execution through the JCB.
+/// Runs a single execution manager that consumes [`ReadyMessage`]s from the shared queue and drives
+/// task execution through the JCB.
 ///
-/// The worker loops until either the done signal fires or the receiver is closed (returns `None`).
+/// The execution manager loops until either the done signal fires or the receiver is closed
+/// (returns `None`).
 ///
 /// # Type Parameters
 ///
@@ -868,7 +875,7 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 ///
 /// # Failure injection
 ///
-/// For each task index received, the worker flips a coin:
+/// For each task index received, the execution manager flips a coin:
 ///
 /// * **Heads (50%)**: succeed the task directly.
 /// * **Tails (50%)**: check if the task has been seen before (via `seen_tasks`). If first-seen,
@@ -876,13 +883,13 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 ///   logic). If already seen, succeed.
 ///
 /// All [`CacheError::StaleState`] errors are silently ignored — they are expected when multiple
-/// workers race on the same task or when the job has already terminated.
+/// execution managers race on the same task or when the job has already terminated.
 ///
 /// # Errors
 ///
 /// Forwards all errors that are not [`CacheError::StaleState`].
-async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
-    mut ctx: WorkerContext<DbConnectorType>,
+async fn run_execution_manager<DbConnectorType: InternalJobOrchestration + 'static>(
+    mut ctx: EmContext<DbConnectorType>,
 ) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
@@ -935,14 +942,14 @@ async fn run_worker<DbConnectorType: InternalJobOrchestration + 'static>(
 /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
 async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
-    ctx: &WorkerContext<DbConnectorType>,
+    ctx: &EmContext<DbConnectorType>,
     rng: &mut impl Rng,
     task_index: TaskIndex,
 ) -> Result<(), CacheError> {
     if ctx.always_fail {
         let exec_ctx = ctx
             .jcb
-            .create_task_instance(TaskId::Index(task_index), ctx.worker_id)
+            .create_task_instance(TaskId::Index(task_index), ctx.execution_manager_id)
             .await?;
         let state = ctx
             .jcb
@@ -962,11 +969,11 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
         let handles: Vec<_> = (0..2)
             .map(|_| {
                 let jcb = ctx.jcb.clone();
-                let worker_id = ctx.worker_id;
+                let execution_manager_id = ctx.execution_manager_id;
                 let terminal_sender = ctx.terminal_state_sender.clone();
                 tokio::spawn(async move {
                     let exec_ctx = jcb
-                        .create_task_instance(TaskId::Index(task_index), worker_id)
+                        .create_task_instance(TaskId::Index(task_index), execution_manager_id)
                         .await?;
                     let state = jcb
                         .fail_task_instance(
@@ -997,7 +1004,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 
     let exec_ctx = ctx
         .jcb
-        .create_task_instance(TaskId::Index(task_index), ctx.worker_id)
+        .create_task_instance(TaskId::Index(task_index), ctx.execution_manager_id)
         .await?;
     let outputs = (ctx.output_handler)(&exec_ctx);
     let state = ctx
@@ -1022,11 +1029,11 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
 async fn process_commit<DbConnectorType: InternalJobOrchestration>(
-    ctx: &WorkerContext<DbConnectorType>,
+    ctx: &EmContext<DbConnectorType>,
 ) -> Result<(), CacheError> {
     let exec_ctx = ctx
         .jcb
-        .create_task_instance(TaskId::Commit, ctx.worker_id)
+        .create_task_instance(TaskId::Commit, ctx.execution_manager_id)
         .await?;
     let state = ctx
         .jcb
@@ -1050,11 +1057,11 @@ async fn process_commit<DbConnectorType: InternalJobOrchestration>(
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
 async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
-    ctx: &WorkerContext<DbConnectorType>,
+    ctx: &EmContext<DbConnectorType>,
 ) -> Result<(), CacheError> {
     let exec_ctx = ctx
         .jcb
-        .create_task_instance(TaskId::Cleanup, ctx.worker_id)
+        .create_task_instance(TaskId::Cleanup, ctx.execution_manager_id)
         .await?;
     let state = ctx
         .jcb

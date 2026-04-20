@@ -10,7 +10,7 @@ use spider_core::{
     job::JobState,
     task::{TaskGraph as SubmittedTaskGraph, TaskIndex, TaskState},
     types::{
-        id::{JobId, ResourceGroupId, TaskInstanceId, WorkerId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
@@ -163,22 +163,22 @@ impl<
     pub async fn create_task_instance(
         &self,
         task_id: TaskId,
-        worker_id: WorkerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         let jcb = &self.inner;
         match task_id {
             TaskId::Index(task_index) => {
-                Self::create_regular_task_instance(jcb, task_index, worker_id).await
+                Self::create_regular_task_instance(jcb, task_index, execution_manager_id).await
             }
-            TaskId::Commit => Self::create_commit_task_instance(jcb, worker_id).await,
-            TaskId::Cleanup => Self::create_cleanup_task_instance(jcb, worker_id).await,
+            TaskId::Commit => Self::create_commit_task_instance(jcb, execution_manager_id).await,
+            TaskId::Cleanup => Self::create_cleanup_task_instance(jcb, execution_manager_id).await,
         }
     }
 
     async fn create_regular_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         task_index: TaskIndex,
-        worker_id: WorkerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         let job = jcb.job_execution_state.read_running().await?;
         let tcb = job
@@ -193,7 +193,7 @@ impl<
             job_id: jcb.id,
             task_id: TaskId::Index(task_index),
             task_instance_id,
-            worker_id,
+            execution_manager_id,
             registered_at: SystemTime::now(),
             timeout_policy: execution_context.timeout_policy.clone(),
         };
@@ -230,7 +230,7 @@ impl<
     ///   on failure.
     async fn create_commit_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        worker_id: WorkerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         let job = jcb.job_execution_state.read_commit_ready().await?;
         let commit_tcb = job
@@ -246,7 +246,7 @@ impl<
             job_id: jcb.id,
             task_id: TaskId::Commit,
             task_instance_id,
-            worker_id,
+            execution_manager_id,
             registered_at: SystemTime::now(),
             timeout_policy: timeout_policy.clone(),
         };
@@ -288,7 +288,7 @@ impl<
     ///   on failure.
     async fn create_cleanup_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        worker_id: WorkerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         let job = jcb.job_execution_state.read_cleanup_ready().await?;
         let cleanup_tcb = job
@@ -304,7 +304,7 @@ impl<
             job_id: jcb.id,
             task_id: TaskId::Cleanup,
             task_instance_id,
-            worker_id,
+            execution_manager_id,
             registered_at: SystemTime::now(),
             timeout_policy: timeout_policy.clone(),
         };
