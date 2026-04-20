@@ -132,61 +132,6 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ) -> Result<(), InternalError>;
 }
 
-/// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
-#[derive(Clone)]
-pub struct TaskInstancePool<
-    ReadyQueueSenderType: ReadyQueueSender,
-    WorkerLivenessStoreType: WorkerLivenessStore,
-> {
-    ready_queue_sender: ReadyQueueSenderType,
-    worker_liveness_store: WorkerLivenessStoreType,
-    worker_stale_cutoff: Duration,
-    next_task_instance_id: Arc<AtomicU64>,
-    state: Arc<Mutex<TaskInstancePoolState>>,
-}
-
-impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
-    TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
-{
-    /// Factory function.
-    ///
-    /// # Parameters
-    ///
-    /// * `ready_queue_sender` - The sender for re-enqueuing tasks to the ready queue.
-    /// * `worker_liveness_store` - The store for querying dead workers during GC.
-    /// * `worker_stale_cutoff` - The duration after which a worker with no heartbeat is considered
-    ///   stale by the pool's GC cycle.
-    ///
-    /// # Returns
-    ///
-    /// The created [`TaskInstancePool`].
-    #[must_use]
-    pub fn new(
-        ready_queue_sender: ReadyQueueSenderType,
-        worker_liveness_store: WorkerLivenessStoreType,
-        worker_stale_cutoff: Duration,
-    ) -> Self {
-        Self {
-            ready_queue_sender,
-            worker_liveness_store,
-            worker_stale_cutoff,
-            next_task_instance_id: Arc::new(AtomicU64::new(1)),
-            state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
-        }
-    }
-
-    /// Runs one soft-timeout GC cycle using the current wall-clock time as the evaluation time.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`Self::run_gc_cycle_at`]'s return values on failure.
-    pub async fn run_gc_cycle(&self) -> Result<(), InternalError> {
-        self.run_gc_cycle_at(SystemTime::now()).await
-    }
-}
-
 /// A type-erased control block that holds either a regular or a termination TCB.
 #[derive(Clone)]
 enum Tcb {
@@ -242,9 +187,60 @@ impl TaskInstancePoolState {
     }
 }
 
+/// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
+#[derive(Clone)]
+pub struct TaskInstancePool<
+    ReadyQueueSenderType: ReadyQueueSender,
+    WorkerLivenessStoreType: WorkerLivenessStore,
+> {
+    ready_queue_sender: ReadyQueueSenderType,
+    worker_liveness_store: WorkerLivenessStoreType,
+    worker_stale_cutoff: Duration,
+    next_task_instance_id: Arc<AtomicU64>,
+    state: Arc<Mutex<TaskInstancePoolState>>,
+}
+
 impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLivenessStore>
     TaskInstancePool<ReadyQueueSenderType, WorkerLivenessStoreType>
 {
+    /// Factory function.
+    ///
+    /// # Parameters
+    ///
+    /// * `ready_queue_sender` - The sender for re-enqueuing tasks to the ready queue.
+    /// * `worker_liveness_store` - The store for querying dead workers during GC.
+    /// * `worker_stale_cutoff` - The duration after which a worker with no heartbeat is considered
+    ///   stale by the pool's GC cycle.
+    ///
+    /// # Returns
+    ///
+    /// The created [`TaskInstancePool`].
+    #[must_use]
+    pub fn new(
+        ready_queue_sender: ReadyQueueSenderType,
+        worker_liveness_store: WorkerLivenessStoreType,
+        worker_stale_cutoff: Duration,
+    ) -> Self {
+        Self {
+            ready_queue_sender,
+            worker_liveness_store,
+            worker_stale_cutoff,
+            next_task_instance_id: Arc::new(AtomicU64::new(1)),
+            state: Arc::new(Mutex::new(TaskInstancePoolState::new())),
+        }
+    }
+
+    /// Runs one soft-timeout GC cycle using the current wall-clock time as the evaluation time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::run_gc_cycle_at`]'s return values on failure.
+    pub async fn run_gc_cycle(&self) -> Result<(), InternalError> {
+        self.run_gc_cycle_at(SystemTime::now()).await
+    }
+
     /// Runs one GC cycle using the given wall-clock time as the evaluation time.
     ///
     /// The cycle performs three checks via a single linear scan of all running task instances:
@@ -319,16 +315,16 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         // Check TCB membership first: if the task already completed, skip re-enqueue.
         let mut dead_worker_ids_to_remove: Vec<TaskInstanceId> = Vec::new();
         for (record, control_block) in &dead_worker_entries {
-            if !control_block
+            if control_block
                 .has_task_instance(record.task_instance_id)
                 .await
             {
-                dead_worker_ids_to_remove.push(record.task_instance_id);
-            } else {
                 self.re_enqueue_task(record).await?;
                 control_block
                     .force_remove_task_instance(record.task_instance_id)
                     .await;
+            } else {
+                dead_worker_ids_to_remove.push(record.task_instance_id);
             }
         }
 
@@ -391,21 +387,16 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
     }
 
     /// Registers a running task instance.
-    fn register_running_task_instance(
-        &self,
-        control_block: Tcb,
-        record: TaskInstanceMetadata,
-    ) -> Result<(), InternalError> {
-        let mut state = self
-            .state
+    fn register_running_task_instance(&self, control_block: Tcb, record: TaskInstanceMetadata) {
+        self.state
             .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        state.running_task_instances.push(RunningTaskInstanceEntry {
-            record,
-            control_block,
-            gc_processed: false,
-        });
-        Ok(())
+            .expect("task instance pool mutex should not be poisoned")
+            .running_task_instances
+            .push(RunningTaskInstanceEntry {
+                record,
+                control_block,
+                gc_processed: false,
+            });
     }
 
     /// Re-enqueues the task corresponding to the given metadata.
@@ -449,7 +440,8 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         tcb: SharedTaskControlBlock,
         registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(Tcb::Task(tcb), registration)
+        self.register_running_task_instance(Tcb::Task(tcb), registration);
+        Ok(())
     }
 
     async fn register_termination_task_instance(
@@ -457,7 +449,8 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError> {
-        self.register_running_task_instance(Tcb::Termination(termination_tcb), registration)
+        self.register_running_task_instance(Tcb::Termination(termination_tcb), registration);
+        Ok(())
     }
 }
 
