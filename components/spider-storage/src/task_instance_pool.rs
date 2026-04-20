@@ -130,22 +130,6 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
     ) -> Result<(), InternalError>;
-
-    /// Removes and returns all live task instances associated with the given worker.
-    ///
-    /// # Returns
-    ///
-    /// The records of all task instances that were associated with the given worker.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError`] if the pool is in an inconsistent state.
-    async fn drain_worker_task_instances(
-        &self,
-        worker_id: WorkerId,
-    ) -> Result<Vec<TaskInstanceMetadata>, InternalError>;
 }
 
 /// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
@@ -461,28 +445,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender, WorkerLivenessStoreType: WorkerLive
             Tcb::Termination(termination_tcb),
             registration,
         )
-    }
-
-    async fn drain_worker_task_instances(
-        &self,
-        worker_id: WorkerId,
-    ) -> Result<Vec<TaskInstanceMetadata>, InternalError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("task instance pool mutex should not be poisoned");
-        let mut records = Vec::new();
-        let mut i = 0;
-        while i < state.running_task_instances.len() {
-            if state.running_task_instances[i].record.worker_id == worker_id {
-                let entry = state.running_task_instances.swap_remove(i);
-                records.push(entry.record);
-            } else {
-                i += 1;
-            }
-        }
-        drop(state);
-        Ok(records)
     }
 }
 
