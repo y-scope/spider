@@ -59,6 +59,13 @@ pub struct TaskInstanceMetadata {
 /// operation to detect and mark dead execution managers for recovery.
 #[async_trait]
 pub trait ExecutionManagerLivenessStore: Clone + Send + Sync {
+    /// Checks whether the execution manager with the given ID is alive.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the execution manager is alive, `false` otherwise.
+    async fn is_execution_manager_alive(&self, id: ExecutionManagerId) -> bool;
+
     /// Returns the IDs of execution managers whose last heartbeat is before `stale_before`, after
     /// marking them dead.
     ///
@@ -177,7 +184,7 @@ struct PoolEntry {
 /// use linear scan, which is sufficient because the pool is small and GC is not speed-sensitive.
 struct PoolState {
     running_task_instances: Vec<PoolEntry>,
-    known_dead_execution_managers: HashSet<ExecutionManagerId>,
+    known_live_execution_managers: HashSet<ExecutionManagerId>,
 }
 
 impl PoolState {
@@ -189,7 +196,7 @@ impl PoolState {
     fn new() -> Self {
         Self {
             running_task_instances: Vec::new(),
-            known_dead_execution_managers: HashSet::new(),
+            known_live_execution_managers: HashSet::new(),
         }
     }
 }
@@ -345,21 +352,32 @@ impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, 
                 record,
                 response_tx,
             } => {
-                let result = if self
-                    .state
-                    .known_dead_execution_managers
-                    .contains(&record.execution_manager_id)
-                {
-                    Err(CacheError::StaleState(
-                        StaleStateError::ExecutionManagerIsDead,
-                    ))
-                } else {
+                let em_id = record.execution_manager_id;
+                let result = if self.state.known_live_execution_managers.contains(&em_id) {
                     self.state.running_task_instances.push(PoolEntry {
                         record,
                         control_block,
                         soft_timeout_handled: false,
                     });
                     Ok(())
+                } else {
+                    let alive = self
+                        .execution_manager_liveness_store
+                        .is_execution_manager_alive(em_id)
+                        .await;
+                    if alive {
+                        self.state.known_live_execution_managers.insert(em_id);
+                        self.state.running_task_instances.push(PoolEntry {
+                            record,
+                            control_block,
+                            soft_timeout_handled: false,
+                        });
+                        Ok(())
+                    } else {
+                        Err(CacheError::StaleState(
+                            StaleStateError::ExecutionManagerIsDead,
+                        ))
+                    }
                 };
                 let _ = response_tx.send(result);
             }
@@ -409,8 +427,8 @@ impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, 
 
         for execution_manager_id in &dead_execution_managers {
             self.state
-                .known_dead_execution_managers
-                .insert(*execution_manager_id);
+                .known_live_execution_managers
+                .remove(execution_manager_id);
         }
 
         // Phase 1: Collect work to do.
@@ -624,6 +642,10 @@ mod tests {
 
     #[async_trait]
     impl ExecutionManagerLivenessStore for NoopExecutionManagerLivenessStore {
+        async fn is_execution_manager_alive(&self, _id: ExecutionManagerId) -> bool {
+            true
+        }
+
         async fn get_dead_execution_managers(
             &self,
             _stale_before: SystemTime,
@@ -647,6 +669,10 @@ mod tests {
 
     #[async_trait]
     impl ExecutionManagerLivenessStore for MockExecutionManagerLivenessStore {
+        async fn is_execution_manager_alive(&self, _id: ExecutionManagerId) -> bool {
+            true
+        }
+
         async fn get_dead_execution_managers(
             &self,
             _stale_before: SystemTime,
@@ -1078,5 +1104,130 @@ mod tests {
             ready_queue_sender.take_messages().await.is_empty(),
             "no re-enqueue for a task that completed normally"
         );
+    }
+
+    /// A [`ExecutionManagerLivenessStore`] where all EMs are reported as dead.
+    #[derive(Clone, Default)]
+    struct RejectAllLivenessStore;
+
+    #[async_trait]
+    impl ExecutionManagerLivenessStore for RejectAllLivenessStore {
+        async fn is_execution_manager_alive(&self, _id: ExecutionManagerId) -> bool {
+            false
+        }
+
+        async fn get_dead_execution_managers(
+            &self,
+            _stale_before: SystemTime,
+        ) -> Result<Vec<ExecutionManagerId>, DbError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn registration_rejected_for_dead_execution_manager() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let pool = TaskInstancePoolHandle::new(
+            ready_queue_sender,
+            RejectAllLivenessStore,
+            Duration::from_mins(1),
+            Duration::from_mins(1),
+        );
+        let tcb = build_single_task_tcb().await;
+        let record = make_record(
+            TaskId::Index(0),
+            1,
+            ExecutionManagerId::new(),
+            SystemTime::now(),
+        );
+
+        let result = pool.register_task_instance(tcb, record).await;
+        assert!(
+            matches!(
+                result,
+                Err(CacheError::StaleState(
+                    StaleStateError::ExecutionManagerIsDead
+                ))
+            ),
+            "registration from unknown dead EM should be rejected, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn valid_em_is_cached_and_subsequent_registrations_skip_verify() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let pool = TaskInstancePoolHandle::new(
+            ready_queue_sender,
+            liveness_store.clone(),
+            Duration::from_mins(1),
+            Duration::from_mins(1),
+        );
+        let execution_manager_id = ExecutionManagerId::new();
+
+        // First registration should succeed via the verify call.
+        let tcb1 = build_single_task_tcb().await;
+        let record1 = make_record(TaskId::Index(0), 1, execution_manager_id, SystemTime::now());
+        pool.register_task_instance(tcb1, record1)
+            .await
+            .expect("first registration should succeed");
+
+        // Second registration for the same EM should also succeed via the live-set fast path.
+        let tcb2 = build_single_task_tcb().await;
+        let record2 = make_record(TaskId::Index(0), 2, execution_manager_id, SystemTime::now());
+        pool.register_task_instance(tcb2, record2)
+            .await
+            .expect("second registration for same EM should succeed via live-set cache");
+
+        assert!(pool_has_entry(&pool, 1).await);
+        assert!(pool_has_entry(&pool, 2).await);
+    }
+
+    #[tokio::test]
+    async fn gc_removes_dead_em_from_live_set() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let pool = TaskInstancePoolHandle::new(
+            ready_queue_sender.clone(),
+            liveness_store.clone(),
+            Duration::from_mins(1),
+            Duration::from_mins(1),
+        );
+        let initial_gc_cycle_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        let dead_em = ExecutionManagerId::new();
+
+        // Register with the live EM (MockExecutionManagerLivenessStore returns true).
+        let tcb = build_single_task_tcb().await;
+        let record = make_record(TaskId::Index(0), 1, dead_em, initial_gc_cycle_at);
+        tcb.register_task_instance(record.task_instance_id)
+            .await
+            .expect("task control block registration should succeed");
+        pool.register_task_instance(tcb.clone(), record.clone())
+            .await
+            .expect("registration should succeed");
+
+        // Mark the EM as dead for the next GC cycle.
+        liveness_store
+            .set_dead_execution_managers(vec![dead_em])
+            .await;
+
+        pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(50))
+            .await
+            .expect("gc should succeed");
+
+        // The dead EM should have been removed from the live set, so a new registration
+        // will go through verify again. Since MockExecutionManagerLivenessStore still returns
+        // true for is_execution_manager_alive, registration succeeds.
+        let tcb2 = build_single_task_tcb().await;
+        let record2 = make_record(
+            TaskId::Index(0),
+            2,
+            dead_em,
+            initial_gc_cycle_at + Duration::from_millis(60),
+        );
+        pool.register_task_instance(tcb2, record2.clone())
+            .await
+            .expect("re-registration after GC should succeed");
+        assert!(pool_has_entry(&pool, record2.task_instance_id).await);
     }
 }

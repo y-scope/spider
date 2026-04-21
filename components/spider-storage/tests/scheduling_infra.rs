@@ -110,6 +110,13 @@ struct NoopExecutionManagerLivenessStore;
 
 #[async_trait]
 impl ExecutionManagerLivenessStore for NoopExecutionManagerLivenessStore {
+    async fn is_execution_manager_alive(
+        &self,
+        _id: spider_core::types::id::ExecutionManagerId,
+    ) -> bool {
+        true
+    }
+
     async fn get_dead_execution_managers(
         &self,
         _stale_before: std::time::SystemTime,
