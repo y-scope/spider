@@ -111,7 +111,4 @@ pub enum StaleStateError {
 
     #[error("job already started")]
     JobAlreadyStarted,
-
-    #[error("execution manager is dead")]
-    ExecutionManagerIsDead,
 }

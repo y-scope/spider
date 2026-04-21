@@ -157,9 +157,6 @@ impl<
     /// * Forwards [`SharedTaskControlBlock::register_task_instance`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
     ///   failure.
-    /// * Forwards [`TaskInstancePoolConnector::register_task_instance`]'s return values on failure.
-    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
-    ///   on failure.
     pub async fn create_task_instance(
         &self,
         task_id: TaskId,
@@ -197,14 +194,9 @@ impl<
             registered_at: SystemTime::now(),
             timeout_policy: execution_context.timeout_policy.clone(),
         };
-        if let Err(error) = job
-            .task_instance_pool_connector
+        job.task_instance_pool_connector
             .register_task_instance(tcb.clone(), registration)
-            .await
-        {
-            let _ = tcb.force_remove_task_instance(task_instance_id).await;
-            return Err(error);
-        }
+            .await;
 
         // The lock is intentionally held until just before return so all TCB accesses
         // observe a consistent state within the lock's scope.
@@ -226,8 +218,6 @@ impl<
     /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
     ///   failure.
-    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
-    ///   on failure.
     async fn create_commit_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         execution_manager_id: ExecutionManagerId,
@@ -250,16 +240,9 @@ impl<
             registered_at: SystemTime::now(),
             timeout_policy: timeout_policy.clone(),
         };
-        if let Err(error) = job
-            .task_instance_pool_connector
+        job.task_instance_pool_connector
             .register_termination_task_instance(commit_tcb.clone(), registration)
-            .await
-        {
-            let _ = commit_tcb
-                .force_remove_task_instance(task_instance_id)
-                .await;
-            return Err(error);
-        }
+            .await;
 
         drop(job);
         Ok(ExecutionContext {
@@ -284,8 +267,6 @@ impl<
     /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
     ///   failure.
-    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
-    ///   on failure.
     async fn create_cleanup_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         execution_manager_id: ExecutionManagerId,
@@ -308,16 +289,9 @@ impl<
             registered_at: SystemTime::now(),
             timeout_policy: timeout_policy.clone(),
         };
-        if let Err(error) = job
-            .task_instance_pool_connector
+        job.task_instance_pool_connector
             .register_termination_task_instance(cleanup_tcb.clone(), registration)
-            .await
-        {
-            let _ = cleanup_tcb
-                .force_remove_task_instance(task_instance_id)
-                .await;
-            return Err(error);
-        }
+            .await;
 
         drop(job);
         Ok(ExecutionContext {
