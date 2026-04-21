@@ -127,11 +127,18 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// * `tcb` - The task control block associated with the task instance.
     /// * `registration` - The metadata associated with the task instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`InternalError::TaskInstancePoolCorrupted`] if the pool coroutine has
+    ///   terminated.
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
         registration: TaskInstanceMetadata,
-    );
+    ) -> Result<(), InternalError>;
 
     /// Registers a termination task instance with the given termination task control block.
     ///
@@ -142,11 +149,18 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// * `termination_tcb` - The termination task control block associated with the task instance.
     /// * `registration` - The metadata associated with the task instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`InternalError::TaskInstancePoolCorrupted`] if the pool coroutine has
+    ///   terminated.
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
-    );
+    ) -> Result<(), InternalError>;
 }
 
 /// A type-erased control block that holds either a regular or a termination TCB.
@@ -239,6 +253,16 @@ impl TaskInstancePoolHandle {
     /// # Returns
     ///
     /// A [`TaskInstancePoolHandle`] connected to the newly spawned pool coroutine.
+    ///
+    /// # Backpressure
+    ///
+    /// The pool uses a bounded channel (capacity 128) between the handle and the coroutine. Because
+    /// `register_task_instance` is called while the caller holds the JCB read lock, if the
+    /// coroutine stalls (e.g., during a GC cycle or a slow liveness check), 128 pending
+    /// registrations will cause subsequent `create_task_instance` callers to block under the
+    /// read lock, potentially starving write-lock holders (`succeed_task_instance`, `cancel`).
+    /// If this becomes an issue under load, consider widening the buffer or restructuring to
+    /// avoid holding the lock during registration.
     #[must_use]
     pub fn new<ReadyQueue, LivenessStore>(
         ready_queue_sender: ReadyQueue,
@@ -322,12 +346,20 @@ impl<ReadyQueue: ReadyQueueSender, LivenessStore: ExecutionManagerLivenessStore>
             } => {
                 let em_id = record.execution_manager_id;
                 let is_known_live = self.state.known_live_execution_managers.contains(&em_id);
-                let is_alive = is_known_live
-                    || self
+                let is_alive = if is_known_live {
+                    true
+                } else {
+                    match self
                         .execution_manager_liveness_store
                         .is_execution_manager_alive(em_id)
                         .await
-                        .unwrap_or(false);
+                    {
+                        Ok(alive) => alive,
+                        Err(_) => {
+                            return true;
+                        }
+                    }
+                };
 
                 if is_alive {
                     if !is_known_live {
@@ -338,11 +370,17 @@ impl<ReadyQueue: ReadyQueueSender, LivenessStore: ExecutionManagerLivenessStore>
                         control_block,
                         soft_timeout_handled: false,
                     });
-                } else if control_block.has_task_instance(record.task_instance_id).await {
-                    control_block
-                        .force_remove_task_instance(record.task_instance_id)
-                        .await;
-                    let _ = self.re_enqueue_task(&record).await;
+                } else if control_block
+                    .has_task_instance(record.task_instance_id)
+                    .await
+                {
+                    if self.re_enqueue_task(&record).await.is_err() {
+                        // TCB still owns the instance; a subsequent GC cycle will retry.
+                    } else {
+                        control_block
+                            .force_remove_task_instance(record.task_instance_id)
+                            .await;
+                    }
                 }
             }
         }
@@ -530,28 +568,36 @@ impl TaskInstancePoolConnector for TaskInstancePoolHandle {
         &self,
         tcb: SharedTaskControlBlock,
         registration: TaskInstanceMetadata,
-    ) {
-        let _ = self
-            .sender
+    ) -> Result<(), InternalError> {
+        self.sender
             .send(PoolMessage::Register {
                 control_block: Tcb::Task(tcb),
                 record: registration,
             })
-            .await;
+            .await
+            .map_err(|e| {
+                InternalError::TaskInstancePoolCorrupted(format!(
+                    "task instance pool coroutine is dead: {e}"
+                ))
+            })
     }
 
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,
         registration: TaskInstanceMetadata,
-    ) {
-        let _ = self
-            .sender
+    ) -> Result<(), InternalError> {
+        self.sender
             .send(PoolMessage::Register {
                 control_block: Tcb::Termination(termination_tcb),
                 record: registration,
             })
-            .await;
+            .await
+            .map_err(|e| {
+                InternalError::TaskInstancePoolCorrupted(format!(
+                    "task instance pool coroutine is dead: {e}"
+                ))
+            })
     }
 }
 
@@ -579,10 +625,11 @@ mod tests {
     use super::*;
 
     /// A [`ExecutionManagerLivenessStore`] that returns a preconfigured list of dead execution
-    /// managers.
+    /// managers and tracks how many times `is_execution_manager_alive` was called.
     #[derive(Clone, Default)]
     struct MockExecutionManagerLivenessStore {
         dead_execution_managers: Arc<Mutex<Vec<ExecutionManagerId>>>,
+        alive_call_count: Arc<std::sync::atomic::AtomicUsize>,
     }
 
     #[async_trait]
@@ -591,6 +638,8 @@ mod tests {
             &self,
             _id: ExecutionManagerId,
         ) -> Result<bool, DbError> {
+            self.alive_call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(true)
         }
 
@@ -737,7 +786,9 @@ mod tests {
         );
         let job_id = record.job_id;
 
-        pool.register_task_instance(tcb.clone(), record).await;
+        pool.register_task_instance(tcb.clone(), record)
+            .await
+            .unwrap();
 
         // Give the pool coroutine time to process the message.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -768,11 +819,24 @@ mod tests {
         // First registration should succeed via the verify call.
         let tcb1 = build_single_task_tcb().await;
         let record1 = make_record(TaskId::Index(0), 1, execution_manager_id, SystemTime::now());
-        pool.register_task_instance(tcb1, record1).await;
+        pool.register_task_instance(tcb1, record1).await.unwrap();
 
         // Second registration for the same EM should also succeed via the live-set fast path.
         let tcb2 = build_single_task_tcb().await;
         let record2 = make_record(TaskId::Index(0), 2, execution_manager_id, SystemTime::now());
-        pool.register_task_instance(tcb2, record2).await;
+        pool.register_task_instance(tcb2, record2).await.unwrap();
+
+        // Give the pool coroutine time to process both messages.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // The liveness store should have been called exactly once (for the first registration).
+        // The second registration should have hit the cached live-set fast path.
+        assert_eq!(
+            liveness_store
+                .alive_call_count
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "liveness store should be called exactly once for two registrations with the same EM"
+        );
     }
 }

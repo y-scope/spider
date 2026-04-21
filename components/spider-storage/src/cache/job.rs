@@ -196,7 +196,7 @@ impl<
         };
         job.task_instance_pool_connector
             .register_task_instance(tcb.clone(), registration)
-            .await;
+            .await?;
 
         // The lock is intentionally held until just before return so all TCB accesses
         // observe a consistent state within the lock's scope.
@@ -242,7 +242,7 @@ impl<
         };
         job.task_instance_pool_connector
             .register_termination_task_instance(commit_tcb.clone(), registration)
-            .await;
+            .await?;
 
         drop(job);
         Ok(ExecutionContext {
@@ -291,7 +291,7 @@ impl<
         };
         job.task_instance_pool_connector
             .register_termination_task_instance(cleanup_tcb.clone(), registration)
-            .await;
+            .await?;
 
         drop(job);
         Ok(ExecutionContext {
