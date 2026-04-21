@@ -1,7 +1,7 @@
 //! Task instance pool for tracking running task instances and re-enqueuing timed-out work.
 //!
-//! This module provides the [`TaskInstancePool`] which tracks in-flight task instances across
-//! execution managers. It serves two purposes:
+//! This module provides the [`TaskInstancePoolHandle`] — a non-generic connector that tracks
+//! in-flight task instances across execution managers. It serves two purposes:
 //!
 //! * **Soft-timeout recovery**: When a task instance exceeds its soft timeout, the pool re-enqueues
 //!   the task so a new instance can be scheduled, while the original instance remains live until it
@@ -163,29 +163,29 @@ impl Tcb {
 /// A running task-instance entry tracked by the task instance pool.
 ///
 /// This entry combines the externally visible [`TaskInstanceMetadata`] with the associated control
-/// block and the internal GC bookkeeping flag.
+/// block and the internal soft-timeout bookkeeping flag.
 #[derive(Clone)]
-struct RunningTaskInstanceEntry {
+struct PoolEntry {
     record: TaskInstanceMetadata,
     control_block: Tcb,
-    gc_processed: bool,
+    soft_timeout_handled: bool,
 }
 
 /// The mutable state held by the task instance pool coroutine.
 ///
 /// A single `Vec` stores all running task instances. Operations that need to find or remove entries
 /// use linear scan, which is sufficient because the pool is small and GC is not speed-sensitive.
-struct TaskInstancePoolState {
-    running_task_instances: Vec<RunningTaskInstanceEntry>,
+struct PoolState {
+    running_task_instances: Vec<PoolEntry>,
     known_dead_execution_managers: HashSet<ExecutionManagerId>,
 }
 
-impl TaskInstancePoolState {
+impl PoolState {
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// The created [`TaskInstancePoolState`].
+    /// The created [`PoolState`].
     fn new() -> Self {
         Self {
             running_task_instances: Vec::new(),
@@ -195,7 +195,6 @@ impl TaskInstancePoolState {
 }
 
 /// Messages sent to the task instance pool coroutine.
-#[cfg_attr(not(test), expect(dead_code))]
 enum PoolMessage {
     /// Register a regular task instance.
     Register {
@@ -211,33 +210,25 @@ enum PoolMessage {
     },
 
     /// Check whether the pool contains an entry for the given task instance ID (used for testing).
+    #[cfg_attr(not(test), expect(dead_code))]
     HasEntry {
         task_instance_id: TaskInstanceId,
         response_tx: oneshot::Sender<bool>,
     },
 }
 
-/// Tracks running task instances and re-enqueues tasks whose soft timeout has elapsed.
+/// A handle to the task instance pool for creating and registering task instances.
 ///
-/// Internally, the pool spawns a tokio coroutine that owns the mutable state directly. All
-/// operations (registration, GC) are processed as messages through a channel, eliminating the need
-/// for a mutex.
+/// This is a non-generic, `Clone`-able connector. All clones share the same channel and atomic ID
+/// counter, so they talk to the same underlying pool coroutine.
 #[derive(Clone)]
-pub struct TaskInstancePool<
-    ReadyQueueSenderType: ReadyQueueSender,
-    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
-> {
+pub struct TaskInstancePoolHandle {
     next_task_instance_id: Arc<AtomicU64>,
     sender: mpsc::Sender<PoolMessage>,
-    _phantom: std::marker::PhantomData<(ReadyQueueSenderType, ExecutionManagerLivenessStoreType)>,
 }
 
-impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
-    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore + 'static,
-> TaskInstancePool<ReadyQueueSenderType, ExecutionManagerLivenessStoreType>
-{
-    /// Factory function.
+impl TaskInstancePoolHandle {
+    /// Creates a new task instance pool and returns a handle to it.
     ///
     /// # Parameters
     ///
@@ -250,33 +241,35 @@ impl<
     ///
     /// # Returns
     ///
-    /// The created [`TaskInstancePool`].
+    /// A [`TaskInstancePoolHandle`] connected to the newly spawned pool coroutine.
     #[must_use]
-    pub fn new(
-        ready_queue_sender: ReadyQueueSenderType,
-        execution_manager_liveness_store: ExecutionManagerLivenessStoreType,
+    pub fn new<R, L>(
+        ready_queue_sender: R,
+        execution_manager_liveness_store: L,
         execution_manager_stale_cutoff: Duration,
         gc_interval: Duration,
-    ) -> Self {
+    ) -> Self
+    where
+        R: ReadyQueueSender + 'static,
+        L: ExecutionManagerLivenessStore + 'static, {
+        let next_task_instance_id = Arc::new(AtomicU64::new(1));
         let (sender, receiver) = mpsc::channel(128);
-        let pool = Self {
-            next_task_instance_id: Arc::new(AtomicU64::new(1)),
-            sender,
-            _phantom: std::marker::PhantomData,
-        };
 
-        let coroutine_state = CoroutineState {
+        let pool = TaskInstancePool {
             ready_queue_sender,
             execution_manager_liveness_store,
             execution_manager_stale_cutoff,
-            state: TaskInstancePoolState::new(),
+            state: PoolState::new(),
             receiver,
         };
         tokio::spawn(async move {
-            coroutine_state.run(gc_interval).await;
+            pool.run(gc_interval).await;
         });
 
-        pool
+        Self {
+            next_task_instance_id,
+            sender,
+        }
     }
 
     /// Runs one GC cycle at the given time, waiting for the result.
@@ -306,23 +299,19 @@ impl<
     }
 }
 
-/// State owned by the pool coroutine.
-struct CoroutineState<
-    ReadyQueueSenderType: ReadyQueueSender,
-    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
-> {
-    ready_queue_sender: ReadyQueueSenderType,
-    execution_manager_liveness_store: ExecutionManagerLivenessStoreType,
+/// The task instance pool, running as a tokio coroutine.
+///
+/// This struct owns all mutable pool state and processes messages from [`TaskInstancePoolHandle`]
+/// instances. It is consumed by [`tokio::spawn`] and never exposed publicly.
+struct TaskInstancePool<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> {
+    ready_queue_sender: R,
+    execution_manager_liveness_store: L,
     execution_manager_stale_cutoff: Duration,
-    state: TaskInstancePoolState,
+    state: PoolState,
     receiver: mpsc::Receiver<PoolMessage>,
 }
 
-impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
-> CoroutineState<ReadyQueueSenderType, ExecutionManagerLivenessStoreType>
-{
+impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, L> {
     /// Runs the coroutine loop, processing messages and GC timer ticks.
     async fn run(mut self, gc_interval: Duration) {
         let mut gc_interval = tokio::time::interval(gc_interval);
@@ -365,13 +354,11 @@ impl<
                         StaleStateError::ExecutionManagerIsDead,
                     ))
                 } else {
-                    self.state
-                        .running_task_instances
-                        .push(RunningTaskInstanceEntry {
-                            record,
-                            control_block,
-                            gc_processed: false,
-                        });
+                    self.state.running_task_instances.push(PoolEntry {
+                        record,
+                        control_block,
+                        soft_timeout_handled: false,
+                    });
                     Ok(())
                 };
                 let _ = response_tx.send(result);
@@ -435,7 +422,7 @@ impl<
             if dead_execution_managers.contains(&entry.record.execution_manager_id) {
                 dead_execution_manager_entries
                     .push((entry.record.clone(), entry.control_block.clone()));
-            } else if !entry.gc_processed {
+            } else if !entry.soft_timeout_handled {
                 let Some(soft_timeout_deadline) =
                     entry
                         .record
@@ -448,7 +435,7 @@ impl<
                     continue;
                 };
                 if soft_timeout_deadline <= gc_started_at {
-                    entry.gc_processed = true;
+                    entry.soft_timeout_handled = true;
                     soft_timeout_entries.push(entry.record.clone());
                 } else {
                     live_entries.push((entry.record.clone(), entry.control_block.clone()));
@@ -478,9 +465,9 @@ impl<
         // Phase 3: Re-enqueue soft-timed-out instances.
         for (i, record) in soft_timeout_entries.iter().enumerate() {
             if let Err(e) = self.re_enqueue_task(record).await {
-                // Roll back gc_processed for this and all remaining entries.
+                // Roll back soft_timeout_handled for this and all remaining entries.
                 for remaining in &soft_timeout_entries[i..] {
-                    self.set_gc_processed(remaining.task_instance_id, false);
+                    self.set_soft_timeout_handled(remaining.task_instance_id, false);
                 }
                 return Err(e);
             }
@@ -512,15 +499,20 @@ impl<
         Ok(())
     }
 
-    /// Updates the per-entry GC bookkeeping flag if the entry is still tracked by the pool.
-    fn set_gc_processed(&mut self, task_instance_id: TaskInstanceId, gc_processed: bool) {
+    /// Updates the per-entry soft-timeout bookkeeping flag if the entry is still tracked by the
+    /// pool.
+    fn set_soft_timeout_handled(
+        &mut self,
+        task_instance_id: TaskInstanceId,
+        soft_timeout_handled: bool,
+    ) {
         if let Some(entry) = self
             .state
             .running_task_instances
             .iter_mut()
             .find(|entry| entry.record.task_instance_id == task_instance_id)
         {
-            entry.gc_processed = gc_processed;
+            entry.soft_timeout_handled = soft_timeout_handled;
         }
     }
 
@@ -553,12 +545,7 @@ impl<
 }
 
 #[async_trait]
-impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    ExecutionManagerLivenessStoreType: ExecutionManagerLivenessStore,
-> TaskInstancePoolConnector
-    for TaskInstancePool<ReadyQueueSenderType, ExecutionManagerLivenessStoreType>
-{
+impl TaskInstancePoolConnector for TaskInstancePoolHandle {
     fn get_next_available_task_instance_id(&self) -> TaskInstanceId {
         self.next_task_instance_id.fetch_add(1, Ordering::Relaxed)
     }
@@ -819,8 +806,8 @@ mod tests {
         }
     }
 
-    async fn pool_has_entry<S: ReadyQueueSender, L: ExecutionManagerLivenessStore>(
-        pool: &TaskInstancePool<S, L>,
+    async fn pool_has_entry(
+        pool: &TaskInstancePoolHandle,
         task_instance_id: TaskInstanceId,
     ) -> bool {
         let (response_tx, response_rx) = oneshot::channel();
@@ -837,7 +824,7 @@ mod tests {
     #[tokio::test]
     async fn register_updates_pool() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(
+        let pool = TaskInstancePoolHandle::new(
             ready_queue_sender,
             NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
@@ -857,7 +844,7 @@ mod tests {
     #[tokio::test]
     async fn soft_timeout_reenqueues_exactly_once_and_keeps_original_instance_live() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(
+        let pool = TaskInstancePoolHandle::new(
             ready_queue_sender.clone(),
             NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
@@ -914,7 +901,7 @@ mod tests {
             fail_task_ready_once: Arc::new(Mutex::new(true)),
             ..FlakyReadyQueueSender::default()
         };
-        let pool = TaskInstancePool::new(
+        let pool = TaskInstancePoolHandle::new(
             ready_queue_sender.clone(),
             NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),
@@ -966,7 +953,7 @@ mod tests {
     async fn dead_execution_manager_recovery_removes_entries_and_reenqueues() {
         let ready_queue_sender = MockReadyQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessStore::default();
-        let pool = TaskInstancePool::new(
+        let pool = TaskInstancePoolHandle::new(
             ready_queue_sender.clone(),
             liveness_store.clone(),
             Duration::from_mins(1),
@@ -1045,7 +1032,7 @@ mod tests {
     #[tokio::test]
     async fn gc_removes_entries_whose_tcb_has_completed() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePool::new(
+        let pool = TaskInstancePoolHandle::new(
             ready_queue_sender.clone(),
             NoopExecutionManagerLivenessStore,
             Duration::from_mins(1),

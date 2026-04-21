@@ -35,7 +35,7 @@
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
-//! * [`TaskInstancePool`] -- the in-memory running-instance pool used by storage.
+//! * [`TaskInstancePoolHandle`] -- the in-memory running-instance pool handle used by storage.
 //!
 //! # Execution manager architecture
 //!
@@ -99,7 +99,7 @@ use spider_storage::{
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::ReadyQueueSender,
-    task_instance_pool::{ExecutionManagerLivenessStore, TaskInstancePool},
+    task_instance_pool::{ExecutionManagerLivenessStore, TaskInstancePoolHandle},
 };
 use tabled::{Table, Tabled};
 use tokio::sync::{mpsc, watch};
@@ -345,7 +345,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
-    let task_instance_pool = TaskInstancePool::new(
+    let task_instance_pool = TaskInstancePoolHandle::new(
         ready_queue_sender.clone(),
         NoopExecutionManagerLivenessStore,
         Duration::from_mins(1),
@@ -495,11 +495,8 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 /// # Type Parameters
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
-type TestJcb<DbConnectorType> = SharedJobControlBlock<
-    MockReadyQueueSender,
-    DbConnectorType,
-    TaskInstancePool<MockReadyQueueSender, NoopExecutionManagerLivenessStore>,
->;
+type TestJcb<DbConnectorType> =
+    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, TaskInstancePoolHandle>;
 
 /// A message sent through the mock ready queue.
 ///
