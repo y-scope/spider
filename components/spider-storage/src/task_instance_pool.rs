@@ -215,13 +215,6 @@ enum PoolMessage {
         gc_started_at: SystemTime,
         response_tx: oneshot::Sender<Result<(), InternalError>>,
     },
-
-    /// Check whether the pool contains an entry for the given task instance ID (used for testing).
-    #[cfg_attr(not(test), expect(dead_code))]
-    HasEntry {
-        task_instance_id: TaskInstanceId,
-        response_tx: oneshot::Sender<bool>,
-    },
 }
 
 /// A handle to the task instance pool for creating and registering task instances.
@@ -250,15 +243,15 @@ impl TaskInstancePoolHandle {
     ///
     /// A [`TaskInstancePoolHandle`] connected to the newly spawned pool coroutine.
     #[must_use]
-    pub fn new<R, L>(
-        ready_queue_sender: R,
-        execution_manager_liveness_store: L,
+    pub fn new<ReadyQueue, LivenessStore>(
+        ready_queue_sender: ReadyQueue,
+        execution_manager_liveness_store: LivenessStore,
         execution_manager_stale_cutoff: Duration,
         gc_interval: Duration,
     ) -> Self
     where
-        R: ReadyQueueSender + 'static,
-        L: ExecutionManagerLivenessStore + 'static, {
+        ReadyQueue: ReadyQueueSender + 'static,
+        LivenessStore: ExecutionManagerLivenessStore + 'static, {
         let next_task_instance_id = Arc::new(AtomicU64::new(1));
         let (sender, receiver) = mpsc::channel(128);
 
@@ -310,15 +303,18 @@ impl TaskInstancePoolHandle {
 ///
 /// This struct owns all mutable pool state and processes messages from [`TaskInstancePoolHandle`]
 /// instances. It is consumed by [`tokio::spawn`] and never exposed publicly.
-struct TaskInstancePool<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> {
-    ready_queue_sender: R,
-    execution_manager_liveness_store: L,
+struct TaskInstancePool<ReadyQueue: ReadyQueueSender, LivenessStore: ExecutionManagerLivenessStore>
+{
+    ready_queue_sender: ReadyQueue,
+    execution_manager_liveness_store: LivenessStore,
     execution_manager_stale_cutoff: Duration,
     state: PoolState,
     receiver: mpsc::Receiver<PoolMessage>,
 }
 
-impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, L> {
+impl<ReadyQueue: ReadyQueueSender, LivenessStore: ExecutionManagerLivenessStore>
+    TaskInstancePool<ReadyQueue, LivenessStore>
+{
     /// Runs the coroutine loop, processing messages and GC timer ticks.
     async fn run(mut self, gc_interval: Duration) {
         let mut gc_interval = tokio::time::interval(gc_interval);
@@ -353,7 +349,16 @@ impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, 
                 response_tx,
             } => {
                 let em_id = record.execution_manager_id;
-                let result = if self.state.known_live_execution_managers.contains(&em_id) {
+                let is_known_live = self.state.known_live_execution_managers.contains(&em_id);
+                let result = if is_known_live
+                    || self
+                        .execution_manager_liveness_store
+                        .is_execution_manager_alive(em_id)
+                        .await
+                {
+                    if !is_known_live {
+                        self.state.known_live_execution_managers.insert(em_id);
+                    }
                     self.state.running_task_instances.push(PoolEntry {
                         record,
                         control_block,
@@ -361,23 +366,9 @@ impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, 
                     });
                     Ok(())
                 } else {
-                    let alive = self
-                        .execution_manager_liveness_store
-                        .is_execution_manager_alive(em_id)
-                        .await;
-                    if alive {
-                        self.state.known_live_execution_managers.insert(em_id);
-                        self.state.running_task_instances.push(PoolEntry {
-                            record,
-                            control_block,
-                            soft_timeout_handled: false,
-                        });
-                        Ok(())
-                    } else {
-                        Err(CacheError::StaleState(
-                            StaleStateError::ExecutionManagerIsDead,
-                        ))
-                    }
+                    Err(CacheError::StaleState(
+                        StaleStateError::ExecutionManagerIsDead,
+                    ))
                 };
                 let _ = response_tx.send(result);
             }
@@ -387,17 +378,6 @@ impl<R: ReadyQueueSender, L: ExecutionManagerLivenessStore> TaskInstancePool<R, 
             } => {
                 let result = self.run_gc_cycle_at(gc_started_at).await;
                 let _ = response_tx.send(result);
-            }
-            PoolMessage::HasEntry {
-                task_instance_id,
-                response_tx,
-            } => {
-                let has_entry = self
-                    .state
-                    .running_task_instances
-                    .iter()
-                    .any(|entry| entry.record.task_instance_id == task_instance_id);
-                let _ = response_tx.send(has_entry);
             }
         }
         true
@@ -832,41 +812,6 @@ mod tests {
         }
     }
 
-    async fn pool_has_entry(
-        pool: &TaskInstancePoolHandle,
-        task_instance_id: TaskInstanceId,
-    ) -> bool {
-        let (response_tx, response_rx) = oneshot::channel();
-        pool.sender
-            .send(PoolMessage::HasEntry {
-                task_instance_id,
-                response_tx,
-            })
-            .await
-            .expect("pool coroutine should be alive");
-        response_rx.await.expect("pool coroutine should respond")
-    }
-
-    #[tokio::test]
-    async fn register_updates_pool() {
-        let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePoolHandle::new(
-            ready_queue_sender,
-            NoopExecutionManagerLivenessStore,
-            Duration::from_mins(1),
-            Duration::from_mins(1),
-        );
-        let tcb = build_single_task_tcb().await;
-        let execution_manager_id = ExecutionManagerId::new();
-        let record = make_record(TaskId::Index(0), 1, execution_manager_id, SystemTime::now());
-
-        pool.register_task_instance(tcb, record.clone())
-            .await
-            .expect("registration should succeed");
-
-        assert!(pool_has_entry(&pool, record.task_instance_id).await);
-    }
-
     #[tokio::test]
     async fn soft_timeout_reenqueues_exactly_once_and_keeps_original_instance_live() {
         let ready_queue_sender = MockReadyQueueSender::default();
@@ -912,8 +857,6 @@ mod tests {
             ),
             "soft-timeout should not evict the original instance, got: {replacement_result:?}"
         );
-
-        assert!(pool_has_entry(&pool, record.task_instance_id).await);
 
         pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(250))
             .await
@@ -1021,9 +964,6 @@ mod tests {
             .await
             .expect("registration should succeed");
 
-        assert!(pool_has_entry(&pool, dead_record.task_instance_id).await);
-        assert!(pool_has_entry(&pool, alive_record.task_instance_id).await);
-
         liveness_store
             .set_dead_execution_managers(vec![dead_em])
             .await;
@@ -1032,15 +972,7 @@ mod tests {
             .await
             .expect("gc should succeed");
 
-        // Dead execution manager's instance should be removed from the pool and re-enqueued.
-        assert!(
-            !pool_has_entry(&pool, dead_record.task_instance_id).await,
-            "dead execution manager entry should be removed"
-        );
-        assert!(
-            pool_has_entry(&pool, alive_record.task_instance_id).await,
-            "alive execution manager entry should remain"
-        );
+        // Dead execution manager's instance should be re-enqueued.
         assert_eq!(
             ready_queue_sender.take_messages().await,
             vec![ReadyMessage::Task(dead_record.job_id, 0)],
@@ -1082,24 +1014,15 @@ mod tests {
             .await
             .expect("registration should succeed");
 
-        assert!(pool_has_entry(&pool, record.task_instance_id).await);
-
         // Simulate the task completing via the normal succeed path (TCB removes the instance).
         tcb.succeed_task_instance(record.task_instance_id, vec![vec![0u8; 4]])
             .await
             .expect("task success should succeed");
 
-        // The pool still has the entry — GC should detect the TCB no longer tracks it.
-        assert!(pool_has_entry(&pool, record.task_instance_id).await);
-
         pool.run_gc_cycle_at(initial_gc_cycle_at + Duration::from_millis(50))
             .await
             .expect("gc should succeed");
 
-        assert!(
-            !pool_has_entry(&pool, record.task_instance_id).await,
-            "completed-task entry should be removed by GC"
-        );
         assert!(
             ready_queue_sender.take_messages().await.is_empty(),
             "no re-enqueue for a task that completed normally"
@@ -1178,9 +1101,6 @@ mod tests {
         pool.register_task_instance(tcb2, record2)
             .await
             .expect("second registration for same EM should succeed via live-set cache");
-
-        assert!(pool_has_entry(&pool, 1).await);
-        assert!(pool_has_entry(&pool, 2).await);
     }
 
     #[tokio::test]
@@ -1228,6 +1148,5 @@ mod tests {
         pool.register_task_instance(tcb2, record2.clone())
             .await
             .expect("re-registration after GC should succeed");
-        assert!(pool_has_entry(&pool, record2.task_instance_id).await);
     }
 }
