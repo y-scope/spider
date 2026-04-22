@@ -20,7 +20,7 @@ use crate::{
         task::TaskGraph,
     },
     db::InternalJobOrchestration,
-    ready_queue::{ReadyQueueEntry, ReadyQueueSender},
+    ready_queue::ReadyQueueSender,
     task_instance_pool::TaskInstancePoolConnector,
 };
 
@@ -541,68 +541,6 @@ impl<
                 .await?;
         }
         Ok(job.state)
-    }
-
-    /// Gets the ready queue entries for the job's current state.
-    ///
-    /// # Returns
-    ///
-    /// The ready queue entries implied by the current job state. Returns an empty vector when the
-    /// job is not in a schedulable state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::UndefinedCommitTask`] if the job is in [`JobState::CommitReady`] but has
-    ///   no commit task.
-    /// * [`InternalError::UndefinedCleanupTask`] if the job is in [`JobState::CleanupReady`] but
-    ///   has no cleanup task.
-    pub async fn get_ready_queue_entries(&self) -> Result<Vec<ReadyQueueEntry>, CacheError> {
-        let jcb = &self.inner;
-        let ready_queue_entries = {
-            // This method needs to inspect every schedulable and non-schedulable job state, so it
-            // reads the raw state guard directly instead of using JobExecutionStateHandle helpers
-            // that enforce a narrower state invariant.
-            let job = jcb.job_execution_state.inner.read().await;
-            let ready_queue_entries = match job.state {
-                JobState::Running => job
-                    .task_graph
-                    .get_all_ready_task_indices()
-                    .await
-                    .into_iter()
-                    .map(|task_index| ReadyQueueEntry {
-                        resource_group_id: jcb.owner_id,
-                        job_id: jcb.id,
-                        task_id: TaskId::Index(task_index),
-                    })
-                    .collect(),
-                JobState::CommitReady => {
-                    if !job.task_graph.has_commit_task() {
-                        return Err(InternalError::UndefinedCommitTask.into());
-                    }
-                    vec![ReadyQueueEntry {
-                        resource_group_id: jcb.owner_id,
-                        job_id: jcb.id,
-                        task_id: TaskId::Commit,
-                    }]
-                }
-                JobState::CleanupReady => {
-                    if !job.task_graph.has_cleanup_task() {
-                        return Err(InternalError::UndefinedCleanupTask.into());
-                    }
-                    vec![ReadyQueueEntry {
-                        resource_group_id: jcb.owner_id,
-                        job_id: jcb.id,
-                        task_id: TaskId::Cleanup,
-                    }]
-                }
-                _ => Vec::new(),
-            };
-            drop(job);
-            ready_queue_entries
-        };
-        Ok(ready_queue_entries)
     }
 }
 

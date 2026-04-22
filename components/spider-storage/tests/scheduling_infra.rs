@@ -516,7 +516,7 @@ impl ReadyQueueSender for MockReadyQueueSender {
             self.sender
                 .send(ReadyMessage::Task { task_index })
                 .await
-                .map_err(|_| InternalError::ReadyQueueIngressClosed {
+                .map_err(|_| InternalError::ReadyQueueChannelClosed {
                     lane: spider_storage::ready_queue::QueueType::Task,
                 })?;
         }
@@ -529,7 +529,7 @@ impl ReadyQueueSender for MockReadyQueueSender {
         _job_id: JobId,
     ) -> Result<(), InternalError> {
         self.sender.send(ReadyMessage::Commit).await.map_err(|_| {
-            InternalError::ReadyQueueIngressClosed {
+            InternalError::ReadyQueueChannelClosed {
                 lane: spider_storage::ready_queue::QueueType::Commit,
             }
         })
@@ -541,7 +541,7 @@ impl ReadyQueueSender for MockReadyQueueSender {
         _job_id: JobId,
     ) -> Result<(), InternalError> {
         self.sender.send(ReadyMessage::Cleanup).await.map_err(|_| {
-            InternalError::ReadyQueueIngressClosed {
+            InternalError::ReadyQueueChannelClosed {
                 lane: spider_storage::ready_queue::QueueType::Cleanup,
             }
         })
