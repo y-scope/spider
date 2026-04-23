@@ -19,6 +19,7 @@ use crate::{
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
+        SessionManagement,
         error::ExpectedStates,
     },
 };
@@ -27,6 +28,7 @@ use crate::{
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
     pool: MySqlPool,
+    session_id: u64,
 }
 
 impl MariaDbStorageConnector {
@@ -59,19 +61,20 @@ impl MariaDbStorageConnector {
             .connect_with(mysql_options)
             .await?;
 
-        let connector = Self { pool };
-
         // MariaDB does not support transactions for DDL statements. All DDL statements are
         // automatically committed. Thus, each table creation query is executed separately, and
         // atomicity is not guaranteed.
         sqlx::query(resource_groups_creation_query())
-            .execute(&connector.pool)
+            .execute(&pool)
             .await?;
-        sqlx::query(jobs_creation_query())
-            .execute(&connector.pool)
+        sqlx::query(jobs_creation_query()).execute(&pool).await?;
+        sqlx::query(sessions_creation_query())
+            .execute(&pool)
             .await?;
 
-        Ok(connector)
+        let session_id = bump_session_id(&pool).await?;
+
+        Ok(Self { pool, session_id })
     }
 }
 
@@ -432,6 +435,12 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 
 impl DbStorage for MariaDbStorageConnector {}
 
+impl SessionManagement for MariaDbStorageConnector {
+    fn session_id(&self) -> u64 {
+        self.session_id
+    }
+}
+
 /// `MySQL` error number for foreign key constraint violation.
 const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
 
@@ -440,6 +449,7 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
+const SESSIONS_TABLE_NAME: &str = "sessions";
 
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
@@ -484,6 +494,17 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 );",
         state_enum = JobState::as_mysql_enum_decl(),
         default_state = JobState::Ready.as_quoted_str(),
+    )
+}
+
+#[must_use]
+const fn sessions_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
+  `session_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  PRIMARY KEY (`session_id`)
+);"
     )
 }
 
@@ -561,4 +582,26 @@ async fn transition_job_state(
     .await?;
 
     Ok(())
+}
+
+/// Bumps the session ID by inserting a new row into the [`SESSIONS_TABLE_NAME`] table.
+///
+/// The table uses `AUTO_INCREMENT` on `session_id`, so each `INSERT` generates the next
+/// monotonically increasing session ID.
+///
+/// # Returns
+///
+/// The new session ID on success.
+///
+/// # Errors
+///
+/// Forwards [`sqlx::query_scalar::QueryScalar::fetch_one`]'s return values on failure.
+async fn bump_session_id(pool: &MySqlPool) -> Result<u64, DbError> {
+    const QUERY: &str = formatcp!(
+        "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
+        table = SESSIONS_TABLE_NAME,
+    );
+
+    let session_id = sqlx::query_scalar::<_, u64>(QUERY).fetch_one(pool).await?;
+    Ok(session_id)
 }

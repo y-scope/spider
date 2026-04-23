@@ -15,9 +15,14 @@ use crate::db::error::DbError;
 /// * [`ExternalJobOrchestration`]
 /// * [`InternalJobOrchestration`]
 /// * [`ResourceGroupManagement`]
+/// * [`SessionManagement`]
 #[async_trait]
 pub trait DbStorage:
-    ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupManagement {
+    ExternalJobOrchestration
+    + InternalJobOrchestration
+    + ResourceGroupManagement
+    + SessionManagement
+{
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
@@ -311,4 +316,15 @@ pub trait ResourceGroupManagement {
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError>;
+}
+
+/// Defines the storage interface for session management.
+///
+/// A session ID is a monotonically increasing value that bumps each time the storage layer
+/// reconnects. Callers can use it to detect and reject requests from before a restart.
+pub trait SessionManagement {
+    /// # Returns
+    ///
+    /// The current session ID.
+    fn session_id(&self) -> u64;
 }
