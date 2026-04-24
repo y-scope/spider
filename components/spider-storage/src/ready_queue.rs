@@ -20,27 +20,6 @@ use spider_core::{
 
 use crate::cache::error::InternalError;
 
-/// Identifies a ready-queue lane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QueueType {
-    /// Regular task lane.
-    Task,
-    /// Commit-task lane.
-    Commit,
-    /// Cleanup-task lane.
-    Cleanup,
-}
-
-impl std::fmt::Display for QueueType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Task => write!(f, "task"),
-            Self::Commit => write!(f, "commit"),
-            Self::Cleanup => write!(f, "cleanup"),
-        }
-    }
-}
-
 /// Marker type for commit-task ready entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CommitTaskMarker;
@@ -189,9 +168,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
             self.task
                 .send(entry)
                 .await
-                .map_err(|_| InternalError::ReadyQueueChannelClosed {
-                    lane: QueueType::Task,
-                })?;
+                .map_err(|_| InternalError::ReadyQueueChannelClosed)?;
         }
         Ok(())
     }
@@ -209,9 +186,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         self.commit
             .send(entry)
             .await
-            .map_err(|_| InternalError::ReadyQueueChannelClosed {
-                lane: QueueType::Commit,
-            })
+            .map_err(|_| InternalError::ReadyQueueChannelClosed)
     }
 
     async fn send_cleanup_ready(
@@ -227,9 +202,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         self.cleanup
             .send(entry)
             .await
-            .map_err(|_| InternalError::ReadyQueueChannelClosed {
-                lane: QueueType::Cleanup,
-            })
+            .map_err(|_| InternalError::ReadyQueueChannelClosed)
     }
 }
 
@@ -262,7 +235,7 @@ impl ReadyQueueReceiverHandle {
         max_items: usize,
         wait: Duration,
     ) -> Result<Vec<ReadyQueueEntry<TaskIndex>>, InternalError> {
-        recv_batch(&self.task, max_items, wait, QueueType::Task).await
+        recv_batch(&self.task, max_items, wait).await
     }
 
     /// Receives up to `max_items` commit task entries within a total time interval specified by
@@ -282,7 +255,7 @@ impl ReadyQueueReceiverHandle {
         max_items: usize,
         wait: Duration,
     ) -> Result<Vec<ReadyQueueEntry<CommitTaskMarker>>, InternalError> {
-        recv_batch(&self.commit, max_items, wait, QueueType::Commit).await
+        recv_batch(&self.commit, max_items, wait).await
     }
 
     /// Receives up to `max_items` cleanup task entries within a total time interval specified by
@@ -302,7 +275,7 @@ impl ReadyQueueReceiverHandle {
         max_items: usize,
         wait: Duration,
     ) -> Result<Vec<ReadyQueueEntry<CleanupTaskMarker>>, InternalError> {
-        recv_batch(&self.cleanup, max_items, wait, QueueType::Cleanup).await
+        recv_batch(&self.cleanup, max_items, wait).await
     }
 }
 
@@ -377,7 +350,6 @@ async fn recv_batch<TaskKind>(
     receiver: &Receiver<ReadyQueueEntry<TaskKind>>,
     max_items: usize,
     wait: Duration,
-    lane: QueueType,
 ) -> Result<Vec<ReadyQueueEntry<TaskKind>>, InternalError> {
     if max_items == 0 {
         return Ok(Vec::new());
@@ -390,7 +362,7 @@ async fn recv_batch<TaskKind>(
             match result {
                 Ok(entry) => entries.push(entry),
                 Err(_) => {
-                    return Err(InternalError::ReadyQueueChannelClosed { lane });
+                    return Err(InternalError::ReadyQueueChannelClosed);
                 }
             }
         } else {

@@ -68,8 +68,8 @@ pub enum InternalError {
     #[error("invalid config: {0}")]
     ReadyQueueInvalidConfig(&'static str),
 
-    #[error("ready queue {lane} channel is closed")]
-    ReadyQueueChannelClosed { lane: crate::ready_queue::QueueType },
+    #[error("ready queue channel is closed")]
+    ReadyQueueChannelClosed,
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
