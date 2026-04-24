@@ -1343,7 +1343,6 @@ dependencies = [
  "serial_test",
  "spider-core",
  "sqlx",
- "strum",
  "subtle",
  "tabled",
  "thiserror",
