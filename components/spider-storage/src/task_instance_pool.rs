@@ -323,10 +323,10 @@ enum PoolMessage {
 /// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
 /// * `LivenessStoreType` - The execution manager liveness store implementation.
 struct TaskInstancePool<
-    ReadyQueueType: ReadyQueueSender,
+    ReadyQueueSenderType: ReadyQueueSender,
     LivenessStoreType: ExecutionManagerLivenessStore,
 > {
-    ready_queue_sender: ReadyQueueType,
+    ready_queue_sender: ReadyQueueSenderType,
     execution_manager_liveness_store: LivenessStoreType,
     execution_manager_pool: HashSet<ExecutionManagerId>,
     execution_manager_stale_cutoff: Duration,
@@ -334,8 +334,8 @@ struct TaskInstancePool<
     receiver: mpsc::Receiver<PoolMessage>,
 }
 
-impl<ReadyQueueType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivenessStore>
-    TaskInstancePool<ReadyQueueType, LivenessStoreType>
+impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivenessStore>
+    TaskInstancePool<ReadyQueueSenderType, LivenessStoreType>
 {
     /// Runs the coroutine loop, processing messages and GC timer ticks.
     ///
@@ -344,7 +344,7 @@ impl<ReadyQueueType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivene
     /// Returns an error if:
     ///
     /// * Forwards [`Self::handle_message`]'s return values on failure.
-    /// * Forwards [`Self::run_gc_cycle_at_claude_version`]'s return values on failure.
+    /// * Forwards [`Self::run_gc_cycle_at`]'s return values on failure.
     async fn run(mut self, gc_interval: Duration) -> Result<(), InternalError> {
         let mut gc_interval = tokio::time::interval(gc_interval);
         // The first tick completes immediately; skip it so we don't GC right at startup.
@@ -375,23 +375,32 @@ impl<ReadyQueueType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivene
     /// * Forwards [`ExecutionManagerLivenessStore::is_execution_manager_alive`]'s return values on
     ///   failure.
     /// * Forwards [`Self::re_enqueue_task`]'s return values on failure.
+    #[allow(clippy::set_contains_or_insert)]
     async fn handle_message(&mut self, message: PoolMessage) -> Result<(), InternalError> {
         match message {
             PoolMessage::Register { tcb, metadata } => {
                 let em_id = &metadata.execution_manager_id;
-                if self.execution_manager_pool.insert(*em_id)
-                    && !self
+                if !self.execution_manager_pool.contains(em_id) {
+                    if !self
                         .execution_manager_liveness_store
                         .is_execution_manager_alive(em_id)
                         .await?
-                {
-                    if tcb
-                        .force_remove_task_instance(metadata.task_instance_id)
-                        .await
                     {
-                        self.re_enqueue_task(&metadata).await?;
+                        if tcb
+                            .force_remove_task_instance(metadata.task_instance_id)
+                            .await
+                        {
+                            // There is a corner case where the force-removed task instance has
+                            // already terminated. In this case, the re-enqueue is redundant.
+                            // However, checking this termination is expensive and this case should
+                            // be rare. Besides, the downstream logic will gracefully handle the
+                            // re-enqueued task-ready message. Therefore, this re-enqueue is
+                            // unconditionally performed.
+                            self.re_enqueue_task(&metadata).await?;
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
+                    self.execution_manager_pool.insert(*em_id);
                 }
                 self.instances.push(PoolEntry {
                     metadata,
