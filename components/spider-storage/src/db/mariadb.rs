@@ -1,3 +1,5 @@
+use std::{net::IpAddr, time::Duration};
+
 use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
@@ -5,10 +7,11 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId},
         io::{TaskInput, TaskOutput},
     },
 };
+use spider_derive::MySqlEnum;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
@@ -16,6 +19,7 @@ use crate::{
     db::{
         DbError,
         DbStorage,
+        ExecutionManagerLivenessManagement,
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
@@ -27,6 +31,12 @@ use crate::{
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
     pool: MySqlPool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, MySqlEnum)]
+enum ExecutionManagerState {
+    Alive,
+    Dead,
 }
 
 impl MariaDbStorageConnector {
@@ -68,6 +78,9 @@ impl MariaDbStorageConnector {
             .execute(&connector.pool)
             .await?;
         sqlx::query(jobs_creation_query())
+            .execute(&connector.pool)
+            .await?;
+        sqlx::query(execution_managers_creation_query())
             .execute(&connector.pool)
             .await?;
 
@@ -430,6 +443,132 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     }
 }
 
+#[async_trait]
+impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
+    async fn register_execution_manager(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+        ip_address: IpAddr,
+    ) -> Result<(), DbError> {
+        const INSERT_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` (`id`, `ip_address`) VALUES (?, ?);",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
+
+        sqlx::query(INSERT_QUERY)
+            .bind(execution_manager_id)
+            .bind(ip_address.to_string())
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(|e| match e {
+                sqlx::Error::Database(e)
+                    if e.try_downcast_ref::<MySqlDatabaseError>()
+                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
+                {
+                    DbError::ExecutionManagerAlreadyExists(execution_manager_id)
+                }
+                e => e.into(),
+            })
+    }
+
+    async fn update_execution_manager_heartbeat(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<(), DbError> {
+        const UPDATE_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `last_heartbeat_at` = CURRENT_TIMESTAMP WHERE `id` = ? AND \
+             `state` = '{alive_state}';",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+            alive_state = ExecutionManagerState::Alive.as_str(),
+        );
+        const SELECT_STATE_QUERY: &str = formatcp!(
+            "SELECT `state` FROM `{table}` WHERE `id` = ?;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
+
+        let rows_affected = sqlx::query(UPDATE_QUERY)
+            .bind(execution_manager_id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        if rows_affected != 0 {
+            return Ok(());
+        }
+
+        let state = sqlx::query_scalar::<_, ExecutionManagerState>(SELECT_STATE_QUERY)
+            .bind(execution_manager_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(DbError::ExecutionManagerNotFound(execution_manager_id))?;
+
+        match state {
+            ExecutionManagerState::Alive => Ok(()),
+            ExecutionManagerState::Dead => {
+                Err(DbError::ExecutionManagerAlreadyDead(execution_manager_id))
+            }
+        }
+    }
+
+    async fn is_execution_manager_alive(&self, id: ExecutionManagerId) -> Result<bool, DbError> {
+        const QUERY: &str = formatcp!(
+            "SELECT `state` FROM `{table}` WHERE `id` = ?;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
+
+        let Some(state) = sqlx::query_scalar::<_, ExecutionManagerState>(QUERY)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+        else {
+            return Ok(false);
+        };
+
+        match state {
+            ExecutionManagerState::Alive => Ok(true),
+            ExecutionManagerState::Dead => Ok(false),
+        }
+    }
+
+    async fn get_dead_execution_managers(
+        &self,
+        stale_after: Duration,
+    ) -> Result<Vec<ExecutionManagerId>, DbError> {
+        const UPDATE_BATCH_SIZE: usize = 1000;
+
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` = '{alive_state}' AND \
+             `last_heartbeat_at` < CURRENT_TIMESTAMP - INTERVAL ? SECOND FOR UPDATE;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+            alive_state = ExecutionManagerState::Alive.as_str(),
+        );
+
+        let mut tx = self.pool.begin().await?;
+        let execution_manager_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_QUERY)
+            .bind(stale_after.as_secs())
+            .fetch_all(&mut *tx)
+            .await?;
+
+        for execution_manager_id_batch in execution_manager_ids.chunks(UPDATE_BATCH_SIZE) {
+            let placeholders = std::iter::repeat_n("?", execution_manager_id_batch.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let update_query = format!(
+                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET `state` = ? WHERE `id` IN \
+                 ({placeholders})"
+            );
+            let mut query = sqlx::query(&update_query).bind(ExecutionManagerState::Dead);
+            for execution_manager_id in execution_manager_id_batch {
+                query = query.bind(execution_manager_id);
+            }
+            query.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(execution_manager_ids)
+    }
+}
+
 impl DbStorage for MariaDbStorageConnector {}
 
 /// `MySQL` error number for foreign key constraint violation.
@@ -440,6 +579,7 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
+const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
 
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
@@ -484,6 +624,25 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 );",
         state_enum = JobState::as_mysql_enum_decl(),
         default_state = JobState::Ready.as_quoted_str(),
+    )
+}
+
+#[must_use]
+const fn execution_managers_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
+  `id` UUID NOT NULL,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `state` {state_enum} NOT NULL DEFAULT {default_state},
+  `last_heartbeat_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `execution_manager_liveness` (`state`, `last_heartbeat_at`)
+);",
+        state_enum = ExecutionManagerState::as_mysql_enum_decl(),
+        default_state = ExecutionManagerState::Alive.as_quoted_str(),
     )
 }
 

@@ -1,9 +1,11 @@
+use std::{net::IpAddr, time::Duration};
+
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -15,9 +17,13 @@ use crate::db::error::DbError;
 /// * [`ExternalJobOrchestration`]
 /// * [`InternalJobOrchestration`]
 /// * [`ResourceGroupManagement`]
+/// * [`ExecutionManagerLivenessManagement`]
 #[async_trait]
 pub trait DbStorage:
-    ExternalJobOrchestration + InternalJobOrchestration + ResourceGroupManagement {
+    ExternalJobOrchestration
+    + InternalJobOrchestration
+    + ResourceGroupManagement
+    + ExecutionManagerLivenessManagement {
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
@@ -311,4 +317,89 @@ pub trait ResourceGroupManagement {
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError>;
+}
+
+/// Defines the storage interface for execution manager liveness management in the database.
+#[async_trait]
+pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
+    /// Registers an execution manager in the database.
+    ///
+    /// # Parameters
+    ///
+    /// * `execution_manager_id` - The ID of the execution manager to register.
+    /// * `ip_address` - The execution manager IP address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::ExecutionManagerAlreadyExists`] if the execution manager ID already exists.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn register_execution_manager(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+        ip_address: IpAddr,
+    ) -> Result<(), DbError>;
+
+    /// Updates the heartbeat timestamp of an alive execution manager.
+    ///
+    /// # Parameters
+    ///
+    /// * `execution_manager_id` - The ID of the execution manager to update.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::ExecutionManagerNotFound`] if the execution manager does not exist.
+    /// * [`DbError::ExecutionManagerAlreadyDead`] if the execution manager is dead.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn update_execution_manager_heartbeat(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<(), DbError>;
+
+    /// Checks whether the execution manager with the given ID is alive.
+    ///
+    /// # Parameters
+    ///
+    /// * `execution_manager_id` - The execution manager ID to check.
+    ///
+    /// # Returns
+    ///
+    /// Whether the execution manager is alive on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn is_execution_manager_alive(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<bool, DbError>;
+
+    /// Marks stale execution managers dead and returns their IDs.
+    ///
+    /// This operation is atomic: once an execution manager is returned by this method, it will not
+    /// be returned again in subsequent calls.
+    ///
+    /// # Parameters
+    ///
+    /// * `stale_after` - The duration after the last heartbeat which makes an execution manager
+    ///   stale.
+    ///
+    /// # Returns
+    ///
+    /// A vector of dead execution manager IDs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn get_dead_execution_managers(
+        &self,
+        stale_after: Duration,
+    ) -> Result<Vec<ExecutionManagerId>, DbError>;
 }

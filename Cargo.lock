@@ -1342,6 +1342,7 @@ dependencies = [
  "serde",
  "serial_test",
  "spider-core",
+ "spider-derive",
  "sqlx",
  "subtle",
  "tabled",
