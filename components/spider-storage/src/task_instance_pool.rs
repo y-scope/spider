@@ -684,6 +684,62 @@ mod tests {
         }
     }
 
+    /// Builds a [`TaskInstancePool`] directly (no `tokio::spawn`) so tests can drive
+    /// [`TaskInstancePool::handle_message`] and [`TaskInstancePool::run_gc_cycle_at`]
+    /// synchronously.
+    ///
+    /// The `mpsc::Receiver` field is required by the struct but unused by these tests; the matching
+    /// sender is dropped immediately.
+    fn build_test_pool(
+        ready_queue_sender: MockReadyQueueSender,
+        liveness_store: MockExecutionManagerLivenessStore,
+        execution_manager_stale_cutoff: Duration,
+    ) -> TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessStore> {
+        let (_sender, receiver) = mpsc::channel(1);
+        TaskInstancePool {
+            ready_queue_sender,
+            execution_manager_liveness_store: liveness_store,
+            execution_manager_pool: HashSet::new(),
+            execution_manager_stale_cutoff,
+            instances: Vec::new(),
+            receiver,
+        }
+    }
+
+    /// Registers a task instance in both the TCB and the pool by driving
+    /// [`TaskInstancePool::handle_message`].
+    ///
+    /// # Returns
+    ///
+    /// The job ID assigned to the task, so callers can match it against re-enqueue messages.
+    async fn register_task_in_pool(
+        pool: &mut TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessStore>,
+        tcb: &SharedTaskControlBlock,
+        task_id: TaskId,
+        task_instance_id: TaskInstanceId,
+        execution_manager_id: ExecutionManagerId,
+        registered_at: SystemTime,
+    ) -> JobId {
+        let _ = tcb
+            .register_task_instance(task_instance_id)
+            .await
+            .expect("TCB registration should succeed");
+        let metadata = make_task_instance_metadata(
+            task_id,
+            task_instance_id,
+            execution_manager_id,
+            registered_at,
+        );
+        let job_id = metadata.job_id;
+        pool.handle_message(PoolMessage::Register {
+            tcb: Tcb::Task(tcb.clone()),
+            metadata,
+        })
+        .await
+        .expect("registration should succeed");
+        job_id
+    }
+
     #[tokio::test]
     async fn dead_execution_manager_registration_triggers_recovery() {
         let ready_queue_sender = MockReadyQueueSender::default();
@@ -761,5 +817,329 @@ mod tests {
             1,
             "liveness store should be called exactly once for two registrations with the same EM"
         );
+    }
+
+    #[tokio::test]
+    async fn gc_removes_all_terminated_tasks() {
+        const NUM_TASKS: usize = 10;
+
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let mut pool = build_test_pool(
+            ready_queue_sender.clone(),
+            liveness_store,
+            Duration::from_mins(1),
+        );
+        let em_id = ExecutionManagerId::new();
+
+        // Create a few tasks and terminate them immediately.
+        for i in 0..NUM_TASKS {
+            let tcb = build_single_task_tcb().await;
+            register_task_in_pool(
+                &mut pool,
+                &tcb,
+                TaskId::Index(i),
+                i as TaskInstanceId,
+                em_id,
+                SystemTime::now(),
+            )
+            .await;
+            tcb.cancel_non_terminal().await;
+        }
+
+        pool.run_gc_cycle_at(SystemTime::now())
+            .await
+            .expect("GC cycle should succeed");
+
+        assert!(
+            pool.instances.is_empty(),
+            "all terminated entries should be removed, remaining: {}",
+            pool.instances.len()
+        );
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        assert!(
+            messages.is_empty(),
+            "terminated tasks should not be re-enqueued, got: {messages:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn gc_re_enqueues_all_soft_timed_out_tasks_and_keeps_them() {
+        const NUM_TASKS: usize = 10;
+
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let mut pool = build_test_pool(
+            ready_queue_sender.clone(),
+            liveness_store,
+            Duration::from_mins(1),
+        );
+        let em_id = ExecutionManagerId::new();
+        let gc_starting_time = SystemTime::now();
+        // soft_timeout_ddl = registered_at + 100ms
+        // deadline = now - 900ms
+        let registered_at = gc_starting_time - Duration::from_secs(1);
+
+        let mut expected_messages: Vec<ReadyMessage> = Vec::new();
+        for i in 0..NUM_TASKS {
+            let tcb = build_single_task_tcb().await;
+            let job_id = register_task_in_pool(
+                &mut pool,
+                &tcb,
+                TaskId::Index(i),
+                i as TaskInstanceId,
+                em_id,
+                registered_at,
+            )
+            .await;
+            expected_messages.push(ReadyMessage::Task(job_id, i));
+        }
+
+        pool.run_gc_cycle_at(gc_starting_time)
+            .await
+            .expect("GC cycle should succeed");
+
+        assert_eq!(
+            pool.instances.len(),
+            NUM_TASKS,
+            "soft-timed-out entries should remain in the pool"
+        );
+        for entry in &pool.instances {
+            assert!(
+                entry.soft_timeout_handled,
+                "soft_timeout_handled should be set for entry {}",
+                entry.metadata.task_instance_id
+            );
+        }
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        assert_eq!(messages.len(), expected_messages.len(), "got: {messages:?}");
+        for expected in &expected_messages {
+            assert!(
+                messages.contains(expected),
+                "missing re-enqueue {expected:?}, got: {messages:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn gc_re_enqueues_and_removes_all_tasks_for_dead_em() {
+        const NUM_TASKS: usize = 10;
+
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let mut pool = build_test_pool(
+            ready_queue_sender.clone(),
+            liveness_store.clone(),
+            Duration::from_mins(1),
+        );
+        let em_id = ExecutionManagerId::new();
+        let now = SystemTime::now();
+
+        let mut expected_messages: Vec<ReadyMessage> = Vec::new();
+        for i in 0..NUM_TASKS {
+            let tcb = build_single_task_tcb().await;
+            let job_id = register_task_in_pool(
+                &mut pool,
+                &tcb,
+                TaskId::Index(i),
+                i as TaskInstanceId,
+                em_id,
+                now,
+            )
+            .await;
+            expected_messages.push(ReadyMessage::Task(job_id, i));
+        }
+
+        liveness_store
+            .dead_execution_managers
+            .lock()
+            .await
+            .push(em_id);
+
+        pool.run_gc_cycle_at(now)
+            .await
+            .expect("GC cycle should succeed");
+
+        assert!(
+            pool.instances.is_empty(),
+            "all dead-EM entries should be removed, remaining: {}",
+            pool.instances.len()
+        );
+        assert!(
+            !pool.execution_manager_pool.contains(&em_id),
+            "dead EM should be pruned from execution_manager_pool"
+        );
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        assert_eq!(messages.len(), expected_messages.len(), "got: {messages:?}");
+        for expected in &expected_messages {
+            assert!(
+                messages.contains(expected),
+                "missing re-enqueue {expected:?}, got: {messages:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn gc_removes_terminated_tasks_for_dead_em_without_re_enqueue() {
+        const NUM_TASKS: usize = 10;
+
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let mut pool = build_test_pool(
+            ready_queue_sender.clone(),
+            liveness_store.clone(),
+            Duration::from_mins(1),
+        );
+        let em_id = ExecutionManagerId::new();
+        let now = SystemTime::now();
+
+        for i in 0..NUM_TASKS {
+            let tcb = build_single_task_tcb().await;
+            register_task_in_pool(
+                &mut pool,
+                &tcb,
+                TaskId::Index(i),
+                i as TaskInstanceId,
+                em_id,
+                now,
+            )
+            .await;
+            tcb.cancel_non_terminal().await;
+        }
+
+        liveness_store
+            .dead_execution_managers
+            .lock()
+            .await
+            .push(em_id);
+
+        pool.run_gc_cycle_at(now)
+            .await
+            .expect("GC cycle should succeed");
+
+        assert!(
+            pool.instances.is_empty(),
+            "all entries should be removed, remaining: {}",
+            pool.instances.len()
+        );
+        assert!(
+            !pool.execution_manager_pool.contains(&em_id),
+            "dead EM should be pruned from execution_manager_pool"
+        );
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        assert!(
+            messages.is_empty(),
+            "terminated tasks should not be re-enqueued even with dead EM, got: {messages:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn gc_comprehensive() {
+        // Layout (5 entries):
+        //   index 0: alive EM, terminated -> removed, no re-enqueue
+        //   index 1: alive EM, soft timed out -> kept, re-enqueued, flag set
+        //   index 2: alive EM, healthy on-going -> kept, no re-enqueue
+        //   index 3: dead EM, terminated -> removed, no re-enqueue (terminal wins)
+        //   index 4: dead EM, on-going -> removed, re-enqueued
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let mut pool = build_test_pool(
+            ready_queue_sender.clone(),
+            liveness_store.clone(),
+            Duration::from_mins(1),
+        );
+        let alive_em = ExecutionManagerId::new();
+        let dead_em = ExecutionManagerId::new();
+        let now = SystemTime::now();
+        // soft timeout deadline = now - 900ms
+        let soft_timeout = now - Duration::from_secs(1);
+        // soft timeout deadline = now + 100ms (not yet elapsed)
+        let fresh = now;
+
+        let tcb0 = build_single_task_tcb().await;
+        register_task_in_pool(&mut pool, &tcb0, TaskId::Index(0), 0, alive_em, fresh).await;
+        tcb0.cancel_non_terminal().await;
+
+        let tcb1 = build_single_task_tcb().await;
+        let job_id_1 = register_task_in_pool(
+            &mut pool,
+            &tcb1,
+            TaskId::Index(1),
+            1,
+            alive_em,
+            soft_timeout,
+        )
+        .await;
+
+        let tcb2 = build_single_task_tcb().await;
+        register_task_in_pool(&mut pool, &tcb2, TaskId::Index(2), 2, alive_em, fresh).await;
+
+        let tcb3 = build_single_task_tcb().await;
+        register_task_in_pool(&mut pool, &tcb3, TaskId::Index(3), 3, dead_em, fresh).await;
+        tcb3.cancel_non_terminal().await;
+
+        let tcb4 = build_single_task_tcb().await;
+        let job_id_4 =
+            register_task_in_pool(&mut pool, &tcb4, TaskId::Index(4), 4, dead_em, fresh).await;
+
+        liveness_store
+            .dead_execution_managers
+            .lock()
+            .await
+            .push(dead_em);
+
+        pool.run_gc_cycle_at(now)
+            .await
+            .expect("GC cycle should succeed");
+
+        // Pool should retain entries 1 (soft-timed-out, kept) and 2 (healthy).
+        let remaining_ids: HashSet<TaskInstanceId> = pool
+            .instances
+            .iter()
+            .map(|entry| entry.metadata.task_instance_id)
+            .collect();
+        assert_eq!(remaining_ids, HashSet::from([1, 2]));
+
+        let entry_1 = pool
+            .instances
+            .iter()
+            .find(|entry| entry.metadata.task_instance_id == 1)
+            .expect("entry 1 should still be in the pool");
+        assert!(
+            entry_1.soft_timeout_handled,
+            "soft_timeout_handled should be set for entry 1"
+        );
+
+        let entry_2 = pool
+            .instances
+            .iter()
+            .find(|entry| entry.metadata.task_instance_id == 2)
+            .expect("entry 2 should still be in the pool");
+        assert!(
+            !entry_2.soft_timeout_handled,
+            "soft_timeout_handled should not be set for healthy entry 2"
+        );
+
+        assert!(
+            !pool.execution_manager_pool.contains(&dead_em),
+            "dead EM should be pruned from execution_manager_pool"
+        );
+        assert!(
+            pool.execution_manager_pool.contains(&alive_em),
+            "alive EM should remain in execution_manager_pool"
+        );
+
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let expected = [
+            ReadyMessage::Task(job_id_1, 1),
+            ReadyMessage::Task(job_id_4, 4),
+        ];
+        assert_eq!(messages.len(), expected.len(), "got: {messages:?}");
+        for msg in &expected {
+            assert!(
+                messages.contains(msg),
+                "missing re-enqueue {msg:?}, got: {messages:?}"
+            );
+        }
     }
 }
