@@ -1,16 +1,21 @@
-use std::time::Duration;
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    time::Duration,
+};
 
 use spider_core::{
     job::JobState,
     types::{
-        id::{JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId},
         io::TaskInput,
     },
 };
 use spider_storage::db::{
     DbError,
+    ExecutionManagerLivenessManagement,
     ExternalJobOrchestration,
     InternalJobOrchestration,
+    MariaDbStorageConnector,
     ResourceGroupManagement,
 };
 
@@ -692,7 +697,7 @@ async fn test_cancel_from_ready_state() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-#[serial_test::serial]
+#[serial_test::file_serial]
 async fn test_delete_expired_terminated_jobs_no_match() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -724,4 +729,250 @@ async fn test_delete_expired_terminated_jobs_no_match() {
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Failed);
+}
+
+// ---------------------------------------------------------------------------
+// Execution manager liveness tests
+// ---------------------------------------------------------------------------
+
+/// Registers a new execution manager with a random ID and `127.0.0.1` as the
+/// IP address, then returns the assigned ID.
+async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManagerId {
+    let em_id = ExecutionManagerId::new();
+    storage
+        .register_execution_manager(em_id, IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .await
+        .expect("register_execution_manager should succeed");
+    em_id
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_register_execution_manager() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    let alive = storage
+        .is_execution_manager_alive(em_id)
+        .await
+        .expect("is_execution_manager_alive should succeed");
+    assert!(alive, "newly registered EM should be alive");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_register_execution_manager_duplicate() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    let result = storage
+        .register_execution_manager(em_id, IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .await;
+    assert!(
+        matches!(result, Err(DbError::ExecutionManagerAlreadyExists(_))),
+        "expected ExecutionManagerAlreadyExists, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_update_execution_manager_heartbeat() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    storage
+        .update_execution_manager_heartbeat(em_id)
+        .await
+        .expect("update_execution_manager_heartbeat should succeed");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_update_execution_manager_heartbeat_not_found() {
+    let storage = create_mariadb_connector().await;
+    let fake_em_id = ExecutionManagerId::new();
+
+    let result = storage.update_execution_manager_heartbeat(fake_em_id).await;
+    assert!(
+        matches!(result, Err(DbError::ExecutionManagerNotFound(_))),
+        "expected ExecutionManagerNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_update_execution_manager_heartbeat_already_dead() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    // Wait for the heartbeat to become stale, then mark the EM dead.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let dead = storage
+        .get_dead_execution_managers(Duration::from_secs(1))
+        .await
+        .expect("get_dead_execution_managers should succeed");
+    assert!(
+        dead.contains(&em_id),
+        "expected em_id in dead list, got {dead:?}"
+    );
+
+    let result = storage.update_execution_manager_heartbeat(em_id).await;
+    assert!(
+        matches!(result, Err(DbError::ExecutionManagerAlreadyDead(_))),
+        "expected ExecutionManagerAlreadyDead, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_is_execution_manager_alive_true() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    let alive = storage
+        .is_execution_manager_alive(em_id)
+        .await
+        .expect("is_execution_manager_alive should succeed");
+    assert!(alive, "registered EM should be alive");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_is_execution_manager_alive_false_not_found() {
+    let storage = create_mariadb_connector().await;
+    let fake_em_id = ExecutionManagerId::new();
+
+    let alive = storage
+        .is_execution_manager_alive(fake_em_id)
+        .await
+        .expect("is_execution_manager_alive should succeed");
+    assert!(!alive, "nonexistent EM should not be alive");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_is_execution_manager_alive_false_dead() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    // Mark the EM dead.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    storage
+        .get_dead_execution_managers(Duration::from_secs(1))
+        .await
+        .expect("get_dead_execution_managers should succeed");
+
+    let alive = storage
+        .is_execution_manager_alive(em_id)
+        .await
+        .expect("is_execution_manager_alive should succeed");
+    assert!(!alive, "dead EM should not be alive");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_get_dead_execution_managers_none_stale() {
+    let storage = create_mariadb_connector().await;
+    register_test_em(&storage).await;
+
+    // Large window — the just-registered EM should not be stale yet.
+    let dead = storage
+        .get_dead_execution_managers(Duration::from_mins(1))
+        .await
+        .expect("get_dead_execution_managers should succeed");
+    assert!(
+        dead.is_empty(),
+        "freshly registered EM should not be stale, got {dead:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_get_dead_execution_managers_marks_dead() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let dead = storage
+        .get_dead_execution_managers(Duration::from_secs(1))
+        .await
+        .expect("get_dead_execution_managers should succeed");
+    assert!(
+        dead.contains(&em_id),
+        "expected em_id in dead list, got {dead:?}"
+    );
+
+    let alive = storage
+        .is_execution_manager_alive(em_id)
+        .await
+        .expect("is_execution_manager_alive should succeed");
+    assert!(!alive, "stale EM should be marked dead");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_get_dead_execution_managers_atomic() {
+    let storage = create_mariadb_connector().await;
+    let em_id = register_test_em(&storage).await;
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let dead_first = storage
+        .get_dead_execution_managers(Duration::from_secs(1))
+        .await
+        .expect("first get_dead_execution_managers should succeed");
+    assert!(
+        dead_first.contains(&em_id),
+        "expected em_id in first dead list, got {dead_first:?}"
+    );
+
+    // Second call should not return the same EM again.
+    let dead_second = storage
+        .get_dead_execution_managers(Duration::from_secs(1))
+        .await
+        .expect("second get_dead_execution_managers should succeed");
+    assert!(
+        !dead_second.contains(&em_id),
+        "already-dead EM should not appear again, got {dead_second:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_get_dead_execution_managers_multiple() {
+    let storage = create_mariadb_connector().await;
+    let mut em_ids = Vec::with_capacity(3);
+    for _ in 0..3 {
+        em_ids.push(register_test_em(&storage).await);
+    }
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let dead = storage
+        .get_dead_execution_managers(Duration::from_secs(1))
+        .await
+        .expect("get_dead_execution_managers should succeed");
+
+    for em_id in &em_ids {
+        assert!(
+            dead.contains(em_id),
+            "expected em_id {em_id:?} in dead list, got {dead:?}"
+        );
+    }
+
+    // Verify all are now dead.
+    for em_id in &em_ids {
+        let alive = storage
+            .is_execution_manager_alive(*em_id)
+            .await
+            .expect("is_execution_manager_alive should succeed");
+        assert!(!alive, "EM {em_id:?} should be dead");
+    }
 }
