@@ -31,7 +31,7 @@ uuid = { version = "1.19.0", features = ["serde"] }
 anyhow = "1.0.98"
 dashmap = "6.1.0"
 rand = "0.9.1"
-serial_test = { version = "3.2.0", features= ["file_locks"] }
+serial_test = { version = "3.2.0", features = ["file_locks"] }
 tabled = "0.20.0"
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
 uuid = { version = "1.19.0", features = ["v4"] }
