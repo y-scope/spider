@@ -336,16 +336,6 @@ impl SharedTaskControlBlock {
         tcb.base.force_remove_task_instance(instance_id)
     }
 
-    /// Checks whether the given task instance is still tracked by this control block.
-    ///
-    /// # Returns
-    ///
-    /// Whether the given task instance is currently tracked in the control block.
-    pub async fn has_task_instance(&self, instance_id: TaskInstanceId) -> bool {
-        let tcb = self.inner.lock().await;
-        tcb.base.instance_pool.contains(instance_id)
-    }
-
     /// Resets the task control block to the initial state.
     pub async fn reset(&self) {
         let mut tcb = self.inner.lock().await;
@@ -366,6 +356,14 @@ impl SharedTaskControlBlock {
     pub async fn cancel_non_terminal(&self) {
         let mut tcb = self.inner.lock().await;
         tcb.base.cancel_non_terminal();
+    }
+
+    /// # Returns
+    ///
+    /// Whether the task is in a terminal state.
+    pub async fn is_terminal(&self) -> bool {
+        let tcb = self.inner.lock().await;
+        tcb.base.state.is_terminal()
     }
 
     /// Private factory function for creating a new task control block from a task definition.
@@ -579,6 +577,14 @@ impl SharedTerminationTaskControlBlock {
     pub async fn cancel_non_terminal(&self) {
         let mut tcb = self.inner.lock().await;
         tcb.base.cancel_non_terminal();
+    }
+
+    /// # Returns
+    ///
+    /// Whether the task is in a terminal state.
+    pub async fn is_terminal(&self) -> bool {
+        let tcb = self.inner.lock().await;
+        tcb.base.state.is_terminal()
     }
 
     /// Private factory function for creating a new termination task control block from a task

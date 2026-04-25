@@ -112,15 +112,15 @@ struct NoopExecutionManagerLivenessStore;
 impl ExecutionManagerLivenessStore for NoopExecutionManagerLivenessStore {
     async fn is_execution_manager_alive(
         &self,
-        _id: spider_core::types::id::ExecutionManagerId,
-    ) -> Result<bool, DbError> {
+        _id: &ExecutionManagerId,
+    ) -> Result<bool, InternalError> {
         Ok(true)
     }
 
     async fn get_dead_execution_managers(
         &self,
         _stale_before: std::time::SystemTime,
-    ) -> Result<Vec<spider_core::types::id::ExecutionManagerId>, DbError> {
+    ) -> Result<Vec<ExecutionManagerId>, InternalError> {
         Ok(Vec::new())
     }
 }
@@ -352,7 +352,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
-    let task_instance_pool = TaskInstancePoolHandle::new(
+    let task_instance_pool = TaskInstancePoolHandle::create(
         ready_queue_sender.clone(),
         NoopExecutionManagerLivenessStore,
         Duration::from_mins(1),

@@ -3,7 +3,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use spider_core::{
@@ -191,8 +191,9 @@ impl<
             task_id: TaskId::Index(task_index),
             task_instance_id,
             execution_manager_id,
-            registered_at: SystemTime::now(),
-            timeout_policy: execution_context.timeout_policy.clone(),
+            soft_timeout_ddl: SystemTime::now().checked_add(Duration::from_millis(
+                execution_context.timeout_policy.soft_timeout_ms,
+            )),
         };
         job.task_instance_pool_connector
             .register_task_instance(tcb.clone(), registration)
@@ -237,8 +238,8 @@ impl<
             task_id: TaskId::Commit,
             task_instance_id,
             execution_manager_id,
-            registered_at: SystemTime::now(),
-            timeout_policy: timeout_policy.clone(),
+            soft_timeout_ddl: SystemTime::now()
+                .checked_add(Duration::from_millis(timeout_policy.soft_timeout_ms)),
         };
         job.task_instance_pool_connector
             .register_termination_task_instance(commit_tcb.clone(), registration)
@@ -286,8 +287,8 @@ impl<
             task_id: TaskId::Cleanup,
             task_instance_id,
             execution_manager_id,
-            registered_at: SystemTime::now(),
-            timeout_policy: timeout_policy.clone(),
+            soft_timeout_ddl: SystemTime::now()
+                .checked_add(Duration::from_millis(timeout_policy.soft_timeout_ms)),
         };
         job.task_instance_pool_connector
             .register_termination_task_instance(cleanup_tcb.clone(), registration)
