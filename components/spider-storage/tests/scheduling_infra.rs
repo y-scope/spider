@@ -35,7 +35,7 @@
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
-//! * [`TaskInstancePoolHandle`] -- the in-memory running-instance pool handle used by storage.
+//! * [`MockTaskInstancePool`] -- atomic counter for ID allocation, no-op registration.
 //!
 //! # Execution manager architecture
 //!
@@ -74,7 +74,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -96,34 +96,14 @@ use spider_storage::{
         TaskId,
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
+        task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
     ready_queue::ReadyQueueSender,
-    task_instance_pool::{ExecutionManagerLivenessStore, TaskInstancePoolHandle},
+    task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
 use tabled::{Table, Tabled};
 use tokio::sync::{mpsc, watch};
-
-/// A [`ExecutionManagerLivenessStore`] that always returns an empty dead-execution-manager list.
-#[derive(Clone, Default)]
-struct NoopExecutionManagerLivenessStore;
-
-#[async_trait]
-impl ExecutionManagerLivenessStore for NoopExecutionManagerLivenessStore {
-    async fn is_execution_manager_alive(
-        &self,
-        _id: &ExecutionManagerId,
-    ) -> Result<bool, InternalError> {
-        Ok(true)
-    }
-
-    async fn get_dead_execution_managers(
-        &self,
-        _stale_before: std::time::SystemTime,
-    ) -> Result<Vec<ExecutionManagerId>, InternalError> {
-        Ok(Vec::new())
-    }
-}
 
 /// A handler that generates mock task outputs from an [`ExecutionContext`], which simulates the
 /// execution of a TDL task.
@@ -352,12 +332,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     };
     let (db_connector, job_id, resource_group_id) =
         db_connector_factory(submitted_task_graph, &inputs).await;
-    let task_instance_pool = TaskInstancePoolHandle::create(
-        ready_queue_sender.clone(),
-        NoopExecutionManagerLivenessStore,
-        Duration::from_mins(1),
-        Duration::from_mins(1),
-    );
+    let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.
     let inner_jcb = SharedJobControlBlock::create(
@@ -503,7 +478,7 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
 type TestJcb<DbConnectorType> =
-    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, TaskInstancePoolHandle>;
+    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, MockTaskInstancePool>;
 
 /// A message sent through the mock ready queue.
 ///
@@ -561,6 +536,46 @@ impl ReadyQueueSender for MockReadyQueueSender {
             .send(ReadyMessage::Cleanup)
             .await
             .map_err(|_| InternalError::ReadyQueueSendFailure("channel closed".to_owned()))
+    }
+}
+
+/// A mock task instance pool that hands out monotonically increasing [`TaskInstanceId`]s.
+///
+/// Registration calls are no-ops — the pool does not track which instances are registered.
+#[derive(Clone)]
+struct MockTaskInstancePool {
+    next_id: Arc<AtomicU64>,
+}
+
+impl MockTaskInstancePool {
+    /// Creates a new pool with IDs starting at 1.
+    fn new() -> Self {
+        Self {
+            next_id: Arc::new(AtomicU64::new(1)),
+        }
+    }
+}
+
+#[async_trait]
+impl TaskInstancePoolConnector for MockTaskInstancePool {
+    fn get_next_available_task_instance_id(&self) -> TaskInstanceId {
+        self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    async fn register_task_instance(
+        &self,
+        _tcb: SharedTaskControlBlock,
+        _registration: TaskInstanceMetadata,
+    ) -> Result<(), InternalError> {
+        Ok(())
+    }
+
+    async fn register_termination_task_instance(
+        &self,
+        _termination_tcb: SharedTerminationTaskControlBlock,
+        _registration: TaskInstanceMetadata,
+    ) -> Result<(), InternalError> {
+        Ok(())
     }
 }
 
