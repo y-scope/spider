@@ -421,9 +421,8 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     /// 2. **Soft-timeout re-enqueue**: Instances whose soft timeout has elapsed (and have not yet
     ///    been processed by a prior cycle) are re-enqueued. The entry stays in the pool so the
     ///    original instance can still complete normally.
-    /// 3. **Already-terminated cleanup**: Instances whose TCB no longer tracks them (task completed
-    ///    via the normal succeed/fail path) are simply removed from the pool.
-    ///
+    /// 3. **Already-terminated cleanup**: Instances whose TCB has reached a terminal state (task
+    //     completed via the normal succeed/fail/cancel path) are simply removed from the pool.
     /// # Errors
     ///
     /// Returns an error if:
@@ -504,21 +503,21 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
-    async fn re_enqueue_task(&self, record: &TaskInstanceMetadata) -> Result<(), InternalError> {
-        match record.task_id {
+    async fn re_enqueue_task(&self, metadata: &TaskInstanceMetadata) -> Result<(), InternalError> {
+        match metadata.task_id {
             TaskId::Index(task_index) => {
                 self.ready_queue_sender
-                    .send_task_ready(record.job_id, vec![task_index])
+                    .send_task_ready(metadata.job_id, vec![task_index])
                     .await
             }
             TaskId::Commit => {
                 self.ready_queue_sender
-                    .send_commit_ready(record.job_id)
+                    .send_commit_ready(metadata.job_id)
                     .await
             }
             TaskId::Cleanup => {
                 self.ready_queue_sender
-                    .send_cleanup_ready(record.job_id)
+                    .send_cleanup_ready(metadata.job_id)
                     .await
             }
         }
@@ -537,7 +536,6 @@ mod tests {
             TaskDescriptor,
             TaskGraph as SubmittedTaskGraph,
             TdlContext,
-            TimeoutPolicy,
             ValueTypeDescriptor,
         },
         types::{
@@ -671,25 +669,20 @@ mod tests {
 
     /// # Returns
     ///
-    /// A newly created task instance metadata with a fixed timeout policy (hard timeout 200ms,
-    /// soft timeout 100ms).
+    /// A newly created task instance metadata with a fixed timeout policy (soft timeout 100ms).
     fn make_task_instance_metadata(
         task_id: TaskId,
         task_instance_id: TaskInstanceId,
         execution_manager_id: ExecutionManagerId,
         registered_at: SystemTime,
     ) -> TaskInstanceMetadata {
-        const TIMEOUT_POLICY: TimeoutPolicy = TimeoutPolicy {
-            soft_timeout_ms: 100,
-            hard_timeout_ms: 200,
-        };
+        const SOFT_TIMEOUT_MS: Duration = Duration::from_millis(100);
         TaskInstanceMetadata {
             job_id: JobId::new(),
             task_id,
             task_instance_id,
             execution_manager_id,
-            soft_timeout_ddl: registered_at
-                .checked_add(Duration::from_millis(TIMEOUT_POLICY.soft_timeout_ms)),
+            soft_timeout_ddl: registered_at.checked_add(SOFT_TIMEOUT_MS),
         }
     }
 
@@ -799,22 +792,22 @@ mod tests {
         let execution_manager_id = ExecutionManagerId::new();
 
         let tcb1 = build_single_task_tcb().await;
-        let record1 = make_task_instance_metadata(
+        let metadata1 = make_task_instance_metadata(
             TaskId::Index(0),
             1,
             execution_manager_id,
             SystemTime::now(),
         );
-        pool.register_task_instance(tcb1, record1).await.unwrap();
+        pool.register_task_instance(tcb1, metadata1).await.unwrap();
 
         let tcb2 = build_single_task_tcb().await;
-        let record2 = make_task_instance_metadata(
+        let metadata2 = make_task_instance_metadata(
             TaskId::Index(0),
             2,
             execution_manager_id,
             SystemTime::now(),
         );
-        pool.register_task_instance(tcb2, record2).await.unwrap();
+        pool.register_task_instance(tcb2, metadata2).await.unwrap();
 
         // Give the pool coroutine time to process both messages.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1061,7 +1054,7 @@ mod tests {
         let dead_em = ExecutionManagerId::new();
         let now = SystemTime::now();
         // soft timeout deadline = now - 900ms
-        let soft_timeout = now - Duration::from_secs(1);
+        let elapsed_registration = now - Duration::from_secs(1);
         // soft timeout deadline = now + 100ms (not yet elapsed)
         let fresh = now;
 
@@ -1076,7 +1069,7 @@ mod tests {
             TaskId::Index(1),
             1,
             alive_em,
-            soft_timeout,
+            elapsed_registration,
         )
         .await;
 
