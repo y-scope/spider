@@ -65,6 +65,9 @@ pub enum InternalError {
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 
+    #[error("task instance pool corrupted: {0}")]
+    TaskInstancePoolCorrupted(String),
+
     #[error("invalid config: {0}")]
     ReadyQueueInvalidConfig(&'static str),
 

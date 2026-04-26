@@ -23,7 +23,12 @@ spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "1.50.0", features = [
+  "macros",
+  "rt-multi-thread",
+  "sync",
+  "time"
+] }
 uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]
