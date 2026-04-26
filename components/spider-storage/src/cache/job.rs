@@ -502,6 +502,7 @@ impl<
             .get_next_available_task_instance_id();
         let execution_context = tcb.register_task_instance(task_instance_id).await?;
         let registration = TaskInstanceMetadata {
+            resource_group_id: jcb.owner_id,
             job_id: jcb.id,
             task_id: TaskId::Index(task_index),
             task_instance_id,
@@ -551,6 +552,7 @@ impl<
         let (tdl_context, timeout_policy) =
             commit_tcb.register_task_instance(task_instance_id).await?;
         let registration = TaskInstanceMetadata {
+            resource_group_id: jcb.owner_id,
             job_id: jcb.id,
             task_id: TaskId::Commit,
             task_instance_id,
@@ -602,6 +604,7 @@ impl<
         let (tdl_context, timeout_policy) =
             cleanup_tcb.register_task_instance(task_instance_id).await?;
         let registration = TaskInstanceMetadata {
+            resource_group_id: jcb.owner_id,
             job_id: jcb.id,
             task_id: TaskId::Cleanup,
             task_instance_id,

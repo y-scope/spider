@@ -23,7 +23,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, JobId, TaskInstanceId};
+use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -38,6 +38,7 @@ use crate::{
 /// Metadata for a running task instance tracked by the task instance pool.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskInstanceMetadata {
+    pub resource_group_id: ResourceGroupId,
     pub job_id: JobId,
     pub task_id: TaskId,
     pub task_instance_id: TaskInstanceId,
@@ -505,17 +506,21 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
         match metadata.task_id {
             TaskId::Index(task_index) => {
                 self.ready_queue_sender
-                    .send_task_ready(metadata.job_id, vec![task_index])
+                    .send_task_ready(
+                        metadata.resource_group_id,
+                        metadata.job_id,
+                        vec![task_index],
+                    )
                     .await
             }
             TaskId::Commit => {
                 self.ready_queue_sender
-                    .send_commit_ready(metadata.job_id)
+                    .send_commit_ready(metadata.resource_group_id, metadata.job_id)
                     .await
             }
             TaskId::Cleanup => {
                 self.ready_queue_sender
-                    .send_cleanup_ready(metadata.job_id)
+                    .send_cleanup_ready(metadata.resource_group_id, metadata.job_id)
                     .await
             }
         }
@@ -537,7 +542,7 @@ mod tests {
             ValueTypeDescriptor,
         },
         types::{
-            id::{ExecutionManagerId, JobId},
+            id::{ExecutionManagerId, JobId, ResourceGroupId},
             io::TaskInput,
         },
     };
@@ -588,6 +593,7 @@ mod tests {
     impl ReadyQueueSender for MockReadyQueueSender {
         async fn send_task_ready(
             &self,
+            _rg_id: ResourceGroupId,
             job_id: JobId,
             task_indices: Vec<usize>,
         ) -> Result<(), InternalError> {
@@ -600,7 +606,11 @@ mod tests {
             Ok(())
         }
 
-        async fn send_commit_ready(&self, job_id: JobId) -> Result<(), InternalError> {
+        async fn send_commit_ready(
+            &self,
+            _rg_id: ResourceGroupId,
+            job_id: JobId,
+        ) -> Result<(), InternalError> {
             self.sent_messages
                 .lock()
                 .await
@@ -608,7 +618,11 @@ mod tests {
             Ok(())
         }
 
-        async fn send_cleanup_ready(&self, job_id: JobId) -> Result<(), InternalError> {
+        async fn send_cleanup_ready(
+            &self,
+            _rg_id: ResourceGroupId,
+            job_id: JobId,
+        ) -> Result<(), InternalError> {
             self.sent_messages
                 .lock()
                 .await
@@ -676,6 +690,7 @@ mod tests {
     ) -> TaskInstanceMetadata {
         const SOFT_TIMEOUT_MS: Duration = Duration::from_millis(100);
         TaskInstanceMetadata {
+            resource_group_id: ResourceGroupId::new(),
             job_id: JobId::new(),
             task_id,
             task_instance_id,
