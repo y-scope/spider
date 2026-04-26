@@ -17,6 +17,7 @@ use crate::db::error::DbError;
 /// * [`ResourceGroupManagement`]
 /// * [`SessionManagement`]
 #[async_trait]
+#[rustfmt::skip] // Workaround for https://github.com/rust-lang/rustfmt/issues/5321
 pub trait DbStorage:
     ExternalJobOrchestration
     + InternalJobOrchestration
