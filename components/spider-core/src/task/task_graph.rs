@@ -5,8 +5,7 @@ use serde::{
     de::{self, MapAccess, Visitor},
     ser::{SerializeMap, SerializeSeq, Serializer},
 };
-use strum::{EnumCount, IntoEnumIterator};
-use strum_macros::{AsRefStr, EnumCount, EnumIter};
+use strum::{AsRefStr, EnumCount, EnumIter, IntoEnumIterator};
 
 use crate::task::{DataTypeDescriptor, Error};
 

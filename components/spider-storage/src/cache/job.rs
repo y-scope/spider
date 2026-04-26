@@ -95,7 +95,7 @@ impl<
         Ok(Self {
             inner: Arc::new(JobControlBlock {
                 id,
-                _owner_id: owner_id,
+                owner_id,
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },
@@ -132,7 +132,7 @@ impl<
         // the request from the executor for registering task instances will be blocked until this
         // method returns.
         job.ready_queue_sender
-            .send_task_ready(jcb.id, ready_task_indices)
+            .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
             .await?;
         drop(job);
         Ok(())
@@ -222,7 +222,7 @@ impl<
                 .into());
             }
             job.ready_queue_sender
-                .send_task_ready(jcb.id, ready_task_indices)
+                .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
                 .await?;
             return Ok(job.state);
         }
@@ -254,7 +254,9 @@ impl<
             JobState::Succeeded
         };
         if has_commit_task {
-            job.ready_queue_sender.send_commit_ready(jcb.id).await?;
+            job.ready_queue_sender
+                .send_commit_ready(jcb.owner_id, jcb.id)
+                .await?;
         }
         Ok(job.state)
     }
@@ -378,7 +380,7 @@ impl<
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
                     job.ready_queue_sender
-                        .send_task_ready(jcb.id, vec![task_index])
+                        .send_task_ready(jcb.owner_id, jcb.id, vec![task_index])
                         .await?;
                     return Ok(job.state);
                 }
@@ -392,7 +394,9 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    job.ready_queue_sender.send_commit_ready(jcb.id).await?;
+                    job.ready_queue_sender
+                        .send_commit_ready(jcb.owner_id, jcb.id)
+                        .await?;
                     return Ok(job.state);
                 }
             }
@@ -405,7 +409,9 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
+                    job.ready_queue_sender
+                        .send_cleanup_ready(jcb.owner_id, jcb.id)
+                        .await?;
                     return Ok(job.state);
                 }
             }
@@ -459,7 +465,9 @@ impl<
 
         job.task_graph.cancel_non_terminal().await;
         if has_cleanup_task {
-            job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
+            job.ready_queue_sender
+                .send_cleanup_ready(jcb.owner_id, jcb.id)
+                .await?;
         }
         Ok(job.state)
     }
@@ -632,7 +640,7 @@ struct JobControlBlock<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     id: JobId,
-    _owner_id: ResourceGroupId,
+    owner_id: ResourceGroupId,
     job_execution_state: JobExecutionStateHandle<
         ReadyQueueSenderType,
         DbConnectorType,

@@ -65,11 +65,14 @@ pub enum InternalError {
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 
-    #[error("failed to send to the ready queue: {0}")]
-    ReadyQueueSendFailure(String),
-
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),
+
+    #[error("invalid config: {0}")]
+    ReadyQueueInvalidConfig(&'static str),
+
+    #[error("ready queue channel is closed")]
+    ReadyQueueChannelClosed,
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
