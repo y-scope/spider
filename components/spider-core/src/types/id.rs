@@ -92,27 +92,27 @@ where
 
 pub type UuidBytes = uuid::Bytes;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResourceGroupIdMarker {}
 pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskIdMarker {}
 pub type TaskId = Id<TaskIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobIdMarker {}
 pub type JobId = Id<JobIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataIdMarker {}
 pub type DataId = Id<DataIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkerIdMarker {}
-pub type WorkerId = Id<WorkerIdMarker>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExecutionManagerIdMarker {}
+pub type ExecutionManagerId = Id<ExecutionManagerIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 

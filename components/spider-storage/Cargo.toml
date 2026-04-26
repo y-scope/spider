@@ -13,6 +13,7 @@ name = "test_spider_storage"
 path = "tests/test_spider_storage.rs"
 
 [dependencies]
+async-channel = "2.3.1"
 async-trait = "0.1.89"
 const_format = "0.2.35"
 rmp-serde = "1.3.1"
@@ -22,12 +23,16 @@ spider-core = { path = "../spider-core" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "1.50.0", features = [
+  "macros",
+  "rt-multi-thread",
+  "sync",
+  "time"
+] }
 uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]
 anyhow = "1.0.98"
-async-channel = "2.3.1"
 dashmap = "6.1.0"
 rand = "0.9.1"
 serial_test = "3.2.0"

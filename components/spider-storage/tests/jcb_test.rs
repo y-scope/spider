@@ -35,8 +35,8 @@ macro_rules! function_name {
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Returns
 ///
@@ -79,8 +79,8 @@ async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Returns
 ///
@@ -121,8 +121,8 @@ async fn test_flat_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Returns
 ///
@@ -168,8 +168,8 @@ async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'st
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Returns
 ///
@@ -210,8 +210,8 @@ async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'sta
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Returns
 ///
@@ -248,8 +248,8 @@ async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestrati
 ///
 /// # Type Parameters
 ///
-/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that worker
-///   tasks can be spawned onto the tokio runtime.
+/// * `DbConnectorType` - The DB-layer connector implementation. Must be `'static` so that execution
+///   manager tasks can be spawned onto the tokio runtime.
 ///
 /// # Returns
 ///
