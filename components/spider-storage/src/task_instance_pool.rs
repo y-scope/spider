@@ -127,8 +127,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`InternalError::TaskInstancePoolCorrupted`] if the pool coroutine has
-    ///   terminated.
+    /// * [`InternalError::TaskInstancePoolCorrupted`] if the pool coroutine has terminated.
     async fn register_task_instance(
         &self,
         tcb: SharedTaskControlBlock,
@@ -149,8 +148,7 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`InternalError::TaskInstancePoolCorrupted`] if the pool coroutine has
-    ///   terminated.
+    /// * [`InternalError::TaskInstancePoolCorrupted`] if the pool coroutine has terminated.
     async fn register_termination_task_instance(
         &self,
         termination_tcb: SharedTerminationTaskControlBlock,

@@ -148,15 +148,9 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::TaskIndexOutOfBound`] if the task index is out of range.
-    /// * [`InternalError::UndefinedCommitTask`] if the job has no commit task when requested for.
-    /// * [`InternalError::UndefinedCleanupTask`] if the job has no cleanup task when requested for.
-    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
-    /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
-    /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
-    /// * Forwards [`SharedTaskControlBlock::register_task_instance`]'s return values on failure.
-    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
-    ///   failure.
+    /// * Forwards [`Self::create_regular_task_instance`]'s return values on failure.
+    /// * Forwards [`Self::create_commit_task_instance`]'s return values on failure.
+    /// * Forwards [`Self::create_cleanup_task_instance`]'s return values on failure.
     pub async fn create_task_instance(
         &self,
         task_id: TaskId,
@@ -170,137 +164,6 @@ impl<
             TaskId::Commit => Self::create_commit_task_instance(jcb, execution_manager_id).await,
             TaskId::Cleanup => Self::create_cleanup_task_instance(jcb, execution_manager_id).await,
         }
-    }
-
-    async fn create_regular_task_instance(
-        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        task_index: TaskIndex,
-        execution_manager_id: ExecutionManagerId,
-    ) -> Result<ExecutionContext, CacheError> {
-        let job = jcb.job_execution_state.read_running().await?;
-        let tcb = job
-            .task_graph
-            .get_task_control_block(task_index)
-            .ok_or(InternalError::TaskIndexOutOfBound)?;
-        let task_instance_id = job
-            .task_instance_pool_connector
-            .get_next_available_task_instance_id();
-        let execution_context = tcb.register_task_instance(task_instance_id).await?;
-        let registration = TaskInstanceMetadata {
-            job_id: jcb.id,
-            task_id: TaskId::Index(task_index),
-            task_instance_id,
-            execution_manager_id,
-            soft_timeout_ddl: SystemTime::now().checked_add(Duration::from_millis(
-                execution_context.timeout_policy.soft_timeout_ms,
-            )),
-        };
-        job.task_instance_pool_connector
-            .register_task_instance(tcb.clone(), registration)
-            .await?;
-
-        // The lock is intentionally held until just before return so all TCB accesses
-        // observe a consistent state within the lock's scope.
-        drop(job);
-        Ok(execution_context)
-    }
-
-    /// Creates a task instance for the commit task and registers it in the task instance pool.
-    ///
-    /// # Returns
-    ///
-    /// The execution context for the created task instance on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::UndefinedCommitTask`] if the job has no commit task.
-    /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
-    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
-    ///   failure.
-    async fn create_commit_task_instance(
-        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        execution_manager_id: ExecutionManagerId,
-    ) -> Result<ExecutionContext, CacheError> {
-        let job = jcb.job_execution_state.read_commit_ready().await?;
-        let commit_tcb = job
-            .task_graph
-            .get_commit_task_control_block()
-            .ok_or(InternalError::UndefinedCommitTask)?;
-        let task_instance_id = job
-            .task_instance_pool_connector
-            .get_next_available_task_instance_id();
-        let (tdl_context, timeout_policy) =
-            commit_tcb.register_task_instance(task_instance_id).await?;
-        let registration = TaskInstanceMetadata {
-            job_id: jcb.id,
-            task_id: TaskId::Commit,
-            task_instance_id,
-            execution_manager_id,
-            soft_timeout_ddl: SystemTime::now()
-                .checked_add(Duration::from_millis(timeout_policy.soft_timeout_ms)),
-        };
-        job.task_instance_pool_connector
-            .register_termination_task_instance(commit_tcb.clone(), registration)
-            .await?;
-
-        drop(job);
-        Ok(ExecutionContext {
-            task_instance_id,
-            tdl_context,
-            timeout_policy,
-            inputs: Vec::new(),
-        })
-    }
-
-    /// Creates a task instance for the cleanup task and registers it in the task instance pool.
-    ///
-    /// # Returns
-    ///
-    /// The execution context for the created task instance on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::UndefinedCleanupTask`] if the job has no cleanup task.
-    /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
-    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
-    ///   failure.
-    async fn create_cleanup_task_instance(
-        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        execution_manager_id: ExecutionManagerId,
-    ) -> Result<ExecutionContext, CacheError> {
-        let job = jcb.job_execution_state.read_cleanup_ready().await?;
-        let cleanup_tcb = job
-            .task_graph
-            .get_cleanup_task_control_block()
-            .ok_or(InternalError::UndefinedCleanupTask)?;
-        let task_instance_id = job
-            .task_instance_pool_connector
-            .get_next_available_task_instance_id();
-        let (tdl_context, timeout_policy) =
-            cleanup_tcb.register_task_instance(task_instance_id).await?;
-        let registration = TaskInstanceMetadata {
-            job_id: jcb.id,
-            task_id: TaskId::Cleanup,
-            task_instance_id,
-            execution_manager_id,
-            soft_timeout_ddl: SystemTime::now()
-                .checked_add(Duration::from_millis(timeout_policy.soft_timeout_ms)),
-        };
-        job.task_instance_pool_connector
-            .register_termination_task_instance(cleanup_tcb.clone(), registration)
-            .await?;
-
-        drop(job);
-        Ok(ExecutionContext {
-            task_instance_id,
-            tdl_context,
-            timeout_policy,
-            inputs: Vec::new(),
-        })
     }
 
     /// Marks the task instance as succeeded.
@@ -599,6 +462,156 @@ impl<
             job.ready_queue_sender.send_cleanup_ready(jcb.id).await?;
         }
         Ok(job.state)
+    }
+
+    /// Creates a task instance for a regular task in the job and registers it in the task instance
+    /// pool.
+    ///
+    /// # Returns
+    ///
+    /// The execution context for the created task instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskIndexOutOfBound`] if the task index is out of range.
+    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    /// * Forwards [`SharedTaskControlBlock::register_task_instance`]'s return values on failure.
+    /// * Forwards [`TaskInstancePoolConnector::register_task_instance`]'s return values on failure.
+    async fn create_regular_task_instance(
+        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        task_index: TaskIndex,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<ExecutionContext, CacheError> {
+        let job = jcb.job_execution_state.read_running().await?;
+        let tcb = job
+            .task_graph
+            .get_task_control_block(task_index)
+            .ok_or(InternalError::TaskIndexOutOfBound)?;
+        let task_instance_id = job
+            .task_instance_pool_connector
+            .get_next_available_task_instance_id();
+        let execution_context = tcb.register_task_instance(task_instance_id).await?;
+        let registration = TaskInstanceMetadata {
+            job_id: jcb.id,
+            task_id: TaskId::Index(task_index),
+            task_instance_id,
+            execution_manager_id,
+            soft_timeout_ddl: SystemTime::now().checked_add(Duration::from_millis(
+                execution_context.timeout_policy.soft_timeout_ms,
+            )),
+        };
+        job.task_instance_pool_connector
+            .register_task_instance(tcb.clone(), registration)
+            .await?;
+
+        // The lock is intentionally held until just before return so all TCB accesses
+        // observe a consistent state within the lock's scope.
+        drop(job);
+        Ok(execution_context)
+    }
+
+    /// Creates a task instance for the commit task and registers it in the task instance pool.
+    ///
+    /// # Returns
+    ///
+    /// The execution context for the created task instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCommitTask`] if the job has no commit task.
+    /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
+    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
+    ///   failure.
+    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
+    ///   on failure.
+    async fn create_commit_task_instance(
+        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<ExecutionContext, CacheError> {
+        let job = jcb.job_execution_state.read_commit_ready().await?;
+        let commit_tcb = job
+            .task_graph
+            .get_commit_task_control_block()
+            .ok_or(InternalError::UndefinedCommitTask)?;
+        let task_instance_id = job
+            .task_instance_pool_connector
+            .get_next_available_task_instance_id();
+        let (tdl_context, timeout_policy) =
+            commit_tcb.register_task_instance(task_instance_id).await?;
+        let registration = TaskInstanceMetadata {
+            job_id: jcb.id,
+            task_id: TaskId::Commit,
+            task_instance_id,
+            execution_manager_id,
+            soft_timeout_ddl: SystemTime::now()
+                .checked_add(Duration::from_millis(timeout_policy.soft_timeout_ms)),
+        };
+        job.task_instance_pool_connector
+            .register_termination_task_instance(commit_tcb.clone(), registration)
+            .await?;
+
+        drop(job);
+        Ok(ExecutionContext {
+            task_instance_id,
+            tdl_context,
+            timeout_policy,
+            inputs: Vec::new(),
+        })
+    }
+
+    /// Creates a task instance for the cleanup task and registers it in the task instance pool.
+    ///
+    /// # Returns
+    ///
+    /// The execution context for the created task instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UndefinedCleanupTask`] if the job has no cleanup task.
+    /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`SharedTerminationTaskControlBlock::register_task_instance`]'s return values on
+    ///   failure.
+    /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
+    ///   on failure.
+    async fn create_cleanup_task_instance(
+        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<ExecutionContext, CacheError> {
+        let job = jcb.job_execution_state.read_cleanup_ready().await?;
+        let cleanup_tcb = job
+            .task_graph
+            .get_cleanup_task_control_block()
+            .ok_or(InternalError::UndefinedCleanupTask)?;
+        let task_instance_id = job
+            .task_instance_pool_connector
+            .get_next_available_task_instance_id();
+        let (tdl_context, timeout_policy) =
+            cleanup_tcb.register_task_instance(task_instance_id).await?;
+        let registration = TaskInstanceMetadata {
+            job_id: jcb.id,
+            task_id: TaskId::Cleanup,
+            task_instance_id,
+            execution_manager_id,
+            soft_timeout_ddl: SystemTime::now()
+                .checked_add(Duration::from_millis(timeout_policy.soft_timeout_ms)),
+        };
+        job.task_instance_pool_connector
+            .register_termination_task_instance(cleanup_tcb.clone(), registration)
+            .await?;
+
+        drop(job);
+        Ok(ExecutionContext {
+            task_instance_id,
+            tdl_context,
+            timeout_policy,
+            inputs: Vec::new(),
+        })
     }
 }
 
