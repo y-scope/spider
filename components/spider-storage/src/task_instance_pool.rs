@@ -178,16 +178,6 @@ impl TaskInstancePoolHandle {
     /// # Returns
     ///
     /// A [`TaskInstancePoolHandle`] connected to the newly spawned pool coroutine.
-    ///
-    /// # Backpressure
-    ///
-    /// The pool uses a bounded channel (capacity 128) between the handle and the coroutine. Because
-    /// `register_task_instance` is called while the caller holds the JCB read lock, if the
-    /// coroutine stalls (e.g., during a GC cycle or a slow liveness check), 128 pending
-    /// registrations will cause subsequent `create_task_instance` callers to block under the
-    /// read lock, potentially starving write-lock holders (`succeed_task_instance`, `cancel`).
-    /// If this becomes an issue under load, consider widening the buffer or restructuring to
-    /// avoid holding the lock during registration.
     #[must_use]
     pub fn create<
         ReadyQueueSenderType: ReadyQueueSender + 'static,
@@ -197,9 +187,10 @@ impl TaskInstancePoolHandle {
         execution_manager_liveness_store: LivenessStoreType,
         execution_manager_stale_cutoff: Duration,
         gc_interval: Duration,
+        channel_size: usize,
     ) -> Self {
         let next_task_instance_id = Arc::new(AtomicU64::new(1));
-        let (sender, receiver) = mpsc::channel(128);
+        let (sender, receiver) = mpsc::channel(channel_size);
 
         let pool = TaskInstancePool {
             ready_queue_sender,
@@ -550,6 +541,8 @@ mod tests {
 
     use super::*;
 
+    const DEFAULT_CHANNEL_SIZE: usize = 128;
+
     /// A [`ExecutionManagerLivenessStore`] that returns a preconfigured list of dead execution
     /// managers and tracks how many times `is_execution_manager_alive` was called.
     #[derive(Clone, Default)]
@@ -763,6 +756,7 @@ mod tests {
             RejectAllLivenessStore,
             Duration::from_mins(1),
             Duration::from_mins(1),
+            DEFAULT_CHANNEL_SIZE,
         );
         let tcb = build_single_task_tcb().await;
         let task_instance_id = 1;
@@ -801,6 +795,7 @@ mod tests {
             liveness_store.clone(),
             Duration::from_mins(1),
             Duration::from_mins(1),
+            DEFAULT_CHANNEL_SIZE,
         );
         let execution_manager_id = ExecutionManagerId::new();
 
