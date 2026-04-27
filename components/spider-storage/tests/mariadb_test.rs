@@ -731,43 +731,29 @@ async fn test_delete_expired_terminated_jobs_no_match() {
     assert_eq!(state, JobState::Failed);
 }
 
-/// Registers a new execution manager with a random ID and `127.0.0.1` as the
-/// IP address, then returns the assigned ID.
+/// Registers a new execution manager with `127.0.0.1` as the IP address,
+/// then returns the assigned ID.
 async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManagerId {
-    let em_id = ExecutionManagerId::new();
     storage
-        .register_execution_manager(em_id, IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
         .await
-        .expect("register_execution_manager should succeed");
-    em_id
+        .expect("register_execution_manager should succeed")
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn test_register_execution_manager() {
     let storage = create_mariadb_connector().await;
-    let em_id = register_test_em(&storage).await;
+    let em_id = storage
+        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .await
+        .expect("register_execution_manager should succeed");
 
     let alive = storage
         .is_execution_manager_alive(em_id)
         .await
         .expect("is_execution_manager_alive should succeed");
     assert!(alive, "newly registered EM should be alive");
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_register_execution_manager_duplicate() {
-    let storage = create_mariadb_connector().await;
-    let em_id = register_test_em(&storage).await;
-
-    let result = storage
-        .register_execution_manager(em_id, IpAddr::V4(Ipv4Addr::LOCALHOST))
-        .await;
-    assert!(
-        matches!(result, Err(DbError::ExecutionManagerAlreadyExists(_))),
-        "expected ExecutionManagerAlreadyExists, got {result:?}"
-    );
 }
 
 #[tokio::test]

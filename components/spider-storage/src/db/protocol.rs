@@ -326,20 +326,21 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `execution_manager_id` - The ID of the execution manager to register.
     /// * `ip_address` - The execution manager IP address.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered execution manager on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::ExecutionManagerAlreadyExists`] if the execution manager ID already exists.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn register_execution_manager(
         &self,
-        execution_manager_id: ExecutionManagerId,
         ip_address: IpAddr,
-    ) -> Result<(), DbError>;
+    ) -> Result<ExecutionManagerId, DbError>;
 
     /// Updates the heartbeat of an alive execution manager.
     ///

@@ -447,29 +447,18 @@ enum ExecutionManagerState {
 impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     async fn register_execution_manager(
         &self,
-        execution_manager_id: ExecutionManagerId,
         ip_address: IpAddr,
-    ) -> Result<(), DbError> {
+    ) -> Result<ExecutionManagerId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`id`, `ip_address`) VALUES (?, ?);",
+            "INSERT INTO `{table}` (`ip_address`) VALUES (?) RETURNING CAST(`id` AS BINARY(16));",
             table = EXECUTION_MANAGERS_TABLE_NAME,
         );
 
-        sqlx::query(INSERT_QUERY)
-            .bind(execution_manager_id)
+        sqlx::query_scalar(INSERT_QUERY)
             .bind(ip_address.to_string())
-            .execute(&self.pool)
+            .fetch_one(&self.pool)
             .await
-            .map(|_| ())
-            .map_err(|e| match e {
-                sqlx::Error::Database(e)
-                    if e.try_downcast_ref::<MySqlDatabaseError>()
-                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
-                {
-                    DbError::ExecutionManagerAlreadyExists(execution_manager_id)
-                }
-                e => e.into(),
-            })
+            .map_err(Into::into)
     }
 
     async fn update_execution_manager_heartbeat(
@@ -555,9 +544,8 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
                 .collect::<Vec<_>>()
                 .join(",");
             let update_query = format!(
-                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET \
-                 `state` = '{dead_state}', `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN \
-                 ({placeholders})",
+                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET `state` = '{dead_state}', \
+                 `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN ({placeholders})",
                 dead_state = ExecutionManagerState::Dead.as_str(),
             );
             let mut query = sqlx::query(&update_query);
@@ -635,7 +623,7 @@ const fn execution_managers_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
-  `id` UUID NOT NULL,
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
   `ip_address` VARCHAR(45) NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `last_heartbeat_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

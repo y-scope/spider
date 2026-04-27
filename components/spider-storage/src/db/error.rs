@@ -22,9 +22,6 @@ pub enum DbError {
     #[error("execution manager `{0:?}` is illegal")]
     IllegalExecutionManagerId(ExecutionManagerId),
 
-    #[error("execution manager `{0:?}` already exists")]
-    ExecutionManagerAlreadyExists(ExecutionManagerId),
-
     #[error("execution manager `{0:?}` is already dead")]
     ExecutionManagerAlreadyDead(ExecutionManagerId),
 
