@@ -341,7 +341,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
         ip_address: IpAddr,
     ) -> Result<(), DbError>;
 
-    /// Updates the heartbeat timestamp of an alive execution manager.
+    /// Updates the heartbeat of an alive execution manager.
     ///
     /// # Parameters
     ///
@@ -381,8 +381,8 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
 
     /// Marks stale execution managers dead and returns their IDs.
     ///
-    /// This operation is atomic: once an execution manager is returned by this method, it will not
-    /// be returned again in subsequent calls.
+    /// This operation is atomic: once an execution manager is marked dead and returned by a call of
+    /// this method, it will not be returned again in subsequent calls.
     ///
     /// # Parameters
     ///
