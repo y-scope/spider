@@ -476,38 +476,36 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         &self,
         execution_manager_id: ExecutionManagerId,
     ) -> Result<(), DbError> {
+        const SELECT_STATE_FOR_UPDATE_QUERY: &str = formatcp!(
+            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
         const UPDATE_QUERY: &str = formatcp!(
             "UPDATE `{table}` SET `last_heartbeat_at` = CURRENT_TIMESTAMP WHERE `id` = ? AND \
              `state` = '{alive_state}';",
             table = EXECUTION_MANAGERS_TABLE_NAME,
             alive_state = ExecutionManagerState::Alive.as_str(),
         );
-        const SELECT_STATE_QUERY: &str = formatcp!(
-            "SELECT `state` FROM `{table}` WHERE `id` = ?;",
-            table = EXECUTION_MANAGERS_TABLE_NAME,
-        );
 
-        let rows_affected = sqlx::query(UPDATE_QUERY)
-            .bind(execution_manager_id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
-        if rows_affected != 0 {
-            return Ok(());
-        }
+        let mut tx = self.pool.begin().await?;
 
-        let state = sqlx::query_scalar::<_, ExecutionManagerState>(SELECT_STATE_QUERY)
+        let state = sqlx::query_scalar::<_, ExecutionManagerState>(SELECT_STATE_FOR_UPDATE_QUERY)
             .bind(execution_manager_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or(DbError::ExecutionManagerNotFound(execution_manager_id))?;
 
-        match state {
-            ExecutionManagerState::Alive => Ok(()),
-            ExecutionManagerState::Dead => {
-                Err(DbError::ExecutionManagerAlreadyDead(execution_manager_id))
-            }
+        if state == ExecutionManagerState::Dead {
+            return Err(DbError::ExecutionManagerAlreadyDead(execution_manager_id));
         }
+
+        sqlx::query(UPDATE_QUERY)
+            .bind(execution_manager_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn is_execution_manager_alive(
