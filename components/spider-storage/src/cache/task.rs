@@ -358,6 +358,14 @@ impl SharedTaskControlBlock {
         tcb.base.cancel_non_terminal();
     }
 
+    /// # Returns
+    ///
+    /// Whether the task is in a terminal state.
+    pub async fn is_terminal(&self) -> bool {
+        let tcb = self.inner.lock().await;
+        tcb.base.state.is_terminal()
+    }
+
     /// Private factory function for creating a new task control block from a task definition.
     ///
     /// The upper-level caller needs to maintain the TCB buffer and the dataflow deps buffer to
@@ -559,6 +567,14 @@ impl SharedTerminationTaskControlBlock {
     pub async fn cancel_non_terminal(&self) {
         let mut tcb = self.inner.lock().await;
         tcb.base.cancel_non_terminal();
+    }
+
+    /// # Returns
+    ///
+    /// Whether the task is in a terminal state.
+    pub async fn is_terminal(&self) -> bool {
+        let tcb = self.inner.lock().await;
+        tcb.base.state.is_terminal()
     }
 
     /// Private factory function for creating a new termination task control block from a task

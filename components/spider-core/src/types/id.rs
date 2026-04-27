@@ -109,8 +109,8 @@ pub enum DataIdMarker {}
 pub type DataId = Id<DataIdMarker>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum WorkerIdMarker {}
-pub type WorkerId = Id<WorkerIdMarker>;
+pub enum ExecutionManagerIdMarker {}
+pub type ExecutionManagerId = Id<ExecutionManagerIdMarker>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExecutionManagerIdMarker {}
