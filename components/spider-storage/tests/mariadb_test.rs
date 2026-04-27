@@ -12,6 +12,7 @@ use spider_storage::db::{
     ExternalJobOrchestration,
     InternalJobOrchestration,
     ResourceGroupManagement,
+    SessionManagement,
 };
 
 use super::{
@@ -729,8 +730,6 @@ async fn test_delete_expired_terminated_jobs_no_match() {
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn test_session_id_returned_after_connect() {
-    use spider_storage::db::SessionManagement;
-
     let storage = create_mariadb_connector().await;
     let session_id = storage.session_id();
     assert!(
@@ -743,8 +742,6 @@ async fn test_session_id_returned_after_connect() {
 #[ignore = "requires MariaDB"]
 #[serial_test::serial]
 async fn test_session_id_bumps_on_reconnect() {
-    use spider_storage::db::SessionManagement;
-
     let storage1 = create_mariadb_connector().await;
     let session_id1 = storage1.session_id();
 
