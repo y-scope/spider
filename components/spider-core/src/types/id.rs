@@ -113,10 +113,6 @@ pub enum ExecutionManagerIdMarker {}
 pub type ExecutionManagerId = Id<ExecutionManagerIdMarker>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ExecutionManagerIdMarker {}
-pub type ExecutionManagerId = Id<ExecutionManagerIdMarker>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 
