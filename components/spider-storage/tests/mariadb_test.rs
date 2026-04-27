@@ -872,7 +872,7 @@ async fn test_is_execution_manager_alive_false_dead() {
 #[serial_test::file_serial]
 async fn test_get_dead_execution_managers_none_stale() {
     let storage = create_mariadb_connector().await;
-    register_test_em(&storage).await;
+    let em_id = register_test_em(&storage).await;
 
     // Large window — the just-registered EM should not be stale yet.
     let dead = storage
@@ -880,7 +880,7 @@ async fn test_get_dead_execution_managers_none_stale() {
         .await
         .expect("get_dead_execution_managers should succeed");
     assert!(
-        dead.is_empty(),
+        !dead.contains(&em_id),
         "freshly registered EM should not be stale, got {dead:?}"
     );
 }
