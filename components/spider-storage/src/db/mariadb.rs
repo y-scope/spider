@@ -596,7 +596,7 @@ async fn transition_job_state(
 ///
 /// # Errors
 ///
-/// Forwards [`sqlx::query_scalar::QueryScalar::fetch_one`]'s return values on failure.
+/// Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
 async fn bump_session_id(pool: &MySqlPool) -> Result<u64, DbError> {
     const QUERY: &str = formatcp!(
         "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
