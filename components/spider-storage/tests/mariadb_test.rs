@@ -880,7 +880,7 @@ async fn test_get_dead_execution_managers_none_stale() {
 
     // Large window — the just-registered EM should not be stale yet.
     let dead = storage
-        .get_dead_execution_managers(Duration::from_mins(1))
+        .get_dead_execution_managers(Duration::from_secs(60))
         .await
         .expect("get_dead_execution_managers should succeed");
     assert!(
