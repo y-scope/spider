@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::Duration};
+use std::net::IpAddr;
 
 use async_trait::async_trait;
 use const_format::formatcp;
@@ -535,7 +535,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
 
     async fn get_dead_execution_managers(
         &self,
-        stale_after: Duration,
+        stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError> {
         const UPDATE_BATCH_SIZE: usize = 1000;
 
@@ -548,7 +548,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
 
         let mut tx = self.pool.begin().await?;
         let execution_manager_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_QUERY)
-            .bind(stale_after.as_secs())
+            .bind(stale_after_sec)
             .fetch_all(&mut *tx)
             .await?;
 

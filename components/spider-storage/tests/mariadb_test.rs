@@ -809,7 +809,7 @@ async fn test_update_execution_manager_heartbeat_already_dead() {
     // Wait for the heartbeat to become stale, then mark the EM dead.
     tokio::time::sleep(Duration::from_secs(2)).await;
     let dead = storage
-        .get_dead_execution_managers(Duration::from_secs(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("get_dead_execution_managers should succeed");
     assert!(
@@ -860,7 +860,7 @@ async fn test_is_execution_manager_alive_false_dead() {
     // Mark the EM dead.
     tokio::time::sleep(Duration::from_secs(2)).await;
     storage
-        .get_dead_execution_managers(Duration::from_secs(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("get_dead_execution_managers should succeed");
 
@@ -880,7 +880,7 @@ async fn test_get_dead_execution_managers_none_stale() {
 
     // Large window — the just-registered EM should not be stale yet.
     let dead = storage
-        .get_dead_execution_managers(Duration::from_mins(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("get_dead_execution_managers should succeed");
     assert!(
@@ -899,7 +899,7 @@ async fn test_get_dead_execution_managers_marks_dead() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let dead = storage
-        .get_dead_execution_managers(Duration::from_secs(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("get_dead_execution_managers should succeed");
     assert!(
@@ -924,7 +924,7 @@ async fn test_get_dead_execution_managers_atomic() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let dead_first = storage
-        .get_dead_execution_managers(Duration::from_secs(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("first get_dead_execution_managers should succeed");
     assert!(
@@ -934,7 +934,7 @@ async fn test_get_dead_execution_managers_atomic() {
 
     // Second call should not return the same EM again.
     let dead_second = storage
-        .get_dead_execution_managers(Duration::from_secs(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("second get_dead_execution_managers should succeed");
     assert!(
@@ -956,7 +956,7 @@ async fn test_get_dead_execution_managers_multiple() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let dead = storage
-        .get_dead_execution_managers(Duration::from_secs(1))
+        .get_dead_execution_managers(1)
         .await
         .expect("get_dead_execution_managers should succeed");
 

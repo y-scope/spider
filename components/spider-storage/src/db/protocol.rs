@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::Duration};
+use std::net::IpAddr;
 
 use async_trait::async_trait;
 use spider_core::{
@@ -386,7 +386,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `stale_after` - The duration after the last heartbeat which makes an execution manager
+    /// * `stale_after_sec` - The seconds after the last heartbeat which makes an execution manager
     ///   stale.
     ///
     /// # Returns
@@ -400,6 +400,6 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_dead_execution_managers(
         &self,
-        stale_after: Duration,
+        stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError>;
 }
