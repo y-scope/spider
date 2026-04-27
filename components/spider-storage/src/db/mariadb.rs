@@ -48,7 +48,7 @@ impl MariaDbStorageConnector {
     ///
     /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
-    /// * Forwards [`bump_session_id`]'s return value on failure.
+    /// * Forwards [`bump_session_id`]'s return values on failure.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
             .host(&config.host)
