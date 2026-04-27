@@ -36,6 +36,18 @@ fn single_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
     build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, false)
 }
 
+/// Registers a new execution manager with `127.0.0.1` as the IP address.
+///
+/// # Returns
+///
+/// The ID of the registered execution manager.
+async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManagerId {
+    storage
+        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .await
+        .expect("register_execution_manager should succeed")
+}
+
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn test_register_job() {
@@ -729,15 +741,6 @@ async fn test_delete_expired_terminated_jobs_no_match() {
         .await
         .expect("get_state should succeed");
     assert_eq!(state, JobState::Failed);
-}
-
-/// Registers a new execution manager with `127.0.0.1` as the IP address,
-/// then returns the assigned ID.
-async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManagerId {
-    storage
-        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
-        .await
-        .expect("register_execution_manager should succeed")
 }
 
 #[tokio::test]
