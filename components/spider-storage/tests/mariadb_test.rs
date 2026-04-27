@@ -790,8 +790,8 @@ async fn test_update_execution_manager_heartbeat_not_found() {
 
     let result = storage.update_execution_manager_heartbeat(fake_em_id).await;
     assert!(
-        matches!(result, Err(DbError::ExecutionManagerNotFound(_))),
-        "expected ExecutionManagerNotFound, got {result:?}"
+        matches!(result, Err(DbError::IllegalExecutionManagerId(_))),
+        "expected IllegalExecutionManagerId, got {result:?}"
     );
 }
 
@@ -839,11 +839,11 @@ async fn test_is_execution_manager_alive_false_not_found() {
     let storage = create_mariadb_connector().await;
     let fake_em_id = ExecutionManagerId::new();
 
-    let alive = storage
-        .is_execution_manager_alive(fake_em_id)
-        .await
-        .expect("is_execution_manager_alive should succeed");
-    assert!(!alive, "nonexistent EM should not be alive");
+    let result = storage.is_execution_manager_alive(fake_em_id).await;
+    assert!(
+        matches!(result, Err(DbError::IllegalExecutionManagerId(id)) if id == fake_em_id),
+        "nonexistent EM should return IllegalExecutionManagerId, got {result:?}"
+    );
 }
 
 #[tokio::test]

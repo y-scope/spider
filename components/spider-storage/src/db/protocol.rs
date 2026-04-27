@@ -351,7 +351,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::ExecutionManagerNotFound`] if the execution manager does not exist.
+    /// * [`DbError::IllegalExecutionManagerId`] if the execution manager ID is illegal.
     /// * [`DbError::ExecutionManagerAlreadyDead`] if the execution manager is dead.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn update_execution_manager_heartbeat(
@@ -373,6 +373,7 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::IllegalExecutionManagerId`] if the execution manager ID is illegal.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn is_execution_manager_alive(
         &self,

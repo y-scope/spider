@@ -493,7 +493,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
             .bind(execution_manager_id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or(DbError::ExecutionManagerNotFound(execution_manager_id))?;
+            .ok_or(DbError::IllegalExecutionManagerId(execution_manager_id))?;
 
         if state == ExecutionManagerState::Dead {
             return Err(DbError::ExecutionManagerAlreadyDead(execution_manager_id));
@@ -522,7 +522,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
             .fetch_optional(&self.pool)
             .await?
         else {
-            return Ok(false);
+            return Err(DbError::IllegalExecutionManagerId(execution_manager_id));
         };
 
         match state {
