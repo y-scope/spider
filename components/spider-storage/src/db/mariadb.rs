@@ -555,10 +555,12 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
                 .collect::<Vec<_>>()
                 .join(",");
             let update_query = format!(
-                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET `state` = ? WHERE `id` IN \
-                 ({placeholders})"
+                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET \
+                 `state` = '{dead_state}', `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN \
+                 ({placeholders})",
+                dead_state = ExecutionManagerState::Dead.as_str(),
             );
-            let mut query = sqlx::query(&update_query).bind(ExecutionManagerState::Dead);
+            let mut query = sqlx::query(&update_query);
             for execution_manager_id in execution_manager_id_batch {
                 query = query.bind(execution_manager_id);
             }
@@ -638,7 +640,7 @@ CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `last_heartbeat_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `death_confirmed_at` TIMESTAMP NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   INDEX `execution_manager_liveness` (`state`, `last_heartbeat_at`)
 );",
