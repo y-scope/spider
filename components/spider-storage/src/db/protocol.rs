@@ -322,7 +322,7 @@ pub trait ResourceGroupManagement {
 /// Defines the storage interface for session management.
 ///
 /// A session ID is a monotonically increasing value that bumps each time the storage layer
-/// reconnects. Callers can use it to detect and reject requests from before a restart.
+/// reconnects. Callers can use it to detect and reject stale requests from previous sessions.
 pub trait SessionManagement {
     /// # Returns
     ///
