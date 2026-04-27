@@ -731,10 +731,6 @@ async fn test_delete_expired_terminated_jobs_no_match() {
     assert_eq!(state, JobState::Failed);
 }
 
-// ---------------------------------------------------------------------------
-// Execution manager liveness tests
-// ---------------------------------------------------------------------------
-
 /// Registers a new execution manager with a random ID and `127.0.0.1` as the
 /// IP address, then returns the assigned ID.
 async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManagerId {
