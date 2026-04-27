@@ -48,8 +48,13 @@ impl MariaDbStorageConnector {
     ///
     /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
-    /// * Forwards [`bump_session_id`]'s return values on failure.
+    /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
+        const BUMP_SESSION_ID_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
+            table = SESSIONS_TABLE_NAME,
+        );
+
         let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
             .host(&config.host)
             .port(config.port)
@@ -73,7 +78,9 @@ impl MariaDbStorageConnector {
             .execute(&pool)
             .await?;
 
-        let session_id = bump_session_id(&pool).await?;
+        let session_id = sqlx::query_scalar::<_, SessionId>(BUMP_SESSION_ID_QUERY)
+            .fetch_one(&pool)
+            .await?;
 
         Ok(Self { pool, session_id })
     }
@@ -583,28 +590,4 @@ async fn transition_job_state(
     .await?;
 
     Ok(())
-}
-
-/// Bumps the session ID by inserting a new row into the [`SESSIONS_TABLE_NAME`] table.
-///
-/// The table uses `AUTO_INCREMENT` on `session_id`, so each `INSERT` generates the next
-/// monotonically increasing session ID.
-///
-/// # Returns
-///
-/// The new session ID on success.
-///
-/// # Errors
-///
-/// Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
-async fn bump_session_id(pool: &MySqlPool) -> Result<SessionId, DbError> {
-    const QUERY: &str = formatcp!(
-        "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
-        table = SESSIONS_TABLE_NAME,
-    );
-
-    let session_id = sqlx::query_scalar::<_, SessionId>(QUERY)
-        .fetch_one(pool)
-        .await?;
-    Ok(session_id)
 }
