@@ -3,7 +3,7 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{JobId, ResourceGroupId},
+        id::{JobId, ResourceGroupId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -327,5 +327,5 @@ pub trait SessionManagement {
     /// # Returns
     ///
     /// The current session ID.
-    fn session_id(&self) -> u64;
+    fn session_id(&self) -> SessionId;
 }

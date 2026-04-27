@@ -5,7 +5,7 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{JobId, ResourceGroupId},
+        id::{JobId, ResourceGroupId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -28,7 +28,7 @@ use crate::{
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
     pool: MySqlPool,
-    session_id: u64,
+    session_id: SessionId,
 }
 
 impl MariaDbStorageConnector {
@@ -437,7 +437,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 impl DbStorage for MariaDbStorageConnector {}
 
 impl SessionManagement for MariaDbStorageConnector {
-    fn session_id(&self) -> u64 {
+    fn session_id(&self) -> SessionId {
         self.session_id
     }
 }
@@ -597,12 +597,14 @@ async fn transition_job_state(
 /// # Errors
 ///
 /// Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
-async fn bump_session_id(pool: &MySqlPool) -> Result<u64, DbError> {
+async fn bump_session_id(pool: &MySqlPool) -> Result<SessionId, DbError> {
     const QUERY: &str = formatcp!(
         "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
         table = SESSIONS_TABLE_NAME,
     );
 
-    let session_id = sqlx::query_scalar::<_, u64>(QUERY).fetch_one(pool).await?;
+    let session_id = sqlx::query_scalar::<_, SessionId>(QUERY)
+        .fetch_one(pool)
+        .await?;
     Ok(session_id)
 }
