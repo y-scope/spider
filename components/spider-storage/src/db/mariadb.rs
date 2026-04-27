@@ -33,12 +33,6 @@ pub struct MariaDbStorageConnector {
     pool: MySqlPool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, MySqlEnum)]
-enum ExecutionManagerState {
-    Alive,
-    Dead,
-}
-
 impl MariaDbStorageConnector {
     /// Connects to database and initializes tables.
     ///
@@ -443,6 +437,12 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, MySqlEnum)]
+enum ExecutionManagerState {
+    Alive,
+    Dead,
+}
+
 #[async_trait]
 impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     async fn register_execution_manager(
@@ -510,14 +510,17 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         }
     }
 
-    async fn is_execution_manager_alive(&self, id: ExecutionManagerId) -> Result<bool, DbError> {
+    async fn is_execution_manager_alive(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<bool, DbError> {
         const QUERY: &str = formatcp!(
             "SELECT `state` FROM `{table}` WHERE `id` = ?;",
             table = EXECUTION_MANAGERS_TABLE_NAME,
         );
 
         let Some(state) = sqlx::query_scalar::<_, ExecutionManagerState>(QUERY)
-            .bind(id)
+            .bind(execution_manager_id)
             .fetch_optional(&self.pool)
             .await?
         else {
