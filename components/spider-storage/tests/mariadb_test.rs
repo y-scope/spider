@@ -460,7 +460,7 @@ async fn test_fail_terminal_state() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-#[serial_test::serial]
+#[serial_test::file_serial]
 async fn test_delete_expired_terminated_jobs() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
