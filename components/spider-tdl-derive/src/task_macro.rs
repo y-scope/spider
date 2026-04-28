@@ -56,9 +56,10 @@ impl Parse for TaskAttr {
 ///   a private assertion method whose signature requires the type to resolve to
 ///   [`spider_tdl::TaskContext`], so any mismatch (including aliases that point at an unrelated
 ///   type) surfaces as a type-checker error at compile time.
-/// * The error return type is *not* validated syntactically here; the generated code assumes the
-///   function body to return [`spider_tdl::TdlError`] on Err path, so any mismatch implementations
-///   will trigger a type error at compile time.
+/// * The error return type is *not* validated syntactically here; [`build_task_body_wrapper`]
+///   syntheses the wrapper with `Result<_, ::spider_tdl::TdlError>` as its return type, so any
+///   user-declared `Err` type that does not resolve to `TdlError` produces a type-checker error at
+///   compile time.
 ///
 /// # Returns
 ///
@@ -76,8 +77,8 @@ impl Parse for TaskAttr {
 ///
 /// Panics if:
 ///
-/// * The first parameter's type is required but the function has no parameter, which is unreachable
-///   at runtime.
+/// * The first parameter's type is required but the function has no parameter. This is not
+///   reachable at runtime.
 pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
     validate_no_self(func)?;
     validate_has_parameters(func)?;
@@ -108,13 +109,13 @@ pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
             quote! { #pat: #ty }
         })
         .collect();
-    let param_field_names: Vec<&Box<Pat>> = task_params
+    let param_field_names: Vec<&Pat> = task_params
         .iter()
         .map(|arg| {
             let FnArg::Typed(pat_type) = arg else {
                 unreachable!("`self` parameters are rejected by validation");
             };
-            &pat_type.pat
+            pat_type.pat.as_ref()
         })
         .collect();
     let execute_call = if param_field_names.is_empty() {
@@ -196,15 +197,15 @@ pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
 /// The token stream of the built private method.
 fn build_task_body_wrapper(
     task_body_wrapper_name: &syn::Ident,
-    orig: &ItemFn,
+    func: &ItemFn,
     return_type_tokens: &TokenStream,
     needs_return_wrapping: bool,
 ) -> TokenStream {
-    let original_params = &orig.sig.inputs;
-    let original_body = &orig.block;
+    let original_params = &func.sig.inputs;
+    let original_body = &func.block;
 
     if needs_return_wrapping {
-        let original_output = &orig.sig.output;
+        let original_output = &func.sig.output;
         let ReturnType::Type(_, original_return_type) = original_output else {
             unreachable!("validated that function has a return type");
         };
@@ -273,7 +274,7 @@ fn validate_has_parameters(func: &ItemFn) -> syn::Result<()> {
 ///
 /// # Returns
 ///
-/// A tuple on success, contaings:
+/// A tuple on success, containing:
 ///
 /// * The Ok type in the original result.
 /// * A boolean indicating whether the Ok type is a bare type.
@@ -286,7 +287,9 @@ fn validate_has_parameters(func: &ItemFn) -> syn::Result<()> {
 ///   * The function has no return type.
 ///   * The return type is not a path expression (e.g., a tuple or reference).
 ///   * The return type's last path segment is not `Result`.
-///   * `Result` is missing its generic argument list, or its first generic argument is not a type.
+///   * `Result` is missing its generic argument list.
+///   * `Result`'s generic argument list size is not 2 (Ok and Err).
+///   * `Result`'s first generic argument is not a type.
 fn extract_return_type(output: &ReturnType) -> syn::Result<(TokenStream, bool)> {
     const INVALID_RETURN_TYPE_ERROR_MSG: &str =
         "task functions must return `Result<(T, ...), TdlError>`";
@@ -405,7 +408,7 @@ mod tests {
                 fn __add(
                     ctx: TaskContext,
                     a: int32,
-                    b: int32
+                    b: int32,
                 ) ->::std::result::Result<(int32, int32), ::spider_tdl::TdlError> {
                     Ok((a + b, a - b))
                 }
@@ -437,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn expand_task_empty_params() {
+    fn expand_task_empty_params_and_name_alias() {
         let actual = expand_to_string(
             r#"name = "my_ns::my_task""#,
             r"

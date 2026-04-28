@@ -20,10 +20,8 @@ use spider_tdl::{
     wire::{TaskInputsSerializer, TaskOutputsSerializer},
 };
 
-// Verify that a type alias for [`TaskContext`] is accepted as the first parameter. The macro
-// validates this via a generated type-checked assertion method rather than a syntactic identifier
-// match, so this would fail to compile if the alias isn't honoured.
 type AliasedContext = TaskContext;
+type AliasedTdlError = TdlError;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 struct Point {
@@ -65,7 +63,7 @@ fn aliased_ctx(_ctx: AliasedContext, x: int32) -> Result<(int32,), TdlError> {
 }
 
 #[task]
-fn aliased_error(_ctx: TaskContext, x: int32) -> Result<(int32,), TdlError> {
+fn aliased_error(_ctx: TaskContext, x: int32) -> Result<(int32,), AliasedTdlError> {
     Ok((x,))
 }
 
@@ -94,7 +92,7 @@ fn make_encoded_ctx() -> Vec<u8> {
 ///
 /// # Type Parameters
 ///
-/// * `T` - The type of the value to append.
+/// * `Val` - The type of the value to append.
 ///
 /// # Errors
 ///
@@ -102,7 +100,7 @@ fn make_encoded_ctx() -> Vec<u8> {
 ///
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
 /// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
-fn append_value<T: Serialize>(inputs: &mut TaskInputsSerializer, value: &T) -> anyhow::Result<()> {
+fn append_value<Val: Serialize>(inputs: &mut TaskInputsSerializer, value: &Val) -> anyhow::Result<()> {
     inputs.append(TaskInput::ValuePayload(rmp_serde::to_vec(value)?))?;
     Ok(())
 }
@@ -111,7 +109,7 @@ fn append_value<T: Serialize>(inputs: &mut TaskInputsSerializer, value: &T) -> a
 ///
 /// # Type Parameters
 ///
-/// * `T` - The type to deserialize the indexed payload into.
+/// * `Val` - The type to deserialize the indexed payload into.
 ///
 /// # Returns
 ///
@@ -127,9 +125,9 @@ fn append_value<T: Serialize>(inputs: &mut TaskInputsSerializer, value: &T) -> a
 /// # Panics
 ///
 /// Panics if `index` is out of bounds for the decoded output payloads.
-fn decode_outputs<T: for<'de> Deserialize<'de>>(bytes: &[u8], index: usize) -> anyhow::Result<T> {
+fn decode_outputs<Val: for<'de> Deserialize<'de>>(bytes: &[u8], index: usize) -> anyhow::Result<Val> {
     let outputs = TaskOutputsSerializer::deserialize(bytes)?;
-    Ok(rmp_serde::from_slice(&outputs.get(index).expect("invalid index"))?)
+    Ok(rmp_serde::from_slice(&outputs.get(index).expect("index out of bound"))?)
 }
 
 #[test]
