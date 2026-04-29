@@ -27,6 +27,9 @@ use super::{
 /// Input payload size in bytes for the single-task graph used by DB-layer tests.
 const TEST_INPUT_PAYLOAD_SIZE: usize = 128;
 
+/// Number of execution managers to register in multi-EM tests.
+const TEST_NUM_EMS: usize = 3;
+
 /// Builds a task graph with a single task for DB-layer tests.
 ///
 /// # Returns
@@ -811,7 +814,7 @@ async fn test_update_execution_manager_heartbeat_already_dead() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_is_execution_manager_alive_true() {
+async fn test_is_execution_manager_alive_em_alive() {
     let storage = create_mariadb_connector().await;
     let em_id = register_test_em(&storage).await;
 
@@ -824,7 +827,7 @@ async fn test_is_execution_manager_alive_true() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_is_execution_manager_alive_false_not_found() {
+async fn test_is_execution_manager_alive_em_not_found() {
     let storage = create_mariadb_connector().await;
     let fake_em_id = ExecutionManagerId::new();
 
@@ -838,7 +841,7 @@ async fn test_is_execution_manager_alive_false_not_found() {
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
-async fn test_is_execution_manager_alive_false_dead() {
+async fn test_is_execution_manager_alive_em_dead() {
     let storage = create_mariadb_connector().await;
     let em_id = register_test_em(&storage).await;
 
@@ -934,7 +937,7 @@ async fn test_get_dead_execution_managers_atomic() {
 async fn test_get_dead_execution_managers_multiple() {
     let storage = create_mariadb_connector().await;
     let mut em_ids = Vec::with_capacity(3);
-    for _ in 0..3 {
+    for _ in 0..TEST_NUM_EMS {
         em_ids.push(register_test_em(&storage).await);
     }
 
@@ -946,18 +949,14 @@ async fn test_get_dead_execution_managers_multiple() {
         .expect("get_dead_execution_managers should succeed");
 
     for em_id in &em_ids {
-        assert!(
-            dead.contains(em_id),
-            "expected em_id {em_id:?} in dead list, got {dead:?}"
-        );
-    }
-
-    // Verify all are now dead.
-    for em_id in &em_ids {
         let alive = storage
             .is_execution_manager_alive(*em_id)
             .await
             .expect("is_execution_manager_alive should succeed");
         assert!(!alive, "EM {em_id:?} should be dead");
+        assert!(
+            dead.contains(em_id),
+            "expected em_id {em_id:?} in dead list, got {dead:?}"
+        );
     }
 }
