@@ -18,9 +18,8 @@ use task_macro::TaskAttr;
 /// * Accept `spider_tdl::TaskContext` as its first parameter. Type aliases and fully qualified
 ///   paths are allowed. This requirement is enforced at compile time via a generated assertion, so
 ///   any type that does not resolve to `spider_tdl::TaskContext` will produce a type error.
-/// * Return `Result<(T1, T2, ...), spider_tdl::TdlError>`. A return type of
-///   `Result<T, spider_tdl::TdlError>` is automatically promoted to
-///   `Result<(T,), spider_tdl::TdlError>`.
+/// * Return `Result<(T1, T2, ...), spider_tdl::TdlError>`. A return type of `Result<T,
+///   spider_tdl::TdlError>` is automatically promoted to `Result<(T,), spider_tdl::TdlError>`.
 ///
 /// # Arguments
 ///

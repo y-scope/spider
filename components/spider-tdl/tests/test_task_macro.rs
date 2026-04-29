@@ -21,7 +21,7 @@ use spider_tdl::{
 };
 
 type AliasedContext = TaskContext;
-type AliasedTdlError = TdlError;
+type _AliasedTdlError = TdlError;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 struct Point {
@@ -63,7 +63,7 @@ fn aliased_ctx(_ctx: AliasedContext, x: int32) -> Result<(int32,), TdlError> {
 }
 
 #[task]
-fn aliased_error(_ctx: TaskContext, x: int32) -> Result<(int32,), AliasedTdlError> {
+fn aliased_error(_ctx: TaskContext, x: int32) -> Result<(int32,), _AliasedTdlError> {
     Ok((x,))
 }
 
@@ -100,7 +100,10 @@ fn make_encoded_ctx() -> Vec<u8> {
 ///
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
 /// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
-fn append_value<Val: Serialize>(inputs: &mut TaskInputsSerializer, value: &Val) -> anyhow::Result<()> {
+fn append_value<Val: Serialize>(
+    inputs: &mut TaskInputsSerializer,
+    value: &Val,
+) -> anyhow::Result<()> {
     inputs.append(TaskInput::ValuePayload(rmp_serde::to_vec(value)?))?;
     Ok(())
 }
@@ -125,9 +128,14 @@ fn append_value<Val: Serialize>(inputs: &mut TaskInputsSerializer, value: &Val) 
 /// # Panics
 ///
 /// Panics if `index` is out of bounds for the decoded output payloads.
-fn decode_outputs<Val: for<'de> Deserialize<'de>>(bytes: &[u8], index: usize) -> anyhow::Result<Val> {
+fn decode_outputs<Val: for<'de> Deserialize<'de>>(
+    bytes: &[u8],
+    index: usize,
+) -> anyhow::Result<Val> {
     let outputs = TaskOutputsSerializer::deserialize(bytes)?;
-    Ok(rmp_serde::from_slice(&outputs.get(index).expect("index out of bound"))?)
+    Ok(rmp_serde::from_slice(
+        outputs.get(index).expect("index out of bound"),
+    )?)
 }
 
 #[test]
