@@ -441,13 +441,13 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     }
 }
 
-impl DbStorage for MariaDbStorageConnector {}
-
 impl SessionManagement for MariaDbStorageConnector {
     fn session_id(&self) -> SessionId {
         self.session_id
     }
 }
+
+impl DbStorage for MariaDbStorageConnector {}
 
 /// `MySQL` error number for foreign key constraint violation.
 const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
