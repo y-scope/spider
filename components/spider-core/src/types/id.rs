@@ -116,6 +116,8 @@ pub type ExecutionManagerId = Id<ExecutionManagerIdMarker>;
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 
+pub type SessionId = u64;
+
 pub type TaskInstanceId = u64;
 
 /// Represents a signed ID.

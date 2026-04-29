@@ -10,4 +10,5 @@ pub use protocol::{
     ExternalJobOrchestration,
     InternalJobOrchestration,
     ResourceGroupManagement,
+    SessionManagement,
 };

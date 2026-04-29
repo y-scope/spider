@@ -5,7 +5,7 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -18,12 +18,14 @@ use crate::db::error::DbError;
 /// * [`InternalJobOrchestration`]
 /// * [`ResourceGroupManagement`]
 /// * [`ExecutionManagerLivenessManagement`]
+/// * [`SessionManagement`]
 #[async_trait]
 pub trait DbStorage:
     ExternalJobOrchestration
     + InternalJobOrchestration
     + ResourceGroupManagement
-    + ExecutionManagerLivenessManagement {
+    + ExecutionManagerLivenessManagement
+    + SessionManagement {
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
@@ -404,4 +406,15 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
         &self,
         stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError>;
+}
+
+/// Defines the storage interface for session management.
+///
+/// A session ID is a monotonically increasing value that bumps each time the storage layer
+/// reconnects. Callers can use it to detect and reject stale requests from previous sessions.
+pub trait SessionManagement {
+    /// # Returns
+    ///
+    /// The current session ID.
+    fn session_id(&self) -> SessionId;
 }

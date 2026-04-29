@@ -7,7 +7,7 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -23,6 +23,7 @@ use crate::{
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
+        SessionManagement,
         error::ExpectedStates,
     },
 };
@@ -31,6 +32,7 @@ use crate::{
 #[derive(Clone)]
 pub struct MariaDbStorageConnector {
     pool: MySqlPool,
+    session_id: SessionId,
 }
 
 impl MariaDbStorageConnector {
@@ -50,7 +52,13 @@ impl MariaDbStorageConnector {
     ///
     /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
+    /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
+        const BUMP_SESSION_ID_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
+            table = SESSIONS_TABLE_NAME,
+        );
+
         let mysql_options = sqlx::mysql::MySqlConnectOptions::new()
             .host(&config.host)
             .port(config.port)
@@ -63,22 +71,25 @@ impl MariaDbStorageConnector {
             .connect_with(mysql_options)
             .await?;
 
-        let connector = Self { pool };
-
         // MariaDB does not support transactions for DDL statements. All DDL statements are
         // automatically committed. Thus, each table creation query is executed separately, and
         // atomicity is not guaranteed.
         sqlx::query(resource_groups_creation_query())
-            .execute(&connector.pool)
+            .execute(&pool)
             .await?;
-        sqlx::query(jobs_creation_query())
-            .execute(&connector.pool)
+        sqlx::query(jobs_creation_query()).execute(&pool).await?;
+        sqlx::query(sessions_creation_query())
+            .execute(&pool)
             .await?;
         sqlx::query(execution_managers_creation_query())
-            .execute(&connector.pool)
+            .execute(&pool)
             .await?;
 
-        Ok(connector)
+        let session_id = sqlx::query_scalar::<_, SessionId>(BUMP_SESSION_ID_QUERY)
+            .fetch_one(&pool)
+            .await?;
+
+        Ok(Self { pool, session_id })
     }
 }
 
@@ -560,6 +571,12 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     }
 }
 
+impl SessionManagement for MariaDbStorageConnector {
+    fn session_id(&self) -> SessionId {
+        self.session_id
+    }
+}
+
 impl DbStorage for MariaDbStorageConnector {}
 
 /// `MySQL` error number for foreign key constraint violation.
@@ -570,7 +587,9 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
+
 const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
+const SESSIONS_TABLE_NAME: &str = "sessions";
 
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
@@ -634,6 +653,17 @@ CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
 );",
         state_enum = ExecutionManagerState::as_mysql_enum_decl(),
         default_state = ExecutionManagerState::Alive.as_quoted_str(),
+    )
+}
+
+#[must_use]
+const fn sessions_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
+  `session_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  PRIMARY KEY (`session_id`)
+);"
     )
 }
 
