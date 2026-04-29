@@ -1,9 +1,11 @@
+use std::net::IpAddr;
+
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{JobId, ResourceGroupId, SessionId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -15,15 +17,15 @@ use crate::db::error::DbError;
 /// * [`ExternalJobOrchestration`]
 /// * [`InternalJobOrchestration`]
 /// * [`ResourceGroupManagement`]
+/// * [`ExecutionManagerLivenessManagement`]
 /// * [`SessionManagement`]
 #[async_trait]
-#[rustfmt::skip] // Workaround for https://github.com/rust-lang/rustfmt/issues/5321
 pub trait DbStorage:
     ExternalJobOrchestration
     + InternalJobOrchestration
     + ResourceGroupManagement
-    + SessionManagement
-{
+    + ExecutionManagerLivenessManagement
+    + SessionManagement {
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
@@ -317,6 +319,93 @@ pub trait ResourceGroupManagement {
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError>;
+}
+
+/// Defines the storage interface for execution manager liveness management in the database.
+#[async_trait]
+pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
+    /// Registers an execution manager in the database.
+    ///
+    /// # Parameters
+    ///
+    /// * `ip_address` - The execution manager IP address.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered execution manager on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn register_execution_manager(
+        &self,
+        ip_address: IpAddr,
+    ) -> Result<ExecutionManagerId, DbError>;
+
+    /// Updates the heartbeat of an alive execution manager.
+    ///
+    /// # Parameters
+    ///
+    /// * `execution_manager_id` - The ID of the execution manager to update.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::IllegalExecutionManagerId`] if the execution manager ID is illegal.
+    /// * [`DbError::ExecutionManagerAlreadyDead`] if the execution manager is dead.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn update_execution_manager_heartbeat(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<(), DbError>;
+
+    /// Checks whether the execution manager with the given ID is alive.
+    ///
+    /// # Parameters
+    ///
+    /// * `execution_manager_id` - The execution manager ID to check.
+    ///
+    /// # Returns
+    ///
+    /// Whether the execution manager is alive on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::IllegalExecutionManagerId`] if the execution manager ID is illegal.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn is_execution_manager_alive(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<bool, DbError>;
+
+    /// Marks stale execution managers dead and returns their IDs.
+    ///
+    /// This operation is atomic: once an execution manager is marked dead and returned by a call of
+    /// this method, it will not be returned again in subsequent calls.
+    ///
+    /// # Parameters
+    ///
+    /// * `stale_after_sec` - The seconds after the last heartbeat which makes an execution manager
+    ///   stale.
+    ///
+    /// # Returns
+    ///
+    /// A vector of dead execution manager IDs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn get_dead_execution_managers(
+        &self,
+        stale_after_sec: u64,
+    ) -> Result<Vec<ExecutionManagerId>, DbError>;
 }
 
 /// Defines the storage interface for session management.
