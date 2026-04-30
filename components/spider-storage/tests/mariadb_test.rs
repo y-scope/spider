@@ -11,13 +11,8 @@ use spider_core::{
     },
 };
 use spider_storage::db::{
-    DbError,
-    ExecutionManagerLivenessManagement,
-    ExternalJobOrchestration,
-    InternalJobOrchestration,
-    MariaDbStorageConnector,
-    ResourceGroupManagement,
-    SessionManagement,
+    DbError, ExecutionManagerLivenessManagement, ExternalJobOrchestration,
+    InternalJobOrchestration, MariaDbStorageConnector, ResourceGroupManagement, SessionManagement,
 };
 
 use super::{
@@ -963,6 +958,7 @@ async fn test_get_dead_execution_managers_multiple() {
 }
 
 #[tokio::test]
+#[ignore = "requires MariaDB"]
 async fn test_session_id_returned_after_connect() {
     let storage = create_mariadb_connector().await;
     let session_id = storage.session_id();
@@ -973,6 +969,7 @@ async fn test_session_id_returned_after_connect() {
 }
 
 #[tokio::test]
+#[ignore = "requires MariaDB"]
 async fn test_session_id_bumps_on_reconnect() {
     let storage1 = create_mariadb_connector().await;
     let session_id1 = storage1.session_id();
