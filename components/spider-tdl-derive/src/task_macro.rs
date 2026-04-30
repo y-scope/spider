@@ -72,13 +72,6 @@ impl Parse for TaskAttr {
 /// * Forwards [`validate_no_self`]'s return values on failure.
 /// * Forwards [`validate_has_parameters`]'s return values on failure.
 /// * Forwards [`extract_return_type`]'s return values on failure.
-///
-/// # Panics
-///
-/// Panics if:
-///
-/// * The first parameter's type is required but the function has no parameter. This is not
-///   reachable at runtime.
 pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
     validate_no_self(func)?;
     validate_has_parameters(func)?;
@@ -87,12 +80,7 @@ pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
     let private_task_body_wrapper_name = format_ident!("__{func_name}");
     let params_struct_name = format_ident!("__{func_name}_params");
 
-    let first_param = func
-        .sig
-        .inputs
-        .first()
-        .expect("validated that function has at least one parameter");
-    let FnArg::Typed(first_pat_type) = first_param else {
+    let Some(FnArg::Typed(first_pat_type)) = func.sig.inputs.first() else {
         unreachable!("`self` parameters are rejected by `validate_no_self`");
     };
     let first_param_type = &first_pat_type.ty;
@@ -335,13 +323,9 @@ fn extract_return_type(output: &ReturnType) -> syn::Result<(TokenStream, bool)> 
         ));
     }
 
-    let ok_type = angle_args
-        .args
-        .first()
-        .expect("arg size has been checked above");
-    let GenericArgument::Type(ok_type) = ok_type else {
+    let Some(GenericArgument::Type(ok_type)) = angle_args.args.first() else {
         return Err(syn::Error::new_spanned(
-            ok_type,
+            angle_args,
             "expected a type as the first generic argument of `Result`",
         ));
     };
