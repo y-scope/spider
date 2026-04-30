@@ -587,7 +587,6 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
-
 const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
 const SESSIONS_TABLE_NAME: &str = "sessions";
 
