@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use spider_core::{
     job::JobState,
-    types::id::{JobId, ResourceGroupId},
+    types::id::{ExecutionManagerId, JobId, ResourceGroupId},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -18,6 +18,12 @@ pub enum DbError {
 
     #[error("job `{0:?}` does not exist")]
     JobNotFound(JobId),
+
+    #[error("execution manager `{0:?}` is illegal")]
+    IllegalExecutionManagerId(ExecutionManagerId),
+
+    #[error("execution manager `{0:?}` is already dead")]
+    ExecutionManagerAlreadyDead(ExecutionManagerId),
 
     #[error("job in state {from} cannot transit into state {to}")]
     InvalidJobStateTransition { from: JobState, to: JobState },
