@@ -11,8 +11,13 @@ use spider_core::{
     },
 };
 use spider_storage::db::{
-    DbError, ExecutionManagerLivenessManagement, ExternalJobOrchestration,
-    InternalJobOrchestration, MariaDbStorageConnector, ResourceGroupManagement, SessionManagement,
+    DbError,
+    ExecutionManagerLivenessManagement,
+    ExternalJobOrchestration,
+    InternalJobOrchestration,
+    MariaDbStorageConnector,
+    ResourceGroupManagement,
+    SessionManagement,
 };
 
 use super::{
