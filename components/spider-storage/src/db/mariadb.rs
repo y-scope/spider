@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
@@ -5,10 +7,11 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{JobId, ResourceGroupId, SessionId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
+use spider_derive::MySqlEnum;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
@@ -16,6 +19,7 @@ use crate::{
     db::{
         DbError,
         DbStorage,
+        ExecutionManagerLivenessManagement,
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
@@ -75,6 +79,9 @@ impl MariaDbStorageConnector {
             .await?;
         sqlx::query(jobs_creation_query()).execute(&pool).await?;
         sqlx::query(sessions_creation_query())
+            .execute(&pool)
+            .await?;
+        sqlx::query(execution_managers_creation_query())
             .execute(&pool)
             .await?;
 
@@ -441,6 +448,129 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, MySqlEnum)]
+enum ExecutionManagerState {
+    Alive,
+    Dead,
+}
+
+#[async_trait]
+impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
+    async fn register_execution_manager(
+        &self,
+        ip_address: IpAddr,
+    ) -> Result<ExecutionManagerId, DbError> {
+        const INSERT_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` (`ip_address`) VALUES (?) RETURNING CAST(`id` AS BINARY(16));",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
+
+        sqlx::query_scalar(INSERT_QUERY)
+            .bind(ip_address.to_string())
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn update_execution_manager_heartbeat(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<(), DbError> {
+        const SELECT_STATE_FOR_UPDATE_QUERY: &str = formatcp!(
+            "SELECT `state` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
+        const UPDATE_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `last_heartbeat_at` = CURRENT_TIMESTAMP WHERE `id` = ? AND \
+             `state` = '{alive_state}';",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+            alive_state = ExecutionManagerState::Alive.as_str(),
+        );
+
+        let mut tx = self.pool.begin().await?;
+
+        let state = sqlx::query_scalar::<_, ExecutionManagerState>(SELECT_STATE_FOR_UPDATE_QUERY)
+            .bind(execution_manager_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(DbError::IllegalExecutionManagerId(execution_manager_id))?;
+
+        if state == ExecutionManagerState::Dead {
+            return Err(DbError::ExecutionManagerAlreadyDead(execution_manager_id));
+        }
+
+        sqlx::query(UPDATE_QUERY)
+            .bind(execution_manager_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn is_execution_manager_alive(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<bool, DbError> {
+        const QUERY: &str = formatcp!(
+            "SELECT `state` FROM `{table}` WHERE `id` = ?;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+        );
+
+        let Some(state) = sqlx::query_scalar::<_, ExecutionManagerState>(QUERY)
+            .bind(execution_manager_id)
+            .fetch_optional(&self.pool)
+            .await?
+        else {
+            return Err(DbError::IllegalExecutionManagerId(execution_manager_id));
+        };
+
+        match state {
+            ExecutionManagerState::Alive => Ok(true),
+            ExecutionManagerState::Dead => Ok(false),
+        }
+    }
+
+    async fn get_dead_execution_managers(
+        &self,
+        stale_after_sec: u64,
+    ) -> Result<Vec<ExecutionManagerId>, DbError> {
+        const UPDATE_BATCH_SIZE: usize = 1000;
+
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` = '{alive_state}' AND \
+             `last_heartbeat_at` < CURRENT_TIMESTAMP - INTERVAL ? SECOND FOR UPDATE;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+            alive_state = ExecutionManagerState::Alive.as_str(),
+        );
+
+        let mut tx = self.pool.begin().await?;
+        let execution_manager_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_QUERY)
+            .bind(stale_after_sec)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        for execution_manager_id_batch in execution_manager_ids.chunks(UPDATE_BATCH_SIZE) {
+            let placeholders = std::iter::repeat_n("?", execution_manager_id_batch.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let update_query = format!(
+                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET `state` = '{dead_state}', \
+                 `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN ({placeholders})",
+                dead_state = ExecutionManagerState::Dead.as_str(),
+            );
+            let mut query = sqlx::query(&update_query);
+            for execution_manager_id in execution_manager_id_batch {
+                query = query.bind(execution_manager_id);
+            }
+            query.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(execution_manager_ids)
+    }
+}
+
 impl SessionManagement for MariaDbStorageConnector {
     fn session_id(&self) -> SessionId {
         self.session_id
@@ -457,6 +587,7 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
+const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
 const SESSIONS_TABLE_NAME: &str = "sessions";
 
 const UPDATE_JOB_STATE: &str = formatcp!(
@@ -502,6 +633,25 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
 );",
         state_enum = JobState::as_mysql_enum_decl(),
         default_state = JobState::Ready.as_quoted_str(),
+    )
+}
+
+#[must_use]
+const fn execution_managers_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
+  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `ip_address` VARCHAR(45) NOT NULL,
+  `state` {state_enum} NOT NULL DEFAULT {default_state},
+  `last_heartbeat_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `death_confirmed_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `execution_manager_liveness` (`state`, `last_heartbeat_at`)
+);",
+        state_enum = ExecutionManagerState::as_mysql_enum_decl(),
+        default_state = ExecutionManagerState::Alive.as_quoted_str(),
     )
 }
 
