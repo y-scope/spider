@@ -55,7 +55,7 @@ macro_rules! register_tdl_package {
     ) => {
         const __SPIDER_TDL_PACKAGE_NAME: &str = $package_name;
 
-        const _task_name_uniqueness_check: () = $crate::register::assert_unique_task_names(&[
+        const _TASK_NAME_UNIQUENESS_CHECK: () = $crate::register::assert_unique_task_names(&[
             $(
                 <$task as $crate::Task>::NAME,
             )*
