@@ -5,9 +5,9 @@ edition = "2024"
 publish = false
 
 [lib]
+crate-type = ["cdylib"]
 name = "huntsman_complex"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
 
 [dependencies]
 huntsman-complex-types = { path = "../types" }
