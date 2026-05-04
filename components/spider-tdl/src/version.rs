@@ -6,12 +6,10 @@
 //! `dlsym` at load time and refuses to install packages whose declared version is incompatible
 //! with the executor's [`Version::SPIDER_TDL`].
 
-/// `#[repr(C)]` semantic-version triple shared across the TDL package / task executor FFI
-/// boundary.
+/// `#[repr(C)]` semantic-version triple shared across the TDL package / task executor FFI boundary.
 ///
-/// The struct is intentionally `Copy` so it can be returned by value from an `extern "C"`
-/// function. Compatibility is decided by [`Self::is_compatible_with`].
-
+/// The struct is intentionally `Copy` so it can be returned by value from an `extern "C"` function.
+/// Compatibility is decided by [`Self::is_compatible_with`].
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Version {
