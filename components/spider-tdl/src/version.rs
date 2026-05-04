@@ -11,6 +11,7 @@
 ///
 /// The struct is intentionally `Copy` so it can be returned by value from an `extern "C"`
 /// function. Compatibility is decided by [`Self::is_compatible_with`].
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Version {
