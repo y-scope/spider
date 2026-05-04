@@ -5,9 +5,9 @@
 //! * A `LazyLock<HashMap<&'static str, Box<dyn TaskHandler>>>` dispatch table populated on first
 //!   lookup, mapping each task's `NAME` to a [`TaskHandler`](crate::TaskHandler) trait object.
 //!   Runtime lookups are O(1) and dispatch goes through the trait vtable.
-//! * A single `const _: () = assert_unique_task_names(...)` that rejects duplicate `NAME`s with
-//!   a `const_eval` panic at build time. The hash map itself is built only once at runtime;
-//!   uniqueness is enforced at compile time and is independent of the runtime structure.
+//! * A single assertion that rejects duplicate `NAME`s with a `const_eval` panic at build time. The
+//!   hash map itself is built only once at runtime; uniqueness is enforced at compile time and is
+//!   independent of the runtime structure.
 //! * Three `extern "C"` entry points consumed by the package manager via `dlsym`:
 //!   * `__spider_tdl_package_get_version`
 //!   * `__spider_tdl_package_get_name`
