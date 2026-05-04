@@ -543,6 +543,15 @@ dependencies = [
 name = "huntsman-complex"
 version = "0.1.0"
 dependencies = [
+ "huntsman-complex-types",
+ "serde",
+ "spider-tdl",
+]
+
+[[package]]
+name = "huntsman-complex-types"
+version = "0.1.0"
+dependencies = [
  "serde",
  "spider-tdl",
 ]
@@ -1745,9 +1754,8 @@ name = "tdl-integration"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "huntsman-complex",
+ "huntsman-complex-types",
  "rmp-serde",
- "serde",
  "spider-core",
  "spider-task-executor",
  "spider-tdl",

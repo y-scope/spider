@@ -7,6 +7,7 @@ members = [
   "components/spider-task-executor",
   "components/spider-tdl",
   "components/spider-tdl-derive",
-  "examples/huntsman/complex",
-  "tests/tdl-integration",
+  "examples/huntsman/complex/tasks",
+  "examples/huntsman/complex/types",
+  "tests/huntsman/tdl-integration",
 ]

@@ -51,7 +51,7 @@ use crate::TdlError;
 macro_rules! register_tdl_package {
     (
         package_name: $package_name:expr,
-        tasks: [$($task:ident),* $(,)?] $(,)?
+        tasks: [$($task:path),* $(,)?] $(,)?
     ) => {
         const __SPIDER_TDL_PACKAGE_NAME: &str = $package_name;
 
