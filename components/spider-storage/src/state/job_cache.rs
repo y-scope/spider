@@ -1,10 +1,11 @@
-use dashmap::DashMap;
+use dashmap::{DashMap, mapref::entry::Entry};
 use spider_core::types::id::JobId;
 
 use crate::{
     cache::job::SharedJobControlBlock,
     db::InternalJobOrchestration,
     ready_queue::ReadyQueueSender,
+    state::error::StorageServerError,
     task_instance_pool::TaskInstancePoolConnector,
 };
 
@@ -45,7 +46,12 @@ impl<
 
     /// Inserts a job control block into the cache.
     ///
-    /// If a job control block with the same ID already exists, it will be replaced.
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::JobAlreadyExists`] if a job control block with the same ID already
+    ///   exists.
     pub fn insert(
         &self,
         job_id: JobId,
@@ -54,8 +60,14 @@ impl<
             DbConnectorType,
             TaskInstancePoolConnectorType,
         >,
-    ) {
-        self.jobs.insert(job_id, jcb);
+    ) -> Result<(), StorageServerError> {
+        match self.jobs.entry(job_id) {
+            Entry::Vacant(e) => {
+                e.insert(jcb);
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(StorageServerError::JobAlreadyExists(job_id)),
+        }
     }
 
     /// Gets a job control block from the cache.
@@ -265,13 +277,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn job_cache_insert_and_get_roundtrip() {
+    async fn job_cache_insert_and_get() {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache.insert(job_id, jcb);
+        cache
+            .insert(job_id, jcb)
+            .expect("insert should succeed for new job");
 
         let result = cache.get(job_id);
         assert!(result.is_some(), "inserted JCB should be retrievable");
@@ -284,7 +298,9 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache.insert(job_id, jcb);
+        cache
+            .insert(job_id, jcb)
+            .expect("insert should succeed for new job");
 
         let removed = cache.remove(job_id);
         assert!(removed.is_some(), "remove should return the JCB");
@@ -307,6 +323,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn job_cache_insert_duplicate_returns_error() {
+        let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
+            JobCache::new();
+        let job_id = JobId::new();
+
+        let jcb1 = create_test_jcb(job_id).await;
+        cache
+            .insert(job_id, jcb1)
+            .expect("first insert should succeed");
+
+        let jcb2 = create_test_jcb(job_id).await;
+        let result = cache.insert(job_id, jcb2);
+        assert!(
+            matches!(result, Err(StorageServerError::JobAlreadyExists(_))),
+            "insert should return JobAlreadyExists error for duplicate key"
+        );
+        if let Err(StorageServerError::JobAlreadyExists(id)) = result {
+            assert_eq!(id, job_id, "error should contain the duplicate job ID");
+        }
+    }
+
+    #[tokio::test]
     async fn job_cache_concurrent_insert_get() {
         use std::sync::Arc;
 
@@ -322,7 +360,9 @@ mod tests {
             let handle = tokio::spawn(async move {
                 let job_id = JobId::new();
                 let jcb = create_test_jcb(job_id).await;
-                cache.insert(job_id, jcb);
+                cache
+                    .insert(job_id, jcb)
+                    .expect("insert should succeed for new job");
 
                 // Immediately try to get it
                 let result = cache.get(job_id);

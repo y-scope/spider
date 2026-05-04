@@ -1,3 +1,5 @@
+use spider_core::types::id::JobId;
+
 use crate::{
     cache::error::{InternalError, StaleStateError},
     db::DbError,
@@ -18,9 +20,12 @@ pub enum StorageServerError {
     #[error(transparent)]
     Db(#[from] DbError),
 
-    #[error("server is stopping: {0}")]
+    #[error("server is shutting down: {0}")]
     Stopping(&'static str),
 
     #[error("bad request: {0}")]
     BadRequest(&'static str),
+
+    #[error("job already exists: {0:?}")]
+    JobAlreadyExists(JobId),
 }
