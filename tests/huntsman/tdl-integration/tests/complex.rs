@@ -22,7 +22,9 @@ const PACKAGE_NAME: &str = "complex";
 ///
 /// The path of `huntsman-complex` example cdylib.
 fn lib_path() -> std::path::PathBuf {
-    std::env::var_os("SPIDER_TDL_PACKAGE_COMPLEX").map(std::path::PathBuf::from).expect("library not found")
+    std::env::var_os("SPIDER_TDL_PACKAGE_COMPLEX")
+        .map(std::path::PathBuf::from)
+        .expect("library not found")
 }
 
 /// # Returns
