@@ -74,7 +74,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// A clone of the job control block if it exists, or [`None`] if not found.
+    /// The job control block of the given ID if it exists, [`None`] otherwise.
     #[must_use]
     pub fn get(
         &self,
@@ -89,7 +89,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// The removed job control block if it existed, or [`None`] if not found.
+    /// The removed job control block if it existed, [`None`] otherwise.
     #[must_use]
     pub fn remove(
         &self,
