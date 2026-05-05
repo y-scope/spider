@@ -1,8 +1,10 @@
 pub mod error;
 pub mod ffi;
+pub mod register;
 pub mod r#std;
 pub mod task;
 pub mod task_context;
+pub mod version;
 pub mod wire;
 
 pub use error::TdlError;
@@ -10,3 +12,4 @@ pub use error::TdlError;
 pub use spider_tdl_derive::task;
 pub use task::{ExecutionResult, Task, TaskHandler, TaskHandlerImpl};
 pub use task_context::TaskContext;
+pub use version::Version;

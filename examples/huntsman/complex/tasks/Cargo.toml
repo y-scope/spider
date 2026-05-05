@@ -1,0 +1,15 @@
+[package]
+name = "huntsman-complex"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+name = "huntsman_complex"
+path = "src/lib.rs"
+
+[dependencies]
+huntsman-complex-types = { path = "../types" }
+serde = { version = "1.0.228", features = ["derive"] }
+spider-tdl = { path = "../../../../components/spider-tdl", features = ["derive"] }
