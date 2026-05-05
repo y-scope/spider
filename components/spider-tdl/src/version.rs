@@ -22,9 +22,9 @@ impl Version {
     /// Compile-time `spider-tdl` version, derived from the crate's Cargo manifest via
     /// `CARGO_PKG_VERSION_*` environment variables.
     pub const SPIDER_TDL: Self = Self {
-        major: const_parse_u32(env!("CARGO_PKG_VERSION_MAJOR")),
-        minor: const_parse_u32(env!("CARGO_PKG_VERSION_MINOR")),
-        patch: const_parse_u32(env!("CARGO_PKG_VERSION_PATCH")),
+        major: const_str::parse!(env!("CARGO_PKG_VERSION_MAJOR"), u32),
+        minor: const_str::parse!(env!("CARGO_PKG_VERSION_MINOR"), u32),
+        patch: const_str::parse!(env!("CARGO_PKG_VERSION_PATCH"), u32),
     };
 
     /// Constructs a [`Version`] from raw components.
@@ -63,57 +63,9 @@ impl Version {
     }
 }
 
-/// Parses a decimal `u32` from a `&str` in a `const` context.
-///
-/// Used to evaluate `CARGO_PKG_VERSION_*` (which `env!` exposes as `&'static str`) at compile time.
-/// The parser is intentionally minimal: ASCII digits only, no sign, no whitespace.
-///
-/// # Returns
-///
-/// The parsed `u32` value.
-///
-/// # Panics
-///
-/// Panics in const evaluation if:
-///
-/// * `s` is an empty string.
-/// * `s` contains a non-ASCII-digit byte.
-/// * The parsed value would overflow `u32`.
-const fn const_parse_u32(s: &str) -> u32 {
-    let bytes = s.as_bytes();
-    assert!(!bytes.is_empty(), "`const_parse_u32`: empty input");
-    let mut value: u32 = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        let byte = bytes[i];
-        assert!(
-            !(byte < b'0' || byte > b'9'),
-            "`const_parse_u32`: non-digit byte"
-        );
-        let digit = (byte - b'0') as u32;
-        let Some(scaled) = value.checked_mul(10) else {
-            panic!("`const_parse_u32`: overflow");
-        };
-        let Some(next) = scaled.checked_add(digit) else {
-            panic!("`const_parse_u32`: overflow");
-        };
-        value = next;
-        i += 1;
-    }
-    value
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn const_parse_u32_basic() {
-        assert_eq!(const_parse_u32("0"), 0);
-        assert_eq!(const_parse_u32("1"), 1);
-        assert_eq!(const_parse_u32("42"), 42);
-        assert_eq!(const_parse_u32("4294967295"), u32::MAX);
-    }
 
     #[test]
     fn spider_tdl_version_matches_cargo_pkg_version() {

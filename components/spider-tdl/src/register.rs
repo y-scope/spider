@@ -149,7 +149,7 @@ pub const fn assert_unique_task_names(names: &[&'static str]) {
         let mut j = i + 1;
         while j < names.len() {
             assert!(
-                !const_str_eq(names[i], names[j]),
+                !const_str::equal!(names[i], names[j]),
                 "two registered tasks share the same NAME — check the `#[task(name = ...)]` \
                  attributes in the most recent `register_tdl_package!` invocation",
             );
@@ -178,46 +178,11 @@ pub fn serialize_error_payload(err: &TdlError) -> Vec<u8> {
     rmp_serde::to_vec(err).expect("failed to serialize `TdlError` as msgpack")
 }
 
-/// `const`-friendly byte-wise string equality.
-///
-/// `str::eq` is not yet `const`, so the `register_tdl_package!` uniqueness assertions cannot rely
-/// on it. This helper compares the underlying byte slices.
-///
-/// # Returns
-///
-/// Whether `a` and `b` contain the same bytes.
-const fn const_str_eq(a: &'static str, b: &'static str) -> bool {
-    let a = a.as_bytes();
-    let b = b.as_bytes();
-    if a.len() != b.len() {
-        return false;
-    }
-    // Since `iter` and `zip` are not `const` methods yet, we have to implement the byte-by-byte
-    // check explicitly using a C-style comparison.
-    let mut i = 0;
-    while i < a.len() {
-        if a[i] != b[i] {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use std::panic;
 
     use super::*;
-
-    #[test]
-    fn const_str_eq_basic() {
-        assert!(const_str_eq("", ""));
-        assert!(const_str_eq("foo", "foo"));
-        assert!(!const_str_eq("foo", "bar"));
-        assert!(!const_str_eq("foo", "foobar"));
-        assert!(!const_str_eq("foobar", "foo"));
-    }
 
     #[test]
     fn assert_unique_task_names_passes_when_all_distinct() {
