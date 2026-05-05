@@ -131,6 +131,7 @@ mod tests {
     use std::sync::Arc;
 
     use spider_core::{
+        job::JobState,
         task::{
             DataTypeDescriptor,
             ExecutionPolicy,
@@ -139,12 +140,20 @@ mod tests {
             TdlContext,
             ValueTypeDescriptor,
         },
-        types::{id::JobId, io::TaskInput},
+        types::{
+            id::JobId,
+            io::{TaskInput, TaskOutput},
+        },
     };
 
     use super::*;
     use crate::{
-        cache::{error::InternalError, job::SharedJobControlBlock},
+        cache::{
+            error::InternalError,
+            job::SharedJobControlBlock,
+            task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
+        },
+        db::DbError,
         ready_queue::ReadyQueueSender,
         task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
     };
@@ -187,47 +196,35 @@ mod tests {
 
     #[async_trait::async_trait]
     impl InternalJobOrchestration for MockDbConnector {
-        async fn start(&self, _job_id: JobId) -> Result<(), crate::db::DbError> {
+        async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
             Ok(())
         }
 
-        async fn set_state(
-            &self,
-            _job_id: JobId,
-            _state: spider_core::job::JobState,
-        ) -> Result<(), crate::db::DbError> {
+        async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
             Ok(())
         }
 
         async fn commit_outputs(
             &self,
             _job_id: JobId,
-            _outputs: Vec<spider_core::types::io::TaskOutput>,
+            _outputs: Vec<TaskOutput>,
             _has_commit_task: bool,
-        ) -> Result<(), crate::db::DbError> {
+        ) -> Result<(), DbError> {
             Ok(())
         }
 
-        async fn cancel(
-            &self,
-            _job_id: JobId,
-            _has_cleanup_task: bool,
-        ) -> Result<(), crate::db::DbError> {
+        async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
             Ok(())
         }
 
-        async fn fail(
-            &self,
-            _job_id: JobId,
-            _error_message: String,
-        ) -> Result<(), crate::db::DbError> {
+        async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
             Ok(())
         }
 
         async fn delete_expired_terminated_jobs(
             &self,
             _expire_after_sec: u64,
-        ) -> Result<Vec<JobId>, crate::db::DbError> {
+        ) -> Result<Vec<JobId>, DbError> {
             Ok(Vec::new())
         }
     }
@@ -244,7 +241,7 @@ mod tests {
 
         async fn register_task_instance(
             &self,
-            _tcb: crate::cache::task::SharedTaskControlBlock,
+            _tcb: SharedTaskControlBlock,
             _registration: TaskInstanceMetadata,
         ) -> Result<(), InternalError> {
             Ok(())
@@ -252,7 +249,7 @@ mod tests {
 
         async fn register_termination_task_instance(
             &self,
-            _termination_tcb: crate::cache::task::SharedTerminationTaskControlBlock,
+            _termination_tcb: SharedTerminationTaskControlBlock,
             _registration: TaskInstanceMetadata,
         ) -> Result<(), InternalError> {
             Ok(())
@@ -293,40 +290,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn job_cache_insert_and_get() {
+    async fn job_cache_insert_and_get() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache
-            .insert(job_id, jcb)
-            .expect("insert should succeed for new job");
+        cache.insert(job_id, jcb)?;
 
         let result = cache.get(job_id);
         assert!(result.is_some(), "inserted JCB should be retrievable");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn job_cache_remove_returns_inserted_jcb() {
+    async fn job_cache_remove_returns_inserted_jcb() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache
-            .insert(job_id, jcb)
-            .expect("insert should succeed for new job");
+        cache.insert(job_id, jcb)?;
 
         let removed = cache.remove(job_id);
         assert!(removed.is_some(), "remove should return the JCB");
 
         let result = cache.get(job_id);
         assert!(result.is_none(), "JCB should no longer exist after removal");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn job_cache_get_returns_none_for_nonexistent_job() {
+    async fn job_cache_get_returns_none_for_nonexistent_job() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
         let job_id = JobId::new();
@@ -336,18 +331,17 @@ mod tests {
             result.is_none(),
             "get should return None for nonexistent job"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn job_cache_insert_duplicate_returns_error() {
+    async fn job_cache_insert_duplicate_returns_error() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
         let job_id = JobId::new();
 
         let jcb1 = create_test_jcb(job_id).await;
-        cache
-            .insert(job_id, jcb1)
-            .expect("first insert should succeed");
+        cache.insert(job_id, jcb1)?;
 
         let jcb2 = create_test_jcb(job_id).await;
         let result = cache.insert(job_id, jcb2);
@@ -358,12 +352,11 @@ mod tests {
         if let Err(StorageServerError::JobAlreadyExists(id)) = result {
             assert_eq!(id, job_id, "error should contain the duplicate job ID");
         }
+        Ok(())
     }
 
     #[tokio::test]
     async fn job_cache_concurrent_insert_get() {
-        use std::sync::Arc;
-
         use tokio_util::task::TaskTracker;
 
         let cache: Arc<
@@ -382,15 +375,12 @@ mod tests {
                     .insert(job_id, jcb)
                     .expect("insert should succeed for new job");
 
-                // Immediately try to get it
                 let result = cache.get(job_id);
                 assert!(result.is_some(), "task {i} should find inserted JCB");
 
-                // Try to remove it
                 let removed = cache.remove(job_id);
                 assert!(removed.is_some(), "task {i} should remove inserted JCB");
 
-                // Verify it's gone
                 let result = cache.get(job_id);
                 assert!(result.is_none(), "task {i} should not find removed JCB");
             });
@@ -446,13 +436,13 @@ mod tests {
         }
     }
 
-    async fn create_started_test_jcb(
-        job_id: JobId,
-    ) -> SharedJobControlBlock<
-        TrackingReadyQueueSender,
-        MockDbConnector,
-        MockTaskInstancePoolConnector,
-    > {
+    #[tokio::test]
+    async fn job_cache_resend_ready_tasks_sends_for_running_job() -> anyhow::Result<()> {
+        let calls: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+        let sender = TrackingReadyQueueSender {
+            calls: Arc::clone(&calls),
+        };
+
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
         let mut submitted =
             SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
@@ -469,37 +459,37 @@ mod tests {
             })
             .expect("task insertion should succeed");
 
+        let job_id = JobId::new();
         let jcb = SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::new(),
             &submitted,
             vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            TrackingReadyQueueSender::default(),
+            sender,
             MockDbConnector,
             MockTaskInstancePoolConnector,
         )
         .await
         .expect("JCB creation should succeed");
-
         jcb.start().await.expect("start should succeed");
-        jcb
-    }
 
-    #[tokio::test]
-    async fn job_cache_resend_ready_tasks_sends_for_running_job() {
         let cache: JobCache<
             TrackingReadyQueueSender,
             MockDbConnector,
             MockTaskInstancePoolConnector,
         > = JobCache::new();
-        let job_id = JobId::new();
+        cache.insert(job_id, jcb)?;
 
-        let jcb = create_started_test_jcb(job_id).await;
-        cache.insert(job_id, jcb).expect("insert should succeed");
+        cache.resend_ready_tasks().await?;
 
-        cache
-            .resend_ready_tasks()
-            .await
-            .expect("resend should succeed");
+        let has_task_ready = {
+            let recorded = calls.lock().expect("lock");
+            recorded.iter().any(|c| c == "task_ready")
+        };
+        assert!(
+            has_task_ready,
+            "resend_ready_tasks should have sent task_ready"
+        );
+        Ok(())
     }
 }

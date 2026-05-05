@@ -140,6 +140,8 @@ impl<
 
     /// Resends all ready tasks to the ready queue.
     ///
+    /// The method handles the following job states:
+    ///
     /// * [`JobState::Running`] — all tasks in [`TaskState::Ready`] via
     ///   [`ReadyQueueSender::send_task_ready`].
     /// * [`JobState::CommitReady`] — the commit task via [`ReadyQueueSender::send_commit_ready`].
