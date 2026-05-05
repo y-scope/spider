@@ -21,10 +21,10 @@ pub enum StorageServerError {
     Db(#[from] DbError),
 
     #[error("server is shutting down: {0}")]
-    Stopping(&'static str),
+    Stopping(String),
 
     #[error("bad request: {0}")]
-    BadRequest(&'static str),
+    BadRequest(String),
 
     #[error("job already exists: {0:?}")]
     JobAlreadyExists(JobId),
