@@ -348,16 +348,18 @@ mod tests {
     async fn job_cache_concurrent_insert_get() {
         use std::sync::Arc;
 
+        use tokio_util::task::TaskTracker;
+
         let cache: Arc<
             JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>,
         > = Arc::new(JobCache::new());
 
+        let tracker = TaskTracker::new();
         let num_tasks = 10;
-        let mut handles = Vec::new();
 
         for i in 0..num_tasks {
             let cache = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
+            tracker.spawn(async move {
                 let job_id = JobId::new();
                 let jcb = create_test_jcb(job_id).await;
                 cache
@@ -376,11 +378,9 @@ mod tests {
                 let result = cache.get(job_id);
                 assert!(result.is_none(), "task {i} should not find removed JCB");
             });
-            handles.push(handle);
         }
 
-        for handle in handles {
-            handle.await.expect("task should complete successfully");
-        }
+        tracker.close();
+        tracker.wait().await;
     }
 }
