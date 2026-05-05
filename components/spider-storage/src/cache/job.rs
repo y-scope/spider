@@ -138,6 +138,54 @@ impl<
         Ok(())
     }
 
+    /// Resends all ready tasks to the ready queue.
+    ///
+    /// * [`JobState::Running`] — all tasks in [`TaskState::Ready`] via
+    ///   [`ReadyQueueSender::send_task_ready`].
+    /// * [`JobState::CommitReady`] — the commit task via [`ReadyQueueSender::send_commit_ready`].
+    /// * [`JobState::CleanupReady`] — the cleanup task via
+    ///   [`ReadyQueueSender::send_cleanup_ready`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
+    /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
+    /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
+    /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
+    /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
+    pub async fn resend_ready_tasks(&self) -> Result<(), CacheError> {
+        let jcb = &self.inner;
+
+        if let Ok(job) = jcb.job_execution_state.read_running().await {
+            let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
+            if !ready_task_indices.is_empty() {
+                job.ready_queue_sender
+                    .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        if let Ok(job) = jcb.job_execution_state.read_commit_ready().await {
+            job.ready_queue_sender
+                .send_commit_ready(jcb.owner_id, jcb.id)
+                .await?;
+            return Ok(());
+        }
+
+        if let Ok(job) = jcb.job_execution_state.read_cleanup_ready().await {
+            job.ready_queue_sender
+                .send_cleanup_ready(jcb.owner_id, jcb.id)
+                .await?;
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
     /// Creates a task instance for the given task and registers it in the task instance pool.
     ///
     /// # Returns

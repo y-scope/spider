@@ -99,6 +99,20 @@ impl<
     > {
         self.jobs.remove(&job_id).map(|(_, v)| v)
     }
+
+    /// Resends all ready tasks for every job in the cache to the ready queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
+    pub async fn resend_ready_tasks(&self) -> Result<(), StorageServerError> {
+        for entry in &self.jobs {
+            entry.value().resend_ready_tasks().await?;
+        }
+        Ok(())
+    }
 }
 
 impl<
@@ -114,6 +128,8 @@ impl<
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use spider_core::{
         task::{
             DataTypeDescriptor,
@@ -128,7 +144,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::error::InternalError,
+        cache::{error::InternalError, job::SharedJobControlBlock},
         ready_queue::ReadyQueueSender,
         task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
     };
@@ -382,5 +398,108 @@ mod tests {
 
         tracker.close();
         tracker.wait().await;
+    }
+
+    /// A tracking ready queue sender that records calls.
+    #[derive(Clone, Default)]
+    struct TrackingReadyQueueSender {
+        calls: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ReadyQueueSender for TrackingReadyQueueSender {
+        async fn send_task_ready(
+            &self,
+            _rg_id: spider_core::types::id::ResourceGroupId,
+            _job_id: JobId,
+            _task_indices: Vec<usize>,
+        ) -> Result<(), InternalError> {
+            self.calls
+                .lock()
+                .expect("lock")
+                .push("task_ready".to_owned());
+            Ok(())
+        }
+
+        async fn send_commit_ready(
+            &self,
+            _rg_id: spider_core::types::id::ResourceGroupId,
+            _job_id: JobId,
+        ) -> Result<(), InternalError> {
+            self.calls
+                .lock()
+                .expect("lock")
+                .push("commit_ready".to_owned());
+            Ok(())
+        }
+
+        async fn send_cleanup_ready(
+            &self,
+            _rg_id: spider_core::types::id::ResourceGroupId,
+            _job_id: JobId,
+        ) -> Result<(), InternalError> {
+            self.calls
+                .lock()
+                .expect("lock")
+                .push("cleanup_ready".to_owned());
+            Ok(())
+        }
+    }
+
+    async fn create_started_test_jcb(
+        job_id: JobId,
+    ) -> SharedJobControlBlock<
+        TrackingReadyQueueSender,
+        MockDbConnector,
+        MockTaskInstancePoolConnector,
+    > {
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let mut submitted =
+            SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
+        submitted
+            .insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "test_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+                inputs: vec![bytes_type.clone()],
+                outputs: vec![bytes_type],
+                input_sources: None,
+            })
+            .expect("task insertion should succeed");
+
+        let jcb = SharedJobControlBlock::create(
+            job_id,
+            spider_core::types::id::ResourceGroupId::new(),
+            &submitted,
+            vec![TaskInput::ValuePayload(vec![0u8; 4])],
+            TrackingReadyQueueSender::default(),
+            MockDbConnector,
+            MockTaskInstancePoolConnector,
+        )
+        .await
+        .expect("JCB creation should succeed");
+
+        jcb.start().await.expect("start should succeed");
+        jcb
+    }
+
+    #[tokio::test]
+    async fn job_cache_resend_ready_tasks_sends_for_running_job() {
+        let cache: JobCache<
+            TrackingReadyQueueSender,
+            MockDbConnector,
+            MockTaskInstancePoolConnector,
+        > = JobCache::new();
+        let job_id = JobId::new();
+
+        let jcb = create_started_test_jcb(job_id).await;
+        cache.insert(job_id, jcb).expect("insert should succeed");
+
+        cache
+            .resend_ready_tasks()
+            .await
+            .expect("resend should succeed");
     }
 }
