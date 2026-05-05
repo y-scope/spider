@@ -9,10 +9,10 @@ use crate::{
 #[derive(thiserror::Error, Debug)]
 pub enum StorageServerError {
     #[error(transparent)]
-    Internal(#[from] InternalError),
+    CacheInternal(#[from] InternalError),
 
     #[error(transparent)]
-    StaleState(#[from] StaleStateError),
+    CacheStaleState(#[from] StaleStateError),
 
     #[error("stale session")]
     StaleSession,

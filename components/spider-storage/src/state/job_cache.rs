@@ -11,8 +11,8 @@ use crate::{
 
 /// An in-memory cache for job control blocks.
 ///
-/// This type provides concurrent access to job control blocks via a `DashMap`.
-/// It is generic over the same type parameters as [`SharedJobControlBlock`].
+/// This type provides concurrent access to job control blocks via a `DashMap`. It is generic over
+/// the same type parameters as [`SharedJobControlBlock`].
 ///
 /// # Type Parameters
 ///
@@ -170,7 +170,7 @@ mod tests {
     struct MockDbConnector;
 
     #[async_trait::async_trait]
-    impl crate::db::InternalJobOrchestration for MockDbConnector {
+    impl InternalJobOrchestration for MockDbConnector {
         async fn start(&self, _job_id: JobId) -> Result<(), crate::db::DbError> {
             Ok(())
         }
