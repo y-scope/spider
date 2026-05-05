@@ -107,7 +107,7 @@ jobs:
           #   match and restore the most recent cache entry that shares that prefix.
           key: "lint:check-cpp-static-on-ubuntu-latest"
 
-      - run: "task lint:cpp-check"
+      - run: "task lint:cpp-check -C $(nproc)"
 
       - run: "task lint:cmake-check"
 
