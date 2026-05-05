@@ -1,0 +1,13 @@
+[package]
+name = "huntsman-complex-types"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "huntsman_complex_types"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+spider-tdl = { path = "../../../../components/spider-tdl" }

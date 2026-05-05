@@ -128,12 +128,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "const_format"
-version = "0.2.35"
+name = "const-str"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad"
+checksum = "18f12cc9948ed9604230cdddc7c86e270f9401ccbe3c2e98a4378c5e7632212f"
+
+[[package]]
+name = "const_format"
+version = "0.2.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4481a617ad9a412be3b97c5d403fef8ed023103368908b9c50af598ff467cc1e"
 dependencies = [
  "const_format_proc_macros",
+ "konst",
 ]
 
 [[package]]
@@ -539,6 +546,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "huntsman-complex"
+version = "0.1.0"
+dependencies = [
+ "huntsman-complex-types",
+ "serde",
+ "spider-tdl",
+]
+
+[[package]]
+name = "huntsman-complex-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "spider-tdl",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -676,6 +700,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "konst"
+version = "0.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "128133ed7824fcd73d6e7b17957c5eb7bacb885649bd8c69708b2331a10bcefb"
+dependencies = [
+ "konst_macro_rules",
+]
+
+[[package]]
+name = "konst_macro_rules"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -695,6 +734,16 @@ name = "libc"
 version = "0.2.185"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "libm"
@@ -1363,10 +1412,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "spider-task-executor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libloading",
+ "rmp-serde",
+ "spider-tdl",
+ "thiserror",
+]
+
+[[package]]
 name = "spider-tdl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "const-str",
  "rmp-serde",
  "serde",
  "spider-core",
@@ -1693,6 +1754,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tdl-integration"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "huntsman-complex-types",
+ "rmp-serde",
+ "spider-core",
+ "spider-task-executor",
+ "spider-tdl",
 ]
 
 [[package]]
