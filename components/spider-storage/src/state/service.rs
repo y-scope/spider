@@ -148,7 +148,9 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest("job not found in cache"))?;
+            .ok_or(StorageServerError::BadRequest(
+                "job not found in cache".to_string(),
+            ))?;
         let state = jcb.cancel().await.map_err(StorageServerError::from)?;
         if state.is_terminal() {
             let _ = self.job_cache.remove(job_id);
@@ -245,7 +247,9 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest("job not found in cache"))?;
+            .ok_or(StorageServerError::BadRequest(
+                "job not found in cache".to_string(),
+            ))?;
         jcb.create_task_instance(task_id, execution_manager_id)
             .await
             .map_err(StorageServerError::from)
@@ -283,7 +287,9 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest("job not found in cache"))?;
+            .ok_or(StorageServerError::BadRequest(
+                "job not found in cache".to_string(),
+            ))?;
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await
@@ -325,7 +331,9 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest("job not found in cache"))?;
+            .ok_or(StorageServerError::BadRequest(
+                "job not found in cache".to_string(),
+            ))?;
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await
@@ -334,16 +342,6 @@ impl<
             let _ = self.job_cache.remove(job_id);
         }
         Ok(state)
-    }
-}
-
-impl From<crate::cache::error::CacheError> for StorageServerError {
-    fn from(err: crate::cache::error::CacheError) -> Self {
-        match err {
-            crate::cache::error::CacheError::Internal(e) => Self::Internal(e),
-            crate::cache::error::CacheError::StaleState(e) => Self::StaleState(e),
-            crate::cache::error::CacheError::Db(e) => Self::Db(e),
-        }
     }
 }
 
@@ -654,7 +652,7 @@ mod tests {
         let jcb = create_test_jcb(job_id).await;
         service
             .job_cache
-            .insert(job_id, jcb)
+            .insert(jcb)
             .expect("insert should succeed");
 
         let state = service
