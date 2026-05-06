@@ -27,7 +27,6 @@ use crate::{
 /// * `ReadyQueueSenderType` - The type of the ready queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct ServiceState<
     ReadyQueueSenderType: ReadyQueueSender,
@@ -38,7 +37,7 @@ pub struct ServiceState<
     session_id: spider_core::types::id::SessionId,
     job_cache: Arc<JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     ready_queue_sender: ReadyQueueSenderType,
-    ready_queue_receiver: ReadyQueueReceiverHandle,
+    _ready_queue_receiver: ReadyQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
@@ -49,6 +48,10 @@ impl<
 > ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Creates a new `ServiceState` from its constituent parts.
+    ///
+    /// # Returns
+    ///
+    /// A newly created `ServiceState` on success.
     pub fn new(
         db: DbConnectorType,
         session_id: spider_core::types::id::SessionId,
@@ -62,7 +65,7 @@ impl<
             session_id,
             job_cache: Arc::new(job_cache),
             ready_queue_sender,
-            ready_queue_receiver,
+            _ready_queue_receiver: ready_queue_receiver,
             task_instance_pool_connector,
         }
     }
@@ -91,7 +94,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`CacheError`] if the job already exists in the cache.
+    /// * Forwards [`JobCache::insert`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     pub async fn register_job(
@@ -418,15 +421,13 @@ mod tests {
     /// A mock DB connector for testing that implements both external and internal orchestration.
     #[derive(Clone, Default)]
     struct MockDbConnector {
-        registered_jobs: std::sync::Arc<tokio::sync::Mutex<Vec<JobId>>>,
-        job_states: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<JobId, JobState>>>,
-        job_errors: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<JobId, String>>>,
-        job_outputs:
-            std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<JobId, Vec<TaskOutput>>>>,
+        states: Arc<tokio::sync::Mutex<std::collections::HashMap<JobId, JobState>>>,
+        errors: Arc<tokio::sync::Mutex<std::collections::HashMap<JobId, String>>>,
+        outputs: Arc<tokio::sync::Mutex<std::collections::HashMap<JobId, Vec<TaskOutput>>>>,
     }
 
     #[async_trait::async_trait]
-    impl crate::db::ExternalJobOrchestration for MockDbConnector {
+    impl ExternalJobOrchestration for MockDbConnector {
         async fn register(
             &self,
             _resource_group_id: ResourceGroupId,
@@ -434,13 +435,12 @@ mod tests {
             _job_inputs: &[TaskInput],
         ) -> Result<JobId, crate::db::DbError> {
             let job_id = JobId::new();
-            self.registered_jobs.lock().await.push(job_id);
-            self.job_states.lock().await.insert(job_id, JobState::Ready);
+            self.states.lock().await.insert(job_id, JobState::Ready);
             Ok(job_id)
         }
 
         async fn get_state(&self, job_id: JobId) -> Result<JobState, crate::db::DbError> {
-            self.job_states
+            self.states
                 .lock()
                 .await
                 .get(&job_id)
@@ -449,7 +449,7 @@ mod tests {
         }
 
         async fn get_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, crate::db::DbError> {
-            self.job_outputs
+            self.outputs
                 .lock()
                 .await
                 .get(&job_id)
@@ -458,7 +458,7 @@ mod tests {
         }
 
         async fn get_error(&self, job_id: JobId) -> Result<String, crate::db::DbError> {
-            self.job_errors
+            self.errors
                 .lock()
                 .await
                 .get(&job_id)
@@ -470,10 +470,7 @@ mod tests {
     #[async_trait::async_trait]
     impl crate::db::InternalJobOrchestration for MockDbConnector {
         async fn start(&self, job_id: JobId) -> Result<(), crate::db::DbError> {
-            self.job_states
-                .lock()
-                .await
-                .insert(job_id, JobState::Running);
+            self.states.lock().await.insert(job_id, JobState::Running);
             Ok(())
         }
 
@@ -482,7 +479,7 @@ mod tests {
             job_id: JobId,
             state: JobState,
         ) -> Result<(), crate::db::DbError> {
-            self.job_states.lock().await.insert(job_id, state);
+            self.states.lock().await.insert(job_id, state);
             Ok(())
         }
 
@@ -492,10 +489,7 @@ mod tests {
             _job_outputs: Vec<TaskOutput>,
             _has_commit_task: bool,
         ) -> Result<(), crate::db::DbError> {
-            self.job_states
-                .lock()
-                .await
-                .insert(job_id, JobState::Succeeded);
+            self.states.lock().await.insert(job_id, JobState::Succeeded);
             Ok(())
         }
 
@@ -504,10 +498,7 @@ mod tests {
             job_id: JobId,
             _has_cleanup_task: bool,
         ) -> Result<(), crate::db::DbError> {
-            self.job_states
-                .lock()
-                .await
-                .insert(job_id, JobState::Cancelled);
+            self.states.lock().await.insert(job_id, JobState::Cancelled);
             Ok(())
         }
 
@@ -516,10 +507,7 @@ mod tests {
             job_id: JobId,
             _error_message: String,
         ) -> Result<(), crate::db::DbError> {
-            self.job_states
-                .lock()
-                .await
-                .insert(job_id, JobState::Failed);
+            self.states.lock().await.insert(job_id, JobState::Failed);
             Ok(())
         }
 
@@ -577,7 +565,8 @@ mod tests {
 
     fn create_test_task_graph() -> SubmittedTaskGraph {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-        let mut task_graph = SubmittedTaskGraph::new(None, None).unwrap();
+        let mut task_graph =
+            SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
         task_graph
             .insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
@@ -627,7 +616,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_job_returns_job_id_and_inserts_into_cache() {
+    async fn register_job_returns_job_id_and_inserts_into_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
             .register_job(
@@ -635,17 +624,17 @@ mod tests {
                 &create_test_task_graph(),
                 vec![TaskInput::ValuePayload(vec![0u8; 4])],
             )
-            .await
-            .expect("register_job should succeed");
+            .await?;
         assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
             service.job_cache.get(job_id).is_some(),
             "JCB should be in cache after register_job"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn submit_job_starts_cached_job() {
+    async fn submit_job_starts_cached_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
             .register_job(
@@ -653,55 +642,45 @@ mod tests {
                 &create_test_task_graph(),
                 vec![TaskInput::ValuePayload(vec![0u8; 4])],
             )
-            .await
-            .expect("register_job should succeed");
+            .await?;
 
-        service
-            .submit_job(job_id)
-            .await
-            .expect("submit_job should succeed");
+        service.submit_job(job_id).await?;
 
-        let state = service
-            .get_job_state(job_id)
-            .await
-            .expect("get_job_state should succeed");
+        let state = service.get_job_state(job_id).await?;
         assert_eq!(state, JobState::Running);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn submit_job_returns_job_not_found_when_not_in_cache() {
+    async fn submit_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.submit_job(JobId::new()).await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "submit_job should return JobNotFound when job is not in cache"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn cancel_job_returns_job_not_found_when_not_in_cache() {
+    async fn cancel_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.cancel_job(JobId::new()).await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "cancel_job should return JobNotFound when job is not in cache"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn cancel_job_with_cached_jcb_removes_on_terminal() {
+    async fn cancel_job_with_cached_jcb_removes_on_terminal() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = JobId::new();
         let jcb = create_test_jcb(job_id).await;
-        service
-            .job_cache
-            .insert(jcb)
-            .expect("insert should succeed");
+        service.job_cache.insert(jcb)?;
 
-        let state = service
-            .cancel_job(job_id)
-            .await
-            .expect("cancel_job should succeed for cached job");
+        let state = service.cancel_job(job_id).await?;
         assert!(
             state.is_terminal(),
             "cancel should result in terminal state"
@@ -710,10 +689,11 @@ mod tests {
             service.job_cache.get(job_id).is_none(),
             "job should be removed from cache after terminal cancel"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn get_job_state_delegates_to_db() {
+    async fn get_job_state_delegates_to_db() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
             .register_job(
@@ -721,32 +701,31 @@ mod tests {
                 &create_test_task_graph(),
                 vec![TaskInput::ValuePayload(vec![0u8; 4])],
             )
-            .await
-            .expect("register_job should succeed");
+            .await?;
 
-        let state = service
-            .get_job_state(job_id)
-            .await
-            .expect("get_job_state should succeed");
+        let state = service.get_job_state(job_id).await?;
         assert_eq!(state, JobState::Ready);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn get_job_state_returns_error_for_unknown_job() {
+    async fn get_job_state_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.get_job_state(JobId::new()).await;
         assert!(result.is_err(), "get_job_state should fail for unknown job");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn get_job_error_returns_error_for_unknown_job() {
+    async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.get_job_error(JobId::new()).await;
         assert!(result.is_err(), "get_job_error should fail for unknown job");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_task_instance_returns_job_not_found_when_not_in_cache() {
+    async fn create_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
             .create_task_instance(JobId::new(), TaskId::Index(0), ExecutionManagerId::new())
@@ -755,10 +734,11 @@ mod tests {
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "create_task_instance should return JobNotFound when job is not in cache"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() {
+    async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
             .succeed_task_instance(JobId::new(), 1, 0, vec![])
@@ -767,10 +747,11 @@ mod tests {
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "succeed_task_instance should return JobNotFound when job is not in cache"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn fail_task_instance_returns_job_not_found_when_not_in_cache() {
+    async fn fail_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
             .fail_task_instance(JobId::new(), 1, TaskId::Index(0), "error".to_owned())
@@ -779,5 +760,6 @@ mod tests {
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "fail_task_instance should return JobNotFound when job is not in cache"
         );
+        Ok(())
     }
 }
