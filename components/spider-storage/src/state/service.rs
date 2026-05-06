@@ -75,8 +75,6 @@ impl<
         self.session_id
     }
 
-    // ── Job operations ───────────────────────────────────────────────
-
     /// Registers a job in the database.
     ///
     /// # Parameters
@@ -217,8 +215,6 @@ impl<
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
         Ok(self.db.get_error(job_id).await?)
     }
-
-    // ── Execution-manager task-instance reporting ────────────────────
 
     /// Creates a task instance for the given task and registers it in the task instance pool.
     ///
