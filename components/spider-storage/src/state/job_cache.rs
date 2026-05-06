@@ -2,12 +2,10 @@ use dashmap::{DashMap, mapref::entry::Entry};
 use spider_core::types::id::JobId;
 
 use crate::{
-    cache::{
-        error::{CacheError, InternalError},
-        job::SharedJobControlBlock,
-    },
+    cache::job::SharedJobControlBlock,
     db::InternalJobOrchestration,
     ready_queue::ReadyQueueSender,
+    state::StorageServerError,
     task_instance_pool::TaskInstancePoolConnector,
 };
 
@@ -52,7 +50,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`CacheError::Internal`] if a job control block with the same ID already exists.
+    /// * [`StorageServerError::JobAlreadyExists`] if a job control block with the same ID already
+    ///   exists.
     pub fn insert(
         &self,
         jcb: SharedJobControlBlock<
@@ -60,14 +59,14 @@ impl<
             DbConnectorType,
             TaskInstancePoolConnectorType,
         >,
-    ) -> Result<(), CacheError> {
+    ) -> Result<(), StorageServerError> {
         let job_id = jcb.id();
         match self.jobs.entry(job_id) {
             Entry::Vacant(e) => {
                 e.insert(jcb);
                 Ok(())
             }
-            Entry::Occupied(_) => Err(InternalError::JobAlreadyExists(job_id).into()),
+            Entry::Occupied(_) => Err(StorageServerError::JobAlreadyExists(job_id)),
         }
     }
 
@@ -108,7 +107,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
-    pub async fn resend_ready_tasks(&self) -> Result<(), CacheError> {
+    pub async fn resend_ready_tasks(&self) -> Result<(), StorageServerError> {
         for entry in &self.jobs {
             entry.value().resend_ready_tasks().await?;
         }
@@ -150,12 +149,13 @@ mod tests {
     use super::*;
     use crate::{
         cache::{
-            error::{CacheError, InternalError},
+            error::InternalError,
             job::SharedJobControlBlock,
             task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
         },
         db::DbError,
         ready_queue::ReadyQueueSender,
+        state::StorageServerError,
         task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
     };
 
@@ -347,13 +347,10 @@ mod tests {
         let jcb2 = create_test_jcb(job_id).await;
         let result = cache.insert(jcb2);
         assert!(
-            matches!(
-                result,
-                Err(CacheError::Internal(InternalError::JobAlreadyExists(_)))
-            ),
+            matches!(result, Err(StorageServerError::JobAlreadyExists(_))),
             "insert should return JobAlreadyExists error for duplicate key"
         );
-        if let Err(CacheError::Internal(InternalError::JobAlreadyExists(id))) = result {
+        if let Err(StorageServerError::JobAlreadyExists(id)) = result {
             assert_eq!(id, job_id, "error should contain the duplicate job ID");
         }
         Ok(())
