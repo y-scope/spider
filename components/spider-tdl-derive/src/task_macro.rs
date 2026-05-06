@@ -3,8 +3,11 @@
 //! The macro replaces the annotated function with three items:
 //!
 //! 1. A unit marker struct that shares the function's identifier and visibility.
-//! 2. A private params struct holding the non-context parameters, with
-//!    `#[derive(serde::Deserialize)]` so the runtime can rebuild it from wire bytes.
+//! 2. A params struct holding the non-context parameters:
+//!    * This struct shares the function's visibility, so it never leaks through the public
+//!      `Task::Params` associated type.
+//!    * This struct derives `serde::Deserialize` so that the runtime can rebuild it from
+//!      wire-format serialized byte sequence.
 //! 3. An `impl spider_tdl::Task` for the marker struct that wires the params back into the
 //!    user-authored function body.
 //!
@@ -156,7 +159,7 @@ pub fn expand(attr: &TaskAttr, func: &ItemFn) -> syn::Result<TokenStream> {
 
         #[allow(non_camel_case_types)]
         #[derive(::serde::Deserialize)]
-        struct #params_struct_name {
+        #vis struct #params_struct_name {
             #(#param_fields,)*
         }
 
@@ -400,7 +403,7 @@ mod tests {
 
             #[allow(non_camel_case_types)]
             #[derive(::serde::Deserialize)]
-            struct __add_params {
+            pub(crate) struct __add_params {
                 a: int32,
                 b: int32,
             }

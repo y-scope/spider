@@ -1,30 +1,21 @@
 use spider_core::types::id::JobId;
 
-use crate::{
-    cache::error::{InternalError, StaleStateError},
-    db::DbError,
-};
+use crate::cache::error::CacheError;
 
 /// Errors that can occur during storage server operations.
 #[derive(thiserror::Error, Debug)]
 pub enum StorageServerError {
     #[error(transparent)]
-    Internal(#[from] InternalError),
-
-    #[error(transparent)]
-    StaleState(#[from] StaleStateError),
+    Cache(#[from] CacheError),
 
     #[error("stale session")]
     StaleSession,
 
-    #[error(transparent)]
-    Db(#[from] DbError),
-
     #[error("server is shutting down: {0}")]
-    Stopping(&'static str),
+    Stopping(String),
 
     #[error("bad request: {0}")]
-    BadRequest(&'static str),
+    BadRequest(String),
 
     #[error("job already exists: {0:?}")]
     JobAlreadyExists(JobId),
