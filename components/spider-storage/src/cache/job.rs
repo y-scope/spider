@@ -154,13 +154,12 @@ impl<
     /// * [`JobState::CleanupReady`] — the cleanup task via
     ///   [`ReadyQueueSender::send_cleanup_ready`].
     ///
+    /// For other job states, this method is a no-op and returns `Ok(())`.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
-    /// * Forwards [`JobExecutionStateHandle::read_commit_ready`]'s return values on failure.
-    /// * Forwards [`JobExecutionStateHandle::read_cleanup_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
