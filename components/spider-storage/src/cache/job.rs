@@ -103,6 +103,12 @@ impl<
         })
     }
 
+    /// Returns the job ID.
+    #[must_use]
+    pub fn id(&self) -> JobId {
+        self.inner.id
+    }
+
     /// Starts the job.
     ///
     /// Any tasks in [`TaskState::Ready`] will be enqueued to the ready queue on success.

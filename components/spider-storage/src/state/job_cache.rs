@@ -54,13 +54,13 @@ impl<
     ///   exists.
     pub fn insert(
         &self,
-        job_id: JobId,
         jcb: SharedJobControlBlock<
             ReadyQueueSenderType,
             DbConnectorType,
             TaskInstancePoolConnectorType,
         >,
     ) -> Result<(), StorageServerError> {
+        let job_id = jcb.id();
         match self.jobs.entry(job_id) {
             Entry::Vacant(e) => {
                 e.insert(jcb);
@@ -296,7 +296,7 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache.insert(job_id, jcb)?;
+        cache.insert(jcb)?;
 
         let result = cache.get(job_id);
         assert!(result.is_some(), "inserted JCB should be retrievable");
@@ -310,7 +310,7 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache.insert(job_id, jcb)?;
+        cache.insert(jcb)?;
 
         let removed = cache.remove(job_id);
         assert!(removed.is_some(), "remove should return the JCB");
@@ -341,10 +341,10 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb1 = create_test_jcb(job_id).await;
-        cache.insert(job_id, jcb1)?;
+        cache.insert(jcb1)?;
 
         let jcb2 = create_test_jcb(job_id).await;
-        let result = cache.insert(job_id, jcb2);
+        let result = cache.insert(jcb2);
         assert!(
             matches!(result, Err(StorageServerError::JobAlreadyExists(_))),
             "insert should return JobAlreadyExists error for duplicate key"
@@ -372,7 +372,7 @@ mod tests {
                 let job_id = JobId::new();
                 let jcb = create_test_jcb(job_id).await;
                 cache
-                    .insert(job_id, jcb)
+                    .insert(jcb)
                     .expect("insert should succeed for new job");
 
                 let result = cache.get(job_id);
@@ -472,23 +472,24 @@ mod tests {
         .await
         .expect("JCB creation should succeed");
         jcb.start().await.expect("start should succeed");
+        calls.lock().expect("lock").clear();
 
         let cache: JobCache<
             TrackingReadyQueueSender,
             MockDbConnector,
             MockTaskInstancePoolConnector,
         > = JobCache::new();
-        cache.insert(job_id, jcb)?;
+        cache.insert(jcb)?;
 
         cache.resend_ready_tasks().await?;
 
-        let has_task_ready = {
+        let task_ready_count = {
             let recorded = calls.lock().expect("lock");
-            recorded.iter().any(|c| c == "task_ready")
+            recorded.iter().filter(|c| **c == "task_ready").count()
         };
-        assert!(
-            has_task_ready,
-            "resend_ready_tasks should have sent task_ready"
+        assert_eq!(
+            task_ready_count, 1,
+            "resend_ready_tasks should send one task_ready after the reset"
         );
         Ok(())
     }
