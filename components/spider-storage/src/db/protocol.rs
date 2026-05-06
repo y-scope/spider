@@ -12,17 +12,6 @@ use spider_core::{
 
 use crate::db::error::DbError;
 
-/// Data needed to construct a job control block from persisted state.
-#[derive(Debug)]
-pub struct JobData {
-    /// The owner of the job.
-    pub resource_group_id: ResourceGroupId,
-    /// The task graph representing the job's tasks and their dependencies.
-    pub task_graph: TaskGraph,
-    /// The job inputs.
-    pub inputs: Vec<TaskInput>,
-}
-
 /// The database storage interface. A database storage must implement the following traits:
 ///
 /// * [`ExternalJobOrchestration`]
@@ -134,27 +123,6 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn get_error(&self, job_id: JobId) -> Result<String, DbError>;
-
-    /// Gets the data needed to construct a job control block.
-    ///
-    /// # Parameters
-    ///
-    /// * `job_id` - The ID of the job.
-    ///
-    /// # Returns
-    ///
-    /// The job data on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
-    /// * [`DbError::TaskGraphDeserializationFailure`] if the task graph deserialization fails.
-    /// * [`DbError::ValueDeserializationFailure`] if the inputs deserialization fails.
-    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
-    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_job_data(&self, job_id: JobId) -> Result<JobData, DbError>;
 }
 
 /// Defines the internal storage interface for job storage in the database.

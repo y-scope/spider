@@ -73,6 +73,9 @@ pub enum InternalError {
 
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
+
+    #[error("job already in cache: {0:?}")]
+    JobAlreadyExists(spider_core::types::id::JobId),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

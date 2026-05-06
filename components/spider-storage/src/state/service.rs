@@ -11,7 +11,7 @@ use spider_core::{
 
 use crate::{
     cache::{TaskId, job::SharedJobControlBlock},
-    db::{ExternalJobOrchestration, InternalJobOrchestration, JobData},
+    db::{ExternalJobOrchestration, InternalJobOrchestration},
     ready_queue::{ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
@@ -75,13 +75,13 @@ impl<
         self.session_id
     }
 
-    /// Registers a job in the database.
+    /// Registers a job in the database and inserts its control block into the cache.
     ///
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the created job.
     /// * `task_graph` - The task graph representing the job's tasks and their dependencies.
-    /// * `job_inputs` - A slice of job inputs required for the job.
+    /// * `job_inputs` - A vector of job inputs required for the job.
     ///
     /// # Returns
     ///
@@ -91,23 +91,41 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * Forwards [`CacheError`] if the job already exists in the cache.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: &spider_core::task::TaskGraph,
-        job_inputs: &[TaskInput],
+        job_inputs: Vec<TaskInput>,
     ) -> Result<JobId, StorageServerError> {
-        Ok(self
+        let job_id = self
             .db
-            .register(resource_group_id, task_graph, job_inputs)
-            .await?)
+            .register(resource_group_id, task_graph, &job_inputs)
+            .await?;
+
+        let jcb = SharedJobControlBlock::create(
+            job_id,
+            resource_group_id,
+            task_graph,
+            job_inputs,
+            self.ready_queue_sender.clone(),
+            self.db.clone(),
+            self.task_instance_pool_connector.clone(),
+        )
+        .await
+        .map_err(StorageServerError::from)?;
+
+        self.job_cache.insert(jcb)?;
+
+        Ok(job_id)
     }
 
     /// Submits a job for execution.
     ///
-    /// Gets the job data from the database, creates a job control block, inserts it into the
-    /// cache, and starts the job by calling [`SharedJobControlBlock::start`].
+    /// Gets the job control block from the cache and starts it by calling
+    /// [`SharedJobControlBlock::start`].
     ///
     /// # Parameters
     ///
@@ -117,41 +135,14 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::BadRequest`] if the job already exists in the cache.
-    /// * Forwards [`ExternalJobOrchestration::get_job_data`]'s return values on failure.
-    /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
     pub async fn submit_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
-        // Get job data from DB
-        let job_data: JobData = self.db.get_job_data(job_id).await?;
-
-        // Create JCB
-        let jcb = SharedJobControlBlock::create(
-            job_id,
-            job_data.resource_group_id,
-            &job_data.task_graph,
-            job_data.inputs,
-            self.ready_queue_sender.clone(),
-            self.db.clone(),
-            self.task_instance_pool_connector.clone(),
-        )
-        .await
-        .map_err(StorageServerError::from)?;
-
-        // Insert into cache (should not exist yet)
-        self.job_cache
-            .insert(jcb)
-            .map_err(|e| StorageServerError::BadRequest(format!("job already in cache: {e:?}")))?;
-
-        // Get JCB from cache and call start()
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest(
-                "jcb not found after insert".to_string(),
-            ))?;
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
         jcb.start().await.map_err(StorageServerError::from)?;
-
         Ok(())
     }
 
@@ -172,15 +163,13 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::BadRequest`] if the job is not in the cache.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest(
-                "job not found in cache".to_string(),
-            ))?;
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb.cancel().await.map_err(StorageServerError::from)?;
         if state.is_terminal() {
             let _ = self.job_cache.remove(job_id);
@@ -264,7 +253,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::BadRequest`] if the job is not in the cache.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
     pub async fn create_task_instance(
         &self,
@@ -275,9 +264,7 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest(
-                "job not found in cache".to_string(),
-            ))?;
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
         jcb.create_task_instance(task_id, execution_manager_id)
             .await
             .map_err(StorageServerError::from)
@@ -303,7 +290,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::BadRequest`] if the job is not in the cache.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
@@ -315,9 +302,7 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest(
-                "job not found in cache".to_string(),
-            ))?;
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await
@@ -347,7 +332,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::BadRequest`] if the job is not in the cache.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
     pub async fn fail_task_instance(
         &self,
@@ -359,9 +344,7 @@ impl<
         let jcb = self
             .job_cache
             .get(job_id)
-            .ok_or(StorageServerError::BadRequest(
-                "job not found in cache".to_string(),
-            ))?;
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await
@@ -482,38 +465,6 @@ mod tests {
                 .cloned()
                 .ok_or(crate::db::DbError::JobNotFound(job_id))
         }
-
-        async fn get_job_data(
-            &self,
-            job_id: JobId,
-        ) -> Result<crate::db::JobData, crate::db::DbError> {
-            // Check if job exists
-            if !self.job_states.lock().await.contains_key(&job_id) {
-                return Err(crate::db::DbError::JobNotFound(job_id));
-            }
-
-            // Return a valid task graph with one task
-            let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-            let mut task_graph = SubmittedTaskGraph::new(None, None).unwrap();
-            task_graph
-                .insert_task(TaskDescriptor {
-                    tdl_context: TdlContext {
-                        package: "test_pkg".to_owned(),
-                        task_func: "test_fn".to_owned(),
-                    },
-                    execution_policy: Some(ExecutionPolicy::default()),
-                    inputs: vec![bytes_type.clone()],
-                    outputs: vec![bytes_type],
-                    input_sources: None,
-                })
-                .expect("task insertion should succeed");
-
-            Ok(crate::db::JobData {
-                resource_group_id: ResourceGroupId::new(),
-                task_graph,
-                inputs: vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            })
-        }
     }
 
     #[async_trait::async_trait]
@@ -624,6 +575,24 @@ mod tests {
         )
     }
 
+    fn create_test_task_graph() -> SubmittedTaskGraph {
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let mut task_graph = SubmittedTaskGraph::new(None, None).unwrap();
+        task_graph
+            .insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "test_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+                inputs: vec![bytes_type.clone()],
+                outputs: vec![bytes_type],
+                input_sources: None,
+            })
+            .expect("task insertion should succeed");
+        task_graph
+    }
+
     async fn create_test_jcb(
         job_id: JobId,
     ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
@@ -658,27 +627,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_job_returns_job_id() {
+    async fn register_job_returns_job_id_and_inserts_into_cache() {
         let service = create_test_service();
         let job_id = service
             .register_job(
                 ResourceGroupId::new(),
-                &SubmittedTaskGraph::new(None, None).unwrap(),
-                &[],
+                &create_test_task_graph(),
+                vec![TaskInput::ValuePayload(vec![0u8; 4])],
             )
             .await
             .expect("register_job should succeed");
         assert_ne!(job_id, JobId::default(), "job ID should be assigned");
+        assert!(
+            service.job_cache.get(job_id).is_some(),
+            "JCB should be in cache after register_job"
+        );
     }
 
     #[tokio::test]
-    async fn submit_job_delegates_to_db() {
+    async fn submit_job_starts_cached_job() {
         let service = create_test_service();
         let job_id = service
             .register_job(
                 ResourceGroupId::new(),
-                &SubmittedTaskGraph::new(None, None).unwrap(),
-                &[],
+                &create_test_task_graph(),
+                vec![TaskInput::ValuePayload(vec![0u8; 4])],
             )
             .await
             .expect("register_job should succeed");
@@ -693,21 +666,25 @@ mod tests {
             .await
             .expect("get_job_state should succeed");
         assert_eq!(state, JobState::Running);
+    }
 
-        // Verify JCB is in cache
+    #[tokio::test]
+    async fn submit_job_returns_job_not_found_when_not_in_cache() {
+        let service = create_test_service();
+        let result = service.submit_job(JobId::new()).await;
         assert!(
-            service.job_cache.get(job_id).is_some(),
-            "JCB should be in cache after submit_job"
+            matches!(result, Err(StorageServerError::JobNotFound(_))),
+            "submit_job should return JobNotFound when job is not in cache"
         );
     }
 
     #[tokio::test]
-    async fn cancel_job_returns_bad_request_when_not_in_cache() {
+    async fn cancel_job_returns_job_not_found_when_not_in_cache() {
         let service = create_test_service();
         let result = service.cancel_job(JobId::new()).await;
         assert!(
-            matches!(result, Err(StorageServerError::BadRequest(_))),
-            "cancel_job should return BadRequest when job is not in cache"
+            matches!(result, Err(StorageServerError::JobNotFound(_))),
+            "cancel_job should return JobNotFound when job is not in cache"
         );
     }
 
@@ -741,8 +718,8 @@ mod tests {
         let job_id = service
             .register_job(
                 ResourceGroupId::new(),
-                &SubmittedTaskGraph::new(None, None).unwrap(),
-                &[],
+                &create_test_task_graph(),
+                vec![TaskInput::ValuePayload(vec![0u8; 4])],
             )
             .await
             .expect("register_job should succeed");
@@ -769,38 +746,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_task_instance_returns_bad_request_when_not_in_cache() {
+    async fn create_task_instance_returns_job_not_found_when_not_in_cache() {
         let service = create_test_service();
         let result = service
             .create_task_instance(JobId::new(), TaskId::Index(0), ExecutionManagerId::new())
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::BadRequest(_))),
-            "create_task_instance should return BadRequest when job is not in cache"
+            matches!(result, Err(StorageServerError::JobNotFound(_))),
+            "create_task_instance should return JobNotFound when job is not in cache"
         );
     }
 
     #[tokio::test]
-    async fn succeed_task_instance_returns_bad_request_when_not_in_cache() {
+    async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() {
         let service = create_test_service();
         let result = service
             .succeed_task_instance(JobId::new(), 1, 0, vec![])
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::BadRequest(_))),
-            "succeed_task_instance should return BadRequest when job is not in cache"
+            matches!(result, Err(StorageServerError::JobNotFound(_))),
+            "succeed_task_instance should return JobNotFound when job is not in cache"
         );
     }
 
     #[tokio::test]
-    async fn fail_task_instance_returns_bad_request_when_not_in_cache() {
+    async fn fail_task_instance_returns_job_not_found_when_not_in_cache() {
         let service = create_test_service();
         let result = service
             .fail_task_instance(JobId::new(), 1, TaskId::Index(0), "error".to_owned())
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::BadRequest(_))),
-            "fail_task_instance should return BadRequest when job is not in cache"
+            matches!(result, Err(StorageServerError::JobNotFound(_))),
+            "fail_task_instance should return JobNotFound when job is not in cache"
         );
     }
 }

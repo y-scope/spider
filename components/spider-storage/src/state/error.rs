@@ -17,9 +17,9 @@ pub enum StorageServerError {
     #[error("server is shutting down: {0}")]
     Stopping(String),
 
+    #[error("job not found in cache: {0:?}")]
+    JobNotFound(JobId),
+
     #[error("bad request: {0}")]
     BadRequest(String),
-
-    #[error("job already exists: {0:?}")]
-    JobAlreadyExists(JobId),
 }
