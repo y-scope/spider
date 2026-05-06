@@ -394,10 +394,10 @@ mod tests {
         tracker.wait().await;
     }
 
-    /// A tracking ready queue sender that records calls.
+    /// A tracking ready queue sender that records the number of calls.
     #[derive(Clone, Default)]
     struct TrackingReadyQueueSender {
-        calls: Arc<std::sync::Mutex<Vec<String>>>,
+        call_count: Arc<std::sync::atomic::AtomicUsize>,
     }
 
     #[async_trait::async_trait]
@@ -408,10 +408,8 @@ mod tests {
             _job_id: JobId,
             _task_indices: Vec<usize>,
         ) -> Result<(), InternalError> {
-            self.calls
-                .lock()
-                .expect("lock")
-                .push("task_ready".to_owned());
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         }
 
@@ -420,10 +418,8 @@ mod tests {
             _rg_id: spider_core::types::id::ResourceGroupId,
             _job_id: JobId,
         ) -> Result<(), InternalError> {
-            self.calls
-                .lock()
-                .expect("lock")
-                .push("commit_ready".to_owned());
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         }
 
@@ -432,19 +428,17 @@ mod tests {
             _rg_id: spider_core::types::id::ResourceGroupId,
             _job_id: JobId,
         ) -> Result<(), InternalError> {
-            self.calls
-                .lock()
-                .expect("lock")
-                .push("cleanup_ready".to_owned());
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         }
     }
 
     #[tokio::test]
     async fn job_cache_resend_ready_tasks_sends_for_running_job() -> anyhow::Result<()> {
-        let calls: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+        let call_count: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
         let sender = TrackingReadyQueueSender {
-            calls: Arc::clone(&calls),
+            call_count: Arc::clone(&call_count),
         };
 
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
@@ -476,7 +470,7 @@ mod tests {
         .await
         .expect("JCB creation should succeed");
         jcb.start().await.expect("start should succeed");
-        calls.lock().expect("lock").clear();
+        call_count.store(0, std::sync::atomic::Ordering::Relaxed);
 
         let cache: JobCache<
             TrackingReadyQueueSender,
@@ -487,13 +481,10 @@ mod tests {
 
         cache.resend_ready_tasks().await?;
 
-        let task_ready_count = {
-            let recorded = calls.lock().expect("lock");
-            recorded.iter().filter(|c| **c == "task_ready").count()
-        };
         assert_eq!(
-            task_ready_count, 1,
-            "resend_ready_tasks should send one task_ready after the reset"
+            call_count.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "resend_ready_tasks should send one call after the reset"
         );
         Ok(())
     }
