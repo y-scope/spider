@@ -10,8 +10,8 @@ use spider_core::{
 };
 
 use crate::{
-    cache::TaskId,
-    db::{ExternalJobOrchestration, InternalJobOrchestration},
+    cache::{TaskId, job::SharedJobControlBlock},
+    db::{ExternalJobOrchestration, InternalJobOrchestration, JobData},
     ready_queue::{ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
@@ -106,8 +106,8 @@ impl<
 
     /// Submits a job for execution.
     ///
-    /// Calls [`InternalJobOrchestration::start`] on the database to transition the job to
-    /// [`JobState::Running`].
+    /// Gets the job data from the database, creates a job control block, inserts it into the
+    /// cache, and starts the job by calling [`SharedJobControlBlock::start`].
     ///
     /// # Parameters
     ///
@@ -117,9 +117,41 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`InternalJobOrchestration::start`]'s return values on failure.
+    /// * [`StorageServerError::BadRequest`] if the job already exists in the cache.
+    /// * Forwards [`ExternalJobOrchestration::get_job_data`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
     pub async fn submit_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
-        self.db.start(job_id).await?;
+        // Get job data from DB
+        let job_data: JobData = self.db.get_job_data(job_id).await?;
+
+        // Create JCB
+        let jcb = SharedJobControlBlock::create(
+            job_id,
+            job_data.resource_group_id,
+            &job_data.task_graph,
+            job_data.inputs,
+            self.ready_queue_sender.clone(),
+            self.db.clone(),
+            self.task_instance_pool_connector.clone(),
+        )
+        .await
+        .map_err(StorageServerError::from)?;
+
+        // Insert into cache (should not exist yet)
+        self.job_cache
+            .insert(jcb)
+            .map_err(|e| StorageServerError::BadRequest(format!("job already in cache: {e:?}")))?;
+
+        // Get JCB from cache and call start()
+        let jcb = self
+            .job_cache
+            .get(job_id)
+            .ok_or(StorageServerError::BadRequest(
+                "jcb not found after insert".to_string(),
+            ))?;
+        jcb.start().await.map_err(StorageServerError::from)?;
+
         Ok(())
     }
 
@@ -450,6 +482,38 @@ mod tests {
                 .cloned()
                 .ok_or(crate::db::DbError::JobNotFound(job_id))
         }
+
+        async fn get_job_data(
+            &self,
+            job_id: JobId,
+        ) -> Result<crate::db::JobData, crate::db::DbError> {
+            // Check if job exists
+            if !self.job_states.lock().await.contains_key(&job_id) {
+                return Err(crate::db::DbError::JobNotFound(job_id));
+            }
+
+            // Return a valid task graph with one task
+            let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+            let mut task_graph = SubmittedTaskGraph::new(None, None).unwrap();
+            task_graph
+                .insert_task(TaskDescriptor {
+                    tdl_context: TdlContext {
+                        package: "test_pkg".to_owned(),
+                        task_func: "test_fn".to_owned(),
+                    },
+                    execution_policy: Some(ExecutionPolicy::default()),
+                    inputs: vec![bytes_type.clone()],
+                    outputs: vec![bytes_type],
+                    input_sources: None,
+                })
+                .expect("task insertion should succeed");
+
+            Ok(crate::db::JobData {
+                resource_group_id: ResourceGroupId::new(),
+                task_graph,
+                inputs: vec![TaskInput::ValuePayload(vec![0u8; 4])],
+            })
+        }
     }
 
     #[async_trait::async_trait]
@@ -629,6 +693,12 @@ mod tests {
             .await
             .expect("get_job_state should succeed");
         assert_eq!(state, JobState::Running);
+
+        // Verify JCB is in cache
+        assert!(
+            service.job_cache.get(job_id).is_some(),
+            "JCB should be in cache after submit_job"
+        );
     }
 
     #[tokio::test]

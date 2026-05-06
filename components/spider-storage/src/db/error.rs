@@ -40,6 +40,9 @@ pub enum DbError {
     #[error("Task graph serialization failure: {0}")]
     TaskGraphSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    #[error("Task graph deserialization failure: {0}")]
+    TaskGraphDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("Value serialization failure: {0}")]
     ValueSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 

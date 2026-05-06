@@ -207,6 +207,34 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         })?;
         Ok(message)
     }
+
+    async fn get_job_data(&self, job_id: JobId) -> Result<crate::db::JobData, DbError> {
+        const QUERY: &str = formatcp!(
+            "SELECT `resource_group_id`, `serialized_task_graph`, `serialized_job_inputs` FROM \
+             `{table}` WHERE `id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+
+        let Some((resource_group_id, serialized_task_graph, serialized_inputs)) =
+            sqlx::query_as::<_, (ResourceGroupId, String, Vec<u8>)>(QUERY)
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await?
+        else {
+            return Err(DbError::JobNotFound(job_id));
+        };
+
+        let task_graph = TaskGraph::from_json(&serialized_task_graph)
+            .map_err(|e| DbError::TaskGraphDeserializationFailure(Box::new(e)))?;
+        let inputs: Vec<TaskInput> =
+            rmp_serde::from_slice(&serialized_inputs).map_err(DbError::value_de)?;
+
+        Ok(crate::db::JobData {
+            resource_group_id,
+            task_graph,
+            inputs,
+        })
+    }
 }
 
 #[async_trait]
