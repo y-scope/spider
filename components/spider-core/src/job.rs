@@ -27,22 +27,21 @@ impl ValidatedJobSubmission {
     ///
     /// Returns an error if:
     ///
-    /// * [`Error::InvalidJobSubmission`] if the task graph contains no tasks.
-    /// * [`Error::InvalidJobSubmission`] if the number of inputs does not match the number of graph
+    /// * [`Error::EmptyTaskGraph`] if the task graph contains no tasks.
+    /// * [`Error::InputCountMismatch`] if the number of inputs does not match the number of graph
     ///   inputs.
     pub fn validate(task_graph: TaskGraph, inputs: Vec<TaskInput>) -> Result<Self, Error> {
         let num_tasks = task_graph.get_num_tasks();
         if num_tasks == 0 {
-            return Err(Error::InvalidJobSubmission(
-                "task graph must contain at least one task".to_owned(),
-            ));
+            return Err(Error::EmptyTaskGraph);
         }
         let expected_inputs = task_graph.get_task_graph_input_indices().len();
         let actual_inputs = inputs.len();
         if expected_inputs != actual_inputs {
-            return Err(Error::InvalidJobSubmission(format!(
-                "expected {expected_inputs} graph inputs, got {actual_inputs}"
-            )));
+            return Err(Error::InputCountMismatch {
+                expected: expected_inputs,
+                actual: actual_inputs,
+            });
         }
         Ok(Self { task_graph, inputs })
     }
@@ -120,8 +119,8 @@ mod tests {
         let inputs = vec![];
         let result = ValidatedJobSubmission::validate(graph, inputs);
         assert!(
-            matches!(result, Err(Error::InvalidJobSubmission(_))),
-            "empty task graph should return InvalidJobSubmission"
+            matches!(result, Err(Error::EmptyTaskGraph)),
+            "empty task graph should return EmptyTaskGraph"
         );
     }
 
@@ -131,8 +130,14 @@ mod tests {
         let inputs = vec![];
         let result = ValidatedJobSubmission::validate(graph, inputs);
         assert!(
-            matches!(result, Err(Error::InvalidJobSubmission(_))),
-            "mismatched input count should return InvalidJobSubmission"
+            matches!(
+                result,
+                Err(Error::InputCountMismatch {
+                    expected: 1,
+                    actual: 0
+                })
+            ),
+            "mismatched input count should return InputCountMismatch"
         );
     }
 
