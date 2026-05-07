@@ -5,7 +5,7 @@ use crate::{
     cache::job::SharedJobControlBlock,
     db::InternalJobOrchestration,
     ready_queue::ReadyQueueSender,
-    state::error::StorageServerError,
+    state::StorageServerError,
     task_instance_pool::TaskInstancePoolConnector,
 };
 
@@ -131,7 +131,6 @@ mod tests {
     use std::sync::Arc;
 
     use spider_core::{
-        job::JobState,
         task::{
             DataTypeDescriptor,
             ExecutionPolicy,
@@ -140,121 +139,15 @@ mod tests {
             TdlContext,
             ValueTypeDescriptor,
         },
-        types::{
-            id::JobId,
-            io::{TaskInput, TaskOutput},
-        },
+        types::{id::JobId, io::TaskInput},
     };
 
     use super::*;
     use crate::{
-        cache::{
-            error::InternalError,
-            job::SharedJobControlBlock,
-            task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
-        },
-        db::DbError,
+        cache::{error::InternalError, job::SharedJobControlBlock},
         ready_queue::ReadyQueueSender,
-        task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
+        state::test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
     };
-
-    /// A mock ready queue sender for testing.
-    #[derive(Clone, Default)]
-    struct MockReadyQueueSender;
-
-    #[async_trait::async_trait]
-    impl ReadyQueueSender for MockReadyQueueSender {
-        async fn send_task_ready(
-            &self,
-            _rg_id: spider_core::types::id::ResourceGroupId,
-            _job_id: JobId,
-            _task_indices: Vec<usize>,
-        ) -> Result<(), InternalError> {
-            Ok(())
-        }
-
-        async fn send_commit_ready(
-            &self,
-            _rg_id: spider_core::types::id::ResourceGroupId,
-            _job_id: JobId,
-        ) -> Result<(), InternalError> {
-            Ok(())
-        }
-
-        async fn send_cleanup_ready(
-            &self,
-            _rg_id: spider_core::types::id::ResourceGroupId,
-            _job_id: JobId,
-        ) -> Result<(), InternalError> {
-            Ok(())
-        }
-    }
-
-    /// A mock DB connector for testing.
-    #[derive(Clone, Default)]
-    struct MockDbConnector;
-
-    #[async_trait::async_trait]
-    impl InternalJobOrchestration for MockDbConnector {
-        async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
-            Ok(())
-        }
-
-        async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
-            Ok(())
-        }
-
-        async fn commit_outputs(
-            &self,
-            _job_id: JobId,
-            _outputs: Vec<TaskOutput>,
-            _has_commit_task: bool,
-        ) -> Result<(), DbError> {
-            Ok(())
-        }
-
-        async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
-            Ok(())
-        }
-
-        async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
-            Ok(())
-        }
-
-        async fn delete_expired_terminated_jobs(
-            &self,
-            _expire_after_sec: u64,
-        ) -> Result<Vec<JobId>, DbError> {
-            Ok(Vec::new())
-        }
-    }
-
-    /// A mock task instance pool connector for testing.
-    #[derive(Clone, Default)]
-    struct MockTaskInstancePoolConnector;
-
-    #[async_trait::async_trait]
-    impl TaskInstancePoolConnector for MockTaskInstancePoolConnector {
-        fn get_next_available_task_instance_id(&self) -> spider_core::types::id::TaskInstanceId {
-            1
-        }
-
-        async fn register_task_instance(
-            &self,
-            _tcb: SharedTaskControlBlock,
-            _registration: TaskInstanceMetadata,
-        ) -> Result<(), InternalError> {
-            Ok(())
-        }
-
-        async fn register_termination_task_instance(
-            &self,
-            _termination_tcb: SharedTerminationTaskControlBlock,
-            _registration: TaskInstanceMetadata,
-        ) -> Result<(), InternalError> {
-            Ok(())
-        }
-    }
 
     async fn create_test_jcb(
         job_id: JobId,
@@ -282,7 +175,7 @@ mod tests {
             &submitted,
             vec![TaskInput::ValuePayload(vec![0u8; 4])],
             MockReadyQueueSender,
-            MockDbConnector,
+            MockDbConnector::default(),
             MockTaskInstancePoolConnector,
         )
         .await
@@ -460,7 +353,7 @@ mod tests {
             &submitted,
             vec![TaskInput::ValuePayload(vec![0u8; 4])],
             sender,
-            MockDbConnector,
+            MockDbConnector::default(),
             MockTaskInstancePoolConnector,
         )
         .await
