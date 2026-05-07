@@ -4,11 +4,10 @@ use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
-    job::JobState,
-    task::TaskGraph,
+    job::{JobState, ValidatedJobSubmission},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
-        io::{TaskInput, TaskOutput},
+        io::TaskOutput,
     },
 };
 use spider_derive::MySqlEnum;
@@ -98,8 +97,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: &TaskGraph,
-        job_inputs: &[TaskInput],
+        job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
@@ -107,6 +105,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
+        let task_graph = job_submission.task_graph();
+        let job_inputs = job_submission.inputs();
         let serialized_task_graph = task_graph
             .to_json()
             .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;

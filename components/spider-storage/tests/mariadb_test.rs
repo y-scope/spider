@@ -4,7 +4,7 @@ use std::{
 };
 
 use spider_core::{
-    job::JobState,
+    job::{JobState, ValidatedJobSubmission},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId},
         io::TaskInput,
@@ -58,9 +58,11 @@ async fn test_register_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -77,10 +79,10 @@ async fn test_register_job_invalid_resource_group() {
     let storage = create_mariadb_connector().await;
     let fake_rg_id = ResourceGroupId::new();
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
-    let result = storage
-        .register(fake_rg_id, &graph, inputs.as_slice())
-        .await;
+    let result = storage.register(fake_rg_id, &job_submission).await;
 
     assert!(
         matches!(result, Err(DbError::ResourceGroupNotFound(_))),
@@ -94,9 +96,11 @@ async fn test_start_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -115,9 +119,11 @@ async fn test_start_job_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -136,9 +142,11 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -162,9 +170,11 @@ async fn test_get_outputs_succeeded_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -188,9 +198,11 @@ async fn test_get_outputs_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -207,9 +219,11 @@ async fn test_get_error_failed_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -232,9 +246,11 @@ async fn test_get_error_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -251,9 +267,11 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -276,9 +294,11 @@ async fn test_cancel_already_terminal() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -304,9 +324,11 @@ async fn test_set_state_valid_transition() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -327,9 +349,11 @@ async fn test_set_state_invalid_transition() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -350,9 +374,11 @@ async fn test_commit_outputs_without_commit_task() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -375,9 +401,11 @@ async fn test_commit_outputs_with_commit_task() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -403,9 +431,11 @@ async fn test_commit_outputs_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -427,9 +457,11 @@ async fn test_fail_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -452,9 +484,11 @@ async fn test_fail_terminal_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -481,9 +515,11 @@ async fn test_delete_expired_terminated_jobs() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -694,9 +730,11 @@ async fn test_cancel_from_ready_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 
@@ -718,9 +756,11 @@ async fn test_delete_expired_terminated_jobs_no_match() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
-        .register(rg_id, &graph, inputs.as_slice())
+        .register(rg_id, &job_submission)
         .await
         .expect("register should succeed");
 

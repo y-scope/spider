@@ -1,4 +1,4 @@
-use spider_core::job::JobState;
+use spider_core::job::{JobState, ValidatedJobSubmission};
 use spider_storage::db::{ExternalJobOrchestration, InternalJobOrchestration};
 
 use super::{
@@ -47,9 +47,10 @@ async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
     let num_tasks = graph.get_num_tasks();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
     let result = run_workload(
-        &graph,
-        inputs,
+        job_submission,
         db_connector_factory,
         CancelPolicy::Never,
         default_output_handler(1024),
@@ -89,9 +90,10 @@ async fn test_flat_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
     let result = run_workload(
-        &graph,
-        inputs,
+        job_submission,
         db_connector_factory,
         CancelPolicy::Immediate,
         default_output_handler(1024),
@@ -133,9 +135,10 @@ async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'st
 ) -> WorkloadResult {
     let (graph, inputs) = build_neural_net_task_graph();
     let num_tasks = graph.get_num_tasks();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
     let result = run_workload(
-        &graph,
-        inputs,
+        job_submission,
         db_connector_factory,
         CancelPolicy::Never,
         default_output_handler(128),
@@ -178,9 +181,10 @@ async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'sta
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_neural_net_task_graph();
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
     let result = run_workload(
-        &graph,
-        inputs,
+        job_submission,
         db_connector_factory,
         CancelPolicy::Immediate,
         default_output_handler(128),
@@ -220,9 +224,10 @@ async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestrati
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
     let result = run_workload(
-        &graph,
-        inputs,
+        job_submission,
         db_connector_factory,
         CancelPolicy::Never,
         default_output_handler(128),
@@ -258,9 +263,10 @@ async fn test_concurrent_success_and_cancel<DbConnectorType: InternalJobOrchestr
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
     let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
+    let job_submission =
+        ValidatedJobSubmission::new(graph, inputs).expect("job submission should be valid");
     let result = run_workload(
-        &graph,
-        inputs,
+        job_submission,
         db_connector_factory,
         CancelPolicy::Concurrent,
         default_output_handler(128),

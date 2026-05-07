@@ -2,11 +2,10 @@ use std::net::IpAddr;
 
 use async_trait::async_trait;
 use spider_core::{
-    job::JobState,
-    task::TaskGraph,
+    job::{JobState, ValidatedJobSubmission},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
-        io::{TaskInput, TaskOutput},
+        io::TaskOutput,
     },
 };
 
@@ -36,8 +35,7 @@ pub trait ExternalJobOrchestration {
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the created job.
-    /// * `task_graph` - The task graph representing the job's tasks and their dependencies.
-    /// * `job_inputs` - A slice of job inputs required for the job.
+    /// * `job_submission` - The validated job submission containing the task graph and job inputs.
     ///
     /// # Returns
     ///
@@ -51,17 +49,10 @@ pub trait ExternalJobOrchestration {
     /// * [`DbError::TaskGraphSerializationFailure`] if the `task_graph` serialization fails.
     /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    ///
-    /// # Note
-    ///
-    /// This function assumes that the `task_graph` and `job_inputs` are consistent.
-    ///
-    /// TODO: Fix this when #284 is addressed.
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: &TaskGraph,
-        job_inputs: &[TaskInput],
+        job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError>;
 
     /// Gets the state of a job.

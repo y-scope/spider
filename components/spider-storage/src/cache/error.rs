@@ -41,9 +41,6 @@ pub enum InternalError {
     #[error("task graph corrupted: {0}")]
     TaskGraphCorrupted(String),
 
-    #[error("task graph input size mismatch: expected {0}, got {1}")]
-    TaskGraphInputsSizeMismatch(usize, usize),
-
     #[error("job not started")]
     JobNotStarted,
 
