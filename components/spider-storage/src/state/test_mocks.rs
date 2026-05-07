@@ -23,10 +23,12 @@ use crate::{
     },
     db::{
         DbError,
+        DbStorage,
         ExecutionManagerLivenessManagement,
         ExternalJobOrchestration,
         InternalJobOrchestration,
         ResourceGroupManagement,
+        SessionManagement,
     },
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
@@ -242,6 +244,14 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
         Ok(Vec::new())
     }
 }
+
+impl SessionManagement for MockDbConnector {
+    fn session_id(&self) -> spider_core::types::id::SessionId {
+        0
+    }
+}
+
+impl DbStorage for MockDbConnector {}
 
 /// A mock task instance pool connector for testing.
 #[derive(Clone, Default)]

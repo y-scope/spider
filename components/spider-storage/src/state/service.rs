@@ -11,12 +11,7 @@ use spider_core::{
 
 use crate::{
     cache::{TaskId, job::SharedJobControlBlock},
-    db::{
-        ExecutionManagerLivenessManagement,
-        ExternalJobOrchestration,
-        InternalJobOrchestration,
-        ResourceGroupManagement,
-    },
+    db::DbStorage,
     ready_queue::{ReadyQueueEntry, ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
@@ -35,10 +30,7 @@ use crate::{
 #[derive(Clone)]
 pub struct ServiceState<
     ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration
-        + ExternalJobOrchestration
-        + ResourceGroupManagement
-        + ExecutionManagerLivenessManagement,
+    DbConnectorType: DbStorage,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     db: DbConnectorType,
@@ -51,10 +43,7 @@ pub struct ServiceState<
 
 impl<
     ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration
-        + ExternalJobOrchestration
-        + ResourceGroupManagement
-        + ExecutionManagerLivenessManagement,
+    DbConnectorType: DbStorage,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
