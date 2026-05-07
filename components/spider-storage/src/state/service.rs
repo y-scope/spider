@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use spider_core::{
     job::JobState,
@@ -11,8 +11,13 @@ use spider_core::{
 
 use crate::{
     cache::{TaskId, job::SharedJobControlBlock},
-    db::{ExternalJobOrchestration, InternalJobOrchestration},
-    ready_queue::{ReadyQueueReceiverHandle, ReadyQueueSender},
+    db::{
+        ExecutionManagerLivenessManagement,
+        ExternalJobOrchestration,
+        InternalJobOrchestration,
+        ResourceGroupManagement,
+    },
+    ready_queue::{ReadyQueueEntry, ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
 };
@@ -30,20 +35,26 @@ use crate::{
 #[derive(Clone)]
 pub struct ServiceState<
     ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration + ExternalJobOrchestration,
+    DbConnectorType: InternalJobOrchestration
+        + ExternalJobOrchestration
+        + ResourceGroupManagement
+        + ExecutionManagerLivenessManagement,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     db: DbConnectorType,
     session_id: SessionId,
     job_cache: Arc<JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
     ready_queue_sender: ReadyQueueSenderType,
-    _ready_queue_receiver: ReadyQueueReceiverHandle,
+    ready_queue_receiver: ReadyQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
 impl<
     ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration + ExternalJobOrchestration,
+    DbConnectorType: InternalJobOrchestration
+        + ExternalJobOrchestration
+        + ResourceGroupManagement
+        + ExecutionManagerLivenessManagement,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
@@ -65,7 +76,7 @@ impl<
             session_id,
             job_cache: Arc::new(job_cache),
             ready_queue_sender,
-            _ready_queue_receiver: ready_queue_receiver,
+            ready_queue_receiver,
             task_instance_pool_connector,
         }
     }
@@ -314,6 +325,142 @@ impl<
         }
         Ok(state)
     }
+
+    // ── Resource group operations ────────────────────────────────────
+
+    /// Adds a resource group with the given external ID and password.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the created resource group on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagement::add`]'s return values on failure.
+    pub async fn add_resource_group(
+        &self,
+        external_id: String,
+        password: Vec<u8>,
+    ) -> Result<ResourceGroupId, StorageServerError> {
+        Ok(self.db.add(external_id, password).await?)
+    }
+
+    /// Verifies the password of a resource group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagement::verify`]'s return values on failure.
+    pub async fn verify_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: &[u8],
+    ) -> Result<(), StorageServerError> {
+        Ok(self.db.verify(resource_group_id, password).await?)
+    }
+
+    /// Deletes a resource group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagement::delete`]'s return values on failure.
+    pub async fn delete_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), StorageServerError> {
+        Ok(self.db.delete(resource_group_id).await?)
+    }
+
+    // ── Scheduler operations ─────────────────────────────────────────
+
+    /// Polls the ready queue for task entries.
+    ///
+    /// # Returns
+    ///
+    /// Up to `max_tasks` ready queue entries received within the `wait` duration on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ReadyQueueReceiverHandle::recv_tasks`]'s return values on failure.
+    pub async fn poll_ready_tasks(
+        &self,
+        max_tasks: usize,
+        wait: Duration,
+    ) -> Result<Vec<ReadyQueueEntry<TaskIndex>>, StorageServerError> {
+        Ok(self
+            .ready_queue_receiver
+            .recv_tasks(max_tasks, wait)
+            .await
+            .map_err(crate::cache::error::CacheError::Internal)?)
+    }
+
+    /// Deletes expired terminated jobs from the database.
+    ///
+    /// # Returns
+    ///
+    /// The IDs of the deleted jobs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`InternalJobOrchestration::delete_expired_terminated_jobs`]'s return values on
+    ///   failure.
+    pub async fn delete_expired_terminated_jobs(
+        &self,
+        expire_after_sec: u64,
+    ) -> Result<Vec<JobId>, StorageServerError> {
+        Ok(self
+            .db
+            .delete_expired_terminated_jobs(expire_after_sec)
+            .await?)
+    }
+
+    // ── Execution manager heartbeat operations ───────────────────────
+
+    /// Registers an execution manager.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered execution manager on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ExecutionManagerLivenessManagement::register_execution_manager`]'s return
+    ///   values on failure.
+    pub async fn register_execution_manager(
+        &self,
+        ip_address: IpAddr,
+    ) -> Result<ExecutionManagerId, StorageServerError> {
+        Ok(self.db.register_execution_manager(ip_address).await?)
+    }
+
+    /// Updates the heartbeat of an execution manager.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ExecutionManagerLivenessManagement::update_execution_manager_heartbeat`]'s
+    ///   return values on failure.
+    pub async fn update_execution_manager_heartbeat(
+        &self,
+        execution_manager_id: ExecutionManagerId,
+    ) -> Result<(), StorageServerError> {
+        Ok(self
+            .db
+            .update_execution_manager_heartbeat(execution_manager_id)
+            .await?)
+    }
 }
 
 #[cfg(test)]
@@ -346,6 +493,12 @@ mod tests {
     type TestServiceState =
         ServiceState<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
+    type RealQueueTestServiceState = ServiceState<
+        crate::ready_queue::ReadyQueueSenderHandle,
+        MockDbConnector,
+        MockTaskInstancePoolConnector,
+    >;
+
     fn create_test_service() -> TestServiceState {
         create_test_service_with_db(MockDbConnector::default())
     }
@@ -362,6 +515,26 @@ mod tests {
             receiver,
             MockTaskInstancePoolConnector,
         )
+    }
+
+    fn create_test_service_with_real_ready_queue(
+        db: MockDbConnector,
+    ) -> (
+        RealQueueTestServiceState,
+        crate::ready_queue::ReadyQueueSenderHandle,
+    ) {
+        use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
+        let (sender, receiver) =
+            create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
+        let service = RealQueueTestServiceState::new(
+            db,
+            0,
+            JobCache::new(),
+            sender.clone(),
+            receiver,
+            MockTaskInstancePoolConnector,
+        );
+        (service, sender)
     }
 
     fn create_test_task_graph() -> SubmittedTaskGraph {
@@ -676,6 +849,141 @@ mod tests {
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "fail_task_instance should return JobNotFound when job is not in cache"
+        );
+        Ok(())
+    }
+
+    // ── Resource group tests ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn add_resource_group_returns_id() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .await?;
+        assert_ne!(
+            rg_id,
+            ResourceGroupId::new(),
+            "resource group ID should be assigned"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn verify_resource_group_succeeds_for_correct_password() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let password = vec![1, 2, 3];
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), password.clone())
+            .await?;
+        service.verify_resource_group(rg_id, &password).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn verify_resource_group_fails_for_wrong_password() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .await?;
+        let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
+        assert!(result.is_err(), "verify should fail for wrong password");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_removes_entry() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .await?;
+        service.delete_resource_group(rg_id).await?;
+        let result = service.verify_resource_group(rg_id, &[1, 2, 3]).await;
+        assert!(
+            result.is_err(),
+            "verify should fail after resource group is deleted"
+        );
+        Ok(())
+    }
+
+    // ── Scheduler tests ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+        let (service, sender) =
+            create_test_service_with_real_ready_queue(MockDbConnector::default());
+        let rg_id = ResourceGroupId::new();
+        let job_id = JobId::new();
+        sender
+            .send_task_ready(rg_id, job_id, vec![0])
+            .await
+            .expect("send_task_ready should succeed");
+
+        let entries = service
+            .poll_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one ready queue entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].resource_group_id, rg_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn poll_ready_tasks_returns_empty_when_no_tasks() -> anyhow::Result<()> {
+        let (service, _) = create_test_service_with_real_ready_queue(MockDbConnector::default());
+        let entries = service
+            .poll_ready_tasks(10, Duration::from_millis(10))
+            .await?;
+        assert!(
+            entries.is_empty(),
+            "should receive no entries from empty ready queue"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_expired_terminated_jobs_delegates_to_db() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service.delete_expired_terminated_jobs(60).await?;
+        assert!(result.is_empty(), "mock DB has no expired jobs by default");
+        Ok(())
+    }
+
+    // ── Execution manager heartbeat tests ────────────────────────────
+
+    #[tokio::test]
+    async fn register_execution_manager_returns_id() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let em_id = service
+            .register_execution_manager("127.0.0.1".parse()?)
+            .await?;
+        assert_ne!(
+            em_id,
+            ExecutionManagerId::new(),
+            "execution manager ID should be assigned"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_execution_manager_heartbeat_succeeds_for_registered_em() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let em_id = service
+            .register_execution_manager("127.0.0.1".parse()?)
+            .await?;
+        service.update_execution_manager_heartbeat(em_id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_execution_manager_heartbeat_fails_for_unknown_em() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service
+            .update_execution_manager_heartbeat(ExecutionManagerId::new())
+            .await;
+        assert!(
+            result.is_err(),
+            "update heartbeat should fail for unregistered execution manager"
         );
         Ok(())
     }
