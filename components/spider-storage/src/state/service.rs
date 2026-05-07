@@ -315,8 +315,6 @@ impl<
         Ok(state)
     }
 
-    // ── Resource group operations ────────────────────────────────────
-
     /// Adds a resource group with the given external ID and password.
     ///
     /// # Returns
@@ -364,8 +362,6 @@ impl<
     ) -> Result<(), StorageServerError> {
         Ok(self.db.delete(resource_group_id).await?)
     }
-
-    // ── Scheduler operations ─────────────────────────────────────────
 
     /// Polls the ready queue for task entries.
     ///
@@ -842,8 +838,6 @@ mod tests {
         Ok(())
     }
 
-    // ── Resource group tests ─────────────────────────────────────────
-
     #[tokio::test]
     async fn add_resource_group_returns_id() -> anyhow::Result<()> {
         let service = create_test_service();
@@ -937,8 +931,6 @@ mod tests {
         assert!(result.is_empty(), "mock DB has no expired jobs by default");
         Ok(())
     }
-
-    // ── Execution manager heartbeat tests ────────────────────────────
 
     #[tokio::test]
     async fn register_execution_manager_returns_id() -> anyhow::Result<()> {
