@@ -502,6 +502,11 @@ mod tests {
         )
     }
 
+    /// Creates a [`ServiceState`] backed by a real ready queue instead of a mock sender.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of the service state and the ready queue sender handle on success.
     fn create_test_service_with_real_ready_queue(
         db: MockDbConnector,
     ) -> (
