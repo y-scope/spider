@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
 use dashmap::DashMap;
 use spider_core::{
     job::JobState,
     types::{
-        id::{JobId, ResourceGroupId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -14,7 +14,15 @@ use crate::{
         error::InternalError,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
-    db::{DbError, ExternalJobOrchestration, InternalJobOrchestration},
+    db::{
+        DbError,
+        DbStorage,
+        ExecutionManagerLivenessManagement,
+        ExternalJobOrchestration,
+        InternalJobOrchestration,
+        ResourceGroupManagement,
+        SessionManagement,
+    },
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
@@ -143,6 +151,68 @@ impl InternalJobOrchestration for MockDbConnector {
         Ok(Vec::new())
     }
 }
+
+#[async_trait::async_trait]
+impl ResourceGroupManagement for MockDbConnector {
+    async fn add(
+        &self,
+        _external_resource_group_id: String,
+        _password: Vec<u8>,
+    ) -> Result<ResourceGroupId, DbError> {
+        Ok(ResourceGroupId::new())
+    }
+
+    async fn verify(
+        &self,
+        _resource_group_id: ResourceGroupId,
+        _password: &[u8],
+    ) -> Result<(), DbError> {
+        Ok(())
+    }
+
+    async fn delete(&self, _resource_group_id: ResourceGroupId) -> Result<(), DbError> {
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ExecutionManagerLivenessManagement for MockDbConnector {
+    async fn register_execution_manager(
+        &self,
+        _ip_address: IpAddr,
+    ) -> Result<ExecutionManagerId, DbError> {
+        Ok(ExecutionManagerId::new())
+    }
+
+    async fn update_execution_manager_heartbeat(
+        &self,
+        _execution_manager_id: ExecutionManagerId,
+    ) -> Result<(), DbError> {
+        Ok(())
+    }
+
+    async fn is_execution_manager_alive(
+        &self,
+        _execution_manager_id: ExecutionManagerId,
+    ) -> Result<bool, DbError> {
+        Ok(true)
+    }
+
+    async fn get_dead_execution_managers(
+        &self,
+        _stale_after_sec: u64,
+    ) -> Result<Vec<ExecutionManagerId>, DbError> {
+        Ok(Vec::new())
+    }
+}
+
+impl SessionManagement for MockDbConnector {
+    fn session_id(&self) -> spider_core::types::id::SessionId {
+        0
+    }
+}
+
+impl DbStorage for MockDbConnector {}
 
 /// A mock task instance pool connector for testing.
 #[derive(Clone, Default)]
