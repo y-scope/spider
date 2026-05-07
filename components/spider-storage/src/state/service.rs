@@ -408,8 +408,6 @@ impl<
             .await?)
     }
 
-    // ── Execution manager heartbeat operations ───────────────────────
-
     /// Registers an execution manager.
     ///
     /// # Returns
