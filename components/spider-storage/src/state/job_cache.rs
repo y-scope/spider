@@ -155,7 +155,6 @@ mod tests {
         },
         db::DbError,
         ready_queue::ReadyQueueSender,
-        state::StorageServerError,
         task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
     };
 
