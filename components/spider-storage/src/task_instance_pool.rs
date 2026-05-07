@@ -663,7 +663,7 @@ mod tests {
             })
             .expect("task insertion should succeed");
         let job_submission =
-            ValidatedJobSubmission::new(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+            ValidatedJobSubmission::validate(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
                 .expect("job submission should be valid");
         let task_graph = crate::cache::task::TaskGraph::create(&job_submission)
             .await

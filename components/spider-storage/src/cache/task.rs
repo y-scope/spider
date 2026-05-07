@@ -1083,7 +1083,7 @@ mod tests {
             .map(|_| TaskInput::ValuePayload(vec![0u8; 4]))
             .collect();
         let job_submission =
-            ValidatedJobSubmission::new(submitted, inputs).expect("job submission should be valid");
+            ValidatedJobSubmission::validate(submitted, inputs).expect("job submission should be valid");
         TaskGraph::create(&job_submission)
             .await
             .expect("cache task graph creation should succeed")
@@ -1127,7 +1127,7 @@ mod tests {
             })
             .expect("task insertion should succeed");
         let job_submission =
-            ValidatedJobSubmission::new(submitted, vec![]).expect("job submission should be valid");
+            ValidatedJobSubmission::validate(submitted, vec![]).expect("job submission should be valid");
         let task_graph = TaskGraph::create(&job_submission)
             .await
             .expect("cache task graph creation should succeed");
@@ -1244,7 +1244,7 @@ mod tests {
             TaskInput::ValuePayload(input_b),
         ];
         let job_submission =
-            ValidatedJobSubmission::new(submitted, inputs).expect("job submission should be valid");
+            ValidatedJobSubmission::validate(submitted, inputs).expect("job submission should be valid");
         TaskGraph::create(&job_submission)
             .await
             .expect("cache task graph creation should succeed")

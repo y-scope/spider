@@ -30,7 +30,7 @@ impl ValidatedJobSubmission {
     /// * [`Error::InvalidJobSubmission`] if the task graph contains no tasks.
     /// * [`Error::InvalidJobSubmission`] if the number of inputs does not match the number of graph
     ///   inputs.
-    pub fn new(task_graph: TaskGraph, inputs: Vec<TaskInput>) -> Result<Self, Error> {
+    pub fn validate(task_graph: TaskGraph, inputs: Vec<TaskInput>) -> Result<Self, Error> {
         let num_tasks = task_graph.get_num_tasks();
         if num_tasks == 0 {
             return Err(Error::InvalidJobSubmission(
@@ -109,7 +109,7 @@ mod tests {
     fn valid_job_submission_succeeds() {
         let graph = create_single_input_task_graph();
         let inputs = vec![TaskInput::ValuePayload(vec![1u8; 4])];
-        let result = ValidatedJobSubmission::new(graph, inputs);
+        let result = ValidatedJobSubmission::validate(graph, inputs);
         assert!(result.is_ok(), "valid submission should succeed");
     }
 
@@ -118,7 +118,7 @@ mod tests {
         let graph =
             SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
         let inputs = vec![];
-        let result = ValidatedJobSubmission::new(graph, inputs);
+        let result = ValidatedJobSubmission::validate(graph, inputs);
         assert!(
             matches!(result, Err(Error::InvalidJobSubmission(_))),
             "empty task graph should return InvalidJobSubmission"
@@ -129,7 +129,7 @@ mod tests {
     fn mismatched_input_count_fails() {
         let graph = create_single_input_task_graph();
         let inputs = vec![];
-        let result = ValidatedJobSubmission::new(graph, inputs);
+        let result = ValidatedJobSubmission::validate(graph, inputs);
         assert!(
             matches!(result, Err(Error::InvalidJobSubmission(_))),
             "mismatched input count should return InvalidJobSubmission"
@@ -141,7 +141,7 @@ mod tests {
         let graph = create_single_input_task_graph();
         let inputs = vec![TaskInput::ValuePayload(vec![1u8; 4])];
         let submission =
-            ValidatedJobSubmission::new(graph, inputs).expect("submission should be valid");
+            ValidatedJobSubmission::validate(graph, inputs).expect("submission should be valid");
         let (graph, inputs) = submission.into_parts();
         assert_eq!(graph.get_num_tasks(), 1, "task graph should have 1 task");
         assert_eq!(inputs.len(), 1, "should have 1 input");
