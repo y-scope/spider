@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -59,7 +59,7 @@ impl ReadyQueueSender for MockReadyQueueSender {
     }
 }
 
-/// A mock DB connector for testing that implements both external and internal orchestration.
+/// A mock DB connector for testing that implements [`DbStorage`].
 #[derive(Clone)]
 pub struct MockDbConnector {
     pub states: Arc<DashMap<JobId, JobState>>,
@@ -207,7 +207,7 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
 }
 
 impl SessionManagement for MockDbConnector {
-    fn session_id(&self) -> spider_core::types::id::SessionId {
+    fn session_id(&self) -> SessionId {
         0
     }
 }
