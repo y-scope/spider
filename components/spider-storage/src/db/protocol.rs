@@ -46,8 +46,8 @@ pub trait ExternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * [`DbError::TaskGraphSerializationFailure`] if the `task_graph` serialization fails.
-    /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
+    /// * [`DbError::TaskGraphSerializationFailure`] if the task graph serialization fails.
+    /// * [`DbError::ValueSerializationFailure`] if the job inputs serialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn register(
         &self,

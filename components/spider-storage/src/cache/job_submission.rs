@@ -20,6 +20,10 @@ pub struct ValidatedJobSubmission {
 impl ValidatedJobSubmission {
     /// Creates a new validated job submission.
     ///
+    /// # Returns
+    ///
+    /// The validated job submission on success.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -138,7 +142,7 @@ mod tests {
                     actual: 0
                 })
             ),
-            "mismatched input count should return InputCountMismatch"
+            "mismatched input count should return TaskGraphInputSizeMismatch"
         );
     }
 
