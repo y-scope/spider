@@ -8,6 +8,7 @@ use spider_core::{
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
+use tracing::{debug, instrument};
 
 use crate::{
     cache::{TaskId, job::SharedJobControlBlock},
@@ -105,6 +106,7 @@ impl<
     /// * Forwards [`JobCache::insert`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
+    #[instrument(skip(self, task_graph, job_inputs), fields(job_id))]
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -116,6 +118,8 @@ impl<
             .db
             .register(resource_group_id, task_graph, &job_inputs)
             .await?;
+
+        tracing::Span::current().record("job_id", tracing::field::debug(&job_id));
 
         let jcb = SharedJobControlBlock::create(
             job_id,
@@ -129,6 +133,7 @@ impl<
         .await?;
 
         self.inner.job_cache.insert(jcb)?;
+        debug!("Inserted JCB into job cache");
 
         Ok(job_id)
     }
@@ -144,12 +149,14 @@ impl<
     ///
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
+    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn start_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
         let jcb = self
             .inner
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, starting job");
         jcb.start().await?;
         Ok(())
     }
@@ -168,12 +175,14 @@ impl<
     ///
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
+    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         let jcb = self
             .inner
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, cancelling job");
         let state = jcb.cancel().await?;
         Ok(state)
     }
@@ -192,10 +201,13 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure (DB fallback).
+    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id) {
+            debug!("JCB found in cache, returning in-memory state");
             return Ok(jcb.state().await);
         }
+        debug!("JCB not in cache, falling back to database");
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
@@ -210,6 +222,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure.
+    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_outputs(
         &self,
         job_id: JobId,
@@ -228,6 +241,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
+    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
         Ok(self.inner.db.get_error(job_id).await?)
     }
@@ -245,6 +259,7 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
+    #[instrument(skip(self, session_id), fields(job_id = ?job_id, task_id = ?task_id))]
     pub async fn create_task_instance(
         &self,
         session_id: SessionId,
@@ -258,6 +273,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, creating task instance");
         Ok(jcb
             .create_task_instance(task_id, execution_manager_id)
             .await?)
@@ -278,6 +294,10 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
+    #[instrument(
+        skip(self, session_id, task_outputs),
+        fields(job_id = ?job_id, task_instance_id = ?task_instance_id)
+    )]
     pub async fn succeed_task_instance(
         &self,
         session_id: SessionId,
@@ -292,6 +312,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, succeeding task instance");
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
@@ -311,6 +332,10 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
+    #[instrument(
+        skip(self, session_id, error),
+        fields(job_id = ?job_id, task_instance_id = ?task_instance_id, task_id = ?task_id)
+    )]
     pub async fn fail_task_instance(
         &self,
         session_id: SessionId,
@@ -325,6 +350,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, failing task instance");
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
@@ -339,6 +365,7 @@ impl<
     /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
+            debug!("Session ID mismatch");
             return Err(StorageServerError::StaleSession);
         }
         Ok(())
