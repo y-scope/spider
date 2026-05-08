@@ -36,12 +36,12 @@ impl ValidatedJobSubmission {
         if num_tasks == 0 {
             return Err(InternalError::TaskGraphEmpty);
         }
-        let expected_inputs = task_graph.get_task_graph_input_indices().len();
-        let actual_inputs = inputs.len();
-        if expected_inputs != actual_inputs {
+        let expected_num_inputs = task_graph.get_task_graph_input_indices().len();
+        let actual_num_inputs = inputs.len();
+        if expected_num_inputs != actual_num_inputs {
             return Err(InternalError::TaskGraphInputSizeMismatch {
-                expected: expected_inputs,
-                actual: actual_inputs,
+                expected: expected_num_inputs,
+                actual: actual_num_inputs,
             });
         }
         Ok(Self { task_graph, inputs })
