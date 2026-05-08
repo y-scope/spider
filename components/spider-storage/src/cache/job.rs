@@ -7,7 +7,7 @@ use std::{
 };
 
 use spider_core::{
-    job::{JobState, ValidatedJobSubmission},
+    job::JobState,
     task::{TaskIndex, TaskState},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
@@ -20,6 +20,7 @@ use crate::{
     cache::{
         TaskId,
         error::{CacheError, InternalError, InternalError::UnexpectedJobState, StaleStateError},
+        job_submission::ValidatedJobSubmission,
         task::TaskGraph,
     },
     db::InternalJobOrchestration,

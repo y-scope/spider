@@ -131,7 +131,7 @@ mod tests {
     use std::sync::Arc;
 
     use spider_core::{
-        job::{JobState, ValidatedJobSubmission},
+        job::JobState,
         task::{
             DataTypeDescriptor,
             ExecutionPolicy,
@@ -151,6 +151,7 @@ mod tests {
         cache::{
             error::InternalError,
             job::SharedJobControlBlock,
+            job_submission::ValidatedJobSubmission,
             task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
         },
         db::DbError,

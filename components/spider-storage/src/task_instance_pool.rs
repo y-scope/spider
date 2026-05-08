@@ -524,7 +524,6 @@ mod tests {
 
     use async_trait::async_trait;
     use spider_core::{
-        job::ValidatedJobSubmission,
         task::{
             DataTypeDescriptor,
             ExecutionPolicy,
@@ -541,6 +540,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
+    use crate::cache::job_submission::ValidatedJobSubmission;
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
 

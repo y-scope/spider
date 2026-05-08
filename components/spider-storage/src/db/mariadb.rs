@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
-    job::{JobState, ValidatedJobSubmission},
+    job::JobState,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
         io::TaskOutput,
@@ -14,6 +14,7 @@ use spider_derive::MySqlEnum;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
+    cache::job_submission::ValidatedJobSubmission,
     config::DatabaseConfig,
     db::{
         DbError,

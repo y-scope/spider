@@ -1,5 +1,8 @@
-use spider_core::job::{JobState, ValidatedJobSubmission};
-use spider_storage::db::{ExternalJobOrchestration, InternalJobOrchestration};
+use spider_core::job::JobState;
+use spider_storage::{
+    cache::job_submission::ValidatedJobSubmission,
+    db::{ExternalJobOrchestration, InternalJobOrchestration},
+};
 
 use super::{
     scheduling_infra::{

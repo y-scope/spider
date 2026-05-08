@@ -2,14 +2,14 @@ use std::net::IpAddr;
 
 use async_trait::async_trait;
 use spider_core::{
-    job::{JobState, ValidatedJobSubmission},
+    job::JobState,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
         io::TaskOutput,
     },
 };
 
-use crate::db::error::DbError;
+use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
 
 /// The database storage interface. A database storage must implement the following traits:
 ///

@@ -27,12 +27,6 @@ pub enum Error {
 
     #[error("invalid timeout policy: {0}")]
     InvalidTimeoutPolicy(String),
-
-    #[error("task graph must contain at least one task")]
-    EmptyTaskGraph,
-
-    #[error("expected {expected} graph inputs, got {actual}")]
-    InputCountMismatch { expected: usize, actual: usize },
 }
 
 /// Enum for all possible states of a task.

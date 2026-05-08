@@ -70,6 +70,12 @@ pub enum InternalError {
 
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
+
+    #[error("task graph must contain at least one task")]
+    EmptyTaskGraph,
+
+    #[error("expected {expected} graph inputs, got {actual}")]
+    InputCountMismatch { expected: usize, actual: usize },
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

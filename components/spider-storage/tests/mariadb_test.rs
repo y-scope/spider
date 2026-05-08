@@ -4,20 +4,23 @@ use std::{
 };
 
 use spider_core::{
-    job::{JobState, ValidatedJobSubmission},
+    job::JobState,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId},
         io::TaskInput,
     },
 };
-use spider_storage::db::{
-    DbError,
-    ExecutionManagerLivenessManagement,
-    ExternalJobOrchestration,
-    InternalJobOrchestration,
-    MariaDbStorageConnector,
-    ResourceGroupManagement,
-    SessionManagement,
+use spider_storage::{
+    cache::job_submission::ValidatedJobSubmission,
+    db::{
+        DbError,
+        ExecutionManagerLivenessManagement,
+        ExternalJobOrchestration,
+        InternalJobOrchestration,
+        MariaDbStorageConnector,
+        ResourceGroupManagement,
+        SessionManagement,
+    },
 };
 
 use super::{

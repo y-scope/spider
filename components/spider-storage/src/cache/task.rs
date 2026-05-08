@@ -5,7 +5,6 @@ use std::{
 };
 
 use spider_core::{
-    job::ValidatedJobSubmission,
     task::{Task, TaskIndex, TaskState, TdlContext, TerminationTaskDescriptor, TimeoutPolicy},
     types::{
         id::TaskInstanceId,
@@ -17,6 +16,7 @@ use tokio::sync::RwLock;
 use crate::cache::{
     error::{CacheError, InternalError, StaleStateError},
     io::{InputReader, OutputReader, OutputWriter, ValuePayload},
+    job_submission::ValidatedJobSubmission,
     sync::{Reader, SharedRw, Writer},
 };
 
@@ -926,19 +926,17 @@ mod tests {
         },
     };
 
-    use spider_core::{
-        job::ValidatedJobSubmission,
-        task::{
-            DataTypeDescriptor,
-            ExecutionPolicy,
-            TaskDescriptor,
-            TaskGraph as SubmittedTaskGraph,
-            TerminationTaskDescriptor,
-            ValueTypeDescriptor,
-        },
+    use spider_core::task::{
+        DataTypeDescriptor,
+        ExecutionPolicy,
+        TaskDescriptor,
+        TaskGraph as SubmittedTaskGraph,
+        TerminationTaskDescriptor,
+        ValueTypeDescriptor,
     };
 
     use super::*;
+    use crate::cache::job_submission::ValidatedJobSubmission;
 
     /// # Returns
     ///

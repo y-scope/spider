@@ -84,7 +84,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use rand::{Rng, SeedableRng};
 use spider_core::{
-    job::{JobState, ValidatedJobSubmission},
+    job::JobState,
     task::TaskIndex,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
@@ -96,6 +96,7 @@ use spider_storage::{
         TaskId,
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
+        job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
