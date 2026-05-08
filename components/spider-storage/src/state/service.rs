@@ -89,27 +89,6 @@ impl<
         }
     }
 
-    /// # Returns
-    ///
-    /// The current session ID.
-    #[must_use]
-    pub fn session_id(&self) -> SessionId {
-        self.inner.session_id
-    }
-
-    /// Validates that the session ID captured at service creation time matches the DB's current
-    /// session ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
-    fn validate_session(&self) -> Result<(), StorageServerError> {
-        if self.inner.session_id != self.inner.db.session_id() {
-            return Err(StorageServerError::StaleSession);
-        }
-        Ok(())
-    }
-
     /// Registers a job in the database and inserts its control block into the cache.
     ///
     /// If [`SharedJobControlBlock::create`] or [`JobCache::insert`] fails after the DB record has
@@ -268,11 +247,12 @@ impl<
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
     pub async fn create_task_instance(
         &self,
+        session_id: SessionId,
         job_id: JobId,
         task_id: TaskId,
         execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, StorageServerError> {
-        self.validate_session()?;
+        self.validate_session(session_id)?;
         let jcb = self
             .inner
             .job_cache
@@ -300,12 +280,13 @@ impl<
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
+        session_id: SessionId,
         job_id: JobId,
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
         task_outputs: Vec<TaskOutput>,
     ) -> Result<JobState, StorageServerError> {
-        self.validate_session()?;
+        self.validate_session(session_id)?;
         let jcb = self
             .inner
             .job_cache
@@ -332,12 +313,13 @@ impl<
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
     pub async fn fail_task_instance(
         &self,
+        session_id: SessionId,
         job_id: JobId,
         task_instance_id: TaskInstanceId,
         task_id: TaskId,
         error: String,
     ) -> Result<JobState, StorageServerError> {
-        self.validate_session()?;
+        self.validate_session(session_id)?;
         let jcb = self
             .inner
             .job_cache
@@ -347,6 +329,19 @@ impl<
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
         Ok(state)
+    }
+
+    /// Validates that the given `session_id` matches the session ID captured at service creation
+    /// time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
+    fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
+        if session_id != self.inner.session_id {
+            return Err(StorageServerError::StaleSession);
+        }
+        Ok(())
     }
 }
 
@@ -380,17 +375,26 @@ mod tests {
     type TestServiceState =
         ServiceState<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
+    const TEST_SESSION_ID: SessionId = 0;
+
     fn create_test_service() -> TestServiceState {
         create_test_service_with_db(MockDbConnector::default())
     }
 
     fn create_test_service_with_db(db: MockDbConnector) -> TestServiceState {
+        create_test_service_with_db_and_session(db, TEST_SESSION_ID)
+    }
+
+    fn create_test_service_with_db_and_session(
+        db: MockDbConnector,
+        session_id: SessionId,
+    ) -> TestServiceState {
         use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
         let (_sender, receiver) =
             create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
         TestServiceState::new(
             db,
-            0,
+            session_id,
             JobCache::new(),
             MockReadyQueueSender,
             receiver,
@@ -621,7 +625,12 @@ mod tests {
         service.start_job(job_id).await?;
 
         let context = service
-            .create_task_instance(job_id, TaskId::Index(0), ExecutionManagerId::new())
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
             .await?;
         assert_eq!(
             context.task_instance_id, 1,
@@ -634,7 +643,12 @@ mod tests {
     async fn create_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .create_task_instance(JobId::new(), TaskId::Index(0), ExecutionManagerId::new())
+            .create_task_instance(
+                TEST_SESSION_ID,
+                JobId::new(),
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
@@ -656,10 +670,21 @@ mod tests {
         service.start_job(job_id).await?;
 
         let context = service
-            .create_task_instance(job_id, TaskId::Index(0), ExecutionManagerId::new())
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
             .await?;
         let state = service
-            .succeed_task_instance(job_id, context.task_instance_id, 0, vec![vec![0u8; 4]])
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                vec![vec![0u8; 4]],
+            )
             .await?;
         assert_eq!(state, JobState::Succeeded);
         assert!(
@@ -673,7 +698,7 @@ mod tests {
     async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .succeed_task_instance(JobId::new(), 1, 0, vec![])
+            .succeed_task_instance(TEST_SESSION_ID, JobId::new(), 1, 0, vec![])
             .await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
@@ -695,10 +720,16 @@ mod tests {
         service.start_job(job_id).await?;
 
         let context = service
-            .create_task_instance(job_id, TaskId::Index(0), ExecutionManagerId::new())
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
             .await?;
         let state = service
             .fail_task_instance(
+                TEST_SESSION_ID,
                 job_id,
                 context.task_instance_id,
                 TaskId::Index(0),
@@ -717,7 +748,13 @@ mod tests {
     async fn fail_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .fail_task_instance(JobId::new(), 1, TaskId::Index(0), "error".to_owned())
+            .fail_task_instance(
+                TEST_SESSION_ID,
+                JobId::new(),
+                1,
+                TaskId::Index(0),
+                "error".to_owned(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
@@ -728,24 +765,10 @@ mod tests {
 
     #[tokio::test]
     async fn task_instance_apis_return_stale_session_on_mismatch() -> anyhow::Result<()> {
-        // Create a service where the captured session_id (0) differs from the DB's session_id.
-        let db = MockDbConnector {
-            session_id: 999,
-            ..MockDbConnector::default()
-        };
-        let service = TestServiceState::new(
-            db.clone(),
-            0,
-            JobCache::new(),
-            MockReadyQueueSender,
-            {
-                use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
-                let (_s, r) =
-                    create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
-                r
-            },
-            MockTaskInstancePoolConnector,
-        );
+        // Create a service with a higher session ID to simulate a server restart.
+        let current_session_id: SessionId = 10;
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db_and_session(db, current_session_id);
 
         // Register a job so the JCB is in cache.
         let job_id = service
@@ -756,8 +779,14 @@ mod tests {
             )
             .await?;
 
+        let stale_session_id = current_session_id - 1;
         let result = service
-            .create_task_instance(job_id, TaskId::Index(0), ExecutionManagerId::new())
+            .create_task_instance(
+                stale_session_id,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::StaleSession)),
