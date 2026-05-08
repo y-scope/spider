@@ -85,10 +85,10 @@ use dashmap::DashMap;
 use rand::{Rng, SeedableRng};
 use spider_core::{
     job::JobState,
-    task::{TaskGraph as SubmittedTaskGraph, TaskIndex},
+    task::TaskIndex,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
-        io::{ExecutionContext, TaskInput, TaskOutput},
+        io::{ExecutionContext, TaskOutput},
     },
 };
 use spider_storage::{
@@ -96,6 +96,7 @@ use spider_storage::{
         TaskId,
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
+        job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
@@ -205,25 +206,23 @@ pub type FactoryReturn<DbConnectorType> = (DbConnectorType, JobId, ResourceGroup
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
 ///
-/// Receives the submitted task graph and job inputs, performs any required DB setup (e.g. job
-/// registration), and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to
-/// use for the JCB.
+/// Receives the validated job submission, performs any required DB setup (e.g. job registration),
+/// and returns the connector along with the [`JobId`] and [`ResourceGroupId`] to use for the JCB.
 pub trait DbConnectorFactory<DbConnectorType: InternalJobOrchestration>:
-    AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send {
+    AsyncFnOnce(&ValidatedJobSubmission) -> FactoryReturn<DbConnectorType> + Send {
 }
 
 impl<DbConnectorType: InternalJobOrchestration, AsyncFunc> DbConnectorFactory<DbConnectorType>
     for AsyncFunc
 where
-    AsyncFunc:
-        AsyncFnOnce(&SubmittedTaskGraph, &[TaskInput]) -> FactoryReturn<DbConnectorType> + Send,
+    AsyncFunc: AsyncFnOnce(&ValidatedJobSubmission) -> FactoryReturn<DbConnectorType> + Send,
 {
 }
 
 /// Creates a [`NoopDbConnector`] with default [`JobId`] and [`ResourceGroupId`].
 #[must_use]
 pub fn noop_db_connector_factory() -> impl DbConnectorFactory<NoopDbConnector> {
-    async |_, _| {
+    async |_: &ValidatedJobSubmission| {
         (
             NoopDbConnector {},
             JobId::default(),
@@ -317,8 +316,7 @@ pub fn write_instrument_results(
 /// A [`WorkloadResult`] containing the terminal state and commit/cleanup execution counts.
 #[allow(clippy::too_many_lines)]
 pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
-    submitted_task_graph: &SubmittedTaskGraph,
-    inputs: Vec<TaskInput>,
+    job_submission: ValidatedJobSubmission,
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     cancel_policy: CancelPolicy,
     output_handler: TaskOutputHandler,
@@ -330,16 +328,14 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let ready_queue_sender = MockReadyQueueSender {
         sender: ready_sender,
     };
-    let (db_connector, job_id, resource_group_id) =
-        db_connector_factory(submitted_task_graph, &inputs).await;
+    let (db_connector, job_id, resource_group_id) = db_connector_factory(&job_submission).await;
     let task_instance_pool = MockTaskInstancePool::new();
 
     // Create and start the JCB.
     let inner_jcb = SharedJobControlBlock::create(
         job_id,
         resource_group_id,
-        submitted_task_graph,
-        inputs,
+        job_submission,
         ready_queue_sender,
         db_connector,
         task_instance_pool,
@@ -457,8 +453,8 @@ pub fn mariadb_db_connector_factory(
     storage: MariaDbStorageConnector,
     rg_id: ResourceGroupId,
 ) -> impl DbConnectorFactory<MariaDbStorageConnector> {
-    async move |graph, inputs| {
-        let job_id = ExternalJobOrchestration::register(&storage, rg_id, graph, inputs)
+    async move |job_submission: &ValidatedJobSubmission| {
+        let job_id = ExternalJobOrchestration::register(&storage, rg_id, job_submission)
             .await
             .expect("register should succeed");
         (storage, job_id, rg_id)

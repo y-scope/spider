@@ -540,6 +540,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
+    use crate::cache::job_submission::ValidatedJobSubmission;
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
 
@@ -661,12 +662,14 @@ mod tests {
                 input_sources: None,
             })
             .expect("task insertion should succeed");
-        let task_graph = crate::cache::task::TaskGraph::create(
-            &submitted,
+        let job_submission = ValidatedJobSubmission::validate(
+            submitted,
             vec![TaskInput::ValuePayload(vec![0u8; 4])],
         )
-        .await
-        .expect("cache task graph creation should succeed");
+        .expect("job submission should be valid");
+        let task_graph = crate::cache::task::TaskGraph::create(job_submission)
+            .await
+            .expect("cache task graph creation should succeed");
         task_graph
             .get_task_control_block(0)
             .expect("task control block should exist")

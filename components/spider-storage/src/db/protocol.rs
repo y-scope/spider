@@ -3,14 +3,13 @@ use std::net::IpAddr;
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    task::TaskGraph,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
-        io::{TaskInput, TaskOutput},
+        io::TaskOutput,
     },
 };
 
-use crate::db::error::DbError;
+use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
 
 /// The database storage interface. A database storage must implement the following traits:
 ///
@@ -36,8 +35,7 @@ pub trait ExternalJobOrchestration {
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the created job.
-    /// * `task_graph` - The task graph representing the job's tasks and their dependencies.
-    /// * `job_inputs` - A slice of job inputs required for the job.
+    /// * `job_submission` - The validated job submission containing the task graph and job inputs.
     ///
     /// # Returns
     ///
@@ -48,20 +46,13 @@ pub trait ExternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * [`DbError::TaskGraphSerializationFailure`] if the `task_graph` serialization fails.
-    /// * [`DbError::ValueSerializationFailure`] if the `job_inputs` serialization fails.
+    /// * [`DbError::TaskGraphSerializationFailure`] if the task graph serialization fails.
+    /// * [`DbError::ValueSerializationFailure`] if the job inputs serialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    ///
-    /// # Note
-    ///
-    /// This function assumes that the `task_graph` and `job_inputs` are consistent.
-    ///
-    /// TODO: Fix this when #284 is addressed.
     async fn register(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: &TaskGraph,
-        job_inputs: &[TaskInput],
+        job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError>;
 
     /// Gets the state of a job.

@@ -8,10 +8,10 @@ use std::{
 
 use spider_core::{
     job::JobState,
-    task::{TaskGraph as SubmittedTaskGraph, TaskIndex, TaskState},
+    task::{TaskIndex, TaskState},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
-        io::{ExecutionContext, TaskInput, TaskOutput},
+        io::{ExecutionContext, TaskOutput},
     },
 };
 use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -20,6 +20,7 @@ use crate::{
     cache::{
         TaskId,
         error::{CacheError, InternalError, InternalError::UnexpectedJobState, StaleStateError},
+        job_submission::ValidatedJobSubmission,
         task::TaskGraph,
     },
     db::InternalJobOrchestration,
@@ -63,27 +64,17 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::TaskGraphCorrupted`] if the given task graph doesn't contain any tasks.
-    ///   The current version of JCB requires the job contains at least one task.
     /// * Forwards [`TaskGraph::create`]'s return values on failure.
     pub async fn create(
         id: JobId,
         owner_id: ResourceGroupId,
-        submitted_task_graph: &SubmittedTaskGraph,
-        inputs: Vec<TaskInput>,
+        job_submission: ValidatedJobSubmission,
         ready_queue_sender: ReadyQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
-        let num_tasks = submitted_task_graph.get_num_tasks();
-        if 0 == num_tasks {
-            return Err(InternalError::TaskGraphCorrupted(
-                "task graph with no task is unsupported".to_owned(),
-            )
-            .into());
-        }
-
-        let task_graph = TaskGraph::create(submitted_task_graph, inputs).await?;
+        let num_tasks = job_submission.task_graph().get_num_tasks();
+        let task_graph = TaskGraph::create(job_submission).await?;
         let job_execution_state = JobExecutionState {
             state: JobState::Ready,
             task_graph,

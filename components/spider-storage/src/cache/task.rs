@@ -5,15 +5,7 @@ use std::{
 };
 
 use spider_core::{
-    task::{
-        Task,
-        TaskGraph as SubmittedTaskGraph,
-        TaskIndex,
-        TaskState,
-        TdlContext,
-        TerminationTaskDescriptor,
-        TimeoutPolicy,
-    },
+    task::{Task, TaskIndex, TaskState, TdlContext, TerminationTaskDescriptor, TimeoutPolicy},
     types::{
         id::TaskInstanceId,
         io::{ExecutionContext, TaskInput, TaskOutput},
@@ -24,6 +16,7 @@ use tokio::sync::RwLock;
 use crate::cache::{
     error::{CacheError, InternalError, StaleStateError},
     io::{InputReader, OutputReader, OutputWriter, ValuePayload},
+    job_submission::ValidatedJobSubmission,
     sync::{Reader, SharedRw, Writer},
 };
 
@@ -38,7 +31,7 @@ pub struct TaskGraph {
 impl TaskGraph {
     /// Factory function.
     ///
-    /// Creates a new task graph from a submitted task graph and the input task inputs.
+    /// Creates a new task graph from a validated job submission.
     ///
     /// # Returns
     ///
@@ -51,28 +44,18 @@ impl TaskGraph {
     /// * [`InternalError::TaskGraphCorrupted`] if:
     ///   * Any dataflow deps' index is out-of-range.
     ///   * Any task index is out-of-range.
-    /// * [`InternalError::TaskGraphInputsSizeMismatch`] if the number of provided inputs does not
-    ///   match the task graph’s expected number of inputs.
     /// * Forwards [`SharedTaskControlBlock::create`]'s return values on failure.
     ///
     /// # Panics
     ///
     /// Panics if the internal TCB buffer is corrupted.
-    pub async fn create(
-        submitted_task_graph: &SubmittedTaskGraph,
-        inputs: Vec<TaskInput>,
-    ) -> Result<Self, InternalError> {
+    pub async fn create(job_submission: ValidatedJobSubmission) -> Result<Self, InternalError> {
+        let (submitted_task_graph, inputs) = job_submission.into_parts();
         let dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
             .get_num_dataflow_deps())
             .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
             .collect();
         let task_graph_input_indices = submitted_task_graph.get_task_graph_input_indices();
-        if inputs.len() != task_graph_input_indices.len() {
-            return Err(InternalError::TaskGraphInputsSizeMismatch(
-                task_graph_input_indices.len(),
-                inputs.len(),
-            ));
-        }
         for (deps_index, input) in task_graph_input_indices.into_iter().zip(inputs) {
             let dataflow_dep = dataflow_dep_buffer.get(deps_index).ok_or_else(|| {
                 InternalError::TaskGraphCorrupted(
@@ -949,6 +932,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::cache::job_submission::ValidatedJobSubmission;
 
     /// # Returns
     ///
@@ -1092,7 +1076,9 @@ mod tests {
         let inputs: Vec<TaskInput> = (0..num_inputs)
             .map(|_| TaskInput::ValuePayload(vec![0u8; 4]))
             .collect();
-        TaskGraph::create(&submitted, inputs)
+        let job_submission = ValidatedJobSubmission::validate(submitted, inputs)
+            .expect("job submission should be valid");
+        TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
     }
@@ -1107,7 +1093,7 @@ mod tests {
         max_num_instances: u32,
         max_num_retry: u32,
     ) -> SharedTerminationTaskControlBlock {
-        let submitted = SubmittedTaskGraph::new(
+        let mut submitted = SubmittedTaskGraph::new(
             Some(TerminationTaskDescriptor {
                 tdl_context: TdlContext {
                     package: "test_pkg".to_owned(),
@@ -1122,7 +1108,21 @@ mod tests {
             None,
         )
         .expect("task graph with commit task should be created");
-        let task_graph = TaskGraph::create(&submitted, vec![])
+        submitted
+            .insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: "dummy_fn".to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+                inputs: vec![],
+                outputs: vec![],
+                input_sources: None,
+            })
+            .expect("task insertion should succeed");
+        let job_submission = ValidatedJobSubmission::validate(submitted, vec![])
+            .expect("job submission should be valid");
+        let task_graph = TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed");
         task_graph
@@ -1237,7 +1237,9 @@ mod tests {
             TaskInput::ValuePayload(input_a),
             TaskInput::ValuePayload(input_b),
         ];
-        TaskGraph::create(&submitted, inputs)
+        let job_submission = ValidatedJobSubmission::validate(submitted, inputs)
+            .expect("job submission should be valid");
+        TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
     }

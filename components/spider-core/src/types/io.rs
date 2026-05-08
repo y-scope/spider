@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Represents an input of a task.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum TaskInput {
     ValuePayload(Vec<u8>),
 }
