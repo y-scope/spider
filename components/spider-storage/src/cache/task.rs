@@ -42,9 +42,9 @@ impl TaskGraph {
     /// Returns an error if:
     ///
     /// * [`InternalError::TaskGraphCorrupted`] if:
-    ///   * Any dataflow deps’ index is out-of-range.
+    ///   * Any dataflow deps' index is out-of-range.
     ///   * Any task index is out-of-range.
-    /// * Forwards [`SharedTaskControlBlock::create`]’s return values on failure.
+    /// * Forwards [`SharedTaskControlBlock::create`]'s return values on failure.
     ///
     /// # Panics
     ///
