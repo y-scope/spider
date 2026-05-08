@@ -25,13 +25,13 @@ spider-derive = { path = "../spider-derive" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
-tracing = { version = "0.1", features = ["attributes"] }
 tokio = { version = "1.50.0", features = [
   "macros",
   "rt-multi-thread",
   "sync",
   "time"
 ] }
+tracing = { version = "0.1.44", features = ["attributes"] }
 uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]
