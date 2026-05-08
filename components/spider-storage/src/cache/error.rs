@@ -41,6 +41,12 @@ pub enum InternalError {
     #[error("task graph corrupted: {0}")]
     TaskGraphCorrupted(String),
 
+    #[error("task graph must contain at least one task")]
+    TaskGraphEmpty,
+
+    #[error("task graph input size mismatch: expected {expected}, got {actual}")]
+    TaskGraphInputSizeMismatch { expected: usize, actual: usize },
+
     #[error("job not started")]
     JobNotStarted,
 
@@ -70,12 +76,6 @@ pub enum InternalError {
 
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
-
-    #[error("task graph must contain at least one task")]
-    EmptyTaskGraph,
-
-    #[error("expected {expected} graph inputs, got {actual}")]
-    InputCountMismatch { expected: usize, actual: usize },
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

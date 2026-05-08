@@ -24,18 +24,18 @@ impl ValidatedJobSubmission {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::EmptyTaskGraph`] if the task graph contains no tasks.
-    /// * [`InternalError::InputCountMismatch`] if the number of inputs does not match the number of
+    /// * [`InternalError::TaskGraphEmpty`] if the task graph contains no tasks.
+    /// * [`InternalError::TaskGraphInputSizeMismatch`] if the number of inputs does not match the number of
     ///   graph inputs.
     pub fn validate(task_graph: TaskGraph, inputs: Vec<TaskInput>) -> Result<Self, InternalError> {
         let num_tasks = task_graph.get_num_tasks();
         if num_tasks == 0 {
-            return Err(InternalError::EmptyTaskGraph);
+            return Err(InternalError::TaskGraphEmpty);
         }
         let expected_inputs = task_graph.get_task_graph_input_indices().len();
         let actual_inputs = inputs.len();
         if expected_inputs != actual_inputs {
-            return Err(InternalError::InputCountMismatch {
+            return Err(InternalError::TaskGraphInputSizeMismatch {
                 expected: expected_inputs,
                 actual: actual_inputs,
             });
@@ -120,7 +120,7 @@ mod tests {
         let inputs = vec![];
         let result = ValidatedJobSubmission::validate(graph, inputs);
         assert!(
-            matches!(result, Err(InternalError::EmptyTaskGraph)),
+            matches!(result, Err(InternalError::TaskGraphEmpty)),
             "empty task graph should return EmptyTaskGraph"
         );
     }
@@ -133,7 +133,7 @@ mod tests {
         assert!(
             matches!(
                 result,
-                Err(InternalError::InputCountMismatch {
+                Err(InternalError::TaskGraphInputSizeMismatch {
                     expected: 1,
                     actual: 0
                 })
