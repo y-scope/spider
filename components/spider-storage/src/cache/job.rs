@@ -74,7 +74,7 @@ impl<
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
         let num_tasks = job_submission.task_graph().get_num_tasks();
-        let task_graph = TaskGraph::create(&job_submission).await?;
+        let task_graph = TaskGraph::create(job_submission).await?;
         let job_execution_state = JobExecutionState {
             state: JobState::Ready,
             task_graph,

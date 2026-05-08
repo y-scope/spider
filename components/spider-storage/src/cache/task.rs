@@ -49,18 +49,14 @@ impl TaskGraph {
     /// # Panics
     ///
     /// Panics if the internal TCB buffer is corrupted.
-    pub async fn create(job_submission: &ValidatedJobSubmission) -> Result<Self, InternalError> {
-        let submitted_task_graph = job_submission.task_graph();
-        let inputs = job_submission.inputs();
+    pub async fn create(job_submission: ValidatedJobSubmission) -> Result<Self, InternalError> {
+        let (submitted_task_graph, inputs) = job_submission.into_parts();
         let dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
             .get_num_dataflow_deps())
             .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
             .collect();
         let task_graph_input_indices = submitted_task_graph.get_task_graph_input_indices();
-        for (deps_index, input) in task_graph_input_indices
-            .into_iter()
-            .zip(inputs.iter().cloned())
-        {
+        for (deps_index, input) in task_graph_input_indices.into_iter().zip(inputs) {
             let dataflow_dep = dataflow_dep_buffer.get(deps_index).ok_or_else(|| {
                 InternalError::TaskGraphCorrupted(
                     "dataflow dependency index out-of-range".to_owned(),
@@ -1082,7 +1078,7 @@ mod tests {
             .collect();
         let job_submission = ValidatedJobSubmission::validate(submitted, inputs)
             .expect("job submission should be valid");
-        TaskGraph::create(&job_submission)
+        TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
     }
@@ -1126,7 +1122,7 @@ mod tests {
             .expect("task insertion should succeed");
         let job_submission = ValidatedJobSubmission::validate(submitted, vec![])
             .expect("job submission should be valid");
-        let task_graph = TaskGraph::create(&job_submission)
+        let task_graph = TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed");
         task_graph
@@ -1243,7 +1239,7 @@ mod tests {
         ];
         let job_submission = ValidatedJobSubmission::validate(submitted, inputs)
             .expect("job submission should be valid");
-        TaskGraph::create(&job_submission)
+        TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
     }

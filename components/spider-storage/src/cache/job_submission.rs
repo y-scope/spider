@@ -25,8 +25,8 @@ impl ValidatedJobSubmission {
     /// Returns an error if:
     ///
     /// * [`InternalError::TaskGraphEmpty`] if the task graph contains no tasks.
-    /// * [`InternalError::TaskGraphInputSizeMismatch`] if the number of inputs does not match the number of
-    ///   graph inputs.
+    /// * [`InternalError::TaskGraphInputSizeMismatch`] if the number of inputs does not match the
+    ///   number of graph inputs.
     pub fn validate(task_graph: TaskGraph, inputs: Vec<TaskInput>) -> Result<Self, InternalError> {
         let num_tasks = task_graph.get_num_tasks();
         if num_tasks == 0 {
