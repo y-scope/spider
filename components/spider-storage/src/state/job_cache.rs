@@ -277,11 +277,9 @@ mod tests {
             })
             .expect("task insertion should succeed");
 
-        let job_submission = ValidatedJobSubmission::validate(
-            submitted,
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
-        )
-        .expect("job submission should be valid");
+        let job_submission =
+            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+                .expect("job submission should be valid");
         SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::new(),
@@ -459,11 +457,9 @@ mod tests {
             .expect("task insertion should succeed");
 
         let job_id = JobId::new();
-        let job_submission = ValidatedJobSubmission::validate(
-            submitted,
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
-        )
-        .expect("job submission should be valid");
+        let job_submission =
+            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+                .expect("job submission should be valid");
         let jcb = SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::new(),

@@ -62,7 +62,7 @@ async fn test_register_job() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -83,7 +83,7 @@ async fn test_register_job_invalid_resource_group() {
     let fake_rg_id = ResourceGroupId::new();
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let result = storage.register(fake_rg_id, &job_submission).await;
 
@@ -100,7 +100,7 @@ async fn test_start_job() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -123,7 +123,7 @@ async fn test_start_job_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -146,7 +146,7 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -174,7 +174,7 @@ async fn test_get_outputs_succeeded_job() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -202,7 +202,7 @@ async fn test_get_outputs_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -223,7 +223,7 @@ async fn test_get_error_failed_job() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -250,7 +250,7 @@ async fn test_get_error_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -271,7 +271,7 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -298,7 +298,7 @@ async fn test_cancel_already_terminal() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -328,7 +328,7 @@ async fn test_set_state_valid_transition() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -353,7 +353,7 @@ async fn test_set_state_invalid_transition() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -378,7 +378,7 @@ async fn test_commit_outputs_without_commit_task() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -405,7 +405,7 @@ async fn test_commit_outputs_with_commit_task() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -435,7 +435,7 @@ async fn test_commit_outputs_wrong_state() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -461,7 +461,7 @@ async fn test_fail_job() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -488,7 +488,7 @@ async fn test_fail_terminal_state() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -519,7 +519,7 @@ async fn test_delete_expired_terminated_jobs() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -734,7 +734,7 @@ async fn test_cancel_from_ready_state() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -760,7 +760,7 @@ async fn test_delete_expired_terminated_jobs_no_match() {
     let rg_id = create_test_resource_group(&storage).await;
     let (graph, inputs) = single_task_graph();
     let job_submission =
-        ValidatedJobSubmission::validate(graph, inputs).expect("job submission should be valid");
+        ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
     let job_id = storage
         .register(rg_id, &job_submission)
