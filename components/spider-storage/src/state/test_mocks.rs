@@ -65,6 +65,7 @@ pub struct MockDbConnector {
     pub states: Arc<DashMap<JobId, JobState>>,
     pub errors: Arc<DashMap<JobId, String>>,
     pub outputs: Arc<DashMap<JobId, Vec<TaskOutput>>>,
+    pub session_id: SessionId,
 }
 
 impl Default for MockDbConnector {
@@ -73,6 +74,7 @@ impl Default for MockDbConnector {
             states: Arc::new(DashMap::new()),
             errors: Arc::new(DashMap::new()),
             outputs: Arc::new(DashMap::new()),
+            session_id: 0,
         }
     }
 }
@@ -208,7 +210,7 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
 
 impl SessionManagement for MockDbConnector {
     fn session_id(&self) -> SessionId {
-        0
+        self.session_id
     }
 }
 

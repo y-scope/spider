@@ -109,6 +109,11 @@ impl<
         self.inner.id
     }
 
+    /// Returns the current job state.
+    pub async fn state(&self) -> JobState {
+        self.inner.job_execution_state.read_state().await
+    }
+
     /// Starts the job.
     ///
     /// Any tasks in [`TaskState::Ready`] will be enqueued to the ready queue on success.
@@ -731,6 +736,11 @@ struct JobExecutionStateHandle<
 impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
     JobExecutionStateHandle<R, D, T>
 {
+    /// Returns the current job state without validation.
+    async fn read_state(&self) -> JobState {
+        self.inner.read().await.state
+    }
+
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
