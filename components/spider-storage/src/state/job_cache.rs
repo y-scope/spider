@@ -144,7 +144,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::{error::InternalError, job::SharedJobControlBlock},
+        cache::{
+            error::InternalError,
+            job::SharedJobControlBlock,
+            job_submission::ValidatedJobSubmission,
+        },
         ready_queue::ReadyQueueSender,
         state::test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
     };
@@ -169,11 +173,13 @@ mod tests {
             })
             .expect("task insertion should succeed");
 
+        let job_submission =
+            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+                .expect("job submission should be valid");
         SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::new(),
-            &submitted,
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
+            job_submission,
             MockReadyQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
@@ -347,11 +353,13 @@ mod tests {
             .expect("task insertion should succeed");
 
         let job_id = JobId::new();
+        let job_submission =
+            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+                .expect("job submission should be valid");
         let jcb = SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::new(),
-            &submitted,
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
+            job_submission,
             sender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
