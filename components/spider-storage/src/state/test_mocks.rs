@@ -5,13 +5,14 @@ use spider_core::{
     job::JobState,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
-        io::{TaskInput, TaskOutput},
+        io::TaskOutput,
     },
 };
 
 use crate::{
     cache::{
         error::InternalError,
+        job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{
@@ -84,8 +85,7 @@ impl ExternalJobOrchestration for MockDbConnector {
     async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
-        _task_graph: &spider_core::task::TaskGraph,
-        _job_inputs: &[TaskInput],
+        _job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         let job_id = JobId::new();
         self.states.insert(job_id, JobState::Ready);

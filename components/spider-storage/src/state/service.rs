@@ -5,13 +5,13 @@ use spider_core::{
     task::TaskIndex,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
-        io::{ExecutionContext, TaskInput, TaskOutput},
+        io::{ExecutionContext, TaskOutput},
     },
 };
 use tracing::{debug, instrument};
 
 use crate::{
-    cache::{TaskId, job::SharedJobControlBlock},
+    cache::{TaskId, job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
     db::DbStorage,
     ready_queue::{ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
@@ -92,6 +92,9 @@ impl<
 
     /// Registers a job in the database and inserts its control block into the cache.
     ///
+    /// Accepts a [`ValidatedJobSubmission`] which guarantees that the task graph and inputs have
+    /// already been validated for consistency.
+    ///
     /// If [`SharedJobControlBlock::create`] or [`JobCache::insert`] fails after the DB record has
     /// been created, the DB record is **not** deleted.
     ///
@@ -106,17 +109,16 @@ impl<
     /// * Forwards [`JobCache::insert`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
-    #[instrument(skip(self, task_graph, job_inputs), fields(job_id))]
+    #[instrument(skip(self, job_submission), fields(job_id))]
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
-        task_graph: &spider_core::task::TaskGraph,
-        job_inputs: Vec<TaskInput>,
+        job_submission: ValidatedJobSubmission,
     ) -> Result<JobId, StorageServerError> {
         let job_id = self
             .inner
             .db
-            .register(resource_group_id, task_graph, &job_inputs)
+            .register(resource_group_id, &job_submission)
             .await?;
 
         tracing::Span::current().record("job_id", tracing::field::debug(&job_id));
@@ -124,8 +126,7 @@ impl<
         let jcb = SharedJobControlBlock::create(
             job_id,
             resource_group_id,
-            task_graph,
-            job_inputs,
+            job_submission,
             self.inner.ready_queue_sender.clone(),
             self.inner.db.clone(),
             self.inner.task_instance_pool_connector.clone(),
@@ -392,7 +393,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::job::SharedJobControlBlock,
+        cache::{job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
         state::{
             StorageServerError,
             test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
@@ -448,31 +449,27 @@ mod tests {
         task_graph
     }
 
+    fn create_test_job_submission() -> ValidatedJobSubmission {
+        ValidatedJobSubmission::create(
+            create_test_task_graph(),
+            vec![TaskInput::ValuePayload(vec![0u8; 4])],
+        )
+        .expect("job submission should be valid")
+    }
+
     async fn create_test_jcb(
         job_id: JobId,
     ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
     {
-        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-        let mut submitted =
-            SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
-        submitted
-            .insert_task(TaskDescriptor {
-                tdl_context: TdlContext {
-                    package: "test_pkg".to_owned(),
-                    task_func: "test_fn".to_owned(),
-                },
-                execution_policy: Some(ExecutionPolicy::default()),
-                inputs: vec![bytes_type.clone()],
-                outputs: vec![bytes_type],
-                input_sources: None,
-            })
-            .expect("task insertion should succeed");
+        let task_graph = create_test_task_graph();
+        let job_submission =
+            ValidatedJobSubmission::create(task_graph, vec![TaskInput::ValuePayload(vec![0u8; 4])])
+                .expect("job submission should be valid");
 
         SharedJobControlBlock::create(
             job_id,
             ResourceGroupId::new(),
-            &submitted,
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
+            job_submission,
             MockReadyQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
@@ -485,11 +482,7 @@ mod tests {
     async fn register_job_returns_job_id_and_inserts_into_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
         assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
@@ -503,11 +496,7 @@ mod tests {
     async fn start_job_starts_cached_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
 
         service.start_job(job_id).await?;
@@ -562,11 +551,7 @@ mod tests {
     async fn get_job_state_serves_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
 
         let state = service.get_job_state(job_id).await?;
@@ -643,11 +628,7 @@ mod tests {
     async fn create_task_instance_returns_execution_context() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
         service.start_job(job_id).await?;
 
@@ -688,11 +669,7 @@ mod tests {
     async fn succeed_task_instance_transitions_job_to_succeeded() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
         service.start_job(job_id).await?;
 
@@ -738,11 +715,7 @@ mod tests {
     async fn fail_task_instance_transitions_job_to_failed() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
         service.start_job(job_id).await?;
 
@@ -799,11 +772,7 @@ mod tests {
 
         // Register a job so the JCB is in cache.
         let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                &create_test_task_graph(),
-                vec![TaskInput::ValuePayload(vec![0u8; 4])],
-            )
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
 
         let stale_session_id = current_session_id - 1;
