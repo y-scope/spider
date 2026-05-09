@@ -106,9 +106,9 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`JobCache::insert`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
+    /// * Forwards [`JobCache::insert`]'s return values on failure.
     #[instrument(skip(self, job_submission), fields(job_id))]
     pub async fn register_job(
         &self,
@@ -787,6 +787,80 @@ mod tests {
         assert!(
             matches!(result, Err(StorageServerError::StaleSession)),
             "create_task_instance should return StaleSession on session mismatch"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn succeed_task_instance_returns_stale_session_on_mismatch() -> anyhow::Result<()> {
+        let current_session_id: SessionId = 10;
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db_and_session(db, current_session_id);
+
+        let job_id = service
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .await?;
+        service.start_job(job_id).await?;
+
+        let context = service
+            .create_task_instance(
+                current_session_id,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
+            .await?;
+
+        let stale_session_id = current_session_id - 1;
+        let result = service
+            .succeed_task_instance(
+                stale_session_id,
+                job_id,
+                context.task_instance_id,
+                0,
+                vec![vec![0u8; 4]],
+            )
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::StaleSession)),
+            "succeed_task_instance should return StaleSession on session mismatch"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fail_task_instance_returns_stale_session_on_mismatch() -> anyhow::Result<()> {
+        let current_session_id: SessionId = 10;
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db_and_session(db, current_session_id);
+
+        let job_id = service
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .await?;
+        service.start_job(job_id).await?;
+
+        let context = service
+            .create_task_instance(
+                current_session_id,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
+            .await?;
+
+        let stale_session_id = current_session_id - 1;
+        let result = service
+            .fail_task_instance(
+                stale_session_id,
+                job_id,
+                context.task_instance_id,
+                TaskId::Index(0),
+                "error".to_owned(),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::StaleSession)),
+            "fail_task_instance should return StaleSession on session mismatch"
         );
         Ok(())
     }

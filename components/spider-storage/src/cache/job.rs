@@ -100,7 +100,9 @@ impl<
         self.inner.id
     }
 
-    /// Returns the current job state.
+    /// # Returns
+    ///
+    /// The current job state.
     pub async fn state(&self) -> JobState {
         self.inner.job_execution_state.read_state().await
     }
@@ -727,7 +729,9 @@ struct JobExecutionStateHandle<
 impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
     JobExecutionStateHandle<R, D, T>
 {
-    /// Returns the current job state without validation.
+    /// # Returns
+    ///
+    /// The current job state.
     async fn read_state(&self) -> JobState {
         self.inner.read().await.state
     }
