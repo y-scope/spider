@@ -2,17 +2,22 @@ use std::sync::Arc;
 
 use spider_core::{
     job::JobState,
-    task::TaskIndex,
+    task::{TaskGraph, TaskIndex},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
-        io::{ExecutionContext, TaskOutput},
+        io::{ExecutionContext, SerializedJobInputs, TaskOutput, deserialize_job_inputs},
     },
 };
 use tracing::{debug, instrument};
 
 use crate::{
-    cache::{TaskId, job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
-    db::DbStorage,
+    cache::{
+        TaskId,
+        error::CacheError,
+        job::SharedJobControlBlock,
+        job_submission::ValidatedJobSubmission,
+    },
+    db::{DbError, DbStorage},
     ready_queue::{ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
@@ -92,8 +97,8 @@ impl<
 
     /// Registers a job in the database and inserts its control block into the cache.
     ///
-    /// Accepts a [`ValidatedJobSubmission`] which guarantees that the task graph and inputs have
-    /// already been validated for consistency.
+    /// Deserializes the serialized task graph and job inputs, validates their consistency,
+    /// then persists the job and creates its control block.
     ///
     /// If [`SharedJobControlBlock::create`] or [`JobCache::insert`] fails after the DB record has
     /// been created, the DB record is **not** deleted.
@@ -106,15 +111,30 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * [`StorageServerError::Task`] if the task graph fails to deserialize.
+    /// * [`DbError::ValueDeserializationFailure`] if any job input fails to deserialize.
+    /// * [`InternalError::TaskGraphEmpty`] or [`InternalError::TaskGraphInputSizeMismatch`] if the
+    ///   deserialized data fails validation.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
-    #[instrument(skip(self, job_submission), fields(job_id))]
+    #[instrument(
+        skip(self, serialized_task_graph, serialized_job_inputs),
+        fields(job_id)
+    )]
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
-        job_submission: ValidatedJobSubmission,
+        serialized_task_graph: String,
+        serialized_job_inputs: SerializedJobInputs,
     ) -> Result<JobId, StorageServerError> {
+        let task_graph =
+            TaskGraph::from_json(&serialized_task_graph).map_err(StorageServerError::Task)?;
+        let inputs = deserialize_job_inputs(&serialized_job_inputs)
+            .map_err(|e| StorageServerError::Db(DbError::value_de(e)))?;
+        let job_submission =
+            ValidatedJobSubmission::create(task_graph, inputs).map_err(CacheError::from)?;
+
         let job_id = self
             .inner
             .db
@@ -449,12 +469,15 @@ mod tests {
         task_graph
     }
 
-    fn create_test_job_submission() -> ValidatedJobSubmission {
-        ValidatedJobSubmission::create(
-            create_test_task_graph(),
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
-        )
-        .expect("job submission should be valid")
+    fn create_serialized_test_job_submission() -> (String, SerializedJobInputs) {
+        let task_graph = create_test_task_graph()
+            .to_json()
+            .expect("task graph serialization should succeed");
+        let inputs = vec![
+            rmp_serde::to_vec(&TaskInput::ValuePayload(vec![0u8; 4]))
+                .expect("input serialization should succeed"),
+        ];
+        (task_graph, inputs)
     }
 
     async fn create_test_jcb(
@@ -481,8 +504,13 @@ mod tests {
     #[tokio::test]
     async fn register_job_returns_job_id_and_inserts_into_cache() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
@@ -495,8 +523,13 @@ mod tests {
     #[tokio::test]
     async fn start_job_starts_cached_job() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
 
         service.start_job(job_id).await?;
@@ -550,8 +583,13 @@ mod tests {
     #[tokio::test]
     async fn get_job_state_serves_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
 
         let state = service.get_job_state(job_id).await?;
@@ -627,8 +665,13 @@ mod tests {
     #[tokio::test]
     async fn create_task_instance_returns_execution_context() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -668,8 +711,13 @@ mod tests {
     #[tokio::test]
     async fn succeed_task_instance_transitions_job_to_succeeded() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -714,8 +762,13 @@ mod tests {
     #[tokio::test]
     async fn fail_task_instance_transitions_job_to_failed() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -771,8 +824,13 @@ mod tests {
         let service = create_test_service_with_db_and_session(db, current_session_id);
 
         // Register a job so the JCB is in cache.
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
 
         let stale_session_id = current_session_id - 1;
@@ -797,8 +855,13 @@ mod tests {
         let db = MockDbConnector::default();
         let service = create_test_service_with_db_and_session(db, current_session_id);
 
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -834,8 +897,13 @@ mod tests {
         let db = MockDbConnector::default();
         let service = create_test_service_with_db_and_session(db, current_session_id);
 
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
