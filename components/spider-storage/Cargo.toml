@@ -31,6 +31,7 @@ tokio = { version = "1.50.0", features = [
   "sync",
   "time"
 ] }
+tracing = { version = "0.1.44", features = ["attributes"] }
 uuid = { version = "1.19.0", features = ["serde"] }
 
 [dev-dependencies]

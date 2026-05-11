@@ -11,7 +11,7 @@ use spider_core::{
     job::JobState,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
-        io::{TaskInput, TaskOutput},
+        io::TaskOutput,
     },
 };
 use uuid::Uuid;
@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::{
     cache::{
         error::InternalError,
+        job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{
@@ -76,6 +77,7 @@ pub struct MockDbConnector {
     pub next_resource_group_id: Arc<AtomicUsize>,
     pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
     pub next_execution_manager_id: Arc<AtomicUsize>,
+    pub session_id: SessionId,
 }
 
 impl Default for MockDbConnector {
@@ -88,6 +90,7 @@ impl Default for MockDbConnector {
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
             execution_managers: Arc::new(DashMap::new()),
             next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
+            session_id: 0,
         }
     }
 }
@@ -97,8 +100,7 @@ impl ExternalJobOrchestration for MockDbConnector {
     async fn register(
         &self,
         _resource_group_id: ResourceGroupId,
-        _task_graph: &spider_core::task::TaskGraph,
-        _job_inputs: &[TaskInput],
+        _job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         let job_id = JobId::new();
         self.states.insert(job_id, JobState::Ready);
@@ -247,7 +249,7 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
 
 impl SessionManagement for MockDbConnector {
     fn session_id(&self) -> SessionId {
-        0
+        self.session_id
     }
 }
 
