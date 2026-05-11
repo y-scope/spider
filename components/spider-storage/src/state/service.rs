@@ -17,7 +17,7 @@ use crate::{
         job::SharedJobControlBlock,
         job_submission::ValidatedJobSubmission,
     },
-    db::{DbError, DbStorage},
+    db::DbStorage,
     ready_queue::{ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
@@ -130,7 +130,7 @@ impl<
         let task_graph =
             TaskGraph::from_json(&serialized_task_graph).map_err(StorageServerError::Task)?;
         let inputs = deserialize_job_inputs(&serialized_job_inputs)
-            .map_err(|e| StorageServerError::Db(DbError::value_de(e)))?;
+            .map_err(|e| StorageServerError::Task(e.into()))?;
         let job_submission =
             ValidatedJobSubmission::create(task_graph, inputs).map_err(CacheError::from)?;
 
@@ -556,8 +556,8 @@ mod tests {
             )
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::Db(_))),
-            "register_job should return Db error on invalid msgpack input"
+            matches!(result, Err(StorageServerError::Task(_))),
+            "register_job should return Task error on invalid msgpack input"
         );
         Ok(())
     }
