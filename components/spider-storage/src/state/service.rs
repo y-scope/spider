@@ -70,11 +70,11 @@ impl<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
-    /// Creates a new `ServiceState` from its constituent parts.
+    /// Factory function.
     ///
     /// # Returns
     ///
-    /// A newly created `ServiceState`.
+    /// A newly created [`ServiceState`] from its constituent parts.
     pub fn new(
         db: DbConnectorType,
         session_id: SessionId,
@@ -96,12 +96,6 @@ impl<
     }
 
     /// Registers a job in the database and inserts its control block into the cache.
-    ///
-    /// Deserializes the serialized task graph and job inputs, validates their consistency,
-    /// then persists the job and creates its control block.
-    ///
-    /// If [`SharedJobControlBlock::create`] or [`JobCache::insert`] fails after the DB record has
-    /// been created, the DB record is **not** deleted.
     ///
     /// # Returns
     ///
@@ -160,9 +154,6 @@ impl<
 
     /// Starts a job for execution.
     ///
-    /// Gets the job control block from the cache and starts it by calling
-    /// [`SharedJobControlBlock::start`].
-    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -182,8 +173,6 @@ impl<
     }
 
     /// Cancels a job.
-    ///
-    /// If the job is in the cache, delegates to [`SharedJobControlBlock::cancel`].
     ///
     /// # Returns
     ///
