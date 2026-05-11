@@ -232,7 +232,10 @@ impl<
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
-    /// Gets the outputs of a job from the database.
+    /// Gets the outputs of a job.
+    ///
+    /// Checks the job cache first; if the JCB is present, returns its in-memory outputs. Otherwise
+    /// falls back to the database.
     ///
     /// # Returns
     ///
@@ -242,12 +245,19 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::get_outputs`]'s return values on failure (cache path).
+    /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure (DB
+    ///   fallback).
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_outputs(
         &self,
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
+        if let Some(jcb) = self.inner.job_cache.get(job_id) {
+            debug!("JCB found in cache, returning in-memory outputs");
+            return Ok(jcb.get_outputs().await?);
+        }
+        debug!("JCB not in cache, falling back to database");
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
@@ -625,6 +635,43 @@ mod tests {
         db.outputs.insert(job_id, outputs.clone());
 
         let service = create_test_service_with_db(db);
+        let result = service.get_job_outputs(job_id).await?;
+        assert_eq!(result, outputs);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_job_outputs_returns_outputs_from_cache_when_jcb_present() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
+            .await?;
+        service.start_job(job_id).await?;
+
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
+            .await?;
+        let outputs = vec![vec![0u8; 4]];
+        service
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                outputs.clone(),
+            )
+            .await?;
+
         let result = service.get_job_outputs(job_id).await?;
         assert_eq!(result, outputs);
         Ok(())

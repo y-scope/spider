@@ -107,6 +107,35 @@ impl<
         self.inner.job_execution_state.read_state().await
     }
 
+    /// Gets the outputs of the job from the in-memory task graph.
+    ///
+    /// # Returns
+    ///
+    /// The outputs of the job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`].
+    /// * [`InternalError::TaskInputNotReady`] if any output has no value.
+    pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, CacheError> {
+        let jcb = &self.inner;
+        let job = jcb.job_execution_state.read_succeeded().await?;
+        let mut outputs = Vec::new();
+        for output_reader in job.task_graph.get_outputs() {
+            let payload = output_reader
+                .read()
+                .await
+                .as_ref()
+                .ok_or(InternalError::TaskInputNotReady)?
+                .clone();
+            outputs.push(payload);
+        }
+        drop(job);
+        Ok(outputs)
+    }
+
     /// Starts the job.
     ///
     /// Any tasks in [`TaskState::Ready`] will be enqueued to the ready queue on success.
@@ -818,6 +847,22 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
 
     /// # Returns
     ///
+    /// A reader guard of the underlying job execution state on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionState::ensure_succeeded`]'s return values on failure.
+    async fn read_succeeded(
+        &self,
+    ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
+        self.validate_and_read(JobExecutionState::ensure_succeeded)
+            .await
+    }
+
+    /// # Returns
+    ///
     /// A writer guard of the underlying job execution state on success.
     ///
     /// # Errors
@@ -1002,6 +1047,24 @@ impl<
             return Err(UnexpectedJobState {
                 current: self.state,
                 expected: JobState::CleanupReady,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    /// Ensures that the job is currently in the [`JobState::Succeeded`] state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
+    fn ensure_succeeded(&self) -> Result<(), CacheError> {
+        if !matches!(self.state, JobState::Succeeded) {
+            return Err(UnexpectedJobState {
+                current: self.state,
+                expected: JobState::Succeeded,
             }
             .into());
         }
