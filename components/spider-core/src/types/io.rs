@@ -28,6 +28,10 @@ pub type SerializedJobInputs = Vec<Vec<u8>>;
 
 /// Deserializes msgpack-serialized job inputs.
 ///
+/// # Returns
+///
+/// The deserialized job inputs on success.
+///
 /// # Errors
 ///
 /// Returns `rmp_serde::decode::Error` if any input fails to deserialize.
@@ -41,6 +45,10 @@ pub fn deserialize_job_inputs(
 }
 
 /// Serializes job inputs to msgpack.
+///
+/// # Returns
+///
+/// The serialized job inputs on success.
 ///
 /// # Errors
 ///

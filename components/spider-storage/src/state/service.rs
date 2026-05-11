@@ -111,10 +111,9 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::Task`] if the task graph fails to deserialize.
-    /// * [`DbError::ValueDeserializationFailure`] if any job input fails to deserialize.
-    /// * [`InternalError::TaskGraphEmpty`] or [`InternalError::TaskGraphInputSizeMismatch`] if the
-    ///   deserialized data fails validation.
+    /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
+    /// * Forwards [`deserialize_job_inputs`]'s return values on failure.
+    /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
@@ -154,7 +153,7 @@ impl<
         .await?;
 
         self.inner.job_cache.insert(jcb)?;
-        debug!("Inserted JCB into job cache");
+        debug!("Inserted JCB into job cache.");
 
         Ok(job_id)
     }
@@ -177,7 +176,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, starting job");
+        debug!("JCB found in cache, starting job.");
         jcb.start().await?;
         Ok(())
     }
@@ -203,7 +202,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, cancelling job");
+        debug!("JCB found in cache, cancelling job.");
         let state = jcb.cancel().await?;
         Ok(state)
     }
@@ -225,10 +224,10 @@ impl<
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id) {
-            debug!("JCB found in cache, returning in-memory state");
+            debug!("JCB found in cache, returning in-memory state.");
             return Ok(jcb.state().await);
         }
-        debug!("JCB not in cache, falling back to database");
+        debug!("JCB not in cache, falling back to database.");
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
@@ -254,10 +253,10 @@ impl<
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id) {
-            debug!("JCB found in cache, returning in-memory outputs");
+            debug!("JCB found in cache, returning in-memory outputs.");
             return Ok(jcb.get_outputs().await?);
         }
-        debug!("JCB not in cache, falling back to database");
+        debug!("JCB not in cache, falling back to database.");
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
@@ -304,7 +303,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, creating task instance");
+        debug!("JCB found in cache, creating task instance.");
         Ok(jcb
             .create_task_instance(task_id, execution_manager_id)
             .await?)
@@ -343,7 +342,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, succeeding task instance");
+        debug!("JCB found in cache, succeeding task instance.");
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
@@ -381,7 +380,7 @@ impl<
             .job_cache
             .get(job_id)
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, failing task instance");
+        debug!("JCB found in cache, failing task instance.");
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
@@ -396,7 +395,7 @@ impl<
     /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
-            debug!("Session ID mismatch");
+            debug!("Session ID mismatch.");
             return Err(StorageServerError::StaleSession);
         }
         Ok(())
@@ -526,6 +525,56 @@ mod tests {
         assert!(
             service.inner.job_cache.get(job_id).is_some(),
             "JCB should be in cache after register_job"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_job_returns_error_on_invalid_task_graph() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service
+            .register_job(ResourceGroupId::new(), "invalid json".to_owned(), vec![])
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::Task(_))),
+            "register_job should return Task error on invalid task graph JSON"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_job_returns_error_on_invalid_input_bytes() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let task_graph = create_test_task_graph()
+            .to_json()
+            .expect("task graph serialization should succeed");
+        let result = service
+            .register_job(
+                ResourceGroupId::new(),
+                task_graph,
+                vec![vec![255u8; 1]], // invalid msgpack
+            )
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::Db(_))),
+            "register_job should return Db error on invalid msgpack input"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_job_returns_error_on_empty_task_graph() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let task_graph = spider_core::task::TaskGraph::new(None, None)
+            .expect("empty task graph creation should succeed")
+            .to_json()
+            .expect("task graph serialization should succeed");
+        let result = service
+            .register_job(ResourceGroupId::new(), task_graph, vec![])
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::Cache(_))),
+            "register_job should return Cache error on empty task graph"
         );
         Ok(())
     }
@@ -684,6 +733,26 @@ mod tests {
         assert!(
             result.is_err(),
             "get_job_outputs should fail for unknown job"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_job_outputs_returns_error_when_job_not_succeeded() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_serialized_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
+            .await?;
+        // JCB is in cache but job is still Ready (not Succeeded).
+        let result = service.get_job_outputs(job_id).await;
+        assert!(
+            result.is_err(),
+            "get_job_outputs should fail when job is not Succeeded"
         );
         Ok(())
     }

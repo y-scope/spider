@@ -1038,7 +1038,7 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
-    /// * [`StaleStateError::JobNoLongerCommitReady`] if the job is no longer cleanup-ready.
+    /// * [`StaleStateError::JobNoLongerCleanupReady`] if the job is no longer cleanup-ready.
     fn ensure_cleanup_ready(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::CleanupReady) {
             if self.state.is_terminal() {
@@ -1079,7 +1079,7 @@ impl<
     ///
     /// * [`StaleStateError::JobCancellationAlreadyRequested`] if job cancellation has already been
     ///   requested.
-    /// * [`StaleStateError::JobAlreadyCancelled`] if the job is already been cancelled.
+    /// * [`StaleStateError::JobAlreadyCancelled`] if the job has already been cancelled.
     /// * [`StaleStateError::JobAlreadyTerminated`] if the job has already terminated.
     fn ensure_cancellable(&self) -> Result<(), CacheError> {
         if matches!(self.state, JobState::CleanupReady) {
