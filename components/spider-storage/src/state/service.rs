@@ -8,6 +8,10 @@ use spider_core::{
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
+use spider_tdl::{
+    error::TdlError,
+    wire::{TaskOutputsSerializer, unframe},
+};
 use tracing::{debug, instrument};
 
 use crate::{
@@ -106,19 +110,25 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
+    /// * Forwards [`spider_tdl::wire::unframe`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
-    #[instrument(skip(self, serialized_task_graph, inputs), fields(job_id))]
+    #[instrument(skip(self, serialized_task_graph, serialized_inputs), fields(job_id))]
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
         serialized_task_graph: String,
-        inputs: Vec<TaskInput>,
+        serialized_inputs: Vec<u8>,
     ) -> Result<JobId, StorageServerError> {
         let task_graph =
             TaskGraph::from_json(&serialized_task_graph).map_err(StorageServerError::Task)?;
+        let inputs = unframe(&serialized_inputs)
+            .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?
+            .into_iter()
+            .map(TaskInput::ValuePayload)
+            .collect();
         let job_submission =
             ValidatedJobSubmission::create(task_graph, inputs).map_err(CacheError::from)?;
 
@@ -303,9 +313,11 @@ impl<
     ///
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`spider_tdl::wire::TaskOutputsSerializer::deserialize`]'s return values on
+    ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     #[instrument(
-        skip(self, session_id, task_outputs),
+        skip(self, session_id, serialized_outputs),
         fields(job_id = ?job_id, task_instance_id = ?task_instance_id)
     )]
     pub async fn succeed_task_instance(
@@ -314,9 +326,11 @@ impl<
         job_id: JobId,
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
-        task_outputs: Vec<TaskOutput>,
+        serialized_outputs: Vec<u8>,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
+        let task_outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)
+            .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?;
         let jcb = self
             .inner
             .job_cache
@@ -460,12 +474,30 @@ mod tests {
         task_graph
     }
 
-    fn create_test_job_submission() -> (String, Vec<TaskInput>) {
+    fn create_test_job_submission() -> (String, Vec<u8>) {
         let task_graph = create_test_task_graph()
             .to_json()
             .expect("task graph serialization should succeed");
-        let inputs = vec![TaskInput::ValuePayload(vec![0u8; 4])];
-        (task_graph, inputs)
+        let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
+        serializer
+            .append(TaskInput::ValuePayload(vec![0u8; 4]))
+            .expect("input serialization should succeed");
+        (task_graph, serializer.release())
+    }
+
+    fn create_test_serialized_outputs() -> Vec<u8> {
+        let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
+        serializer
+            .append(spider_core::types::io::TaskInput::ValuePayload(vec![
+                0u8;
+                4
+            ]))
+            .expect("output serialization should succeed");
+        serializer.release()
+    }
+
+    fn create_empty_serialized_inputs() -> Vec<u8> {
+        spider_tdl::wire::TaskInputsSerializer::new().release()
     }
 
     async fn create_test_jcb(
@@ -512,7 +544,11 @@ mod tests {
     async fn register_job_returns_error_on_invalid_task_graph() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .register_job(ResourceGroupId::new(), "invalid json".to_owned(), vec![])
+            .register_job(
+                ResourceGroupId::new(),
+                "invalid json".to_owned(),
+                create_empty_serialized_inputs(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::Task(_))),
@@ -528,7 +564,11 @@ mod tests {
             .to_json()
             .expect("task graph serialization should succeed");
         let result = service
-            .register_job(ResourceGroupId::new(), task_graph, vec![])
+            .register_job(
+                ResourceGroupId::new(),
+                task_graph,
+                create_empty_serialized_inputs(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::Cache(_))),
@@ -545,7 +585,11 @@ mod tests {
             .to_json()
             .expect("task graph serialization should succeed");
         let result = service
-            .register_job(ResourceGroupId::new(), task_graph, vec![])
+            .register_job(
+                ResourceGroupId::new(),
+                task_graph,
+                create_empty_serialized_inputs(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::Cache(_))),
@@ -702,13 +746,14 @@ mod tests {
             )
             .await?;
         let outputs = vec![vec![0u8; 4]];
+        let serialized_outputs = create_test_serialized_outputs();
         service
             .succeed_task_instance(
                 TEST_SESSION_ID,
                 job_id,
                 context.task_instance_id,
                 0,
-                outputs.clone(),
+                serialized_outputs,
             )
             .await?;
 
@@ -842,7 +887,7 @@ mod tests {
                 job_id,
                 context.task_instance_id,
                 0,
-                vec![vec![0u8; 4]],
+                create_test_serialized_outputs(),
             )
             .await?;
         assert_eq!(state, JobState::Succeeded);
@@ -857,7 +902,13 @@ mod tests {
     async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .succeed_task_instance(TEST_SESSION_ID, JobId::new(), 1, 0, vec![])
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                JobId::new(),
+                1,
+                0,
+                create_test_serialized_outputs(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
@@ -988,7 +1039,7 @@ mod tests {
                 job_id,
                 context.task_instance_id,
                 0,
-                vec![vec![0u8; 4]],
+                create_test_serialized_outputs(),
             )
             .await;
         assert!(
