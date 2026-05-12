@@ -2,43 +2,31 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use spider_core::{
     job::JobState,
-    task::TaskIndex,
+    task::{TaskGraph, TaskIndex},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
-        io::{ExecutionContext, TaskOutput},
+        io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
-use tracing::{debug, instrument};
+use spider_tdl::{
+    error::TdlError,
+    wire::{TaskOutputsSerializer, unframe},
+};
 
 use crate::{
-    cache::{TaskId, job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
+    cache::{
+        TaskId,
+        error::{CacheError, InternalError},
+        job::SharedJobControlBlock,
+        job_submission::ValidatedJobSubmission,
+    },
     db::DbStorage,
     ready_queue::{ReadyQueueEntry, ReadyQueueReceiverHandle, ReadyQueueSender},
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
 };
 
-/// Inner data for [`ServiceState`], holding all storage services.
-///
-/// The job cache is stored directly (not in an Arc) so that cloning the outer `ServiceState`
-/// only clones a single `Arc`.
-struct ServiceStateInner<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> {
-    db: DbConnectorType,
-    session_id: SessionId,
-    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    ready_queue_sender: ReadyQueueSenderType,
-    ready_queue_receiver: ReadyQueueReceiverHandle,
-    task_instance_pool_connector: TaskInstancePoolConnectorType,
-}
-
 /// Per-request service state providing access to the storage layer.
-///
-/// Holds a DB connector, session ID, job cache, and ready queue handles. Request handlers call
-/// methods on `ServiceState` directly.
 ///
 /// Internally wraps a single [`Arc`] around [`ServiceStateInner`] so that cloning is cheap (one
 /// Arc clone instead of cloning each field).
@@ -65,11 +53,11 @@ impl<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
-    /// Creates a new `ServiceState` from its constituent parts.
+    /// Factory function.
     ///
     /// # Returns
     ///
-    /// A newly created `ServiceState`.
+    /// A newly created [`ServiceState`] from its constituent parts.
     pub fn new(
         db: DbConnectorType,
         session_id: SessionId,
@@ -92,12 +80,6 @@ impl<
 
     /// Registers a job in the database and inserts its control block into the cache.
     ///
-    /// Accepts a [`ValidatedJobSubmission`] which guarantees that the task graph and inputs have
-    /// already been validated for consistency.
-    ///
-    /// If [`SharedJobControlBlock::create`] or [`JobCache::insert`] fails after the DB record has
-    /// been created, the DB record is **not** deleted.
-    ///
     /// # Returns
     ///
     /// The ID of the registered job on success.
@@ -106,22 +88,38 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
+    /// * Forwards [`spider_tdl::wire::unframe`]'s return values on failure.
+    /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
-    #[instrument(skip(self, job_submission), fields(job_id))]
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
-        job_submission: ValidatedJobSubmission,
+        serialized_task_graph: String,
+        serialized_inputs: Vec<u8>,
     ) -> Result<JobId, StorageServerError> {
+        let task_graph =
+            TaskGraph::from_json(&serialized_task_graph).map_err(StorageServerError::Task)?;
+        let inputs = unframe(&serialized_inputs)
+            .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?
+            .into_iter()
+            .map(TaskInput::ValuePayload)
+            .collect();
+        let job_submission =
+            ValidatedJobSubmission::create(task_graph, inputs).map_err(CacheError::from)?;
+
         let job_id = self
             .inner
             .db
             .register(resource_group_id, &job_submission)
             .await?;
-
-        tracing::Span::current().record("job_id", tracing::field::debug(&job_id));
+        tracing::info!(
+            job_id = ? job_id,
+            rg_id = ? resource_group_id,
+            "Job registered in DB."
+        );
 
         let jcb = SharedJobControlBlock::create(
             job_id,
@@ -134,15 +132,16 @@ impl<
         .await?;
 
         self.inner.job_cache.insert(jcb).await?;
-        debug!("Inserted JCB into job cache");
+        tracing::info!(
+            job_id = ? job_id,
+            rg_id = ? resource_group_id,
+            "Job inserted in cache.",
+        );
 
         Ok(job_id)
     }
 
     /// Starts a job for execution.
-    ///
-    /// Gets the job control block from the cache and starts it by calling
-    /// [`SharedJobControlBlock::start`].
     ///
     /// # Errors
     ///
@@ -150,7 +149,6 @@ impl<
     ///
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn start_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
         let jcb = self
             .inner
@@ -158,16 +156,15 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, starting job");
         jcb.start().await?;
+        tracing::info!(
+            job_id = ? job_id,
+            "Job started.",
+        );
         Ok(())
     }
 
     /// Cancels a job.
-    ///
-    /// If the job is in the cache, delegates to [`SharedJobControlBlock::cancel`]. Otherwise,
-    /// checks the database for the job state and returns it if the job is already in a terminal
-    /// state.
     ///
     /// # Returns
     ///
@@ -177,20 +174,27 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * [`InternalError::JobNotFound`] if the job is not in a terminal state, but it is not in the
+    ///   cache.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in a terminal
     ///   state in the database.
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            debug!("JCB found in cache, cancelling job");
             let state = jcb.cancel().await?;
+            tracing::info!(
+                job_id = ? job_id,
+                "Job cancelled.",
+            );
             return Ok(state);
         }
         match self.inner.db.get_state(job_id).await {
             Ok(state) => {
                 if !state.is_terminal() {
-                    return Err(StorageServerError::JobNotFound(job_id));
+                    // If the job is not terminated, it should always exist in the cache.
+                    return Err(StorageServerError::Cache(CacheError::Internal(
+                        InternalError::JobNotFound(job_id),
+                    )));
                 }
                 Ok(state)
             }
@@ -199,9 +203,6 @@ impl<
     }
 
     /// Gets the state of a job.
-    ///
-    /// Checks the job cache first; if the JCB is present, returns its in-memory state. Otherwise
-    /// falls back to the database.
     ///
     /// # Returns
     ///
@@ -212,20 +213,14 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure (DB fallback).
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            debug!("JCB found in cache, returning in-memory state");
             return Ok(jcb.state().await);
         }
-        debug!("JCB not in cache, falling back to database");
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
     /// Gets the outputs of a job.
-    ///
-    /// Checks the job cache first; if the JCB is present, returns its in-memory outputs. Otherwise
-    /// falls back to the database.
     ///
     /// # Returns
     ///
@@ -238,20 +233,17 @@ impl<
     /// * Forwards [`SharedJobControlBlock::get_outputs`]'s return values on failure (cache path).
     /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure (DB
     ///   fallback).
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_outputs(
         &self,
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            debug!("JCB found in cache, returning in-memory outputs");
             return Ok(jcb.get_outputs().await?);
         }
-        debug!("JCB not in cache, falling back to database");
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
-    /// Gets the error message of a job from the database.
+    /// Gets the error message of a job.
     ///
     /// # Returns
     ///
@@ -262,7 +254,6 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
         Ok(self.inner.db.get_error(job_id).await?)
     }
@@ -280,7 +271,6 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-    #[instrument(skip(self, session_id), fields(job_id = ?job_id, task_id = ?task_id))]
     pub async fn create_task_instance(
         &self,
         session_id: SessionId,
@@ -295,15 +285,20 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, creating task instance");
-        Ok(jcb
+        let exe_context = jcb
             .create_task_instance(task_id, execution_manager_id)
-            .await?)
+            .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            execution_manager_id = ? execution_manager_id,
+            task_instance_id = ? exe_context.task_instance_id,
+            "Task instance created.",
+        );
+        Ok(exe_context)
     }
 
     /// Marks a task instance as succeeded.
-    ///
-    /// If all tasks have succeeded, commits the job outputs and transitions the job state.
     ///
     /// # Returns
     ///
@@ -315,35 +310,40 @@ impl<
     ///
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`spider_tdl::wire::TaskOutputsSerializer::deserialize`]'s return values on
+    ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
-    #[instrument(
-        skip(self, session_id, task_outputs),
-        fields(job_id = ?job_id, task_instance_id = ?task_instance_id)
-    )]
     pub async fn succeed_task_instance(
         &self,
         session_id: SessionId,
         job_id: JobId,
         task_instance_id: TaskInstanceId,
         task_index: TaskIndex,
-        task_outputs: Vec<TaskOutput>,
+        serialized_outputs: Vec<u8>,
     ) -> Result<JobState, StorageServerError> {
         self.validate_session(session_id)?;
+        let task_outputs = TaskOutputsSerializer::deserialize(&serialized_outputs)
+            .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?;
         let jcb = self
             .inner
             .job_cache
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, succeeding task instance");
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? TaskId::Index(task_index),
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance succeeded.",
+        );
         Ok(state)
     }
 
-    /// Marks the commit task instance as succeeded and transitions the job to
-    /// [`JobState::Succeeded`].
+    /// Marks a commit task instance as succeeded.
     ///
     /// # Returns
     ///
@@ -357,7 +357,6 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on
     ///   failure.
-    #[instrument(skip(self, session_id), fields(job_id, task_instance_id))]
     pub async fn succeed_commit_task_instance(
         &self,
         session_id: SessionId,
@@ -371,13 +370,18 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, succeeding commit task instance");
         let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? TaskId::Commit,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance succeeded.",
+        );
         Ok(state)
     }
 
-    /// Marks the cleanup task instance as succeeded and transitions the job to
-    /// [`JobState::Cancelled`].
+    /// Marks a cleanup task instance as succeeded.
     ///
     /// # Returns
     ///
@@ -391,7 +395,6 @@ impl<
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on
     ///   failure.
-    #[instrument(skip(self, session_id), fields(job_id, task_instance_id))]
     pub async fn succeed_cleanup_task_instance(
         &self,
         session_id: SessionId,
@@ -405,8 +408,14 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, succeeding cleanup task instance");
         let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? TaskId::Cleanup,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance succeeded.",
+        );
         Ok(state)
     }
 
@@ -423,10 +432,6 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
-    #[instrument(
-        skip(self, session_id, error),
-        fields(job_id = ?job_id, task_instance_id = ?task_instance_id, task_id = ?task_id)
-    )]
     pub async fn fail_task_instance(
         &self,
         session_id: SessionId,
@@ -442,10 +447,16 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, failing task instance");
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance failed.",
+        );
         Ok(state)
     }
 
@@ -465,7 +476,12 @@ impl<
         external_id: String,
         password: Vec<u8>,
     ) -> Result<ResourceGroupId, StorageServerError> {
-        Ok(self.inner.db.add(external_id, password).await?)
+        let rg_id = self.inner.db.add(external_id, password).await?;
+        tracing::info!(
+            rg_id = ? rg_id,
+            "Resource group added.",
+        );
+        Ok(rg_id)
     }
 
     /// Verifies the password of a resource group.
@@ -494,7 +510,12 @@ impl<
         &self,
         resource_group_id: ResourceGroupId,
     ) -> Result<(), StorageServerError> {
-        Ok(self.inner.db.delete(resource_group_id).await?)
+        self.inner.db.delete(resource_group_id).await?;
+        tracing::info!(
+            rg_id = ? resource_group_id,
+            "Resource group deleted.",
+        );
+        Ok(())
     }
 
     /// Polls the ready queue for task entries.
@@ -537,11 +558,16 @@ impl<
         &self,
         expire_after_sec: u64,
     ) -> Result<Vec<JobId>, StorageServerError> {
-        Ok(self
+        let result = self
             .inner
             .db
             .delete_expired_terminated_jobs(expire_after_sec)
-            .await?)
+            .await?;
+        tracing::info!(
+            count = ? result.len(),
+            "Expired terminated jobs deleted.",
+        );
+        Ok(result)
     }
 
     /// Registers an execution manager.
@@ -560,7 +586,13 @@ impl<
         &self,
         ip_address: IpAddr,
     ) -> Result<ExecutionManagerId, StorageServerError> {
-        Ok(self.inner.db.register_execution_manager(ip_address).await?)
+        let em_id = self.inner.db.register_execution_manager(ip_address).await?;
+        tracing::info!(
+            em_id = ? em_id,
+            ip = ? ip_address,
+            "Execution manager registered.",
+        );
+        Ok(em_id)
     }
 
     /// Updates the heartbeat of an execution manager.
@@ -575,11 +607,15 @@ impl<
         &self,
         execution_manager_id: ExecutionManagerId,
     ) -> Result<(), StorageServerError> {
-        Ok(self
-            .inner
+        self.inner
             .db
             .update_execution_manager_heartbeat(execution_manager_id)
-            .await?)
+            .await?;
+        tracing::info!(
+            em_id = ? execution_manager_id,
+            "Execution manager heartbeat updated.",
+        );
+        Ok(())
     }
 
     /// Validates that the given `session_id` matches the session ID captured at service creation
@@ -590,11 +626,30 @@ impl<
     /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
-            debug!("Session ID mismatch");
             return Err(StorageServerError::StaleSession);
         }
         Ok(())
     }
+}
+
+/// Inner data for [`ServiceState`], holding all storage services.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `DbConnectorType` - The type of the DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
+struct ServiceStateInner<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: DbStorage,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> {
+    db: DbConnectorType,
+    session_id: SessionId,
+    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    ready_queue_sender: ReadyQueueSenderType,
+    ready_queue_receiver: ReadyQueueReceiverHandle,
+    task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
 #[cfg(test)]
@@ -618,9 +673,10 @@ mod tests {
     use super::*;
     use crate::{
         cache::{job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
+        db::DbError,
         state::{
             StorageServerError,
-            test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
+            test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
         },
     };
 
@@ -704,12 +760,25 @@ mod tests {
         task_graph
     }
 
-    fn create_test_job_submission() -> ValidatedJobSubmission {
-        ValidatedJobSubmission::create(
-            create_test_task_graph(),
-            vec![TaskInput::ValuePayload(vec![0u8; 4])],
-        )
-        .expect("job submission should be valid")
+    fn create_test_job_submission() -> (String, Vec<u8>) {
+        let task_graph = create_test_task_graph()
+            .to_json()
+            .expect("task graph serialization should succeed");
+        let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
+        serializer
+            .append(TaskInput::ValuePayload(vec![0u8; 4]))
+            .expect("input serialization should succeed");
+        (task_graph, serializer.release())
+    }
+
+    fn create_test_serialized_outputs() -> Vec<u8> {
+        let output_tuple = (1,);
+        TaskOutputsSerializer::from_tuple(&output_tuple)
+            .expect("output serialization should succeed")
+    }
+
+    fn create_empty_serialized_inputs() -> Vec<u8> {
+        spider_tdl::wire::TaskInputsSerializer::new().release()
     }
 
     async fn create_test_jcb(
@@ -736,10 +805,14 @@ mod tests {
     #[tokio::test]
     async fn register_job_returns_job_id_and_inserts_into_cache() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
-        assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
             service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should be in cache after register_job"
@@ -748,10 +821,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn register_job_returns_error_on_invalid_task_graph() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service
+            .register_job(
+                ResourceGroupId::new(),
+                "invalid json".to_owned(),
+                create_empty_serialized_inputs(),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::Task(_))),
+            "register_job should return Task error on invalid task graph JSON"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_job_returns_error_on_input_size_mismatch() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let task_graph = create_test_task_graph()
+            .to_json()
+            .expect("task graph serialization should succeed");
+        let result = service
+            .register_job(
+                ResourceGroupId::new(),
+                task_graph,
+                create_empty_serialized_inputs(),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::Cache(_))),
+            "register_job should return Cache error on input size mismatch"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_job_returns_error_on_empty_task_graph() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let task_graph = TaskGraph::new(None, None)
+            .expect("empty task graph creation should succeed")
+            .to_json()
+            .expect("task graph serialization should succeed");
+        let result = service
+            .register_job(
+                ResourceGroupId::new(),
+                task_graph,
+                create_empty_serialized_inputs(),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(StorageServerError::Cache(_))),
+            "register_job should return Cache error on empty task graph"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn start_job_starts_cached_job() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
 
         service.start_job(job_id).await?;
@@ -808,7 +944,7 @@ mod tests {
 
         let state = service.cancel_job(job_id).await?;
         assert!(
-            state.is_terminal(),
+            matches!(state, JobState::Cancelled),
             "cancel should result in terminal state"
         );
         assert!(
@@ -819,10 +955,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_job_returns_cache_error_for_non_terminal_not_in_cache() -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let job_id = JobId::new();
+        db.states.insert(job_id, JobState::Running);
+
+        let service = create_test_service_with_db(db);
+        let result = service.cancel_job(job_id).await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::Internal(
+                    InternalError::JobNotFound(_)
+                )))
+            ),
+            "cancel_job should return Cache Internal JobNotFound for non-terminal job not in cache"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn get_job_state_serves_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
 
         let state = service.get_job_state(job_id).await?;
@@ -866,8 +1027,13 @@ mod tests {
     #[tokio::test]
     async fn get_job_outputs_returns_outputs_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -879,18 +1045,21 @@ mod tests {
                 ExecutionManagerId::new(),
             )
             .await?;
+        let serialized_outputs = create_test_serialized_outputs();
+        let expected = TaskOutputsSerializer::deserialize(&serialized_outputs)
+            .expect("test serialized outputs should deserialize successfully");
         service
             .succeed_task_instance(
                 TEST_SESSION_ID,
                 job_id,
                 context.task_instance_id,
                 0,
-                vec![vec![0u8; 4]],
+                serialized_outputs,
             )
             .await?;
 
         let actual = service.get_job_outputs(job_id).await?;
-        assert_eq!(actual, vec![vec![0u8; 4]]);
+        assert_eq!(actual, expected);
         Ok(())
     }
 
@@ -908,8 +1077,13 @@ mod tests {
     #[tokio::test]
     async fn get_job_outputs_returns_error_when_job_not_succeeded() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         // JCB is in cache but job is still Ready (not Succeeded).
         let result = service.get_job_outputs(job_id).await;
@@ -937,15 +1111,23 @@ mod tests {
     async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.get_job_error(JobId::new()).await;
-        assert!(result.is_err(), "get_job_error should fail for unknown job");
+        assert!(
+            matches!(result, Err(StorageServerError::Db(DbError::JobNotFound(_)))),
+            "get_job_error should fail for unknown job"
+        );
         Ok(())
     }
 
     #[tokio::test]
     async fn create_task_instance_returns_execution_context() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -985,8 +1167,13 @@ mod tests {
     #[tokio::test]
     async fn succeed_task_instance_transitions_job_to_succeeded() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -1004,7 +1191,7 @@ mod tests {
                 job_id,
                 context.task_instance_id,
                 0,
-                vec![vec![0u8; 4]],
+                create_test_serialized_outputs(),
             )
             .await?;
         assert_eq!(state, JobState::Succeeded);
@@ -1019,7 +1206,13 @@ mod tests {
     async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .succeed_task_instance(TEST_SESSION_ID, JobId::new(), 1, 0, vec![])
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                JobId::new(),
+                1,
+                0,
+                create_test_serialized_outputs(),
+            )
             .await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
@@ -1031,8 +1224,13 @@ mod tests {
     #[tokio::test]
     async fn fail_task_instance_transitions_job_to_failed() -> anyhow::Result<()> {
         let service = create_test_service();
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
         service.start_job(job_id).await?;
 
@@ -1131,8 +1329,6 @@ mod tests {
         Ok(())
     }
 
-    // ── Scheduler tests ─────────────────────────────────────────────
-
     #[tokio::test]
     async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
         let (service, sender) =
@@ -1212,7 +1408,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_instance_apis_return_stale_session_on_mismatch() -> anyhow::Result<()> {
+    async fn task_instance_orchestration_return_stale_session_on_mismatch() -> anyhow::Result<()> {
+        // Create a service with a higher session ID to simulate a server restart.
         const CURRENT_SESSION_ID: SessionId = 10;
         const STALE_SESSION_ID: SessionId = CURRENT_SESSION_ID - 1;
         const TASK_INDEX: TaskIndex = 0;
@@ -1221,8 +1418,14 @@ mod tests {
         let db = MockDbConnector::default();
         let service = create_test_service_with_db_and_session(db, CURRENT_SESSION_ID);
 
+        // Register a job so the JCB is in cache.
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .register_job(
+                ResourceGroupId::new(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
             .await?;
 
         {
@@ -1247,7 +1450,7 @@ mod tests {
                     job_id,
                     TASK_INSTANCE_ID,
                     TASK_INDEX,
-                    vec![vec![0u8; 4]],
+                    create_test_serialized_outputs(),
                 )
                 .await;
             assert!(

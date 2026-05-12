@@ -156,7 +156,7 @@ mod tests {
             job_submission::ValidatedJobSubmission,
         },
         ready_queue::ReadyQueueSender,
-        state::test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
+        state::test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
     };
 
     async fn create_test_jcb(
