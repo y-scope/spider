@@ -1417,6 +1417,7 @@ dependencies = [
  "serial_test",
  "spider-core",
  "spider-derive",
+ "spider-tdl",
  "sqlx",
  "subtle",
  "tabled",
