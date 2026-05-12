@@ -12,12 +12,11 @@ use spider_tdl::{
     error::TdlError,
     wire::{TaskOutputsSerializer, unframe},
 };
-use tracing::{debug, instrument};
 
 use crate::{
     cache::{
         TaskId,
-        error::CacheError,
+        error::{CacheError, InternalError},
         job::SharedJobControlBlock,
         job_submission::ValidatedJobSubmission,
     },
@@ -46,26 +45,6 @@ pub struct ServiceState<
     inner: Arc<
         ServiceStateInner<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     >,
-}
-
-/// Inner data for [`ServiceState`], holding all storage services.
-///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
-/// * `DbConnectorType` - The type of the DB-layer connector.
-/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
-struct ServiceStateInner<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> {
-    db: DbConnectorType,
-    session_id: SessionId,
-    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    ready_queue_sender: ReadyQueueSenderType,
-    _ready_queue_receiver: ReadyQueueReceiverHandle,
-    task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
 impl<
@@ -115,7 +94,6 @@ impl<
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
-    #[instrument(skip(self, serialized_task_graph, serialized_inputs), fields(job_id))]
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
@@ -137,8 +115,11 @@ impl<
             .db
             .register(resource_group_id, &job_submission)
             .await?;
-
-        tracing::Span::current().record("job_id", tracing::field::debug(&job_id));
+        tracing::info!(
+            job_id = ? job_id,
+            rg_id = ? resource_group_id,
+            "Job registered in DB."
+        );
 
         let jcb = SharedJobControlBlock::create(
             job_id,
@@ -151,7 +132,11 @@ impl<
         .await?;
 
         self.inner.job_cache.insert(jcb).await?;
-        debug!("Inserted JCB into job cache.");
+        tracing::info!(
+            job_id = ? job_id,
+            rg_id = ? resource_group_id,
+            "Job inserted in cache.",
+        );
 
         Ok(job_id)
     }
@@ -164,7 +149,6 @@ impl<
     ///
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn start_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
         let jcb = self
             .inner
@@ -172,8 +156,11 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, starting job.");
         jcb.start().await?;
+        tracing::info!(
+            job_id = ? job_id,
+            "Job started.",
+        );
         Ok(())
     }
 
@@ -187,19 +174,30 @@ impl<
     ///
     /// Returns an error if:
     ///
+    /// * [`InternalError::JobNotFound`] if the job is not in a terminal state, but it is not in the
+    ///   cache.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in a terminal
     ///   state in the database.
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            debug!("JCB found in cache, cancelling job.");
             let state = jcb.cancel().await?;
+            tracing::info!(
+                job_id = ? job_id,
+                "Job cancelled.",
+            );
             return Ok(state);
         }
-        debug!("JCB not in cache, checking database for terminal state.");
         match self.inner.db.get_state(job_id).await {
-            Ok(state) if state.is_terminal() => Ok(state),
+            Ok(state) => {
+                if !state.is_terminal() {
+                    // If the job is not terminated, it should always exist in the cache.
+                    return Err(StorageServerError::Cache(CacheError::Internal(
+                        InternalError::JobNotFound(job_id),
+                    )));
+                }
+                Ok(state)
+            }
             _ => Err(StorageServerError::JobNotFound(job_id)),
         }
     }
@@ -215,13 +213,10 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure (DB fallback).
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            debug!("JCB found in cache, returning in-memory state.");
             return Ok(jcb.state().await);
         }
-        debug!("JCB not in cache, falling back to database.");
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
@@ -238,16 +233,13 @@ impl<
     /// * Forwards [`SharedJobControlBlock::get_outputs`]'s return values on failure (cache path).
     /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure (DB
     ///   fallback).
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_outputs(
         &self,
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
-            debug!("JCB found in cache, returning in-memory outputs.");
             return Ok(jcb.get_outputs().await?);
         }
-        debug!("JCB not in cache, falling back to database.");
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
@@ -262,7 +254,6 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
-    #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
         Ok(self.inner.db.get_error(job_id).await?)
     }
@@ -280,7 +271,6 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
-    #[instrument(skip(self, session_id), fields(job_id = ?job_id, task_id = ?task_id))]
     pub async fn create_task_instance(
         &self,
         session_id: SessionId,
@@ -295,10 +285,17 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, creating task instance.");
-        Ok(jcb
+        let exe_context = jcb
             .create_task_instance(task_id, execution_manager_id)
-            .await?)
+            .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            execution_manager_id = ? execution_manager_id,
+            task_instance_id = ? exe_context.task_instance_id,
+            "Task instance created.",
+        );
+        Ok(exe_context)
     }
 
     /// Marks a task instance as succeeded.
@@ -316,10 +313,6 @@ impl<
     /// * Forwards [`spider_tdl::wire::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
-    #[instrument(
-        skip(self, session_id, serialized_outputs),
-        fields(job_id = ?job_id, task_instance_id = ?task_instance_id)
-    )]
     pub async fn succeed_task_instance(
         &self,
         session_id: SessionId,
@@ -337,10 +330,92 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, succeeding task instance.");
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? TaskId::Index(task_index),
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance succeeded.",
+        );
+        Ok(state)
+    }
+
+    /// Marks a commit task instance as succeeded.
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the operation on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::StaleSession`] if the session has changed.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on
+    ///   failure.
+    pub async fn succeed_commit_task_instance(
+        &self,
+        session_id: SessionId,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, StorageServerError> {
+        self.validate_session(session_id)?;
+        let jcb = self
+            .inner
+            .job_cache
+            .get(job_id)
+            .await
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
+        let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? TaskId::Commit,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance succeeded.",
+        );
+        Ok(state)
+    }
+
+    /// Marks a cleanup task instance as succeeded.
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the operation on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::StaleSession`] if the session has changed.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on
+    ///   failure.
+    pub async fn succeed_cleanup_task_instance(
+        &self,
+        session_id: SessionId,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, StorageServerError> {
+        self.validate_session(session_id)?;
+        let jcb = self
+            .inner
+            .job_cache
+            .get(job_id)
+            .await
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
+        let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? TaskId::Cleanup,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance succeeded.",
+        );
         Ok(state)
     }
 
@@ -357,10 +432,6 @@ impl<
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
     /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
-    #[instrument(
-        skip(self, session_id, error),
-        fields(job_id = ?job_id, task_instance_id = ?task_instance_id, task_id = ?task_id)
-    )]
     pub async fn fail_task_instance(
         &self,
         session_id: SessionId,
@@ -376,10 +447,16 @@ impl<
             .get(job_id)
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, failing task instance.");
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
+        tracing::info!(
+            job_id = ? job_id,
+            task_id = ? task_id,
+            task_instance_id = ? task_instance_id,
+            job_state = ? state,
+            "Task instance failed.",
+        );
         Ok(state)
     }
 
@@ -391,11 +468,30 @@ impl<
     /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
-            debug!("Session ID mismatch.");
             return Err(StorageServerError::StaleSession);
         }
         Ok(())
     }
+}
+
+/// Inner data for [`ServiceState`], holding all storage services.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `DbConnectorType` - The type of the DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
+struct ServiceStateInner<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: DbStorage,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> {
+    db: DbConnectorType,
+    session_id: SessionId,
+    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    ready_queue_sender: ReadyQueueSenderType,
+    _ready_queue_receiver: ReadyQueueReceiverHandle,
+    task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
 #[cfg(test)]

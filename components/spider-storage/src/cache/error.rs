@@ -1,4 +1,4 @@
-use spider_core::{job::JobState, task::TaskState};
+use spider_core::{job::JobState, task::TaskState, types::id::JobId};
 use spider_tdl::wire::WireError;
 
 /// Enums for all possible errors that can occur in a cache operation.
@@ -50,6 +50,9 @@ pub enum InternalError {
 
     #[error("job not started")]
     JobNotStarted,
+
+    #[error("job not found: {0:?}")]
+    JobNotFound(JobId),
 
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
