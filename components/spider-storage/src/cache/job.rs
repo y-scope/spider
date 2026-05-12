@@ -651,7 +651,7 @@ impl<
             task_instance_id,
             tdl_context,
             timeout_policy,
-            inputs: Vec::new(),
+            serialized_inputs: Vec::new(),
         })
     }
 
@@ -703,7 +703,7 @@ impl<
             task_instance_id,
             tdl_context,
             timeout_policy,
-            inputs: Vec::new(),
+            serialized_inputs: Vec::new(),
         })
     }
 }
