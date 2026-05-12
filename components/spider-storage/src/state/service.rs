@@ -539,7 +539,7 @@ impl<
             .ready_queue_receiver
             .recv_tasks(max_tasks, wait)
             .await
-            .map_err(crate::cache::error::CacheError::Internal)?)
+            .map_err(CacheError::Internal)?)
     }
 
     /// Deletes expired terminated jobs from the database.
@@ -674,6 +674,7 @@ mod tests {
     use crate::{
         cache::{job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
         db::DbError,
+        ready_queue::ReadyQueueSenderHandle,
         state::{
             StorageServerError,
             test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
@@ -683,11 +684,8 @@ mod tests {
     type TestServiceState =
         ServiceState<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
-    type RealQueueTestServiceState = ServiceState<
-        crate::ready_queue::ReadyQueueSenderHandle,
-        MockDbConnector,
-        MockTaskInstancePoolConnector,
-    >;
+    type RealQueueTestServiceState =
+        ServiceState<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
 
     const TEST_SESSION_ID: SessionId = 0;
 
@@ -723,10 +721,7 @@ mod tests {
     /// A tuple of the service state and the ready queue sender handle on success.
     fn create_test_service_with_real_ready_queue(
         db: MockDbConnector,
-    ) -> (
-        RealQueueTestServiceState,
-        crate::ready_queue::ReadyQueueSenderHandle,
-    ) {
+    ) -> (RealQueueTestServiceState, ReadyQueueSenderHandle) {
         use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
         let (sender, receiver) =
             create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
