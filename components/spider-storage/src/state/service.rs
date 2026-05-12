@@ -1326,7 +1326,8 @@ mod tests {
 
     #[tokio::test]
     async fn poll_ready_tasks_returns_empty_when_no_tasks() -> anyhow::Result<()> {
-        let (service, _) = create_test_service_with_real_ready_queue(MockDbConnector::default());
+        let (service, _sender) =
+            create_test_service_with_real_ready_queue(MockDbConnector::default());
         let entries = service
             .poll_ready_tasks(10, Duration::from_millis(10))
             .await?;
