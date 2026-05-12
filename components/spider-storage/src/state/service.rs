@@ -518,7 +518,7 @@ mod tests {
         db::DbError,
         state::{
             StorageServerError,
-            test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
+            test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
         },
     };
 
