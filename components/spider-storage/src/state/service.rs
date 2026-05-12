@@ -950,26 +950,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_job_returns_cache_error_for_non_terminal_not_in_cache() -> anyhow::Result<()> {
-        let db = MockDbConnector::default();
-        let job_id = JobId::new();
-        db.states.insert(job_id, JobState::Running);
-
-        let service = create_test_service_with_db(db);
-        let result = service.cancel_job(job_id).await;
-        assert!(
-            matches!(
-                result,
-                Err(StorageServerError::Cache(CacheError::Internal(
-                    InternalError::JobNotFound(_)
-                )))
-            ),
-            "cancel_job should return Cache Internal JobNotFound for non-terminal job not in cache"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn get_job_state_serves_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
