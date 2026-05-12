@@ -140,7 +140,7 @@ impl<
         )
         .await?;
 
-        self.inner.job_cache.insert(jcb)?;
+        self.inner.job_cache.insert(jcb).await?;
         debug!("Inserted JCB into job cache.");
 
         Ok(job_id)
@@ -160,6 +160,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, starting job.");
         jcb.start().await?;
@@ -181,7 +182,7 @@ impl<
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
-        if let Some(jcb) = self.inner.job_cache.get(job_id) {
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
             debug!("JCB found in cache, cancelling job.");
             let state = jcb.cancel().await?;
             return Ok(state);
@@ -206,7 +207,7 @@ impl<
     /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure (DB fallback).
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
-        if let Some(jcb) = self.inner.job_cache.get(job_id) {
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
             debug!("JCB found in cache, returning in-memory state.");
             return Ok(jcb.state().await);
         }
@@ -232,7 +233,7 @@ impl<
         &self,
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
-        if let Some(jcb) = self.inner.job_cache.get(job_id) {
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
             debug!("JCB found in cache, returning in-memory outputs.");
             return Ok(jcb.get_outputs().await?);
         }
@@ -282,6 +283,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, creating task instance.");
         Ok(jcb
@@ -319,6 +321,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, succeeding task instance.");
         let state = jcb
@@ -357,6 +360,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, failing task instance.");
         let state = jcb
@@ -498,7 +502,7 @@ mod tests {
             .await?;
         assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should be in cache after register_job"
         );
         Ok(())
@@ -612,7 +616,7 @@ mod tests {
         let service = create_test_service();
         let job_id = JobId::new();
         let jcb = create_test_jcb(job_id).await;
-        service.inner.job_cache.insert(jcb)?;
+        service.inner.job_cache.insert(jcb).await?;
 
         let state = service.cancel_job(job_id).await?;
         assert!(
@@ -620,7 +624,7 @@ mod tests {
             "cancel should result in terminal state"
         );
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal cancel"
         );
         Ok(())
@@ -843,7 +847,7 @@ mod tests {
             .await?;
         assert_eq!(state, JobState::Succeeded);
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal succeed"
         );
         Ok(())
@@ -894,7 +898,7 @@ mod tests {
             .await?;
         assert_eq!(state, JobState::Failed);
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal fail"
         );
         Ok(())
