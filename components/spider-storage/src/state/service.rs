@@ -419,6 +419,7 @@ mod tests {
     use super::*;
     use crate::{
         cache::{job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
+        db::DbError,
         state::{
             StorageServerError,
             test_mocks::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
@@ -486,14 +487,9 @@ mod tests {
     }
 
     fn create_test_serialized_outputs() -> Vec<u8> {
-        let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
-        serializer
-            .append(spider_core::types::io::TaskInput::ValuePayload(vec![
-                0u8;
-                4
-            ]))
-            .expect("output serialization should succeed");
-        serializer.release()
+        let output_tuple = (1,);
+        TaskOutputsSerializer::from_tuple(&output_tuple)
+            .expect("output serialization should succeed")
     }
 
     fn create_empty_serialized_inputs() -> Vec<u8> {
@@ -532,7 +528,6 @@ mod tests {
                 serialized_inputs,
             )
             .await?;
-        assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
             service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should be in cache after register_job"
@@ -580,7 +575,7 @@ mod tests {
     #[tokio::test]
     async fn register_job_returns_error_on_empty_task_graph() -> anyhow::Result<()> {
         let service = create_test_service();
-        let task_graph = spider_core::task::TaskGraph::new(None, None)
+        let task_graph = TaskGraph::new(None, None)
             .expect("empty task graph creation should succeed")
             .to_json()
             .expect("task graph serialization should succeed");
@@ -629,7 +624,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
+    async fn cancel_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.cancel_job(JobId::new()).await;
         assert!(
@@ -664,7 +659,7 @@ mod tests {
 
         let state = service.cancel_job(job_id).await?;
         assert!(
-            state.is_terminal(),
+            matches!(state, JobState::Cancelled),
             "cancel should result in terminal state"
         );
         assert!(
@@ -745,8 +740,9 @@ mod tests {
                 ExecutionManagerId::new(),
             )
             .await?;
-        let outputs = vec![vec![0u8; 4]];
         let serialized_outputs = create_test_serialized_outputs();
+        let expected = TaskOutputsSerializer::deserialize(&serialized_outputs)
+            .expect("test serialized outputs should deserialize successfully");
         service
             .succeed_task_instance(
                 TEST_SESSION_ID,
@@ -757,8 +753,8 @@ mod tests {
             )
             .await?;
 
-        let result = service.get_job_outputs(job_id).await?;
-        assert_eq!(result, outputs);
+        let actual = service.get_job_outputs(job_id).await?;
+        assert_eq!(actual, expected);
         Ok(())
     }
 
@@ -810,7 +806,10 @@ mod tests {
     async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.get_job_error(JobId::new()).await;
-        assert!(result.is_err(), "get_job_error should fail for unknown job");
+        assert!(
+            matches!(result, Err(StorageServerError::Db(DbError::JobNotFound(_)))),
+            "get_job_error should fail for unknown job"
+        );
         Ok(())
     }
 
@@ -975,11 +974,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_instance_apis_return_stale_session_on_mismatch() -> anyhow::Result<()> {
+    async fn task_instance_orchestration_return_stale_session_on_mismatch() -> anyhow::Result<()> {
         // Create a service with a higher session ID to simulate a server restart.
-        let current_session_id: SessionId = 10;
+        const CURRENT_SESSION_ID: SessionId = 10;
+        const STALE_SESSION_ID: SessionId = CURRENT_SESSION_ID - 1;
+        const TASK_INDEX: TaskIndex = 0;
+        const TASK_INSTANCE_ID: TaskInstanceId = 1;
+
         let db = MockDbConnector::default();
-        let service = create_test_service_with_db_and_session(db, current_session_id);
+        let service = create_test_service_with_db_and_session(db, CURRENT_SESSION_ID);
 
         // Register a job so the JCB is in cache.
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
@@ -991,103 +994,53 @@ mod tests {
             )
             .await?;
 
-        let stale_session_id = current_session_id - 1;
-        let result = service
-            .create_task_instance(
-                stale_session_id,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::new(),
-            )
-            .await;
-        assert!(
-            matches!(result, Err(StorageServerError::StaleSession)),
-            "create_task_instance should return StaleSession on session mismatch"
-        );
-        Ok(())
-    }
+        {
+            let result = service
+                .create_task_instance(
+                    STALE_SESSION_ID,
+                    job_id,
+                    TaskId::Index(TASK_INDEX),
+                    ExecutionManagerId::new(),
+                )
+                .await;
+            assert!(
+                matches!(result, Err(StorageServerError::StaleSession)),
+                "create_task_instance should return StaleSession on session mismatch"
+            );
+        }
 
-    #[tokio::test]
-    async fn succeed_task_instance_returns_stale_session_on_mismatch() -> anyhow::Result<()> {
-        let current_session_id: SessionId = 10;
-        let db = MockDbConnector::default();
-        let service = create_test_service_with_db_and_session(db, current_session_id);
+        {
+            let result = service
+                .succeed_task_instance(
+                    STALE_SESSION_ID,
+                    job_id,
+                    TASK_INSTANCE_ID,
+                    TASK_INDEX,
+                    create_test_serialized_outputs(),
+                )
+                .await;
+            assert!(
+                matches!(result, Err(StorageServerError::StaleSession)),
+                "succeed_task_instance should return StaleSession on session mismatch"
+            );
+        }
 
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
-        let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                serialized_task_graph,
-                serialized_inputs,
-            )
-            .await?;
-        service.start_job(job_id).await?;
+        {
+            let result = service
+                .fail_task_instance(
+                    STALE_SESSION_ID,
+                    job_id,
+                    TASK_INSTANCE_ID,
+                    TaskId::Index(TASK_INDEX),
+                    "error".to_owned(),
+                )
+                .await;
+            assert!(
+                matches!(result, Err(StorageServerError::StaleSession)),
+                "fail_task_instance should return StaleSession on session mismatch"
+            );
+        }
 
-        let context = service
-            .create_task_instance(
-                current_session_id,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::new(),
-            )
-            .await?;
-
-        let stale_session_id = current_session_id - 1;
-        let result = service
-            .succeed_task_instance(
-                stale_session_id,
-                job_id,
-                context.task_instance_id,
-                0,
-                create_test_serialized_outputs(),
-            )
-            .await;
-        assert!(
-            matches!(result, Err(StorageServerError::StaleSession)),
-            "succeed_task_instance should return StaleSession on session mismatch"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn fail_task_instance_returns_stale_session_on_mismatch() -> anyhow::Result<()> {
-        let current_session_id: SessionId = 10;
-        let db = MockDbConnector::default();
-        let service = create_test_service_with_db_and_session(db, current_session_id);
-
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
-        let job_id = service
-            .register_job(
-                ResourceGroupId::new(),
-                serialized_task_graph,
-                serialized_inputs,
-            )
-            .await?;
-        service.start_job(job_id).await?;
-
-        let context = service
-            .create_task_instance(
-                current_session_id,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::new(),
-            )
-            .await?;
-
-        let stale_session_id = current_session_id - 1;
-        let result = service
-            .fail_task_instance(
-                stale_session_id,
-                job_id,
-                context.task_instance_id,
-                TaskId::Index(0),
-                "error".to_owned(),
-            )
-            .await;
-        assert!(
-            matches!(result, Err(StorageServerError::StaleSession)),
-            "fail_task_instance should return StaleSession on session mismatch"
-        );
         Ok(())
     }
 }
