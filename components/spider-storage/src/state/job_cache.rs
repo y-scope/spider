@@ -1,5 +1,7 @@
-use dashmap::{DashMap, mapref::entry::Entry};
+use std::collections::{HashMap, hash_map::Entry};
+
 use spider_core::types::id::JobId;
+use tokio::sync::RwLock;
 
 use crate::{
     cache::job::SharedJobControlBlock,
@@ -11,8 +13,8 @@ use crate::{
 
 /// An in-memory cache for job control blocks.
 ///
-/// This type provides concurrent access to job control blocks via a `DashMap`. It is generic over
-/// the same type parameters as [`SharedJobControlBlock`].
+/// This type provides concurrent access to job control blocks via a [`tokio::sync::RwLock`] over a
+/// [`HashMap`]. It is generic over the same type parameters as [`SharedJobControlBlock`].
 ///
 /// # Type Parameters
 ///
@@ -24,9 +26,15 @@ pub struct JobCache<
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    jobs: DashMap<
-        JobId,
-        SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    jobs: RwLock<
+        HashMap<
+            JobId,
+            SharedJobControlBlock<
+                ReadyQueueSenderType,
+                DbConnectorType,
+                TaskInstancePoolConnectorType,
+            >,
+        >,
     >,
 }
 
@@ -40,7 +48,7 @@ impl<
     #[must_use]
     pub fn new() -> Self {
         Self {
-            jobs: DashMap::new(),
+            jobs: RwLock::new(HashMap::new()),
         }
     }
 
@@ -52,7 +60,7 @@ impl<
     ///
     /// * [`StorageServerError::JobAlreadyExists`] if a job control block with the same ID already
     ///   exists.
-    pub fn insert(
+    pub async fn insert(
         &self,
         jcb: SharedJobControlBlock<
             ReadyQueueSenderType,
@@ -61,7 +69,7 @@ impl<
         >,
     ) -> Result<(), StorageServerError> {
         let job_id = jcb.id();
-        match self.jobs.entry(job_id) {
+        match self.jobs.write().await.entry(job_id) {
             Entry::Vacant(e) => {
                 e.insert(jcb);
                 Ok(())
@@ -75,14 +83,13 @@ impl<
     /// # Returns
     ///
     /// The job control block of the given ID if it exists, [`None`] otherwise.
-    #[must_use]
-    pub fn get(
+    pub async fn get(
         &self,
         job_id: JobId,
     ) -> Option<
         SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     > {
-        self.jobs.get(&job_id).map(|entry| entry.clone())
+        self.jobs.read().await.get(&job_id).cloned()
     }
 
     /// Removes a job control block from the cache.
@@ -90,14 +97,13 @@ impl<
     /// # Returns
     ///
     /// The removed job control block if it existed, [`None`] otherwise.
-    #[must_use]
-    pub fn remove(
+    pub async fn remove(
         &self,
         job_id: JobId,
     ) -> Option<
         SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     > {
-        self.jobs.remove(&job_id).map(|(_, v)| v)
+        self.jobs.write().await.remove(&job_id)
     }
 
     /// Resends all ready tasks for every job in the cache to the ready queue.
@@ -108,8 +114,8 @@ impl<
     ///
     /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
     pub async fn resend_ready_tasks(&self) -> Result<(), StorageServerError> {
-        for entry in &self.jobs {
-            entry.value().resend_ready_tasks().await?;
+        for jcb in self.jobs.read().await.values() {
+            jcb.resend_ready_tasks().await?;
         }
         Ok(())
     }
@@ -195,9 +201,9 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache.insert(jcb)?;
+        cache.insert(jcb).await?;
 
-        let result = cache.get(job_id);
+        let result = cache.get(job_id).await;
         assert!(result.is_some(), "inserted JCB should be retrievable");
         Ok(())
     }
@@ -209,12 +215,12 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb = create_test_jcb(job_id).await;
-        cache.insert(jcb)?;
+        cache.insert(jcb).await?;
 
-        let removed = cache.remove(job_id);
+        let removed = cache.remove(job_id).await;
         assert!(removed.is_some(), "remove should return the JCB");
 
-        let result = cache.get(job_id);
+        let result = cache.get(job_id).await;
         assert!(result.is_none(), "JCB should no longer exist after removal");
         Ok(())
     }
@@ -225,7 +231,7 @@ mod tests {
             JobCache::new();
         let job_id = JobId::new();
 
-        let result = cache.get(job_id);
+        let result = cache.get(job_id).await;
         assert!(
             result.is_none(),
             "get should return None for nonexistent job"
@@ -240,10 +246,10 @@ mod tests {
         let job_id = JobId::new();
 
         let jcb1 = create_test_jcb(job_id).await;
-        cache.insert(jcb1)?;
+        cache.insert(jcb1).await?;
 
         let jcb2 = create_test_jcb(job_id).await;
-        let result = cache.insert(jcb2);
+        let result = cache.insert(jcb2).await;
         assert!(
             matches!(result, Err(StorageServerError::JobAlreadyExists(_))),
             "insert should return JobAlreadyExists error for duplicate key"
@@ -272,15 +278,16 @@ mod tests {
                 let jcb = create_test_jcb(job_id).await;
                 cache
                     .insert(jcb)
+                    .await
                     .expect("insert should succeed for new job");
 
-                let result = cache.get(job_id);
+                let result = cache.get(job_id).await;
                 assert!(result.is_some(), "task {i} should find inserted JCB");
 
-                let removed = cache.remove(job_id);
+                let removed = cache.remove(job_id).await;
                 assert!(removed.is_some(), "task {i} should remove inserted JCB");
 
-                let result = cache.get(job_id);
+                let result = cache.get(job_id).await;
                 assert!(result.is_none(), "task {i} should not find removed JCB");
             });
         }
@@ -374,7 +381,7 @@ mod tests {
             MockDbConnector,
             MockTaskInstancePoolConnector,
         > = JobCache::new();
-        cache.insert(jcb)?;
+        cache.insert(jcb).await?;
 
         cache.resend_ready_tasks().await?;
 

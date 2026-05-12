@@ -280,6 +280,19 @@ impl TaskOutputsSerializer {
     }
 }
 
+/// # Returns
+///
+/// The unframed wire-format buffer with each element deserialized as raw bytes.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`WireFrameBuilder::unframe_payloads`]'s return values on failure.
+pub fn unframe(buf: &[u8]) -> Result<Vec<Vec<u8>>, WireError> {
+    WireFrameBuilder::unframe_payloads(buf)
+}
+
 /// Generates `serialize_*` methods on a `serde::Serializer` impl that all return the same error
 /// forwarded from [`unsupported_type_error`]. Covers the two method shapes in the trait:
 ///

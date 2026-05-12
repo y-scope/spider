@@ -133,7 +133,7 @@ impl<
         )
         .await?;
 
-        self.inner.job_cache.insert(jcb)?;
+        self.inner.job_cache.insert(jcb).await?;
         debug!("Inserted JCB into job cache");
 
         Ok(job_id)
@@ -156,6 +156,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, starting job");
         jcb.start().await?;
@@ -164,7 +165,9 @@ impl<
 
     /// Cancels a job.
     ///
-    /// If the job is in the cache, delegates to [`SharedJobControlBlock::cancel`].
+    /// If the job is in the cache, delegates to [`SharedJobControlBlock::cancel`]. Otherwise,
+    /// checks the database for the job state and returns it if the job is already in a terminal
+    /// state.
     ///
     /// # Returns
     ///
@@ -174,18 +177,25 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache and not in a terminal
+    ///   state in the database.
     /// * Forwards [`SharedJobControlBlock::cancel`]'s return values on failure.
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        debug!("JCB found in cache, cancelling job");
-        let state = jcb.cancel().await?;
-        Ok(state)
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
+            debug!("JCB found in cache, cancelling job");
+            let state = jcb.cancel().await?;
+            return Ok(state);
+        }
+        match self.inner.db.get_state(job_id).await {
+            Ok(state) => {
+                if !state.is_terminal() {
+                    return Err(StorageServerError::JobNotFound(job_id));
+                }
+                Ok(state)
+            }
+            _ => Err(StorageServerError::JobNotFound(job_id)),
+        }
     }
 
     /// Gets the state of a job.
@@ -204,7 +214,7 @@ impl<
     /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure (DB fallback).
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
-        if let Some(jcb) = self.inner.job_cache.get(job_id) {
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
             debug!("JCB found in cache, returning in-memory state");
             return Ok(jcb.state().await);
         }
@@ -212,7 +222,10 @@ impl<
         Ok(self.inner.db.get_state(job_id).await?)
     }
 
-    /// Gets the outputs of a job from the database.
+    /// Gets the outputs of a job.
+    ///
+    /// Checks the job cache first; if the JCB is present, returns its in-memory outputs. Otherwise
+    /// falls back to the database.
     ///
     /// # Returns
     ///
@@ -222,12 +235,19 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::get_outputs`]'s return values on failure (cache path).
+    /// * Forwards [`ExternalJobOrchestration::get_outputs`]'s return values on failure (DB
+    ///   fallback).
     #[instrument(skip(self), fields(job_id = ?job_id))]
     pub async fn get_job_outputs(
         &self,
         job_id: JobId,
     ) -> Result<Vec<TaskOutput>, StorageServerError> {
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
+            debug!("JCB found in cache, returning in-memory outputs");
+            return Ok(jcb.get_outputs().await?);
+        }
+        debug!("JCB not in cache, falling back to database");
         Ok(self.inner.db.get_outputs(job_id).await?)
     }
 
@@ -273,6 +293,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, creating task instance");
         Ok(jcb
@@ -312,11 +333,80 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, succeeding task instance");
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
+        Ok(state)
+    }
+
+    /// Marks the commit task instance as succeeded and transitions the job to
+    /// [`JobState::Succeeded`].
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the operation on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::StaleSession`] if the session has changed.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values on
+    ///   failure.
+    #[instrument(skip(self, session_id), fields(job_id, task_instance_id))]
+    pub async fn succeed_commit_task_instance(
+        &self,
+        session_id: SessionId,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, StorageServerError> {
+        self.validate_session(session_id)?;
+        let jcb = self
+            .inner
+            .job_cache
+            .get(job_id)
+            .await
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, succeeding commit task instance");
+        let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
+        Ok(state)
+    }
+
+    /// Marks the cleanup task instance as succeeded and transitions the job to
+    /// [`JobState::Cancelled`].
+    ///
+    /// # Returns
+    ///
+    /// The current job state after the operation on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::StaleSession`] if the session has changed.
+    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values on
+    ///   failure.
+    #[instrument(skip(self, session_id), fields(job_id, task_instance_id))]
+    pub async fn succeed_cleanup_task_instance(
+        &self,
+        session_id: SessionId,
+        job_id: JobId,
+        task_instance_id: TaskInstanceId,
+    ) -> Result<JobState, StorageServerError> {
+        self.validate_session(session_id)?;
+        let jcb = self
+            .inner
+            .job_cache
+            .get(job_id)
+            .await
+            .ok_or(StorageServerError::JobNotFound(job_id))?;
+        debug!("JCB found in cache, succeeding cleanup task instance");
+        let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
         Ok(state)
     }
 
@@ -350,6 +440,7 @@ impl<
             .inner
             .job_cache
             .get(job_id)
+            .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         debug!("JCB found in cache, failing task instance");
         let state = jcb
@@ -650,7 +741,7 @@ mod tests {
             .await?;
         assert_ne!(job_id, JobId::default(), "job ID should be assigned");
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should be in cache after register_job"
         );
         Ok(())
@@ -682,12 +773,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
+    async fn cancel_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.cancel_job(JobId::new()).await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
-            "cancel_job should return JobNotFound when job is not in cache"
+            "cancel_job should return JobNotFound when job is not in cache or DB"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancel_job_returns_terminal_state_from_db_when_not_in_cache() -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let job_id = JobId::new();
+        db.states.insert(job_id, JobState::Cancelled);
+
+        let service = create_test_service_with_db(db);
+        let state = service.cancel_job(job_id).await?;
+        assert_eq!(
+            state,
+            JobState::Cancelled,
+            "cancel_job should return Cancelled when job is already cancelled in DB"
         );
         Ok(())
     }
@@ -697,7 +804,7 @@ mod tests {
         let service = create_test_service();
         let job_id = JobId::new();
         let jcb = create_test_jcb(job_id).await;
-        service.inner.job_cache.insert(jcb)?;
+        service.inner.job_cache.insert(jcb).await?;
 
         let state = service.cancel_job(job_id).await?;
         assert!(
@@ -705,7 +812,7 @@ mod tests {
             "cancel should result in terminal state"
         );
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal cancel"
         );
         Ok(())
@@ -757,12 +864,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_job_outputs_returns_outputs_from_cache_when_jcb_present() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = service
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .await?;
+        service.start_job(job_id).await?;
+
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::new(),
+            )
+            .await?;
+        service
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                vec![vec![0u8; 4]],
+            )
+            .await?;
+
+        let actual = service.get_job_outputs(job_id).await?;
+        assert_eq!(actual, vec![vec![0u8; 4]]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn get_job_outputs_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.get_job_outputs(JobId::new()).await;
         assert!(
             result.is_err(),
             "get_job_outputs should fail for unknown job"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_job_outputs_returns_error_when_job_not_succeeded() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = service
+            .register_job(ResourceGroupId::new(), create_test_job_submission())
+            .await?;
+        // JCB is in cache but job is still Ready (not Succeeded).
+        let result = service.get_job_outputs(job_id).await;
+        assert!(
+            result.is_err(),
+            "get_job_outputs should fail when job is not Succeeded"
         );
         Ok(())
     }
@@ -856,7 +1009,7 @@ mod tests {
             .await?;
         assert_eq!(state, JobState::Succeeded);
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal succeed"
         );
         Ok(())
@@ -902,7 +1055,7 @@ mod tests {
             .await?;
         assert_eq!(state, JobState::Failed);
         assert!(
-            service.inner.job_cache.get(job_id).is_some(),
+            service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal fail"
         );
         Ok(())
@@ -1060,103 +1213,65 @@ mod tests {
 
     #[tokio::test]
     async fn task_instance_apis_return_stale_session_on_mismatch() -> anyhow::Result<()> {
-        // Create a service with a higher session ID to simulate a server restart.
-        let current_session_id: SessionId = 10;
-        let db = MockDbConnector::default();
-        let service = create_test_service_with_db_and_session(db, current_session_id);
+        const CURRENT_SESSION_ID: SessionId = 10;
+        const STALE_SESSION_ID: SessionId = CURRENT_SESSION_ID - 1;
+        const TASK_INDEX: TaskIndex = 0;
+        const TASK_INSTANCE_ID: TaskInstanceId = 1;
 
-        // Register a job so the JCB is in cache.
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db_and_session(db, CURRENT_SESSION_ID);
+
         let job_id = service
             .register_job(ResourceGroupId::new(), create_test_job_submission())
             .await?;
 
-        let stale_session_id = current_session_id - 1;
-        let result = service
-            .create_task_instance(
-                stale_session_id,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::new(),
-            )
-            .await;
-        assert!(
-            matches!(result, Err(StorageServerError::StaleSession)),
-            "create_task_instance should return StaleSession on session mismatch"
-        );
-        Ok(())
-    }
+        {
+            let result = service
+                .create_task_instance(
+                    STALE_SESSION_ID,
+                    job_id,
+                    TaskId::Index(TASK_INDEX),
+                    ExecutionManagerId::new(),
+                )
+                .await;
+            assert!(
+                matches!(result, Err(StorageServerError::StaleSession)),
+                "create_task_instance should return StaleSession on session mismatch"
+            );
+        }
 
-    #[tokio::test]
-    async fn succeed_task_instance_returns_stale_session_on_mismatch() -> anyhow::Result<()> {
-        let current_session_id: SessionId = 10;
-        let db = MockDbConnector::default();
-        let service = create_test_service_with_db_and_session(db, current_session_id);
+        {
+            let result = service
+                .succeed_task_instance(
+                    STALE_SESSION_ID,
+                    job_id,
+                    TASK_INSTANCE_ID,
+                    TASK_INDEX,
+                    vec![vec![0u8; 4]],
+                )
+                .await;
+            assert!(
+                matches!(result, Err(StorageServerError::StaleSession)),
+                "succeed_task_instance should return StaleSession on session mismatch"
+            );
+        }
 
-        let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
-            .await?;
-        service.start_job(job_id).await?;
+        {
+            let result = service
+                .fail_task_instance(
+                    STALE_SESSION_ID,
+                    job_id,
+                    TASK_INSTANCE_ID,
+                    TaskId::Index(TASK_INDEX),
+                    "error".to_owned(),
+                )
+                .await;
+            assert!(
+                matches!(result, Err(StorageServerError::StaleSession)),
+                "fail_task_instance should return StaleSession on session mismatch"
+            );
+        }
 
-        let context = service
-            .create_task_instance(
-                current_session_id,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::new(),
-            )
-            .await?;
-
-        let stale_session_id = current_session_id - 1;
-        let result = service
-            .succeed_task_instance(
-                stale_session_id,
-                job_id,
-                context.task_instance_id,
-                0,
-                vec![vec![0u8; 4]],
-            )
-            .await;
-        assert!(
-            matches!(result, Err(StorageServerError::StaleSession)),
-            "succeed_task_instance should return StaleSession on session mismatch"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn fail_task_instance_returns_stale_session_on_mismatch() -> anyhow::Result<()> {
-        let current_session_id: SessionId = 10;
-        let db = MockDbConnector::default();
-        let service = create_test_service_with_db_and_session(db, current_session_id);
-
-        let job_id = service
-            .register_job(ResourceGroupId::new(), create_test_job_submission())
-            .await?;
-        service.start_job(job_id).await?;
-
-        let context = service
-            .create_task_instance(
-                current_session_id,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::new(),
-            )
-            .await?;
-
-        let stale_session_id = current_session_id - 1;
-        let result = service
-            .fail_task_instance(
-                stale_session_id,
-                job_id,
-                context.task_instance_id,
-                TaskId::Index(0),
-                "error".to_owned(),
-            )
-            .await;
-        assert!(
-            matches!(result, Err(StorageServerError::StaleSession)),
-            "fail_task_instance should return StaleSession on session mismatch"
-        );
         Ok(())
     }
 }

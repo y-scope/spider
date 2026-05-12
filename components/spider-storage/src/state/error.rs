@@ -1,4 +1,5 @@
-use spider_core::types::id::JobId;
+use spider_core::{task, types::id::JobId};
+use spider_tdl::error::TdlError;
 
 use crate::{cache::error::CacheError, db::DbError};
 
@@ -10,6 +11,12 @@ pub enum StorageServerError {
 
     #[error(transparent)]
     Db(#[from] DbError),
+
+    #[error(transparent)]
+    Task(#[from] task::Error),
+
+    #[error(transparent)]
+    Tdl(#[from] TdlError),
 
     #[error("stale session")]
     StaleSession,

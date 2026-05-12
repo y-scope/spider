@@ -1,4 +1,5 @@
-use spider_core::{job::JobState, task::TaskState};
+use spider_core::{job::JobState, task::TaskState, types::id::JobId};
+use spider_tdl::wire::WireError;
 
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
@@ -50,6 +51,9 @@ pub enum InternalError {
     #[error("job not started")]
     JobNotStarted,
 
+    #[error("job not found: {0:?}")]
+    JobNotFound(JobId),
+
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
         current: JobState,
@@ -76,6 +80,9 @@ pub enum InternalError {
 
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
+
+    #[error(transparent)]
+    WireError(#[from] WireError),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
