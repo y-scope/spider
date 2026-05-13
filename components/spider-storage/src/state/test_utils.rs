@@ -1,4 +1,10 @@
-use std::{net::IpAddr, sync::Arc};
+use std::{
+    net::IpAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use dashmap::DashMap;
 use spider_core::{
@@ -8,6 +14,7 @@ use spider_core::{
         io::TaskOutput,
     },
 };
+use uuid::Uuid;
 
 use crate::{
     cache::{
@@ -66,6 +73,10 @@ pub struct MockDbConnector {
     pub states: Arc<DashMap<JobId, JobState>>,
     pub errors: Arc<DashMap<JobId, String>>,
     pub outputs: Arc<DashMap<JobId, Vec<TaskOutput>>>,
+    pub resource_groups: Arc<DashMap<ResourceGroupId, Vec<u8>>>,
+    pub next_resource_group_id: Arc<AtomicUsize>,
+    pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
+    pub next_execution_manager_id: Arc<AtomicUsize>,
     pub session_id: SessionId,
 }
 
@@ -75,6 +86,10 @@ impl Default for MockDbConnector {
             states: Arc::new(DashMap::new()),
             errors: Arc::new(DashMap::new()),
             outputs: Arc::new(DashMap::new()),
+            resource_groups: Arc::new(DashMap::new()),
+            next_resource_group_id: Arc::new(AtomicUsize::new(1)),
+            execution_managers: Arc::new(DashMap::new()),
+            next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
             session_id: 0,
         }
     }
@@ -159,20 +174,35 @@ impl ResourceGroupManagement for MockDbConnector {
     async fn add(
         &self,
         _external_resource_group_id: String,
-        _password: Vec<u8>,
+        password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError> {
-        Ok(ResourceGroupId::new())
+        let counter = self.next_resource_group_id.fetch_add(1, Ordering::Relaxed);
+        let id = ResourceGroupId::from(Uuid::from_u64_pair(0, counter as u64));
+        self.resource_groups.insert(id, password);
+        Ok(id)
     }
 
     async fn verify(
         &self,
-        _resource_group_id: ResourceGroupId,
-        _password: &[u8],
+        resource_group_id: ResourceGroupId,
+        password: &[u8],
     ) -> Result<(), DbError> {
+        let stored = self
+            .resource_groups
+            .get(&resource_group_id)
+            .ok_or(DbError::ResourceGroupNotFound(resource_group_id))?;
+        let matches = stored.as_slice() == password;
+        drop(stored);
+        if !matches {
+            return Err(DbError::InvalidPassword(resource_group_id));
+        }
         Ok(())
     }
 
-    async fn delete(&self, _resource_group_id: ResourceGroupId) -> Result<(), DbError> {
+    async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError> {
+        self.resource_groups
+            .remove(&resource_group_id)
+            .ok_or(DbError::ResourceGroupNotFound(resource_group_id))?;
         Ok(())
     }
 }
@@ -181,23 +211,32 @@ impl ResourceGroupManagement for MockDbConnector {
 impl ExecutionManagerLivenessManagement for MockDbConnector {
     async fn register_execution_manager(
         &self,
-        _ip_address: IpAddr,
+        ip_address: IpAddr,
     ) -> Result<ExecutionManagerId, DbError> {
-        Ok(ExecutionManagerId::new())
+        let counter = self
+            .next_execution_manager_id
+            .fetch_add(1, Ordering::Relaxed);
+        let id = ExecutionManagerId::from(Uuid::from_u64_pair(0, counter as u64));
+        self.execution_managers.insert(id, ip_address);
+        Ok(id)
     }
 
     async fn update_execution_manager_heartbeat(
         &self,
-        _execution_manager_id: ExecutionManagerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<(), DbError> {
-        Ok(())
+        if self.execution_managers.contains_key(&execution_manager_id) {
+            Ok(())
+        } else {
+            Err(DbError::IllegalExecutionManagerId(execution_manager_id))
+        }
     }
 
     async fn is_execution_manager_alive(
         &self,
-        _execution_manager_id: ExecutionManagerId,
+        execution_manager_id: ExecutionManagerId,
     ) -> Result<bool, DbError> {
-        Ok(true)
+        Ok(self.execution_managers.contains_key(&execution_manager_id))
     }
 
     async fn get_dead_execution_managers(
