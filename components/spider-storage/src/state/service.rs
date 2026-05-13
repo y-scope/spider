@@ -502,7 +502,11 @@ impl<
         resource_group_id: ResourceGroupId,
         password: &[u8],
     ) -> Result<(), StorageServerError> {
-        Ok(self.inner.db.verify(resource_group_id, password).await?)
+        self.inner
+            .db
+            .verify(resource_group_id, password)
+            .await
+            .map_err(StorageServerError::from)
     }
 
     /// Polls the ready queue for task entries.
@@ -521,12 +525,11 @@ impl<
         max_tasks: usize,
         wait: Duration,
     ) -> Result<Vec<ReadyQueueEntry<TaskIndex>>, StorageServerError> {
-        Ok(self
-            .inner
+        self.inner
             .ready_queue_receiver
             .recv_tasks(max_tasks, wait)
             .await
-            .map_err(CacheError::Internal)?)
+            .map_err(|e| CacheError::Internal(e).into())
     }
 
     /// Polls the ready queue for commit-ready task entries.
@@ -545,12 +548,11 @@ impl<
         max_tasks: usize,
         wait: Duration,
     ) -> Result<Vec<ReadyQueueEntry<CommitTaskMarker>>, StorageServerError> {
-        Ok(self
-            .inner
+        self.inner
             .ready_queue_receiver
             .recv_commits(max_tasks, wait)
             .await
-            .map_err(CacheError::Internal)?)
+            .map_err(|e| CacheError::Internal(e).into())
     }
 
     /// Polls the ready queue for cleanup-ready task entries.
@@ -570,12 +572,11 @@ impl<
         max_tasks: usize,
         wait: Duration,
     ) -> Result<Vec<ReadyQueueEntry<CleanupTaskMarker>>, StorageServerError> {
-        Ok(self
-            .inner
+        self.inner
             .ready_queue_receiver
             .recv_cleanups(max_tasks, wait)
             .await
-            .map_err(CacheError::Internal)?)
+            .map_err(|e| CacheError::Internal(e).into())
     }
 
     /// Registers an execution manager.
@@ -692,7 +693,7 @@ mod tests {
     type TestServiceState =
         ServiceState<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
-    type RealQueueTestServiceState =
+    type TestServiceStateWithReadyQueue =
         ServiceState<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
 
     const TEST_SESSION_ID: SessionId = 0;
@@ -722,18 +723,18 @@ mod tests {
         )
     }
 
-    /// Creates a [`ServiceState`] backed by a real ready queue instead of a mock sender.
+    /// Creates a [`ServiceState`] backed by [`ReadyQueueReceiverHandle`].
     ///
     /// # Returns
     ///
     /// A tuple of the service state and the ready queue sender handle on success.
-    fn create_test_service_with_real_ready_queue(
+    fn create_test_service_with_ready_queue(
         db: MockDbConnector,
-    ) -> (RealQueueTestServiceState, ReadyQueueSenderHandle) {
+    ) -> (TestServiceStateWithReadyQueue, ReadyQueueSenderHandle) {
         use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
         let (sender, receiver) =
             create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
-        let service = RealQueueTestServiceState::new(
+        let service = TestServiceStateWithReadyQueue::new(
             db,
             0,
             JobCache::new(),
@@ -1262,153 +1263,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_resource_group_returns_id() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let rg_id = service
-            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
-            .await?;
-        assert_ne!(
-            rg_id,
-            ResourceGroupId::new(),
-            "resource group ID should be assigned"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn verify_resource_group_succeeds_for_correct_password() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let password = vec![1, 2, 3];
-        let rg_id = service
-            .add_resource_group("external_123".to_owned(), password.clone())
-            .await?;
-        service.verify_resource_group(rg_id, &password).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn verify_resource_group_fails_for_wrong_password() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let rg_id = service
-            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
-            .await?;
-        let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
-        assert!(result.is_err(), "verify should fail for wrong password");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
-        let (service, sender) =
-            create_test_service_with_real_ready_queue(MockDbConnector::default());
-        let rg_id = ResourceGroupId::new();
-        let job_id = JobId::new();
-        sender
-            .send_task_ready(rg_id, job_id, vec![0])
-            .await
-            .expect("send_task_ready should succeed");
-
-        let entries = service
-            .poll_ready_tasks(10, Duration::from_millis(100))
-            .await?;
-        assert_eq!(entries.len(), 1, "should receive one ready queue entry");
-        assert_eq!(entries[0].job_id, job_id);
-        assert_eq!(entries[0].resource_group_id, rg_id);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn poll_ready_tasks_returns_empty_when_no_tasks() -> anyhow::Result<()> {
-        let (service, _sender) =
-            create_test_service_with_real_ready_queue(MockDbConnector::default());
-        let entries = service
-            .poll_ready_tasks(10, Duration::from_millis(10))
-            .await?;
-        assert!(
-            entries.is_empty(),
-            "should receive no entries from empty ready queue"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn poll_commit_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
-        let (service, sender) =
-            create_test_service_with_real_ready_queue(MockDbConnector::default());
-        let rg_id = ResourceGroupId::new();
-        let job_id = JobId::new();
-        sender
-            .send_commit_ready(rg_id, job_id)
-            .await
-            .expect("send_commit_ready should succeed");
-
-        let entries = service
-            .poll_commit_ready_tasks(10, Duration::from_millis(100))
-            .await?;
-        assert_eq!(entries.len(), 1, "should receive one commit-ready entry");
-        assert_eq!(entries[0].job_id, job_id);
-        assert_eq!(entries[0].resource_group_id, rg_id);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn poll_cleanup_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
-        let (service, sender) =
-            create_test_service_with_real_ready_queue(MockDbConnector::default());
-        let rg_id = ResourceGroupId::new();
-        let job_id = JobId::new();
-        sender
-            .send_cleanup_ready(rg_id, job_id)
-            .await
-            .expect("send_cleanup_ready should succeed");
-
-        let entries = service
-            .poll_cleanup_ready_tasks(10, Duration::from_millis(100))
-            .await?;
-        assert_eq!(entries.len(), 1, "should receive one cleanup-ready entry");
-        assert_eq!(entries[0].job_id, job_id);
-        assert_eq!(entries[0].resource_group_id, rg_id);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn register_execution_manager_returns_id() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let em_id = service
-            .register_execution_manager("127.0.0.1".parse()?)
-            .await?;
-        assert_ne!(
-            em_id,
-            ExecutionManagerId::new(),
-            "execution manager ID should be assigned"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn update_execution_manager_heartbeat_succeeds_for_registered_em() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let em_id = service
-            .register_execution_manager("127.0.0.1".parse()?)
-            .await?;
-        service.update_execution_manager_heartbeat(em_id).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn update_execution_manager_heartbeat_fails_for_unknown_em() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let result = service
-            .update_execution_manager_heartbeat(ExecutionManagerId::new())
-            .await;
-        assert!(
-            result.is_err(),
-            "update heartbeat should fail for unregistered execution manager"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn task_instance_orchestration_return_stale_session_on_mismatch() -> anyhow::Result<()> {
         // Create a service with a higher session ID to simulate a server restart.
         const CURRENT_SESSION_ID: SessionId = 10;
@@ -1476,6 +1330,155 @@ mod tests {
             );
         }
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_resource_group_returns_id() -> anyhow::Result<()> {
+        let service = create_test_service();
+        assert!(
+            service
+                .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+                .await
+                .is_ok()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn verify_resource_group_succeeds_for_correct_password() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let password = vec![1, 2, 3];
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), password.clone())
+            .await?;
+        service.verify_resource_group(rg_id, &password).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn verify_resource_group_fails_for_wrong_password() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .await?;
+        let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
+        assert!(result.is_err(), "verify should fail for wrong password");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+        const TASK_INDEX: TaskIndex = 0;
+        let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let rg_id = ResourceGroupId::new();
+        let job_id = JobId::new();
+        sender
+            .send_task_ready(rg_id, job_id, vec![TASK_INDEX])
+            .await
+            .expect("send_task_ready should succeed");
+
+        let entries = service
+            .poll_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one ready queue entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].task_kind, TASK_INDEX);
+        assert_eq!(entries[0].resource_group_id, rg_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn poll_ready_tasks_returns_empty_when_no_tasks() -> anyhow::Result<()> {
+        let (service, _sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let entries = service
+            .poll_ready_tasks(10, Duration::from_millis(10))
+            .await?;
+        assert!(
+            entries.is_empty(),
+            "should receive no entries from empty ready queue"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn poll_commit_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+        let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let rg_id = ResourceGroupId::new();
+        let job_id = JobId::new();
+        sender
+            .send_commit_ready(rg_id, job_id)
+            .await
+            .expect("send_commit_ready should succeed");
+
+        let entries = service
+            .poll_commit_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one commit-ready entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].task_kind, CommitTaskMarker);
+        assert_eq!(entries[0].resource_group_id, rg_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn poll_cleanup_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+        let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let rg_id = ResourceGroupId::new();
+        let job_id = JobId::new();
+        sender
+            .send_cleanup_ready(rg_id, job_id)
+            .await
+            .expect("send_cleanup_ready should succeed");
+
+        let entries = service
+            .poll_cleanup_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one cleanup-ready entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].task_kind, CleanupTaskMarker);
+        assert_eq!(entries[0].resource_group_id, rg_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_execution_manager_returns_id() -> anyhow::Result<()> {
+        let service = create_test_service();
+        assert!(
+            service
+                .register_execution_manager("127.0.0.1".parse()?)
+                .await
+                .is_ok()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_execution_manager_heartbeat_succeeds_for_registered_em() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let em_id = service
+            .register_execution_manager("127.0.0.1".parse()?)
+            .await?;
+        service.update_execution_manager_heartbeat(em_id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_execution_manager_heartbeat_fails_for_unknown_em() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service
+            .update_execution_manager_heartbeat(ExecutionManagerId::new())
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Db(DbError::IllegalExecutionManagerId(
+                    _
+                )))
+            ),
+            "update heartbeat should fail for unregistered execution manager"
+        );
         Ok(())
     }
 }
