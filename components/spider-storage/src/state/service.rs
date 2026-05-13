@@ -21,7 +21,13 @@ use crate::{
         job_submission::ValidatedJobSubmission,
     },
     db::DbStorage,
-    ready_queue::{ReadyQueueEntry, ReadyQueueReceiverHandle, ReadyQueueSender},
+    ready_queue::{
+        CleanupTaskMarker,
+        CommitTaskMarker,
+        ReadyQueueEntry,
+        ReadyQueueReceiverHandle,
+        ReadyQueueSender,
+    },
     state::{JobCache, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
 };
@@ -499,25 +505,6 @@ impl<
         Ok(self.inner.db.verify(resource_group_id, password).await?)
     }
 
-    /// Deletes a resource group.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ResourceGroupManagement::delete`]'s return values on failure.
-    pub async fn delete_resource_group(
-        &self,
-        resource_group_id: ResourceGroupId,
-    ) -> Result<(), StorageServerError> {
-        self.inner.db.delete(resource_group_id).await?;
-        tracing::info!(
-            rg_id = ? resource_group_id,
-            "Resource group deleted.",
-        );
-        Ok(())
-    }
-
     /// Polls the ready queue for task entries.
     ///
     /// # Returns
@@ -542,32 +529,53 @@ impl<
             .map_err(CacheError::Internal)?)
     }
 
-    /// Deletes expired terminated jobs from the database.
+    /// Polls the ready queue for commit-ready task entries.
     ///
     /// # Returns
     ///
-    /// The IDs of the deleted jobs on success.
+    /// Up to `max_tasks` commit-ready queue entries received within the `wait` duration on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`InternalJobOrchestration::delete_expired_terminated_jobs`]'s return values on
-    ///   failure.
-    pub async fn delete_expired_terminated_jobs(
+    /// * Forwards [`ReadyQueueReceiverHandle::recv_commits`]'s return values on failure.
+    pub async fn poll_commit_ready_tasks(
         &self,
-        expire_after_sec: u64,
-    ) -> Result<Vec<JobId>, StorageServerError> {
-        let result = self
+        max_tasks: usize,
+        wait: Duration,
+    ) -> Result<Vec<ReadyQueueEntry<CommitTaskMarker>>, StorageServerError> {
+        Ok(self
             .inner
-            .db
-            .delete_expired_terminated_jobs(expire_after_sec)
-            .await?;
-        tracing::info!(
-            count = ? result.len(),
-            "Expired terminated jobs deleted.",
-        );
-        Ok(result)
+            .ready_queue_receiver
+            .recv_commits(max_tasks, wait)
+            .await
+            .map_err(CacheError::Internal)?)
+    }
+
+    /// Polls the ready queue for cleanup-ready task entries.
+    ///
+    /// # Returns
+    ///
+    /// Up to `max_tasks` cleanup-ready queue entries received within the `wait` duration on
+    /// success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ReadyQueueReceiverHandle::recv_cleanups`]'s return values on failure.
+    pub async fn poll_cleanup_ready_tasks(
+        &self,
+        max_tasks: usize,
+        wait: Duration,
+    ) -> Result<Vec<ReadyQueueEntry<CleanupTaskMarker>>, StorageServerError> {
+        Ok(self
+            .inner
+            .ready_queue_receiver
+            .recv_cleanups(max_tasks, wait)
+            .await
+            .map_err(CacheError::Internal)?)
     }
 
     /// Registers an execution manager.
@@ -1290,21 +1298,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_resource_group_removes_entry() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let rg_id = service
-            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
-            .await?;
-        service.delete_resource_group(rg_id).await?;
-        let result = service.verify_resource_group(rg_id, &[1, 2, 3]).await;
-        assert!(
-            result.is_err(),
-            "verify should fail after resource group is deleted"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
         let (service, sender) =
             create_test_service_with_real_ready_queue(MockDbConnector::default());
@@ -1339,10 +1332,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_expired_terminated_jobs_delegates_to_db() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let result = service.delete_expired_terminated_jobs(60).await?;
-        assert!(result.is_empty(), "mock DB has no expired jobs by default");
+    async fn poll_commit_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+        let (service, sender) =
+            create_test_service_with_real_ready_queue(MockDbConnector::default());
+        let rg_id = ResourceGroupId::new();
+        let job_id = JobId::new();
+        sender
+            .send_commit_ready(rg_id, job_id)
+            .await
+            .expect("send_commit_ready should succeed");
+
+        let entries = service
+            .poll_commit_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one commit-ready entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].resource_group_id, rg_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn poll_cleanup_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+        let (service, sender) =
+            create_test_service_with_real_ready_queue(MockDbConnector::default());
+        let rg_id = ResourceGroupId::new();
+        let job_id = JobId::new();
+        sender
+            .send_cleanup_ready(rg_id, job_id)
+            .await
+            .expect("send_cleanup_ready should succeed");
+
+        let entries = service
+            .poll_cleanup_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one cleanup-ready entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].resource_group_id, rg_id);
         Ok(())
     }
 
