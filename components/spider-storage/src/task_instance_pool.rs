@@ -127,8 +127,8 @@ pub struct TaskInstancePoolHandle {
 pub struct TaskInstancePoolConfig {
     /// Seconds without a heartbeat after which an execution manager is considered stale.
     pub execution_manager_stale_after_sec: u64,
-    /// Interval between GC cycles that check for dead execution managers.
-    pub gc_interval: Duration,
+    /// Interval in seconds between GC cycles that check for dead execution managers.
+    pub gc_interval: u64,
     /// Maximum number of pending registration messages in the pool channel.
     pub channel_size: usize,
 }
@@ -137,7 +137,7 @@ impl Default for TaskInstancePoolConfig {
     fn default() -> Self {
         Self {
             execution_manager_stale_after_sec: 60,
-            gc_interval: Duration::from_secs(30),
+            gc_interval: 30,
             channel_size: 128,
         }
     }
@@ -310,9 +310,9 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     async fn run(
         mut self,
         cancellation_token: CancellationToken,
-        gc_interval: Duration,
+        gc_interval: u64,
     ) -> Result<(), InternalError> {
-        let mut gc_interval = tokio::time::interval(gc_interval);
+        let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval));
         // The first tick completes immediately; skip it so we don't GC right at startup.
         gc_interval.tick().await;
 
@@ -324,6 +324,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
                 }
                 message = self.receiver.recv() => {
                     let Some(message) = message else {
+                        // TODO: log this exit
                         return Ok(());
                     };
                     self.handle_message(message).await?;
@@ -781,7 +782,7 @@ mod tests {
             cancellation_token.clone(),
             TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
-                gc_interval: Duration::from_mins(1),
+                gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
             },
         );
@@ -830,7 +831,7 @@ mod tests {
             cancellation_token.clone(),
             TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
-                gc_interval: Duration::from_mins(1),
+                gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
             },
         );
@@ -881,7 +882,7 @@ mod tests {
             cancellation_token.clone(),
             TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
-                gc_interval: Duration::from_mins(1),
+                gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
             },
         );
@@ -905,7 +906,7 @@ mod tests {
             cancellation_token.clone(),
             TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
-                gc_interval: Duration::from_mins(1),
+                gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
             },
         );
@@ -982,7 +983,7 @@ mod tests {
             receiver,
         };
 
-        pool.run(cancellation_token, Duration::from_mins(1))
+        pool.run(cancellation_token, 60)
             .await
             .expect("pool should stop cleanly");
 
