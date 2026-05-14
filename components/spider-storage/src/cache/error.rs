@@ -83,6 +83,9 @@ pub enum InternalError {
 
     #[error(transparent)]
     WireError(#[from] WireError),
+
+    #[error(transparent)]
+    Db(#[from] crate::db::DbError),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
