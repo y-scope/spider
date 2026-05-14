@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -98,7 +100,7 @@ where
     pub async fn stop_background_tasks(self) -> Result<(), StorageServerError> {
         self.cancellation_token.cancel();
         let join_result = tokio::time::timeout(
-            std::time::Duration::from_secs(self.stop_timeout_sec),
+            Duration::from_secs(self.stop_timeout_sec),
             self.task_instance_pool_join_handle,
         )
         .await
