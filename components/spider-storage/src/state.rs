@@ -5,7 +5,7 @@ pub mod service;
 
 pub use error::StorageServerError;
 pub use job_cache::JobCache;
-pub use server::ServerRuntime;
+pub use server::{ServerRuntime, create_server_runtime};
 pub use service::ServiceState;
 
 #[cfg(test)]
