@@ -133,6 +133,44 @@ pub struct TaskInstancePoolConfig {
     pub channel_size: usize,
 }
 
+impl TaskInstancePoolConfig {
+    /// Creates a new [`TaskInstancePoolConfig`] with validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * `execution_manager_stale_after_sec` is zero.
+    /// * `gc_interval` is zero.
+    /// * `channel_size` is zero.
+    pub const fn new(
+        execution_manager_stale_after_sec: u64,
+        gc_interval: u64,
+        channel_size: usize,
+    ) -> Result<Self, InternalError> {
+        if execution_manager_stale_after_sec == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "execution_manager_stale_after_sec must be greater than zero",
+            ));
+        }
+        if gc_interval == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "gc_interval must be greater than zero",
+            ));
+        }
+        if channel_size == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "channel_size must be greater than zero",
+            ));
+        }
+        Ok(Self {
+            execution_manager_stale_after_sec,
+            gc_interval,
+            channel_size,
+        })
+    }
+}
+
 impl Default for TaskInstancePoolConfig {
     fn default() -> Self {
         Self {

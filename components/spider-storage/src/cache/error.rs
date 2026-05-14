@@ -78,6 +78,9 @@ pub enum InternalError {
     #[error("invalid config: {0}")]
     ReadyQueueInvalidConfig(&'static str),
 
+    #[error("invalid config: {0}")]
+    TaskInstancePoolInvalidConfig(&'static str),
+
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
 

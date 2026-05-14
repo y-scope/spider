@@ -97,17 +97,18 @@ where
     ///
     /// * [`StorageServerError::Stopping`] if the task instance pool does not stop before timeout.
     /// * [`StorageServerError::Cache`] if the task instance pool task fails or cannot be joined.
-    pub async fn stop_background_tasks(self) -> Result<(), StorageServerError> {
+    pub async fn stop_background_tasks(mut self) -> Result<(), StorageServerError> {
         self.cancellation_token.cancel();
-        let join_result = tokio::time::timeout(
-            Duration::from_secs(self.stop_timeout_sec),
-            self.task_instance_pool_join_handle,
-        )
-        .await
-        .map_err(|_| {
-            StorageServerError::Stopping("task instance pool stop timed out".to_owned())
-        })?;
-        let pool_result = join_result.map_err(|e| {
+        let result = tokio::select! {
+            result = &mut self.task_instance_pool_join_handle => result,
+            () = tokio::time::sleep(Duration::from_secs(self.stop_timeout_sec)) => {
+                self.task_instance_pool_join_handle.abort();
+                return Err(StorageServerError::Stopping(
+                    "task instance pool stop timed out".to_owned(),
+                ));
+            }
+        };
+        let pool_result = result.map_err(|e| {
             StorageServerError::Cache(CacheError::Internal(
                 InternalError::TaskInstancePoolCorrupted(format!("task join error: {e}")),
             ))
