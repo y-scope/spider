@@ -802,7 +802,7 @@ mod tests {
 
         pool.register_task_instance(tcb.clone(), metadata)
             .await
-            .unwrap();
+            .expect("registration should be sent");
 
         // Give the pool coroutine time to process the message.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -844,7 +844,9 @@ mod tests {
             execution_manager_id,
             SystemTime::now(),
         );
-        pool.register_task_instance(tcb1, metadata1).await.unwrap();
+        pool.register_task_instance(tcb1, metadata1)
+            .await
+            .expect("first registration should succeed");
 
         let tcb2 = build_single_task_tcb().await;
         let metadata2 = make_task_instance_metadata(
@@ -853,7 +855,9 @@ mod tests {
             execution_manager_id,
             SystemTime::now(),
         );
-        pool.register_task_instance(tcb2, metadata2).await.unwrap();
+        pool.register_task_instance(tcb2, metadata2)
+            .await
+            .expect("second registration should succeed");
 
         // Give the pool coroutine time to process both messages.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -875,7 +879,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawned_pool_exits_when_cancelled() {
-        let cancellation_token = tokio_util::sync::CancellationToken::new();
+        let cancellation_token = CancellationToken::new();
         let (_pool, pool_task) = create_task_instance_pool(
             MockReadyQueueSender::default(),
             MockExecutionManagerLivenessManagement::default(),
@@ -899,7 +903,7 @@ mod tests {
     #[tokio::test]
     async fn spawned_pool_processes_registration_before_shutdown() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let cancellation_token = tokio_util::sync::CancellationToken::new();
+        let cancellation_token = CancellationToken::new();
         let (pool, pool_task) = create_task_instance_pool(
             ready_queue_sender.clone(),
             RejectAllLivenessStore,
