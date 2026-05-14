@@ -7,7 +7,7 @@
 //!   the task so a new instance can be scheduled, while the original instance remains live until it
 //!   completes or is force-removed.
 //! * **Dead-execution-manager recovery**: During each GC cycle, the pool queries the
-//!   [`ExecutionManagerLivenessStore`] to detect dead execution managers, force-removes their
+//!   [`ExecutionManagerLivenessManagement`] to detect dead execution managers, force-removes their
 //!   instances from the task control blocks, and re-enqueues the corresponding tasks.
 //!
 //! Internally, the pool runs as a single-owner coroutine: a tokio task owns the mutable state
@@ -24,7 +24,11 @@ use std::{
 
 use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId};
-use tokio::sync::mpsc;
+use tokio::{
+    sync::{mpsc, mpsc::error::TryRecvError},
+    task::JoinHandle,
+};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     cache::{
@@ -32,6 +36,7 @@ use crate::{
         error::InternalError,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
+    db::ExecutionManagerLivenessManagement,
     ready_queue::ReadyQueueSender,
 };
 
@@ -44,58 +49,6 @@ pub struct TaskInstanceMetadata {
     pub task_instance_id: TaskInstanceId,
     pub execution_manager_id: ExecutionManagerId,
     pub soft_timeout_ddl: Option<SystemTime>,
-}
-
-/// Store for tracking execution manager liveness state.
-///
-/// Implementations persist execution manager heartbeat state durably and provide an atomic
-/// operation to detect and mark disconnected execution managers as dead.
-#[async_trait]
-pub trait ExecutionManagerLivenessStore: Clone + Send + Sync {
-    /// Checks whether the execution manager with the given ID is alive.
-    ///
-    /// # Parameters
-    ///
-    /// * `id` - The execution manager ID to check.
-    ///
-    /// # Returns
-    ///
-    /// Whether the execution manager is alive on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards the underlying store's return values on failure.
-    async fn is_execution_manager_alive(
-        &self,
-        id: &ExecutionManagerId,
-    ) -> Result<bool, InternalError>;
-
-    /// Returns the IDs of execution managers whose last heartbeat is before `stale_before`, after
-    /// marking them dead.
-    ///
-    /// This operation is atomic: once an execution manager is returned by this method, it will not
-    /// be returned again in subsequent calls.
-    ///
-    /// # Parameters
-    ///
-    /// * `stale_before` - The cutoff time; execution managers with no heartbeat after this time are
-    ///   considered dead.
-    ///
-    /// # Returns
-    ///
-    /// A vector of dead execution manager IDs on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards the underlying store's return values on failure.
-    async fn get_dead_execution_managers(
-        &self,
-        stale_before: SystemTime,
-    ) -> Result<Vec<ExecutionManagerId>, InternalError>;
 }
 
 /// Connector for creating and registering task instances in the task instance pool.
@@ -167,51 +120,108 @@ pub struct TaskInstancePoolHandle {
     sender: mpsc::Sender<PoolMessage>,
 }
 
-impl TaskInstancePoolHandle {
-    /// Creates a new task instance pool and returns a handle to it.
+/// Configuration for a task instance pool actor.
+///
+/// Controls GC timing, channel buffering, and execution manager staleness detection.
+#[derive(Debug, Clone, Copy)]
+pub struct TaskInstancePoolConfig {
+    /// Seconds without a heartbeat after which an execution manager is considered stale.
+    pub execution_manager_stale_after_sec: u64,
+    /// Interval in seconds between GC cycles that check for dead execution managers.
+    pub gc_interval: u64,
+    /// Maximum number of pending registration messages in the pool channel.
+    pub channel_size: usize,
+}
+
+impl TaskInstancePoolConfig {
+    /// Creates a new [`TaskInstancePoolConfig`] with validation.
     ///
-    /// # Type Parameters
+    /// # Errors
     ///
-    /// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
-    /// * `LivenessStoreType` - The execution manager liveness store implementation.
+    /// Returns an error if:
     ///
-    /// # Returns
-    ///
-    /// A [`TaskInstancePoolHandle`] connected to the newly spawned pool coroutine.
-    #[must_use]
-    pub fn create<
-        ReadyQueueSenderType: ReadyQueueSender + 'static,
-        LivenessStoreType: ExecutionManagerLivenessStore + 'static,
-    >(
-        ready_queue_sender: ReadyQueueSenderType,
-        execution_manager_liveness_store: LivenessStoreType,
-        execution_manager_stale_cutoff: Duration,
-        gc_interval: Duration,
+    /// * `execution_manager_stale_after_sec` is zero.
+    /// * `gc_interval` is zero.
+    /// * `channel_size` is zero.
+    pub const fn new(
+        execution_manager_stale_after_sec: u64,
+        gc_interval: u64,
         channel_size: usize,
-    ) -> Self {
-        let next_task_instance_id = Arc::new(AtomicU64::new(1));
-        let (sender, receiver) = mpsc::channel(channel_size);
+    ) -> Result<Self, InternalError> {
+        if execution_manager_stale_after_sec == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "execution_manager_stale_after_sec must be greater than zero",
+            ));
+        }
+        if gc_interval == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "gc_interval must be greater than zero",
+            ));
+        }
+        if channel_size == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "channel_size must be greater than zero",
+            ));
+        }
+        Ok(Self {
+            execution_manager_stale_after_sec,
+            gc_interval,
+            channel_size,
+        })
+    }
+}
 
-        let pool = TaskInstancePool {
-            ready_queue_sender,
-            execution_manager_liveness_store,
-            execution_manager_stale_cutoff,
-            instances: Vec::new(),
-            execution_manager_pool: HashSet::new(),
-            receiver,
-        };
-        tokio::spawn(async move {
-            match pool.run(gc_interval).await {
-                Ok(()) => {}
-                Err(_e) => todo!("log this error and terminate the storage service"),
-            }
-        });
-
+impl Default for TaskInstancePoolConfig {
+    fn default() -> Self {
         Self {
-            next_task_instance_id,
-            sender,
+            execution_manager_stale_after_sec: 60,
+            gc_interval: 30,
+            channel_size: 128,
         }
     }
+}
+
+/// Creates a task instance pool and returns the handle plus the spawned actor task.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
+/// * `LivenessStoreType` - The execution manager liveness store implementation.
+///
+/// # Returns
+///
+/// A [`TaskInstancePoolHandle`] and the spawned actor's [`JoinHandle`].
+pub fn create_task_instance_pool<
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    LivenessStoreType: ExecutionManagerLivenessManagement + 'static,
+>(
+    ready_queue_sender: ReadyQueueSenderType,
+    execution_manager_liveness_store: LivenessStoreType,
+    cancellation_token: CancellationToken,
+    config: TaskInstancePoolConfig,
+) -> (
+    TaskInstancePoolHandle,
+    JoinHandle<Result<(), InternalError>>,
+) {
+    let next_task_instance_id = Arc::new(AtomicU64::new(1));
+    let (sender, receiver) = mpsc::channel(config.channel_size);
+
+    let pool = TaskInstancePool {
+        ready_queue_sender,
+        execution_manager_liveness_store,
+        execution_manager_stale_after_sec: config.execution_manager_stale_after_sec,
+        instances: Vec::new(),
+        execution_manager_pool: HashSet::new(),
+        receiver,
+    };
+    let pool_join_handle =
+        tokio::spawn(async move { pool.run(cancellation_token, config.gc_interval).await });
+    let handle = TaskInstancePoolHandle {
+        next_task_instance_id,
+        sender,
+    };
+
+    (handle, pool_join_handle)
 }
 
 #[async_trait]
@@ -314,17 +324,17 @@ enum PoolMessage {
 /// * `LivenessStoreType` - The execution manager liveness store implementation.
 struct TaskInstancePool<
     ReadyQueueSenderType: ReadyQueueSender,
-    LivenessStoreType: ExecutionManagerLivenessStore,
+    LivenessStoreType: ExecutionManagerLivenessManagement,
 > {
     ready_queue_sender: ReadyQueueSenderType,
     execution_manager_liveness_store: LivenessStoreType,
     execution_manager_pool: HashSet<ExecutionManagerId>,
-    execution_manager_stale_cutoff: Duration,
+    execution_manager_stale_after_sec: u64,
     instances: Vec<PoolEntry>,
     receiver: mpsc::Receiver<PoolMessage>,
 }
 
-impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivenessStore>
+impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivenessManagement>
     TaskInstancePool<ReadyQueueSenderType, LivenessStoreType>
 {
     /// Runs the coroutine loop, processing messages and GC timer ticks.
@@ -335,13 +345,21 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     ///
     /// * Forwards [`Self::handle_message`]'s return values on failure.
     /// * Forwards [`Self::run_gc_cycle_at`]'s return values on failure.
-    async fn run(mut self, gc_interval: Duration) -> Result<(), InternalError> {
-        let mut gc_interval = tokio::time::interval(gc_interval);
+    async fn run(
+        mut self,
+        cancellation_token: CancellationToken,
+        gc_interval: u64,
+    ) -> Result<(), InternalError> {
+        let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval));
         // The first tick completes immediately; skip it so we don't GC right at startup.
         gc_interval.tick().await;
 
         loop {
             tokio::select! {
+                () = cancellation_token.cancelled() => {
+                    self.drain_received_messages().await?;
+                    return Ok(());
+                }
                 message = self.receiver.recv() => {
                     let Some(message) = message else {
                         // TODO: log this exit
@@ -356,21 +374,37 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
         }
     }
 
+    /// Drains all messages already accepted by the pool channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::handle_message`]'s return values on failure.
+    async fn drain_received_messages(&mut self) -> Result<(), InternalError> {
+        loop {
+            match self.receiver.try_recv() {
+                Ok(message) => self.handle_message(message).await?,
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
+            }
+        }
+    }
+
     /// Handles a single pool message.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ExecutionManagerLivenessStore::is_execution_manager_alive`]'s return values on
-    ///   failure.
+    /// * Forwards [`ExecutionManagerLivenessManagement::is_execution_manager_alive`]'s return
+    ///   values on failure.
     /// * Forwards [`Self::re_enqueue_task`]'s return values on failure.
     #[allow(clippy::set_contains_or_insert)]
     async fn handle_message(&mut self, message: PoolMessage) -> Result<(), InternalError> {
         match message {
             PoolMessage::Register { tcb, metadata } => {
-                let em_id = &metadata.execution_manager_id;
-                if !self.execution_manager_pool.contains(em_id) {
+                let em_id = metadata.execution_manager_id;
+                if !self.execution_manager_pool.contains(&em_id) {
                     if !self
                         .execution_manager_liveness_store
                         .is_execution_manager_alive(em_id)
@@ -390,7 +424,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
                         }
                         return Ok(());
                     }
-                    self.execution_manager_pool.insert(*em_id);
+                    self.execution_manager_pool.insert(em_id);
                 }
                 self.instances.push(PoolEntry {
                     metadata,
@@ -417,17 +451,13 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ExecutionManagerLivenessStore::get_dead_execution_managers`]'s return values on
-    ///   failure.
+    /// * Forwards [`ExecutionManagerLivenessManagement::get_dead_execution_managers`]'s return
+    ///   values on failure.
     /// * Forwards [`Self::re_enqueue_task`]'s return values on failure.
     async fn run_gc_cycle_at(&mut self, gc_started_at: SystemTime) -> Result<(), InternalError> {
         let dead_em_ids: Vec<ExecutionManagerId> = self
             .execution_manager_liveness_store
-            .get_dead_execution_managers(
-                gc_started_at
-                    .checked_sub(self.execution_manager_stale_cutoff)
-                    .unwrap_or(SystemTime::UNIX_EPOCH),
-            )
+            .get_dead_execution_managers(self.execution_manager_stale_after_sec)
             .await?;
 
         for execution_manager_id in &dead_em_ids {
@@ -520,7 +550,10 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::{
+        net::IpAddr,
+        time::{Duration, SystemTime},
+    };
 
     use async_trait::async_trait;
     use spider_core::{
@@ -540,24 +573,38 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
-    use crate::cache::job_submission::ValidatedJobSubmission;
+    use crate::{cache::job_submission::ValidatedJobSubmission, db::DbError};
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
 
-    /// A [`ExecutionManagerLivenessStore`] that returns a preconfigured list of dead execution
+    /// A [`ExecutionManagerLivenessManagement`] that returns a preconfigured list of dead execution
     /// managers and tracks how many times `is_execution_manager_alive` was called.
     #[derive(Clone, Default)]
-    struct MockExecutionManagerLivenessStore {
+    struct MockExecutionManagerLivenessManagement {
         dead_execution_managers: Arc<Mutex<Vec<ExecutionManagerId>>>,
         alive_call_count: Arc<std::sync::atomic::AtomicUsize>,
     }
 
     #[async_trait]
-    impl ExecutionManagerLivenessStore for MockExecutionManagerLivenessStore {
+    impl ExecutionManagerLivenessManagement for MockExecutionManagerLivenessManagement {
+        async fn register_execution_manager(
+            &self,
+            _ip_address: IpAddr,
+        ) -> Result<ExecutionManagerId, DbError> {
+            unimplemented!("not needed by pool tests")
+        }
+
+        async fn update_execution_manager_heartbeat(
+            &self,
+            _execution_manager_id: ExecutionManagerId,
+        ) -> Result<(), DbError> {
+            unimplemented!("not needed by pool tests")
+        }
+
         async fn is_execution_manager_alive(
             &self,
-            _id: &ExecutionManagerId,
-        ) -> Result<bool, InternalError> {
+            _execution_manager_id: ExecutionManagerId,
+        ) -> Result<bool, DbError> {
             self.alive_call_count
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(true)
@@ -565,8 +612,8 @@ mod tests {
 
         async fn get_dead_execution_managers(
             &self,
-            _stale_before: SystemTime,
-        ) -> Result<Vec<ExecutionManagerId>, InternalError> {
+            _stale_after_sec: u64,
+        ) -> Result<Vec<ExecutionManagerId>, DbError> {
             Ok(self.dead_execution_managers.lock().await.clone())
         }
     }
@@ -625,23 +672,37 @@ mod tests {
         }
     }
 
-    /// A [`ExecutionManagerLivenessStore`] where all EMs are reported as dead.
+    /// A [`ExecutionManagerLivenessManagement`] where all EMs are reported as dead.
     #[derive(Clone, Default)]
     struct RejectAllLivenessStore;
 
     #[async_trait]
-    impl ExecutionManagerLivenessStore for RejectAllLivenessStore {
+    impl ExecutionManagerLivenessManagement for RejectAllLivenessStore {
+        async fn register_execution_manager(
+            &self,
+            _ip_address: IpAddr,
+        ) -> Result<ExecutionManagerId, DbError> {
+            unimplemented!("not needed by pool tests")
+        }
+
+        async fn update_execution_manager_heartbeat(
+            &self,
+            _execution_manager_id: ExecutionManagerId,
+        ) -> Result<(), DbError> {
+            unimplemented!("not needed by pool tests")
+        }
+
         async fn is_execution_manager_alive(
             &self,
-            _id: &ExecutionManagerId,
-        ) -> Result<bool, InternalError> {
+            _execution_manager_id: ExecutionManagerId,
+        ) -> Result<bool, DbError> {
             Ok(false)
         }
 
         async fn get_dead_execution_managers(
             &self,
-            _stale_before: SystemTime,
-        ) -> Result<Vec<ExecutionManagerId>, InternalError> {
+            _stale_after_sec: u64,
+        ) -> Result<Vec<ExecutionManagerId>, DbError> {
             Ok(Vec::new())
         }
     }
@@ -701,15 +762,15 @@ mod tests {
     /// sender is dropped immediately.
     fn build_test_pool(
         ready_queue_sender: MockReadyQueueSender,
-        liveness_store: MockExecutionManagerLivenessStore,
+        liveness_store: MockExecutionManagerLivenessManagement,
         execution_manager_stale_cutoff: Duration,
-    ) -> TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessStore> {
+    ) -> TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessManagement> {
         let (_sender, receiver) = mpsc::channel(1);
         TaskInstancePool {
             ready_queue_sender,
             execution_manager_liveness_store: liveness_store,
             execution_manager_pool: HashSet::new(),
-            execution_manager_stale_cutoff,
+            execution_manager_stale_after_sec: execution_manager_stale_cutoff.as_secs(),
             instances: Vec::new(),
             receiver,
         }
@@ -722,7 +783,7 @@ mod tests {
     ///
     /// The job ID assigned to the task, so callers can match it against re-enqueue messages.
     async fn register_task_in_pool(
-        pool: &mut TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessStore>,
+        pool: &mut TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessManagement>,
         tcb: &SharedTaskControlBlock,
         task_id: TaskId,
         task_instance_id: TaskInstanceId,
@@ -752,12 +813,16 @@ mod tests {
     #[tokio::test]
     async fn dead_execution_manager_registration_triggers_recovery() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let pool = TaskInstancePoolHandle::create(
+        let cancellation_token = CancellationToken::new();
+        let (pool, pool_join_handle) = create_task_instance_pool(
             ready_queue_sender.clone(),
             RejectAllLivenessStore,
-            Duration::from_mins(1),
-            Duration::from_mins(1),
-            DEFAULT_CHANNEL_SIZE,
+            cancellation_token.clone(),
+            TaskInstancePoolConfig {
+                execution_manager_stale_after_sec: 60,
+                gc_interval: 60,
+                channel_size: DEFAULT_CHANNEL_SIZE,
+            },
         );
         let tcb = build_single_task_tcb().await;
         let task_instance_id = 1;
@@ -775,7 +840,7 @@ mod tests {
 
         pool.register_task_instance(tcb.clone(), metadata)
             .await
-            .unwrap();
+            .expect("registration should be sent");
 
         // Give the pool coroutine time to process the message.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -785,18 +850,28 @@ mod tests {
             messages.contains(&ReadyMessage::Task(job_id, 0)),
             "task should be re-enqueued for dead EM, got: {messages:?}"
         );
+        cancellation_token.cancel();
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
+            .await
+            .expect("pool task should exit before timeout")
+            .expect("pool task should join successfully")
+            .expect("pool task should return success");
     }
 
     #[tokio::test]
     async fn valid_em_is_cached_and_subsequent_registrations_skip_verify() {
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockExecutionManagerLivenessStore::default();
-        let pool = TaskInstancePoolHandle::create(
+        let liveness_store = MockExecutionManagerLivenessManagement::default();
+        let cancellation_token = CancellationToken::new();
+        let (pool, pool_join_handle) = create_task_instance_pool(
             ready_queue_sender,
             liveness_store.clone(),
-            Duration::from_mins(1),
-            Duration::from_mins(1),
-            DEFAULT_CHANNEL_SIZE,
+            cancellation_token.clone(),
+            TaskInstancePoolConfig {
+                execution_manager_stale_after_sec: 60,
+                gc_interval: 60,
+                channel_size: DEFAULT_CHANNEL_SIZE,
+            },
         );
         let execution_manager_id = ExecutionManagerId::new();
 
@@ -807,7 +882,9 @@ mod tests {
             execution_manager_id,
             SystemTime::now(),
         );
-        pool.register_task_instance(tcb1, metadata1).await.unwrap();
+        pool.register_task_instance(tcb1, metadata1)
+            .await
+            .expect("first registration should succeed");
 
         let tcb2 = build_single_task_tcb().await;
         let metadata2 = make_task_instance_metadata(
@@ -816,7 +893,9 @@ mod tests {
             execution_manager_id,
             SystemTime::now(),
         );
-        pool.register_task_instance(tcb2, metadata2).await.unwrap();
+        pool.register_task_instance(tcb2, metadata2)
+            .await
+            .expect("second registration should succeed");
 
         // Give the pool coroutine time to process both messages.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -828,6 +907,136 @@ mod tests {
             1,
             "liveness store should be called exactly once for two registrations with the same EM"
         );
+        cancellation_token.cancel();
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
+            .await
+            .expect("pool task should exit before timeout")
+            .expect("pool task should join successfully")
+            .expect("pool task should return success");
+    }
+
+    #[tokio::test]
+    async fn spawned_pool_exits_when_cancelled() {
+        let cancellation_token = CancellationToken::new();
+        let (_pool, pool_join_handle) = create_task_instance_pool(
+            MockReadyQueueSender::default(),
+            MockExecutionManagerLivenessManagement::default(),
+            cancellation_token.clone(),
+            TaskInstancePoolConfig {
+                execution_manager_stale_after_sec: 60,
+                gc_interval: 60,
+                channel_size: DEFAULT_CHANNEL_SIZE,
+            },
+        );
+
+        cancellation_token.cancel();
+
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
+            .await
+            .expect("pool task should exit before timeout")
+            .expect("pool task should join successfully")
+            .expect("pool task should return success");
+    }
+
+    #[tokio::test]
+    async fn spawned_pool_processes_registration_before_shutdown() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let cancellation_token = CancellationToken::new();
+        let (pool, pool_join_handle) = create_task_instance_pool(
+            ready_queue_sender.clone(),
+            RejectAllLivenessStore,
+            cancellation_token.clone(),
+            TaskInstancePoolConfig {
+                execution_manager_stale_after_sec: 60,
+                gc_interval: 60,
+                channel_size: DEFAULT_CHANNEL_SIZE,
+            },
+        );
+        let tcb = build_single_task_tcb().await;
+        let task_instance_id = 1;
+        let _ = tcb
+            .register_task_instance(task_instance_id)
+            .await
+            .expect("TCB registration should succeed");
+        let metadata = make_task_instance_metadata(
+            TaskId::Index(0),
+            task_instance_id,
+            ExecutionManagerId::new(),
+            SystemTime::now(),
+        );
+        let job_id = metadata.job_id;
+
+        pool.register_task_instance(tcb, metadata)
+            .await
+            .expect("registration should be sent");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        cancellation_token.cancel();
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
+            .await
+            .expect("pool task should exit before timeout")
+            .expect("pool task should join successfully")
+            .expect("pool task should return success");
+
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        assert!(
+            messages.contains(&ReadyMessage::Task(job_id, 0)),
+            "registration should be processed before shutdown, got: {messages:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_drains_queued_registrations_when_already_cancelled() {
+        let ready_queue_sender = MockReadyQueueSender::default();
+        let cancellation_token = CancellationToken::new();
+        cancellation_token.cancel();
+        let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let mut expected_messages: Vec<ReadyMessage> = Vec::new();
+
+        for task_index in 0..3 {
+            let tcb = build_single_task_tcb().await;
+            let task_instance_id = task_index as TaskInstanceId + 1;
+            let _ = tcb
+                .register_task_instance(task_instance_id)
+                .await
+                .expect("TCB registration should succeed");
+            let metadata = make_task_instance_metadata(
+                TaskId::Index(task_index),
+                task_instance_id,
+                ExecutionManagerId::new(),
+                SystemTime::now(),
+            );
+            expected_messages.push(ReadyMessage::Task(metadata.job_id, task_index));
+            sender
+                .send(PoolMessage::Register {
+                    tcb: Tcb::Task(tcb),
+                    metadata,
+                })
+                .await
+                .expect("pool message should be queued");
+        }
+
+        drop(sender);
+        let pool = TaskInstancePool {
+            ready_queue_sender: ready_queue_sender.clone(),
+            execution_manager_liveness_store: RejectAllLivenessStore,
+            execution_manager_pool: HashSet::new(),
+            execution_manager_stale_after_sec: 60,
+            instances: Vec::new(),
+            receiver,
+        };
+
+        pool.run(cancellation_token, 60)
+            .await
+            .expect("pool should stop cleanly");
+
+        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        assert_eq!(messages.len(), expected_messages.len(), "got: {messages:?}");
+        for expected in &expected_messages {
+            assert!(
+                messages.contains(expected),
+                "missing drained registration {expected:?}, got: {messages:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -835,7 +1044,7 @@ mod tests {
         const NUM_TASKS: usize = 10;
 
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
             ready_queue_sender.clone(),
             liveness_store,
@@ -879,7 +1088,7 @@ mod tests {
         const NUM_TASKS: usize = 10;
 
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
             ready_queue_sender.clone(),
             liveness_store,
@@ -937,7 +1146,7 @@ mod tests {
         const NUM_TASKS: usize = 10;
 
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
             ready_queue_sender.clone(),
             liveness_store.clone(),
@@ -995,7 +1204,7 @@ mod tests {
         const NUM_TASKS: usize = 10;
 
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
             ready_queue_sender.clone(),
             liveness_store.clone(),
@@ -1053,7 +1262,7 @@ mod tests {
         //   index 3: dead EM, terminated -> removed, no re-enqueue (terminal wins)
         //   index 4: dead EM, on-going -> removed, re-enqueued
         let ready_queue_sender = MockReadyQueueSender::default();
-        let liveness_store = MockExecutionManagerLivenessStore::default();
+        let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
             ready_queue_sender.clone(),
             liveness_store.clone(),
