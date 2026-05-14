@@ -21,7 +21,7 @@ pub struct ServerRuntime {
     service_state:
         ServiceState<ReadyQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
     cancellation_token: CancellationToken,
-    task_instance_pool_task: JoinHandle<Result<(), InternalError>>,
+    task_instance_pool_join_handle: JoinHandle<Result<(), InternalError>>,
 }
 
 impl ServerRuntime {
@@ -43,12 +43,13 @@ impl ServerRuntime {
         let session_id = db.session_id();
         let (ready_queue_sender, ready_queue_receiver) =
             create_ready_queue(ReadyQueueConfig::default()).map_err(CacheError::from)?;
-        let (task_instance_pool_connector, task_instance_pool_task) = create_task_instance_pool(
-            ready_queue_sender.clone(),
-            db.clone(),
-            cancellation_token.clone(),
-            TaskInstancePoolConfig::default(),
-        );
+        let (task_instance_pool_connector, task_instance_pool_join_handle) =
+            create_task_instance_pool(
+                ready_queue_sender.clone(),
+                db.clone(),
+                cancellation_token.clone(),
+                TaskInstancePoolConfig::default(),
+            );
         let service_state = ServiceState::new(
             db,
             session_id,
@@ -61,7 +62,7 @@ impl ServerRuntime {
         Ok(Self {
             service_state,
             cancellation_token,
-            task_instance_pool_task,
+            task_instance_pool_join_handle,
         })
     }
 
@@ -86,7 +87,7 @@ impl ServerRuntime {
     pub async fn stop_background_tasks(self) -> Result<(), StorageServerError> {
         stop_background_task(
             self.cancellation_token,
-            self.task_instance_pool_task,
+            self.task_instance_pool_join_handle,
             STOP_BACKGROUND_TASKS_TIMEOUT,
         )
         .await

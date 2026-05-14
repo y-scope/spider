@@ -176,14 +176,14 @@ pub fn create_task_instance_pool<
         execution_manager_pool: HashSet::new(),
         receiver,
     };
-    let pool_task =
+    let pool_join_handle =
         tokio::spawn(async move { pool.run(cancellation_token, config.gc_interval).await });
     let handle = TaskInstancePoolHandle {
         next_task_instance_id,
         sender,
     };
 
-    (handle, pool_task)
+    (handle, pool_join_handle)
 }
 
 #[async_trait]
@@ -776,7 +776,7 @@ mod tests {
     async fn dead_execution_manager_registration_triggers_recovery() {
         let ready_queue_sender = MockReadyQueueSender::default();
         let cancellation_token = CancellationToken::new();
-        let (pool, pool_task) = create_task_instance_pool(
+        let (pool, pool_join_handle) = create_task_instance_pool(
             ready_queue_sender.clone(),
             RejectAllLivenessStore,
             cancellation_token.clone(),
@@ -813,7 +813,7 @@ mod tests {
             "task should be re-enqueued for dead EM, got: {messages:?}"
         );
         cancellation_token.cancel();
-        tokio::time::timeout(Duration::from_secs(1), pool_task)
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
             .expect("pool task should join successfully")
@@ -825,7 +825,7 @@ mod tests {
         let ready_queue_sender = MockReadyQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let cancellation_token = CancellationToken::new();
-        let (pool, pool_task) = create_task_instance_pool(
+        let (pool, pool_join_handle) = create_task_instance_pool(
             ready_queue_sender,
             liveness_store.clone(),
             cancellation_token.clone(),
@@ -870,7 +870,7 @@ mod tests {
             "liveness store should be called exactly once for two registrations with the same EM"
         );
         cancellation_token.cancel();
-        tokio::time::timeout(Duration::from_secs(1), pool_task)
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
             .expect("pool task should join successfully")
@@ -880,7 +880,7 @@ mod tests {
     #[tokio::test]
     async fn spawned_pool_exits_when_cancelled() {
         let cancellation_token = CancellationToken::new();
-        let (_pool, pool_task) = create_task_instance_pool(
+        let (_pool, pool_join_handle) = create_task_instance_pool(
             MockReadyQueueSender::default(),
             MockExecutionManagerLivenessManagement::default(),
             cancellation_token.clone(),
@@ -893,7 +893,7 @@ mod tests {
 
         cancellation_token.cancel();
 
-        tokio::time::timeout(Duration::from_secs(1), pool_task)
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
             .expect("pool task should join successfully")
@@ -904,7 +904,7 @@ mod tests {
     async fn spawned_pool_processes_registration_before_shutdown() {
         let ready_queue_sender = MockReadyQueueSender::default();
         let cancellation_token = CancellationToken::new();
-        let (pool, pool_task) = create_task_instance_pool(
+        let (pool, pool_join_handle) = create_task_instance_pool(
             ready_queue_sender.clone(),
             RejectAllLivenessStore,
             cancellation_token.clone(),
@@ -933,7 +933,7 @@ mod tests {
             .expect("registration should be sent");
         tokio::time::sleep(Duration::from_millis(100)).await;
         cancellation_token.cancel();
-        tokio::time::timeout(Duration::from_secs(1), pool_task)
+        tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
             .expect("pool task should join successfully")
