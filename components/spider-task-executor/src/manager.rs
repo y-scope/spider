@@ -21,6 +21,7 @@ use crate::error::ExecutorError;
 /// avoid repeating the FFI round trip on every call. The execute fn pointer is also resolved once
 /// at load time and cached so each [`Self::execute_task`] call doesn't require `dlsym` per
 /// dispatch.
+#[derive(Debug)]
 pub struct TdlPackage {
     /// The name of the package.
     name: String,
@@ -190,7 +191,7 @@ impl TdlPackageManager {
     ///
     /// # Returns
     ///
-    /// The newly loaded package's name on success.
+    /// The newly loaded package on success.
     ///
     /// # Errors
     ///
@@ -199,14 +200,14 @@ impl TdlPackageManager {
     /// * [`ExecutorError::DuplicatePackage`] if a package with the same name is already loaded. The
     ///   freshly loaded library will be dropped (unloaded).
     /// * Forwards [`TdlPackage::load`]'s return values on failure.
-    pub fn load(&mut self, path: &Path) -> Result<String, ExecutorError> {
+    pub fn load(&mut self, path: &Path) -> Result<&TdlPackage, ExecutorError> {
         let package = TdlPackage::load(path)?;
         if self.packages.contains_key(package.name()) {
             return Err(ExecutorError::DuplicatePackage(package.name().to_owned()));
         }
         let name_key = package.name().to_owned();
         let inserted = self.packages.entry(name_key).or_insert(package);
-        Ok(inserted.name().to_owned())
+        Ok(inserted)
     }
 
     /// # Returns
