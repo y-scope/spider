@@ -11,8 +11,8 @@
 //! Environment:
 //!
 //! * `SPIDER_TASK_EXECUTOR_BIN` — absolute path to the executor binary.
-//! * `SPIDER_TDL_PACKAGE_DIR` — directory the binary searches for TDL packages; gets forwarded
-//!   to the child verbatim.
+//! * `SPIDER_TDL_PACKAGE_DIR` — directory the binary searches for TDL packages; gets forwarded to
+//!   the child verbatim.
 
 use std::{path::PathBuf, process::Stdio};
 
@@ -181,7 +181,6 @@ pub fn tdl_package_dir() -> PathBuf {
         .map(PathBuf::from)
         .expect("SPIDER_TDL_PACKAGE_DIR env var not set")
 }
-
 
 /// # Returns
 ///

@@ -9,7 +9,11 @@ use spider_task_executor::{
 };
 use spider_tdl::TdlError;
 use task_executor_tests::{
-    ExecutorHandle, decode_single_output, encode_no_inputs, encode_single_input, execute_request,
+    ExecutorHandle,
+    decode_single_output,
+    encode_no_inputs,
+    encode_single_input,
+    execute_request,
 };
 
 #[tokio::test]

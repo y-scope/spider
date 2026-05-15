@@ -29,7 +29,10 @@ use integration_test_tasks::INSTRUMENT_SLEEP_US;
 use spider_task_executor::protocol::{ExecutorOutcome, Response};
 use tabled::{Table, Tabled};
 use task_executor_tests::{
-    ExecutorHandle, decode_single_output, encode_single_input, execute_request,
+    ExecutorHandle,
+    decode_single_output,
+    encode_single_input,
+    execute_request,
 };
 
 const PAYLOAD_LEN: usize = 100;
@@ -95,9 +98,10 @@ impl LatencyRow {
 #[ignore = "requires `integration-test-tasks` cdylib, `spider-task-executor` binary, and \
             SPIDER_TEST_INSTRUMENT_OUTPUT_DIR"]
 async fn instrument_overhead() {
-    let output_dir = std::env::var_os(INSTRUMENT_OUTPUT_DIR_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| panic!("{INSTRUMENT_OUTPUT_DIR_ENV} env var not set"));
+    let output_dir = std::env::var_os(INSTRUMENT_OUTPUT_DIR_ENV).map_or_else(
+        || panic!("{INSTRUMENT_OUTPUT_DIR_ENV} env var not set"),
+        PathBuf::from,
+    );
 
     let mut handle = ExecutorHandle::spawn();
 
@@ -124,7 +128,10 @@ async fn instrument_overhead() {
         let response = handle.recv().await;
         let e2e = started.elapsed();
 
-        let Response::Result { outcome, elapsed_us } = response;
+        let Response::Result {
+            outcome,
+            elapsed_us,
+        } = response;
         let ExecutorOutcome::Success { outputs } = outcome else {
             panic!("instrument task unexpectedly failed in overhead loop");
         };
@@ -153,7 +160,10 @@ async fn instrument_overhead() {
             "Executor internal (FFI - sleep)",
             &mut executor_internal_samples.clone(),
         ),
-        LatencyRow::from_samples("IPC overhead (E2E - FFI)", &mut ipc_overhead_samples.clone()),
+        LatencyRow::from_samples(
+            "IPC overhead (E2E - FFI)",
+            &mut ipc_overhead_samples.clone(),
+        ),
     ];
     let table = Table::new(rows).to_string();
 
@@ -165,8 +175,8 @@ async fn instrument_overhead() {
     );
 
     let path = output_dir.join(OUTPUT_FILE);
-    let mut file = File::create(&path)
-        .unwrap_or_else(|err| panic!("create {} failed: {err}", path.display()));
+    let mut file =
+        File::create(&path).unwrap_or_else(|err| panic!("create {} failed: {err}", path.display()));
     file.write_all(preamble.as_bytes()).expect("write preamble");
     file.write_all(table.as_bytes()).expect("write table");
     file.write_all(b"\n").expect("write trailing newline");

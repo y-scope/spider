@@ -5,14 +5,15 @@
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
 //! * [`task_decl::always_fail`] — in-task error reporting.
 //! * [`task_decl::always_panic`] — process-level crash handling.
-//! * [`task_decl::instrument`] — fixed-cost task: sleeps for a known [`INSTRUMENT_SLEEP`]
-//!   duration then echoes its `Vec<String>` payload back. Used by the overhead bench so the
-//!   non-sleep portion of the executor's reported FFI time isolates the in-executor input/output
-//!   serde cost, while the parent-side delta isolates IPC framing cost.
+//! * [`task_decl::instrument`] — fixed-cost task: sleeps for a known [`INSTRUMENT_SLEEP`] duration
+//!   then echoes its `Vec<String>` payload back. Used by the overhead bench so the non-sleep
+//!   portion of the executor's reported FFI time isolates the in-executor input/output serde cost,
+//!   while the parent-side delta isolates IPC framing cost.
 
-/// The constant sleep duration used by [`task_decl::instrument`]. Exposed at crate scope so the
-/// overhead bench (linked dynamically, so it can't read the value through the cdylib) can
-/// reference the same number — keep them in sync if changed.
+/// The constant sleep duration used by [`task_decl::instrument`].
+///
+/// Exposed at crate scope so the overhead bench (linked dynamically, so it can't read the value
+/// through the cdylib) can reference the same number to keep them in sync if changed.
 pub const INSTRUMENT_SLEEP_US: u64 = 50;
 
 mod task_decl {
@@ -52,14 +53,12 @@ mod task_decl {
         panic!("always_panic: intentional panic")
     }
 
-    /// Sleeps for a fixed [`INSTRUMENT_SLEEP_US`] microseconds, then echoes the input back. The
-    /// fixed-cost body lets the overhead bench subtract the known sleep from the executor's
+    /// Sleeps for a fixed [`INSTRUMENT_SLEEP_US`] microseconds, then echoes the input back.
+    ///
+    /// The fixed-cost body lets the overhead bench subtract the known sleep from the executor's
     /// reported FFI duration, isolating the in-executor input/output serde overhead.
     #[task(name = "instrument")]
-    pub fn instrument(
-        _ctx: TaskContext,
-        items: Vec<String>,
-    ) -> Result<Vec<String>, TdlError> {
+    pub fn instrument(_ctx: TaskContext, items: Vec<String>) -> Result<Vec<String>, TdlError> {
         sleep(Duration::from_micros(INSTRUMENT_SLEEP_US));
         Ok(items)
     }
