@@ -1483,6 +1483,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "spider-execution-manager"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bytes",
+ "futures-util",
+ "rmp-serde",
+ "spider-core",
+ "spider-task-executor",
+ "spider-tdl",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "spider-storage"
 version = "0.1.0"
 dependencies = [
@@ -1872,6 +1889,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "spider-core",
+ "spider-execution-manager",
  "spider-task-executor",
  "spider-tdl",
  "tabled",
