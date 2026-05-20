@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [[test]]
 name = "executor"
-path = "tests/executor.rs"
+path = "tests/test_executor.rs"
 
 [[test]]
 name = "overhead_instrument"
