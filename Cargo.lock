@@ -1486,6 +1486,7 @@ dependencies = [
 name = "spider-execution-manager"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bincode",
  "bytes",
  "futures-util",
