@@ -5,12 +5,12 @@
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
 //! * [`task_decl::always_fail`] — in-task error reporting.
 //! * [`task_decl::always_panic`] — process-level crash handling.
-//! * [`task_decl::instrument`] — fixed-cost task: sleeps for a known [`INSTRUMENT_SLEEP`] duration
-//!   then echoes its `Vec<String>` payload back. Used by the overhead bench so the non-sleep
-//!   portion of the executor's reported FFI time isolates the in-executor input/output serde cost,
-//!   while the parent-side delta isolates IPC framing cost.
+//! * [`task_decl::sleep_and_echo`] — fixed-cost task: sleeps for a known [`INSTRUMENT_SLEEP_US`]
+//!   duration then echoes its `Vec<String>` payload back. Used by the overhead bench so the
+//!   non-sleep portion of the executor's reported FFI time isolates the in-executor input/output
+//!   serde cost, while the parent-side delta isolates IPC framing cost.
 
-/// The constant sleep duration used by [`task_decl::instrument`].
+/// The constant sleep duration used by [`task_decl::sleep_and_echo`].
 ///
 /// Exposed at crate scope so the overhead bench (linked dynamically, so it can't read the value
 /// through the cdylib) can reference the same number to keep them in sync if changed.
@@ -57,8 +57,8 @@ mod task_decl {
     ///
     /// The fixed-cost body lets the overhead bench subtract the known sleep from the executor's
     /// reported FFI duration, isolating the in-executor input/output serde overhead.
-    #[task(name = "instrument")]
-    pub fn instrument(_ctx: TaskContext, items: Vec<String>) -> Result<Vec<String>, TdlError> {
+    #[task(name = "sleep_and_echo")]
+    pub fn sleep_and_echo(_ctx: TaskContext, items: Vec<String>) -> Result<Vec<String>, TdlError> {
         sleep(Duration::from_micros(INSTRUMENT_SLEEP_US));
         Ok(items)
     }
@@ -70,6 +70,6 @@ spider_tdl::register_tdl_package! {
         task_decl::fibonacci,
         task_decl::always_fail,
         task_decl::always_panic,
-        task_decl::instrument,
+        task_decl::sleep_and_echo,
     ],
 }
