@@ -88,8 +88,8 @@ fn decode_complex_vec(output_bytes: &[u8]) -> anyhow::Result<ComplexVec> {
 fn load_and_query_name() -> anyhow::Result<()> {
     let path = lib_path();
     let mut manager = TdlPackageManager::new();
-    let name = manager.load(&path)?;
-    assert_eq!(name, PACKAGE_NAME);
+    let pkg = manager.load(&path)?;
+    assert_eq!(pkg.name(), PACKAGE_NAME);
     let pkg = manager
         .get(PACKAGE_NAME)
         .expect("just-loaded package should be retrievable");
