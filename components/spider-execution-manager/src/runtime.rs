@@ -1,25 +1,29 @@
 //! Runtime — the execution manager's main loop.
-//!
-//! The runtime owns the long-lived state that drives task execution on one node: the
-//! [`ProcessPool`] of `spider-task-executor` subprocesses, the shared [`SessionTracker`], and the
-//! handle to the liveness actor. Its [`Runtime::run`] loop pulls one task assignment at a time from
-//! the scheduler, registers the task instance with storage, dispatches it to the pool, and reports
-//! the outcome back to storage.
-//!
-//! Shutdown is driven by a shared [`CancellationToken`]: the liveness actor flips it when storage
-//! reaps the execution manager (or rejects its id), and the main loop selects on it so a reap
-//! promptly tears the runtime down.
 
 use std::{net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 
-use spider_core::{session::SessionTracker, types::id::ExecutionManagerId};
+use spider_core::{
+    session::SessionTracker,
+    types::{
+        id::{ExecutionManagerId, JobId, SessionId, TaskId},
+        io::ExecutionContext,
+    },
+};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::{
-    client::{LivenessClient, LivenessResponseError, SchedulerClient, StorageClient},
+    client::{
+        LivenessClient,
+        LivenessResponseError,
+        SchedulerClient,
+        SchedulerError,
+        SchedulerResponse,
+        StorageClient,
+        StorageResponseError,
+    },
     liveness::{self, LivenessHandle},
-    process_pool::{self, ProcessPool, ProcessPoolConfig},
+    process_pool::{self, ExecuteRequest, Outcome, ProcessPool, ProcessPoolConfig},
 };
 
 /// Static configuration for a [`Runtime`]. Supplied once at bootstrap and never mutated.
@@ -39,16 +43,9 @@ pub struct RuntimeConfig {
 
     /// Directory the process pool writes per-executor stderr logs into.
     pub log_dir: PathBuf,
-
-    /// Maximum number of times a storage call that fails with a transport error is retried before
-    /// the runtime gives up on the current task.
-    pub storage_max_retries: u32,
-
-    /// Base delay used when backing off after a transport error from the scheduler or storage.
-    pub transport_backoff: Duration,
 }
 
-/// Errors returned while bootstrapping a [`Runtime`].
+/// Errors returned by [`Runtime`] during bootstrap or the main loop.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     /// Boot-time registration with storage failed.
@@ -58,6 +55,16 @@ pub enum RuntimeError {
     /// The initial process pool could not be created.
     #[error("failed to create the process pool: {0}")]
     ProcessPool(#[from] process_pool::InternalError),
+
+    /// The scheduler call failed. The runtime treats every scheduler error as fatal because the
+    /// client is responsible for absorbing transient transport issues internally.
+    #[error("scheduler error: {0}")]
+    Scheduler(#[from] SchedulerError),
+
+    /// Storage rejected a request as malformed. Indicates a contract bug in the runtime, not a
+    /// transient condition, so the runtime treats it as fatal.
+    #[error("storage rejected request as invalid: {0}")]
+    StorageInvalidInput(String),
 }
 
 /// The execution manager runtime: the main loop plus all the state it owns.
@@ -68,37 +75,37 @@ pub enum RuntimeError {
 ///   from.
 /// * `StorageClientType` - Concrete [`StorageClient`] used to register task instances and report
 ///   their outcome.
-/// * `LivenessClientType` - Concrete [`LivenessClient`] used to register at boot and, through the
-///   spawned liveness actor, heartbeat thereafter.
 pub struct Runtime<
-    SchedulerClientType: SchedulerClient,
-    StorageClientType: StorageClient,
-    LivenessClientType: LivenessClient + 'static,
+    SchedulerClientType: SchedulerClient + Clone,
+    StorageClientType: StorageClient + Clone + 'static,
 > {
     em_id: ExecutionManagerId,
-    scheduler_client: Arc<SchedulerClientType>,
-    storage_client: Arc<StorageClientType>,
-    liveness_client: Arc<LivenessClientType>,
+    scheduler_client: SchedulerClientType,
+    storage_client: StorageClientType,
     process_pool: ProcessPool,
     session_tracker: SessionTracker,
     liveness_handle: LivenessHandle,
     liveness_join: JoinHandle<()>,
     cancellation_token: CancellationToken,
-    config: RuntimeConfig,
+    _cancel_guard: DropGuard,
 }
 
 impl<
-    SchedulerClientType: SchedulerClient,
-    StorageClientType: StorageClient,
-    LivenessClientType: LivenessClient + 'static,
-> Runtime<SchedulerClientType, StorageClientType, LivenessClientType>
+    SchedulerClientType: SchedulerClient + Clone,
+    StorageClientType: StorageClient + Clone + 'static,
+> Runtime<SchedulerClientType, StorageClientType>
 {
     /// Factory function.
     ///
     /// Registers the execution manager with storage, seeds the [`SessionTracker`] with the session
-    /// id returned by registration, spawns the initial executor [`ProcessPool`] and the liveness
-    /// actor, then assembles a ready-to-run runtime. The liveness actor is heartbeating by the time
-    /// this returns.
+    /// ID returned by registration, spawns the initial executor [`ProcessPool`] and the liveness
+    /// actor, then assembles a ready-to-run runtime. The liveness actor sends the first heartbeat
+    /// by the time this returns.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `LivenessClientType` - Concrete [`LivenessClient`] used to register at boot and, through
+    ///   the spawned liveness actor, heartbeat thereafter.
     ///
     /// # Returns
     ///
@@ -108,13 +115,11 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`RuntimeError::Registration`] if boot-time registration with storage failed.
-    /// * [`RuntimeError::ProcessPool`] if the initial executor process pool could not be spawned.
     /// * Forwards [`LivenessClient::register`]'s return values on failure.
     /// * Forwards [`ProcessPool::new`]'s return values on failure.
-    pub async fn create(
-        scheduler_client: Arc<SchedulerClientType>,
-        storage_client: Arc<StorageClientType>,
+    pub async fn create<LivenessClientType: LivenessClient + 'static>(
+        scheduler_client: SchedulerClientType,
+        storage_client: StorageClientType,
         liveness_client: Arc<LivenessClientType>,
         config: RuntimeConfig,
     ) -> Result<Self, RuntimeError> {
@@ -122,64 +127,354 @@ impl<
         let em_id = registration.em_id;
         let session_tracker = SessionTracker::new(registration.session_id);
         tracing::info!(
-            em_id = %em_id.as_uuid_ref(),
+            em_id = ? em_id,
             session_id = registration.session_id,
             "Execution manager registered with storage."
         );
 
         let process_pool = ProcessPool::new(ProcessPoolConfig {
             em_id,
-            executor_binary_path: config.executor_binary_path.clone(),
-            package_dir: config.package_dir.clone(),
-            log_dir: config.log_dir.clone(),
+            executor_binary_path: config.executor_binary_path,
+            package_dir: config.package_dir,
+            log_dir: config.log_dir,
         })?;
 
         let cancellation_token = CancellationToken::new();
         let (liveness_handle, liveness_join) = liveness::spawn(
             em_id,
-            Arc::clone(&liveness_client),
+            liveness_client,
             session_tracker.clone(),
             cancellation_token.clone(),
             config.heartbeat_interval,
         );
 
+        let cancel_guard = cancellation_token.clone().drop_guard();
         Ok(Self {
             em_id,
             scheduler_client,
             storage_client,
-            liveness_client,
             process_pool,
             session_tracker,
             liveness_handle,
             liveness_join,
             cancellation_token,
-            config,
+            _cancel_guard: cancel_guard,
         })
     }
 
     /// Runs the main loop until the runtime is cancelled, then tears it down.
     ///
-    /// Each iteration pulls one task assignment, registers it, executes it, and reports the
-    /// outcome. The loop selects every iteration against the shared [`CancellationToken`] so a reap
-    /// signalled by the liveness actor exits promptly.
-    pub async fn run(self) {
-        tracing::info!(em_id = %self.em_id.as_uuid_ref(), "Runtime main loop starting.");
-
-        // TODO(next step): the main loop body. Each iteration, raced against cancellation:
-        //   1. `self.scheduler_client.next_task(self.em_id)` to pull an assignment.
-        //   2. Local stale-session triage against `self.session_tracker`, nudging the liveness
-        //      actor via `self.liveness_handle.refresh()` when the bundle's session is ahead.
-        //   3. `self.storage_client.register_task_instance(..)` -> `ExecutionContext`.
-        //   4. `self.process_pool.execute(ExecuteRequest { .. }, hard_timeout)`.
-        //   5. Report success/failure back to storage with the bundle's pinned session id.
-        // Until that lands, just wait for the shutdown signal so the actor and pool stay alive.
-        self.cancellation_token.cancelled().await;
-
-        tracing::info!(em_id = %self.em_id.as_uuid_ref(), "Runtime cancelled; shutting down.");
-        // TODO(next step): drain the process pool before exit. For now, dropping `self` kills the
-        // pooled executor via `kill_on_drop`.
+    /// # Returns
+    ///
+    /// `Ok(())` after a clean shutdown triggered by cancellation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::main_loop`]'s return values on failure.
+    pub async fn run(self) -> Result<(), RuntimeError> {
+        tracing::info!(em_id = ? self.em_id, "Runtime main loop starting.");
+        let result = self.main_loop().await;
+        tracing::info!(em_id = ? self.em_id, "Runtime main loop exited. Shutting down.");
+        self.cancellation_token.cancel();
         if let Err(err) = self.liveness_join.await {
-            tracing::warn!(err = ?err, "Liveness actor task did not exit cleanly.");
+            tracing::warn!(err = ? err, "Liveness actor task did not exit cleanly.");
+        }
+        result
+    }
+
+    /// Iterates the main loop. Each iteration pulls a task assignment from the scheduler and runs
+    /// it through the local pipeline. Returns when the runtime is cancelled or a fatal error
+    /// occurs.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` when the loop exits cleanly because the runtime was cancelled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SchedulerClient::next_task`]'s return values on failure.
+    /// * Forwards [`Self::register_task_instance`]'s return values on failure.
+    /// * Forwards [`ProcessPool::execute`]'s return values on failure.
+    async fn main_loop(&self) -> Result<(), RuntimeError> {
+        loop {
+            let assignment_result = tokio::select! {
+                biased;
+                () = self.cancellation_token.cancelled() => return Ok(()),
+                result = self.scheduler_client.next_task(self.em_id) => result,
+            };
+
+            let assignment = assignment_result.inspect_err(|err| {
+                tracing::error!(err = ? err, "Scheduler error. Bailing out.");
+            })?;
+
+            tracing::info!(
+                bundle_session = assignment.session_id,
+                job_id = ? assignment.job_id,
+                task_id = ? assignment.task_id,
+                "Received a new task assignment from the scheduler."
+            );
+
+            let current_session = self.session_tracker.current();
+            if assignment.session_id < current_session {
+                tracing::warn!(
+                    bundle_session = assignment.session_id,
+                    current_session,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    "Dropping stale task assignment from the scheduler."
+                );
+                continue;
+            }
+            if assignment.session_id > current_session {
+                tracing::info!(
+                    new_session = assignment.session_id,
+                    "Observed a newer session via the scheduler. Refreshing liveness."
+                );
+                self.liveness_handle.refresh().await;
+            }
+
+            let Some(execution_context) = self.register_task_instance(assignment).await? else {
+                continue;
+            };
+
+            let hard_timeout =
+                Duration::from_millis(execution_context.timeout_policy.hard_timeout_ms);
+            let request = ExecuteRequest {
+                job_id: assignment.job_id,
+                task_id: assignment.task_id,
+                resource_group_id: assignment.resource_group_id,
+                ctx: execution_context,
+            };
+            let outcome = self
+                .process_pool
+                .execute(request, hard_timeout)
+                .await
+                .inspect_err(|err| {
+                    tracing::error!(
+                        err = ? err,
+                        job_id = ? assignment.job_id,
+                        task_id = ? assignment.task_id,
+                        "Process pool failed to dispatch task. Bailing out."
+                    );
+                })?;
+
+            // Fire-and-forget the outcome report so the main loop can dispatch the next task
+            // without waiting on storage. Retries and logging are handled inside `report_outcome`.
+            tokio::spawn(report_outcome(
+                self.storage_client.clone(),
+                ReportTarget {
+                    em: self.em_id,
+                    job: assignment.job_id,
+                    task: assignment.task_id,
+                    session: assignment.session_id,
+                },
+                outcome,
+            ));
         }
     }
+
+    /// Registers a task instance with storage.
+    ///
+    /// Races the storage call against [`Self::cancellation_token`]: when it fires, the method
+    /// returns `Ok(None)` and the next [`Self::main_loop`] iteration observes the token via its
+    /// top-level [`tokio::select!`] and exits.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(execution_context))` if storage accepted the registration.
+    /// * `Ok(None)` if the assignment should be skipped (stale session, transport failure, any
+    ///   other recoverable storage error, or cancellation mid-call).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`RuntimeError::StorageInvalidInput`] if storage rejects the request as malformed, which
+    ///   the runtime treats as fatal.
+    async fn register_task_instance(
+        &self,
+        assignment: SchedulerResponse,
+    ) -> Result<Option<ExecutionContext>, RuntimeError> {
+        let register_result = tokio::select! {
+            biased;
+            () = self.cancellation_token.cancelled() => return Ok(None),
+            result = self.storage_client.register_task_instance(
+                assignment.job_id,
+                assignment.task_id,
+                self.em_id,
+                assignment.session_id,
+            ) => result,
+        };
+
+        match register_result {
+            Ok(execution_context) => Ok(Some(execution_context)),
+            Err(StorageResponseError::StaleSession { storage_session }) => {
+                tracing::warn!(
+                    bundle_session = assignment.session_id,
+                    storage_session = storage_session,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    "Storage rejected task registration as stale. Dropping the assignment."
+                );
+                self.liveness_handle.refresh().await;
+                Ok(None)
+            }
+            Err(StorageResponseError::InvalidInput(err)) => {
+                tracing::error!(
+                    err = % err,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    "Storage rejected task registration as malformed. Bailing out."
+                );
+                Err(RuntimeError::StorageInvalidInput(err))
+            }
+            Err(err) => {
+                tracing::warn!(
+                    err = ? err,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    "Storage rejected task registration. Dropping the assignment."
+                );
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Identifies a single task-instance attempt that an outcome report belongs to.
+#[derive(Debug, Clone, Copy)]
+struct ReportTarget {
+    em: ExecutionManagerId,
+    job: JobId,
+    task: TaskId,
+    session: SessionId,
+}
+
+/// A task outcome prepared for transmission to storage. Splits the storage API's two reporting
+/// endpoints (success / failure) and carries their payloads.
+enum Report {
+    Success(Option<Vec<u8>>),
+    Failure(String),
+}
+
+impl Report {
+    /// # Returns
+    ///
+    /// The constructed report from the task executor's outcome.
+    fn from_outcome(outcome: Outcome, target: ReportTarget) -> Self {
+        match outcome {
+            Outcome::Success {
+                outputs,
+                elapsed_us,
+            } => {
+                tracing::info!(
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    elapsed_us,
+                    "Task completed successfully."
+                );
+                Self::Success(Some(outputs))
+            }
+            Outcome::InTaskFailure { error, elapsed_us } => {
+                tracing::info!(
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    elapsed_us,
+                    "Task reported an in-task failure."
+                );
+                Self::Failure(format!(
+                    "in-task failure: {}",
+                    String::from_utf8_lossy(&error)
+                ))
+            }
+            Outcome::Timeout { hard_timeout } => {
+                tracing::warn!(
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    hard_timeout_ms = ?hard_timeout.as_millis(),
+                    "Task hit the hard timeout."
+                );
+                Self::Failure(format!(
+                    "hard timeout ({} ms) exceeded",
+                    hard_timeout.as_millis()
+                ))
+            }
+            Outcome::ExecutorCrash { exit_status } => {
+                tracing::warn!(
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    exit_status = ?exit_status,
+                    "Task executor crashed."
+                );
+                Self::Failure(format!("executor crashed (exit_status = {exit_status:?})"))
+            }
+        }
+    }
+
+    /// Consumes `self` and sends it to storage via the matching reporting endpoint.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `StorageClientType` - Concrete [`StorageClient`] the report is sent through.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`StorageClient::report_task_success`]'s return values on failure.
+    /// * Forwards [`StorageClient::report_task_failure`]'s return values on failure.
+    async fn send<StorageClientType: StorageClient>(
+        self,
+        storage_client: &StorageClientType,
+        target: ReportTarget,
+    ) -> Result<(), StorageResponseError> {
+        let ReportTarget {
+            em,
+            job,
+            task,
+            session,
+        } = target;
+        match self {
+            Self::Success(outputs) => {
+                storage_client
+                    .report_task_success(job, task, em, session, outputs)
+                    .await
+            }
+            Self::Failure(message) => {
+                storage_client
+                    .report_task_failure(job, task, em, session, message)
+                    .await
+            }
+        }
+    }
+}
+
+/// Reports a single task outcome to storage. Designed to run as a detached background task spawned
+/// by [`Runtime::main_loop`] so reporting overlaps with the next round of task dispatching; errors
+/// are logged rather than propagated.
+///
+/// # Type Parameters
+///
+/// * `StorageClientType` - Concrete [`StorageClient`] the report is sent through.
+async fn report_outcome<StorageClientType: StorageClient + 'static>(
+    storage_client: StorageClientType,
+    target: ReportTarget,
+    outcome: Outcome,
+) {
+    let report = Report::from_outcome(outcome, target);
+    let _ = report
+        .send(&storage_client, target)
+        .await
+        .inspect_err(|err| {
+            tracing::error!(
+                err = ? err,
+                job_id = ? target.job,
+                task_id = ? target.task,
+                "Failed to report task outcome to storage. Dropping the report."
+            );
+        });
 }
