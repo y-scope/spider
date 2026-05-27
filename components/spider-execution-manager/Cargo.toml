@@ -21,13 +21,9 @@ spider-core = { path = "../spider-core" }
 spider-task-executor = { path = "../spider-task-executor" }
 spider-tdl = { path = "../spider-tdl" }
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = [
-  "io-util",
-  "macros",
-  "process",
-  "rt",
-  "sync",
-  "time"
-] }
+tokio = {
+  version = "1.50.0",
+  features = ["io-util", "macros", "process", "rt", "sync", "time"]
+}
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
