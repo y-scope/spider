@@ -27,11 +27,6 @@ use spider_execution_manager::client::{
 use tokio::sync::Notify;
 
 /// Mock [`LivenessClient`].
-///
-/// `register` is expected to be called exactly once during runtime bootstrap and returns the
-/// configured [`RegistrationResponse`]. `heartbeat` consumes from `heartbeat_responses`, falling
-/// back to `Ok(default_session)` when the queue is empty; tests can program a sequence to drive
-/// the runtime's session tracker to specific values.
 #[derive(Clone)]
 pub struct MockLiveness {
     inner: Arc<LivenessInner>,
