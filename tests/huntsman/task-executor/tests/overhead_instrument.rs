@@ -1,7 +1,7 @@
 //! Measures the round-trip overhead of one task execution through the `spider-task-executor`
 //! binary.
 //!
-//! Drives the `instrument` task — which sleeps for a known constant
+//! Drives the `sleep_and_echo` task — which sleeps for a known constant
 //! [`INSTRUMENT_SLEEP_US`](integration_test_tasks::INSTRUMENT_SLEEP_US) and then echoes its
 //! `Vec<String>` payload — against a *long-lived* executor subprocess (the FFI library is
 //! cached after the first call, so subsequent dispatches measure steady-state overhead, not
@@ -106,7 +106,7 @@ async fn instrument_overhead() {
 
     // Warm-up: first call dlopens the package. Assert correctness; discard timing.
     handle
-        .send(&execute_request("instrument", raw_inputs.clone()))
+        .send(&execute_request("sleep_and_echo", raw_inputs.clone()))
         .await;
     expect_echo(&handle.recv().await, &payload);
 
@@ -118,7 +118,7 @@ async fn instrument_overhead() {
     for _ in 0..ITERATIONS {
         let started = Instant::now();
         handle
-            .send(&execute_request("instrument", raw_inputs.clone()))
+            .send(&execute_request("sleep_and_echo", raw_inputs.clone()))
             .await;
         let response = handle.recv().await;
         let e2e = started.elapsed();
@@ -128,7 +128,7 @@ async fn instrument_overhead() {
             elapsed_us,
         } = response;
         let ExecutorOutcome::Success { outputs } = outcome else {
-            panic!("instrument task unexpectedly failed in overhead loop");
+            panic!("sleep_and_echo task unexpectedly failed in overhead loop");
         };
         let got: Vec<String> = decode_single_output(&outputs);
         assert_eq!(got, payload);
@@ -163,7 +163,7 @@ async fn instrument_overhead() {
     let table = Table::new(rows).to_string();
 
     let preamble = format!(
-        "# Task-executor overhead\n\nInputs: `instrument` task with {PAYLOAD_LEN} path-like \
+        "# Task-executor overhead\n\nInputs: `sleep_and_echo` task with {PAYLOAD_LEN} path-like \
          strings echoed after a {INSTRUMENT_SLEEP_US}µs sleep, {ITERATIONS} samples (excluding \
          warm-up).\n\n* `Executor internal` ≈ in-executor input/output serde cost.\n* `IPC \
          overhead` ≈ parent-side framing + bincode + pipe traversal.\n\n"
@@ -215,7 +215,7 @@ fn expect_echo(response: &Response, expected: &[String]) {
         ExecutorOutcome::Failure { error } => {
             let err: spider_task_executor::ExecutorError =
                 rmp_serde::from_slice(error).expect("decode ExecutorError payload");
-            panic!("instrument warm-up returned Failure: {err:?}");
+            panic!("sleep_and_echo warm-up returned Failure: {err:?}");
         }
     };
     let got: Vec<String> = decode_single_output(outputs);
