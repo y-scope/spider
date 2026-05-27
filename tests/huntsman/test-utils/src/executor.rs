@@ -262,7 +262,10 @@ pub fn encode_no_inputs() -> Vec<u8> {
 ///
 /// # Panics
 ///
-/// Panics if the outputs buffer doesn't contain exactly one value, or if the msgpack decode fails.
+/// Panics if:
+///
+/// * The output buffer doesn't contain exactly one value.
+/// * The msgpack decoding fails.
 #[must_use]
 pub fn decode_single_output<OutputType: serde::de::DeserializeOwned>(
     output_bytes: &[u8],
