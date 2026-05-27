@@ -17,7 +17,6 @@ use crate::{
         LivenessClient,
         LivenessResponseError,
         SchedulerClient,
-        SchedulerError,
         SchedulerResponse,
         StorageClient,
         StorageResponseError,
@@ -55,11 +54,6 @@ pub enum RuntimeError {
     /// The initial process pool could not be created.
     #[error("failed to create the process pool: {0}")]
     ProcessPool(#[from] process_pool::InternalError),
-
-    /// The scheduler call failed. The runtime treats every scheduler error as fatal because the
-    /// client is responsible for absorbing transient transport issues internally.
-    #[error("scheduler error: {0}")]
-    Scheduler(#[from] SchedulerError),
 
     /// Storage rejected a request as malformed. Indicates a contract bug in the runtime, not a
     /// transient condition, so the runtime treats it as fatal.
@@ -109,7 +103,10 @@ impl<
     ///
     /// # Returns
     ///
-    /// A fully wired [`Runtime`] on success.
+    /// A tuple on success, containing:
+    ///
+    /// * The created [`Runtime`] instance, ready to run.
+    /// * The [`CancellationToken`] that the caller can use to request shutdown.
     ///
     /// # Errors
     ///
@@ -122,7 +119,7 @@ impl<
         storage_client: StorageClientType,
         liveness_client: Arc<LivenessClientType>,
         config: RuntimeConfig,
-    ) -> Result<Self, RuntimeError> {
+    ) -> Result<(Self, CancellationToken), RuntimeError> {
         let registration = liveness_client.register(config.em_ip).await?;
         let em_id = registration.em_id;
         let session_tracker = SessionTracker::new(registration.session_id);
@@ -149,7 +146,7 @@ impl<
         );
 
         let cancel_guard = cancellation_token.clone().drop_guard();
-        Ok(Self {
+        let runtime = Self {
             em_id,
             scheduler_client,
             storage_client,
@@ -157,9 +154,10 @@ impl<
             session_tracker,
             liveness_handle,
             liveness_join,
-            cancellation_token,
+            cancellation_token: cancellation_token.clone(),
             _cancel_guard: cancel_guard,
-        })
+        };
+        Ok((runtime, cancellation_token))
     }
 
     /// Runs the main loop until the runtime is cancelled, then tears it down.
@@ -196,20 +194,23 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`SchedulerClient::next_task`]'s return values on failure.
     /// * Forwards [`Self::register_task_instance`]'s return values on failure.
     /// * Forwards [`ProcessPool::execute`]'s return values on failure.
     async fn main_loop(&self) -> Result<(), RuntimeError> {
         loop {
-            let assignment_result = tokio::select! {
+            let assignment = tokio::select! {
                 biased;
                 () = self.cancellation_token.cancelled() => return Ok(()),
-                result = self.scheduler_client.next_task(self.em_id) => result,
+                result = self.scheduler_client.next_task(self.em_id) => {
+                    match result {
+                        Ok(assignment) => assignment,
+                        Err(e) => {
+                            tracing::warn!(err = ? e, "Scheduler returned an error. Retrying.");
+                            continue;
+                        }
+                    }
+                }
             };
-
-            let assignment = assignment_result.inspect_err(|err| {
-                tracing::error!(err = ? err, "Scheduler error. Bailing out.");
-            })?;
 
             tracing::info!(
                 bundle_session = assignment.session_id,
@@ -261,6 +262,18 @@ impl<
                         "Process pool failed to dispatch task. Bailing out."
                     );
                 })?;
+
+            let current_session = self.session_tracker.current();
+            if assignment.session_id < current_session {
+                tracing::warn!(
+                    bundle_session = assignment.session_id,
+                    current_session,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    "Dropping stale task assignment's outcome."
+                );
+                continue;
+            }
 
             // Fire-and-forget the outcome report so the main loop can dispatch the next task
             // without waiting on storage. Retries and logging are handled inside `report_outcome`.

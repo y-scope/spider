@@ -18,20 +18,275 @@ use std::{
 };
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, SessionId};
+use spider_core::types::{
+    id::{ExecutionManagerId, JobId, SessionId, TaskId},
+    io::ExecutionContext,
+};
 use spider_execution_manager::client::{
     LivenessClient,
     LivenessResponseError,
     RegistrationResponse,
+    SchedulerClient,
+    SchedulerError,
+    SchedulerResponse,
+    StorageClient,
+    StorageResponseError,
 };
 use tokio::sync::Notify;
 
+/// Mock [`SchedulerClient`].
+#[derive(Clone)]
+pub struct MockScheduler {
+    inner: Arc<SchedulerInner>,
+}
+
+impl MockScheduler {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A fresh scheduler mock with an empty response queue. `next_task` blocks until the test
+    /// pushes a response.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(SchedulerInner {
+                responses: Mutex::new(VecDeque::new()),
+                notify: Notify::new(),
+                call_count: AtomicU64::new(0),
+            }),
+        }
+    }
+
+    /// Queues `response` for the next pending or future [`SchedulerClient::next_task`] call.
+    pub fn push(&self, response: Result<SchedulerResponse, SchedulerError>) {
+        lock(&self.inner.responses).push_back(response);
+        self.inner.notify.notify_waiters();
+    }
+
+    /// # Returns
+    ///
+    /// The number of `next_task` calls the scheduler has served (including ones that are still
+    /// blocked waiting on the response queue).
+    #[must_use]
+    pub fn call_count(&self) -> u64 {
+        self.inner.call_count.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for MockScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl SchedulerClient for MockScheduler {
+    async fn next_task(
+        &self,
+        _em_id: ExecutionManagerId,
+    ) -> Result<SchedulerResponse, SchedulerError> {
+        self.inner.call_count.fetch_add(1, Ordering::Relaxed);
+        loop {
+            let notified = self.inner.notify.notified();
+            let popped = lock(&self.inner.responses).pop_front();
+            if let Some(response) = popped {
+                return response;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// Captured arguments of one `register_task_instance` call.
+#[derive(Debug, Clone)]
+pub struct RegisterCall {
+    pub job_id: JobId,
+    pub task_id: TaskId,
+    pub em_id: ExecutionManagerId,
+    pub session_id: SessionId,
+}
+
+/// Captured arguments of one `report_task_success` call.
+#[derive(Debug, Clone)]
+pub struct SuccessReport {
+    pub job_id: JobId,
+    pub task_id: TaskId,
+    pub em_id: ExecutionManagerId,
+    pub session_id: SessionId,
+    pub serialized_outputs: Option<Vec<u8>>,
+}
+
+/// Captured arguments of one `report_task_failure` call.
+#[derive(Debug, Clone)]
+pub struct FailureReport {
+    pub job_id: JobId,
+    pub task_id: TaskId,
+    pub em_id: ExecutionManagerId,
+    pub session_id: SessionId,
+    pub error_message: String,
+}
+
+/// Mock [`StorageClient`].
+#[derive(Clone)]
+pub struct MockStorage {
+    inner: Arc<StorageInner>,
+}
+
+impl MockStorage {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A storage mock with no programmed responses. Tests must push register responses before
+    /// they fire; success / failure reports default to `Ok(())`.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(StorageInner {
+                register_responses: Mutex::new(VecDeque::new()),
+                success_responses: Mutex::new(VecDeque::new()),
+                failure_responses: Mutex::new(VecDeque::new()),
+                register_calls: Mutex::new(Vec::new()),
+                success_reports: Mutex::new(Vec::new()),
+                failure_reports: Mutex::new(Vec::new()),
+                notify: Notify::new(),
+            }),
+        }
+    }
+
+    /// Queues `response` for the next `register_task_instance` call.
+    pub fn push_register_response(&self, response: Result<ExecutionContext, StorageResponseError>) {
+        lock(&self.inner.register_responses).push_back(response);
+    }
+
+    /// Queues `response` for the next `report_task_success` call.
+    pub fn push_success_response(&self, response: Result<(), StorageResponseError>) {
+        lock(&self.inner.success_responses).push_back(response);
+    }
+
+    /// Queues `response` for the next `report_task_failure` call.
+    pub fn push_failure_response(&self, response: Result<(), StorageResponseError>) {
+        lock(&self.inner.failure_responses).push_back(response);
+    }
+
+    /// # Returns
+    ///
+    /// A snapshot of every `register_task_instance` call recorded so far.
+    #[must_use]
+    pub fn register_calls(&self) -> Vec<RegisterCall> {
+        lock(&self.inner.register_calls).clone()
+    }
+
+    /// # Returns
+    ///
+    /// A snapshot of every `report_task_success` call recorded so far.
+    #[must_use]
+    pub fn success_reports(&self) -> Vec<SuccessReport> {
+        lock(&self.inner.success_reports).clone()
+    }
+
+    /// # Returns
+    ///
+    /// A snapshot of every `report_task_failure` call recorded so far.
+    #[must_use]
+    pub fn failure_reports(&self) -> Vec<FailureReport> {
+        lock(&self.inner.failure_reports).clone()
+    }
+
+    /// Waits for at least one `report_*` call to be recorded, with a bounded total wait time.
+    ///
+    /// # Returns
+    ///
+    /// Whether a report was observed before `timeout` elapsed.
+    pub async fn wait_for_any_report(&self, timeout: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if !self.success_reports().is_empty() || !self.failure_reports().is_empty() {
+                return true;
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let notified = self.inner.notify.notified();
+            tokio::select! {
+                () = notified => {}
+                () = tokio::time::sleep(remaining.min(POLL_INTERVAL)) => {}
+            }
+        }
+    }
+}
+
+impl Default for MockStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl StorageClient for MockStorage {
+    async fn register_task_instance(
+        &self,
+        job_id: JobId,
+        task_id: TaskId,
+        em_id: ExecutionManagerId,
+        session_id: SessionId,
+    ) -> Result<ExecutionContext, StorageResponseError> {
+        lock(&self.inner.register_calls).push(RegisterCall {
+            job_id,
+            task_id,
+            em_id,
+            session_id,
+        });
+        let response = lock(&self.inner.register_responses).pop_front();
+        response.expect("mock storage exhausted register responses")
+    }
+
+    async fn report_task_success(
+        &self,
+        job_id: JobId,
+        task_id: TaskId,
+        em_id: ExecutionManagerId,
+        session_id: SessionId,
+        serialized_outputs: Option<Vec<u8>>,
+    ) -> Result<(), StorageResponseError> {
+        lock(&self.inner.success_reports).push(SuccessReport {
+            job_id,
+            task_id,
+            em_id,
+            session_id,
+            serialized_outputs,
+        });
+        self.inner.notify.notify_waiters();
+        lock(&self.inner.success_responses)
+            .pop_front()
+            .unwrap_or(Ok(()))
+    }
+
+    async fn report_task_failure(
+        &self,
+        job_id: JobId,
+        task_id: TaskId,
+        em_id: ExecutionManagerId,
+        session_id: SessionId,
+        error_message: String,
+    ) -> Result<(), StorageResponseError> {
+        lock(&self.inner.failure_reports).push(FailureReport {
+            job_id,
+            task_id,
+            em_id,
+            session_id,
+            error_message,
+        });
+        self.inner.notify.notify_waiters();
+        lock(&self.inner.failure_responses)
+            .pop_front()
+            .unwrap_or(Ok(()))
+    }
+}
+
 /// Mock [`LivenessClient`].
-///
-/// `register` is expected to be called exactly once during runtime bootstrap and returns the
-/// configured [`RegistrationResponse`]. `heartbeat` consumes from `heartbeat_responses`, falling
-/// back to `Ok(default_session)` when the queue is empty; tests can program a sequence to drive
-/// the runtime's session tracker to specific values.
 #[derive(Clone)]
 pub struct MockLiveness {
     inner: Arc<LivenessInner>,
@@ -172,6 +427,24 @@ impl LivenessClient for MockLiveness {
 
 /// Default polling interval for `wait_until_*` helpers. Short enough to keep tests snappy.
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Shared state behind [`MockScheduler`].
+struct SchedulerInner {
+    responses: Mutex<VecDeque<Result<SchedulerResponse, SchedulerError>>>,
+    notify: Notify,
+    call_count: AtomicU64,
+}
+
+/// Shared state behind [`MockStorage`].
+struct StorageInner {
+    register_responses: Mutex<VecDeque<Result<ExecutionContext, StorageResponseError>>>,
+    success_responses: Mutex<VecDeque<Result<(), StorageResponseError>>>,
+    failure_responses: Mutex<VecDeque<Result<(), StorageResponseError>>>,
+    register_calls: Mutex<Vec<RegisterCall>>,
+    success_reports: Mutex<Vec<SuccessReport>>,
+    failure_reports: Mutex<Vec<FailureReport>>,
+    notify: Notify,
+}
 
 /// Shared state behind [`MockLiveness`].
 struct LivenessInner {

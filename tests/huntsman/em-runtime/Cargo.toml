@@ -1,0 +1,20 @@
+[package]
+name = "em-runtime-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "em_runtime_tests"
+path = "src/lib.rs"
+
+[[test]]
+name = "runtime"
+path = "tests/test_runtime.rs"
+
+[dev-dependencies]
+anyhow = "1.0.98"
+spider-core = { path = "../../../components/spider-core" }
+spider-execution-manager = { path = "../../../components/spider-execution-manager" }
+test-utils = { path = "../test-utils" }
+tokio = { version = "1.50.0", features = ["macros", "rt", "rt-multi-thread", "time"] }
