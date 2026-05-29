@@ -1,4 +1,6 @@
-use spider_core::types::id::JobId;
+//! The error types used in this crate.
+
+use spider_core::types::id::{JobId, SessionId};
 
 /// Errors returned by [`crate::storage_client::SchedulerStorageClient`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -21,5 +23,9 @@ pub enum SchedulerError {
 
     /// The dispatching queue is closed and can no longer accept assignments.
     #[error("dispatching queue is closed")]
-    DispatchClosed,
+    DispatchQueueClosed,
+
+    /// The session ID is invalid.
+    #[error("invalid session ID: {0:?}")]
+    InvalidSessionId(SessionId),
 }

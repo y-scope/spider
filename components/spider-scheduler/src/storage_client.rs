@@ -1,7 +1,12 @@
+//! The scheduler's view of the storage layer, abstracting inbound polling and placement-time reads.
+
 use std::time::Duration;
 
 use async_trait::async_trait;
-use spider_core::{job::JobState, types::id::JobId};
+use spider_core::{
+    job::JobState,
+    types::id::{JobId, SessionId},
+};
 
 use crate::{error::StorageClientError, types::InboundEntry};
 
@@ -11,33 +16,84 @@ use crate::{error::StorageClientError, types::InboundEntry};
 /// needs to make placement decisions. Modeled as a trait so the scheduler runtime can be driven by
 /// a real storage client in production or a mock in tests.
 #[async_trait]
-pub trait SchedulerStorageClient: Send + Sync {
-    /// Polls the storage-owned inbound (ready) queue for newly-ready tasks.
-    ///
-    /// Drains up to `max_items` ready entries across all storage lanes (regular, commit, and
-    /// cleanup tasks), blocking for at most `wait`. Returns an empty vector if no entry becomes
-    /// ready within `wait`.
+pub trait SchedulerStorageClient: Send + Sync + Clone {
+    /// Polls the regular-task lane of the storage-owned inbound queue for ready tasks.
     ///
     /// # Parameters
     ///
     /// * `max_items` - The maximum number of entries to return from a single poll.
-    /// * `wait` - The maximum duration to block waiting for ready entries.
+    /// * `wait` - The maximum duration to block waiting for ready entries on the storage side.
     ///
     /// # Returns
     ///
-    /// The ready entries drained from the inbound queue on success.
+    /// A tuple on success, containing:
+    ///
+    /// * The storage session the poll was served under.
+    /// * The ready regular tasks drained from the lane.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageClientError::InboundClosed`] if the inbound queue is closed and can no longer
+    /// * [`StorageClientError::InboundClosed`] if the regular-task lane is closed and can no longer
     ///   yield entries.
     async fn poll_ready(
         &self,
         max_items: usize,
         wait: Duration,
-    ) -> Result<Vec<InboundEntry>, StorageClientError>;
+    ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError>;
+
+    /// Polls the commit-task lane of the storage-owned inbound queue for ready tasks.
+    ///
+    /// # Parameters
+    ///
+    /// * `max_items` - The maximum number of entries to return from a single poll.
+    /// * `wait` - The maximum duration to block waiting for ready entries on the storage side.
+    ///
+    /// # Returns
+    ///
+    /// A tuple on success, containing:
+    ///
+    /// * The storage session the poll was served under.
+    /// * The ready commit tasks drained from the lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageClientError::InboundClosed`] if the commit-task lane is closed and can no longer
+    ///   yield entries.
+    async fn poll_commit_ready(
+        &self,
+        max_items: usize,
+        wait: Duration,
+    ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError>;
+
+    /// Polls the cleanup-task lane of the storage-owned inbound queue for ready tasks.
+    ///
+    /// # Parameters
+    ///
+    /// * `max_items` - The maximum number of entries to return from a single poll.
+    /// * `wait` - The maximum duration to block waiting for ready entries on the storage side.
+    ///
+    /// # Returns
+    ///
+    /// A tuple on success, containing:
+    ///
+    /// * The storage session the poll was served under.
+    /// * The ready cleanup tasks drained from the lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageClientError::InboundClosed`] if the cleanup-task lane is closed and can no longer
+    ///   yield entries.
+    async fn poll_cleanup_ready(
+        &self,
+        max_items: usize,
+        wait: Duration,
+    ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError>;
 
     /// Reads the current state of a job.
     ///
