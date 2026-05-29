@@ -1500,6 +1500,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spider-scheduler"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "spider-core",
+ "thiserror",
+ "tokio-util",
+]
+
+[[package]]
 name = "spider-storage"
 version = "0.1.0"
 dependencies = [
