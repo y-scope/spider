@@ -1,6 +1,8 @@
 //! The dispatching queue that decouples the scheduler core's placement decisions from the
 //! execution-manager-facing service.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use spider_core::types::id::SessionId;
 
@@ -36,6 +38,11 @@ pub trait DispatchQueueSink: Send + Sync + Clone {
     /// * [`SchedulerError::InvalidSessionId`] if the new session ID is not greater than the current
     ///   session ID.
     async fn bump_session_id(&self, new_session_id: SessionId) -> Result<(), SchedulerError>;
+
+    /// # Returns
+    ///
+    /// The current size of the dispatch queue.
+    fn size(&self) -> usize;
 }
 
 /// The reader side of the dispatching queue, drained by the execution-manager-facing service.
@@ -43,9 +50,14 @@ pub trait DispatchQueueSink: Send + Sync + Clone {
 pub trait DispatchQueueSource: Send + Sync + Clone {
     /// Dequeues the next task assignment for an execution manager to execute.
     ///
+    /// # Parameters
+    ///
+    /// * `wait_time` - The maximum amount of time to wait for a task assignment.
+    ///
     /// # Returns
     ///
-    /// A tuple on success, containing:
+    /// `None` if no task assignment is available within the specified wait time, or a tuple
+    /// containing:
     ///
     /// * The storage session associated with the assignment.
     /// * The next task assignment ready to execute.
@@ -55,5 +67,8 @@ pub trait DispatchQueueSource: Send + Sync + Clone {
     /// Returns an error if:
     ///
     /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
-    async fn dequeue(&self) -> Result<(SessionId, TaskAssignment), SchedulerError>;
+    async fn dequeue(
+        &self,
+        wait_time: Duration,
+    ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerError>;
 }
