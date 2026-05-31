@@ -81,7 +81,7 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 fn make_encoded_ctx() -> Vec<u8> {
     let ctx = TaskContext {
         job_id: JobId::new(),
-        task_id: TaskId::new(),
+        task_id: TaskId::Index(0),
         task_instance_id: 1,
         resource_group_id: ResourceGroupId::new(),
     };
@@ -303,7 +303,7 @@ fn direct_execute_call_round_trips() -> anyhow::Result<()> {
 
     let ctx = TaskContext {
         job_id: JobId::new(),
-        task_id: TaskId::new(),
+        task_id: TaskId::Index(0),
         task_instance_id: 1,
         resource_group_id: ResourceGroupId::new(),
     };
