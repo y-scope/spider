@@ -72,7 +72,7 @@ fn build_pool() -> ProcessPool {
 fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
     ExecuteRequest {
         job_id: JobId::new(),
-        task_id: TaskId::new(),
+        task_id: TaskId::Index(0),
         resource_group_id: ResourceGroupId::new(),
         ctx: ExecutionContext {
             task_instance_id: 1,
