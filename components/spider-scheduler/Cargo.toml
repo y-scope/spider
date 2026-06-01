@@ -8,7 +8,15 @@ name = "spider_scheduler"
 path = "src/lib.rs"
 
 [dependencies]
+async-channel = "2.3.1"
 async-trait = "0.1.89"
 spider-core = { path = "../spider-core" }
 thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["sync", "time"] }
 tokio-util = "0.7.18"
+
+[dev-dependencies]
+anyhow = "1.0.102"
+dashmap = "6.1.0"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
