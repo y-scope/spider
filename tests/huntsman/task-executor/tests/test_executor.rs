@@ -8,7 +8,7 @@ use spider_task_executor::{
     protocol::{ExecutorOutcome, Response},
 };
 use spider_tdl::TdlError;
-use task_executor_tests::{
+use test_utils::{
     ExecutorHandle,
     decode_single_output,
     encode_no_inputs,
