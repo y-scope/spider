@@ -28,6 +28,7 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} apt-get install --no
     make \
     openjdk-11-jdk \
     pkg-config \
+    protobuf-compiler \
     python3 \
     python3-pip \
     python3-venv
