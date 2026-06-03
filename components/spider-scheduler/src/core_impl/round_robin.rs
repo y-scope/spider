@@ -1,17 +1,47 @@
+//! Round-robin scheduler.
+//!
+//! This scheduler provides basic fairness across jobs using a round-robin scheduling policy. It
+//! polls tasks from the inbound queue (maintained by the storage service) and organizes jobs into
+//! two sets:
+//!
+//! * Active jobs: jobs that participate in round-robin scheduling.
+//! * Pending jobs: jobs that are buffered but not yet scheduled. When an active job has no
+//!   remaining schedulable tasks, it is replaced by the next pending job in FIFO order.
+//!
+//! The scheduler operates in discrete ticks. During each tick, it attempts to consume the results
+//! of an asynchronous inbound-queue polling operation and loads any newly available tasks into its
+//! internal buffers. It then makes scheduling decisions until the dispatch queue reaches capacity.
+//!
+//! # Properties
+//!
+//! * Each round-robin cycle may schedule at most one additional commit task and one additional
+//!   cleanup task, if available.
+//! * All buffered tasks are unique. Tasks loaded from the inbound queue are deduplicated before
+//!   entering the scheduler's internal buffers.
+//!
+//! # Configuration
+//!
+//! * `active_job_pool_capacity`: Maximum number of active jobs maintained by the scheduler.
+//! * `dispatch_queue_capacity`: Maximum number of task assignments in the dispatch queue.
+//! * `ready_task_capacity`: Maximum number of ready tasks buffered by the scheduler.
+//! * `commit_ready_task_capacity`: Maximum number of buffered commit-ready tasks.
+//! * `cleanup_ready_task_capacity`: Maximum number of buffered cleanup-ready tasks.
+//! * `storage_polling_wait_time_ms`: Maximum time, in milliseconds, that inbound-queue polling may
+//!   block on the storage-service side.
+//! * `tick_interval_ms`: Interval, in milliseconds, between scheduler ticks (tick execution time
+//!   included).
+
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
-    },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use spider_core::types::id::{JobId, ResourceGroupId, SessionId, TaskId};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
-use serde::Deserialize;
+
 use crate::{
     DispatchQueueSink,
     InboundEntry,
@@ -43,103 +73,15 @@ pub struct RoundRobinConfig<
     /// The capacity of the total pending cleanup-ready tasks buffered in the scheduler.
     pub cleanup_ready_task_capacity: usize,
 
+    /// The maximum time (in milliseconds) that the scheduler will wait for the storage server to
+    /// fill the inbound-queue reading request.
     pub storage_polling_wait_time_ms: u64,
 
-    #[serde(skip)]
-    metrics: Arc<RoundRobinMetrics>,
+    /// The time (in milliseconds) that the scheduler will spend on each tick.
+    pub tick_interval_ms: u64,
 
     #[serde(skip)]
     _marker: std::marker::PhantomData<(SchedulerStorageClientType, DispatchQueueSinkType)>,
-}
-
-/// Instrumentation counters for the round-robin scheduling loop.
-///
-/// Durations are accumulated in nanoseconds; an average is a `*_ns` total divided by its matching
-/// `*_count`. All counters use [`Ordering::Relaxed`] and are meant for coarse profiling only, not
-/// for establishing happens-before relationships.
-#[derive(Debug, Default)]
-pub struct RoundRobinMetrics {
-    /// Number of completed scheduling-loop iterations (`loop_once` calls).
-    pub loop_count: AtomicU64,
-
-    /// Total wall-clock time spent across all scheduling-loop iterations.
-    pub total_loop_ns: AtomicU64,
-
-    /// Number of iterations that processed a fresh inbound polling result.
-    pub buffer_enrich_count: AtomicU64,
-
-    /// Total time spent draining inbound polling results into the scheduler's buffers ("enrich the
-    /// buffer", stage 1).
-    pub buffer_enrich_ns: AtomicU64,
-
-    /// Number of iterations that dispatched at least one assignment.
-    pub dispatch_enrich_count: AtomicU64,
-
-    /// Total time spent making scheduling decisions and filling the dispatch queue ("enrich the
-    /// dispatch queue", stage 2).
-    pub dispatch_enrich_ns: AtomicU64,
-
-    /// When set, the scheduling loop stops accumulating any of the counters above. Used to exclude
-    /// the idle tail (after all work has drained) from the averages.
-    stopped: AtomicBool,
-}
-
-impl RoundRobinMetrics {
-    /// Freezes all counters: subsequent scheduling-loop iterations are not recorded.
-    pub fn stop(&self) {
-        self.stopped.store(true, Ordering::Relaxed);
-    }
-
-    /// # Returns
-    ///
-    /// Whether the counters are still being recorded.
-    fn is_recording(&self) -> bool {
-        !self.stopped.load(Ordering::Relaxed)
-    }
-}
-
-impl<
-    SchedulerStorageClientType: SchedulerStorageClient + 'static,
-    DispatchQueueSinkType: DispatchQueueSink,
-> RoundRobinConfig<SchedulerStorageClientType, DispatchQueueSinkType>
-{
-    /// Creates a new round-robin configuration with a fresh, empty set of metrics.
-    #[must_use]
-    pub fn new(
-        active_job_pool_capacity: usize,
-        dispatch_queue_capacity: usize,
-        ready_task_capacity: usize,
-        commit_ready_task_capacity: usize,
-        cleanup_ready_task_capacity: usize,
-        storage_polling_wait_time_ms: u64,
-    ) -> Self {
-        Self {
-            active_job_pool_capacity,
-            dispatch_queue_capacity,
-            ready_task_capacity,
-            commit_ready_task_capacity,
-            cleanup_ready_task_capacity,
-            storage_polling_wait_time_ms,
-            metrics: Arc::new(RoundRobinMetrics::default()),
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    /// # Returns
-    ///
-    /// A shared handle to the loop instrumentation counters, so callers can read them while (or
-    /// after) the scheduler runs.
-    #[must_use]
-    pub fn metrics(&self) -> Arc<RoundRobinMetrics> {
-        Arc::clone(&self.metrics)
-    }
-}
-
-/// # Returns
-///
-/// The time elapsed since `start` in nanoseconds, saturating at [`u64::MAX`].
-fn elapsed_nanos(start: Instant) -> u64 {
-    u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 #[async_trait]
@@ -148,8 +90,8 @@ impl<
     DispatchQueueSinkType: DispatchQueueSink,
 > SchedulerCore for RoundRobinConfig<SchedulerStorageClientType, DispatchQueueSinkType>
 {
-    type StorageClient = SchedulerStorageClientType;
     type Sink = DispatchQueueSinkType;
+    type StorageClient = SchedulerStorageClientType;
 
     async fn run(
         self,
@@ -277,15 +219,24 @@ impl<
     }
 
     async fn run(mut self) -> Result<(), SchedulerError> {
+        let tick_interval = Duration::from_millis(self.config.tick_interval_ms);
         loop {
+            let now = tokio::time::Instant::now();
             let cancellation_token = self.cancellation_token.clone();
             select! {
                 () = cancellation_token.cancelled() => {
                     return Ok(());
                 }
-                result = self.loop_once() => {
+                result = self.tick() => {
                     let () = result?;
                 }
+            }
+            let elapsed = now.elapsed();
+            let sleep_time = tick_interval.saturating_sub(elapsed);
+            if !sleep_time.is_zero() {
+                tokio::time::sleep(sleep_time).await;
+            } else {
+                tokio::task::yield_now().await;
             }
         }
     }
@@ -352,11 +303,124 @@ impl<
         }
     }
 
-    async fn loop_once(&mut self) -> Result<(), SchedulerError> {
-        let loop_start = Instant::now();
-        let recording = self.config.metrics.is_recording();
+    async fn tick(&mut self) -> Result<(), SchedulerError> {
+        self.poll_inbound_queue_result().await?;
+        self.make_schedule_decision().await?;
+        Ok(())
+    }
 
-        // Stage 1: Retrieve inbound queue results
+    async fn load_inbound_queue_result(
+        &mut self,
+        curr_session_id: SessionId,
+        storage_session_id: SessionId,
+        ready_entries: Vec<InboundEntry>,
+        commit_ready_entries: Vec<InboundEntry>,
+        cleanup_ready_entries: Vec<InboundEntry>,
+    ) -> Result<(), SchedulerError> {
+        if storage_session_id < curr_session_id {
+            return Err(SchedulerError::InvalidSessionId(storage_session_id));
+        }
+        if storage_session_id > curr_session_id {
+            self.storage_session_id = storage_session_id;
+            self.clear_all_placement();
+            self.sink.bump_session_id(storage_session_id).await?;
+        }
+
+        // Load commit ready tasks and cleanup ready tasks first to avoid loading a job that
+        // is already cancelled or commit-ready.
+        for inbound_entry in commit_ready_entries {
+            if !self
+                .ready_set
+                .insert((inbound_entry.job_id, inbound_entry.task_id))
+            {
+                continue;
+            }
+            self.commit_ready_or_cleanup_ready_tasks
+                .insert(inbound_entry.job_id);
+            self.commit_ready_queue
+                .push_back((inbound_entry.job_id, inbound_entry.resource_group_id));
+
+            if self.active_jobs.contains_key(&inbound_entry.job_id) {
+                self.remove_active_job_and_dequeue_next_pending_job(inbound_entry.job_id)?;
+                continue;
+            }
+
+            if let Some(job_entry) = self.pending_jobs.remove(&inbound_entry.job_id) {
+                self.destroy_job_entry(job_entry);
+            }
+        }
+
+        for inbound_entry in cleanup_ready_entries {
+            if !self
+                .ready_set
+                .insert((inbound_entry.job_id, inbound_entry.task_id))
+            {
+                continue;
+            }
+            self.commit_ready_or_cleanup_ready_tasks
+                .insert(inbound_entry.job_id);
+            self.cleanup_ready_queue
+                .push_back((inbound_entry.job_id, inbound_entry.resource_group_id));
+
+            if self.active_jobs.contains_key(&inbound_entry.job_id) {
+                self.remove_active_job_and_dequeue_next_pending_job(inbound_entry.job_id)?;
+                continue;
+            }
+
+            if let Some(job_entry) = self.pending_jobs.remove(&inbound_entry.job_id) {
+                self.destroy_job_entry(job_entry);
+            }
+        }
+
+        for inbound_entry in ready_entries {
+            if self
+                .commit_ready_or_cleanup_ready_tasks
+                .contains(&inbound_entry.job_id)
+            {
+                continue;
+            }
+            if !self
+                .ready_set
+                .insert((inbound_entry.job_id, inbound_entry.task_id))
+            {
+                continue;
+            }
+            if let Some(active_job) = self.active_jobs.get_mut(&inbound_entry.job_id) {
+                active_job.enqueue(inbound_entry.task_id);
+                continue;
+            }
+            if let Some(pending_job) = self.pending_jobs.get_mut(&inbound_entry.job_id) {
+                pending_job.enqueue(inbound_entry.task_id);
+                continue;
+            }
+            if self.active_jobs.len() < self.config.active_job_pool_capacity {
+                self.active_jobs.insert(
+                    inbound_entry.job_id,
+                    JobEntry::new(
+                        inbound_entry.job_id,
+                        inbound_entry.resource_group_id,
+                        inbound_entry.task_id,
+                    ),
+                );
+                self.active_job_queue
+                    .push(ActiveJobQueueEntry::Ready(inbound_entry.job_id));
+                continue;
+            }
+            self.pending_jobs.insert(
+                inbound_entry.job_id,
+                JobEntry::new(
+                    inbound_entry.job_id,
+                    inbound_entry.resource_group_id,
+                    inbound_entry.task_id,
+                ),
+            );
+            self.pending_job_queue.push_back(inbound_entry.job_id);
+        }
+
+        Ok(())
+    }
+
+    async fn poll_inbound_queue_result(&mut self) -> Result<(), SchedulerError> {
         let curr_session_id = self.storage_session_id;
         let inbound_queue_result = self
             .inbound_queue_reader
@@ -364,127 +428,19 @@ impl<
             .await?;
         match inbound_queue_result {
             InboundQueueResult::Result {
-                session_id,
+                session_id: storage_session_id,
                 ready_entries,
                 commit_ready_entries,
                 cleanup_ready_entries,
             } => {
-                let buffer_start = Instant::now();
-                let inbound_entry_count =
-                    ready_entries.len() + commit_ready_entries.len() + cleanup_ready_entries.len();
-                if session_id < curr_session_id {
-                    return Err(SchedulerError::InvalidSessionId(session_id));
-                }
-                if session_id > curr_session_id {
-                    self.storage_session_id = session_id;
-                    self.clear_all_placement();
-                    self.sink.bump_session_id(session_id).await?;
-                }
-
-                // Load commit ready tasks and cleanup ready tasks first to avoid loading a job that
-                // is already cancelled or commit-ready.
-                for inbound_entry in commit_ready_entries {
-                    if !self
-                        .ready_set
-                        .insert((inbound_entry.job_id, inbound_entry.task_id))
-                    {
-                        continue;
-                    }
-                    self.commit_ready_or_cleanup_ready_tasks
-                        .insert(inbound_entry.job_id);
-                    self.commit_ready_queue
-                        .push_back((inbound_entry.job_id, inbound_entry.resource_group_id));
-
-                    if self.active_jobs.contains_key(&inbound_entry.job_id) {
-                        self.remove_active_job_and_dequeue_next_pending_job(inbound_entry.job_id)?;
-                        continue;
-                    }
-
-                    if let Some(job_entry) = self.pending_jobs.remove(&inbound_entry.job_id) {
-                        self.destroy_job_entry(job_entry);
-                    }
-                }
-
-                for inbound_entry in cleanup_ready_entries {
-                    if !self
-                        .ready_set
-                        .insert((inbound_entry.job_id, inbound_entry.task_id))
-                    {
-                        continue;
-                    }
-                    self.commit_ready_or_cleanup_ready_tasks
-                        .insert(inbound_entry.job_id);
-                    self.cleanup_ready_queue
-                        .push_back((inbound_entry.job_id, inbound_entry.resource_group_id));
-
-                    if self.active_jobs.contains_key(&inbound_entry.job_id) {
-                        self.remove_active_job_and_dequeue_next_pending_job(inbound_entry.job_id)?;
-                        continue;
-                    }
-
-                    if let Some(job_entry) = self.pending_jobs.remove(&inbound_entry.job_id) {
-                        self.destroy_job_entry(job_entry);
-                    }
-                }
-
-                for inbound_entry in ready_entries {
-                    if self
-                        .commit_ready_or_cleanup_ready_tasks
-                        .contains(&inbound_entry.job_id)
-                    {
-                        continue;
-                    }
-                    if !self
-                        .ready_set
-                        .insert((inbound_entry.job_id, inbound_entry.task_id))
-                    {
-                        continue;
-                    }
-                    if let Some(active_job) = self.active_jobs.get_mut(&inbound_entry.job_id) {
-                        active_job.enqueue(inbound_entry.task_id);
-                        continue;
-                    }
-                    if let Some(pending_job) = self.pending_jobs.get_mut(&inbound_entry.job_id) {
-                        pending_job.enqueue(inbound_entry.task_id);
-                        continue;
-                    }
-                    if self.active_jobs.len() < self.config.active_job_pool_capacity {
-                        self.active_jobs.insert(
-                            inbound_entry.job_id,
-                            JobEntry::new(
-                                inbound_entry.job_id,
-                                inbound_entry.resource_group_id,
-                                inbound_entry.task_id,
-                            ),
-                        );
-                        self.active_job_queue
-                            .push(ActiveJobQueueEntry::Ready(inbound_entry.job_id));
-                        continue;
-                    }
-                    self.pending_jobs.insert(
-                        inbound_entry.job_id,
-                        JobEntry::new(
-                            inbound_entry.job_id,
-                            inbound_entry.resource_group_id,
-                            inbound_entry.task_id,
-                        ),
-                    );
-                    self.pending_job_queue.push_back(inbound_entry.job_id);
-                }
-
-                // Only record iterations that actually had entries to enrich, so the average
-                // reflects real work rather than empty polls when the scheduler is idle.
-                if recording && inbound_entry_count > 0 {
-                    self.config
-                        .metrics
-                        .buffer_enrich_ns
-                        .fetch_add(elapsed_nanos(buffer_start), Ordering::Relaxed);
-                    self.config
-                        .metrics
-                        .buffer_enrich_count
-                        .fetch_add(1, Ordering::Relaxed);
-                }
-
+                self.load_inbound_queue_result(
+                    curr_session_id,
+                    storage_session_id,
+                    ready_entries,
+                    commit_ready_entries,
+                    cleanup_ready_entries,
+                )
+                .await?;
                 self.spawn_inbound_queue_reader();
             }
             InboundQueueResult::ResultNotReady => {}
@@ -493,17 +449,15 @@ impl<
             }
         }
 
-        // Stage 2: Make scheduling decisions to fill the dispatch queue
-        let dispatch_start = Instant::now();
+        Ok(())
+    }
+
+    async fn make_schedule_decision(&mut self) -> Result<(), SchedulerError> {
         let mut dispatch_queue_slots = self
             .config
             .dispatch_queue_capacity
             .saturating_sub(self.sink.size());
-        let initial_dispatch_queue_slots = dispatch_queue_slots;
-        loop {
-            if dispatch_queue_slots == 0 || self.ready_set.is_empty() {
-                break;
-            }
+        while dispatch_queue_slots > 0 && !self.ready_set.is_empty() {
             if self.active_job_queue_cursor >= self.active_job_queue.len() {
                 self.active_job_queue_cursor = 0;
             }
@@ -571,38 +525,6 @@ impl<
                     }
                 }
             }
-        }
-
-        let dispatched = initial_dispatch_queue_slots - dispatch_queue_slots;
-        if recording && dispatched > 0 {
-            self.config
-                .metrics
-                .dispatch_enrich_ns
-                .fetch_add(elapsed_nanos(dispatch_start), Ordering::Relaxed);
-            self.config
-                .metrics
-                .dispatch_enrich_count
-                .fetch_add(1, Ordering::Relaxed);
-        }
-
-        if recording {
-            self.config
-                .metrics
-                .total_loop_ns
-                .fetch_add(elapsed_nanos(loop_start), Ordering::Relaxed);
-            self.config
-                .metrics
-                .loop_count
-                .fetch_add(1, Ordering::Relaxed);
-        }
-
-        // When the iteration dispatched nothing, the loop is either waiting on an in-flight poll or
-        // back-pressured by a full dispatch queue. In both cases it would otherwise spin without an
-        // await point; because the inbound polls run on tasks this same runtime must schedule, a
-        // non-yielding spin livelocks them and the scheduler never makes progress. Yield to let the
-        // poll tasks and dispatch-queue readers run.
-        if dispatched == 0 {
-            tokio::task::yield_now().await;
         }
 
         Ok(())
