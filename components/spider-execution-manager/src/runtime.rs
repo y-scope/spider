@@ -276,7 +276,7 @@ impl<
             }
 
             // Fire-and-forget the outcome report so the main loop can dispatch the next task
-            // without waiting on storage. Retries and logging are handled inside `report_outcome`.
+            // without waiting on storage. Errors are logged inside `report_outcome`.
             tokio::spawn(report_outcome(
                 self.storage_client.clone(),
                 ReportTarget {
