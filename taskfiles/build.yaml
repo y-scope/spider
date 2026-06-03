@@ -36,7 +36,7 @@ tasks:
     deps: ["toolchains:rust"]
     cmd: |-
       . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-      cargo build --package spider-proto
+      cargo build --release --package spider-proto
 
   rust:
     dir: "{{.ROOT_DIR}}"
