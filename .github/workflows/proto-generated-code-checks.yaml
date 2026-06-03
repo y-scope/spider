@@ -1,0 +1,38 @@
+name: "proto-generated-code-checks"
+
+on:
+  pull_request:
+  push:
+  schedule:
+    # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  # Cancel in-progress jobs for efficiency
+  cancel-in-progress: true
+
+jobs:
+  proto-code-committed:
+    name: "proto-code-committed"
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+        with:
+          submodules: "recursive"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
+
+      - name: "Install dev dependencies"
+        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+
+      - name: "Generate proto Rust code"
+        shell: "bash"
+        run: "task build:proto-generate"
+
+      - name: "Check if the generated proto code is the latest"
+        shell: "bash"
+        run: "git diff --exit-code components/spider-proto/src/generated"
