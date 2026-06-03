@@ -15,6 +15,11 @@ path = "tests/test_runtime.rs"
 [dev-dependencies]
 anyhow = "1.0.98"
 spider-core = { path = "../../../components/spider-core" }
-spider-execution-manager = { path = "../../../components/spider-execution-manager" }
+spider-execution-manager = {
+  path = "../../../components/spider-execution-manager"
+}
 test-utils = { path = "../test-utils" }
-tokio = { version = "1.50.0", features = ["macros", "rt", "rt-multi-thread", "time"] }
+tokio = {
+  version = "1.50.0",
+  features = ["macros", "rt", "rt-multi-thread", "time"]
+}

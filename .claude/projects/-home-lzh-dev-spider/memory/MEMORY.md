@@ -1,0 +1,2 @@
+- [feedback_lint_validation.md](feedback_lint_validation.md) — Always run `task lint:fix-rust` after Rust code changes
+- [feedback_no_section_comments.md](feedback_no_section_comments.md) — Do not add visual separator or section-header comments in code
