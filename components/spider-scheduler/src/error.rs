@@ -28,4 +28,10 @@ pub enum SchedulerError {
     /// The session ID is invalid.
     #[error("invalid session ID: {0:?}")]
     InvalidSessionId(SessionId),
+
+    #[error("internal error: {0}")]
+    Internal(String),
+
+    #[error("async result not ready")]
+    ResultNotReady,
 }

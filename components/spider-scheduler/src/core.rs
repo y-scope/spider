@@ -39,7 +39,7 @@ pub trait SchedulerCore: Send {
     ///
     /// Returns a [`SchedulerError`] instance indicating an irrecoverable error.
     async fn run(
-        &mut self,
+        self,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
         cancellation_token: tokio_util::sync::CancellationToken,

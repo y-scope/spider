@@ -32,6 +32,7 @@
 //! ```
 
 pub mod core;
+pub mod core_impl;
 pub mod dispatch_queue;
 pub mod error;
 pub mod storage_client;
