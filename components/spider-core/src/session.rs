@@ -1,4 +1,4 @@
-//! Forward-only session tracker shared across services.
+//! Monotonically increasing session tracker shared across services.
 //!
 //! Wraps an [`AtomicU64`] in [`Arc`] so multiple tasks (and multiple consumers such as the
 //! execution manager and the scheduler) can observe and advance a shared view of storage's current
@@ -11,7 +11,7 @@ use std::sync::{
 
 use crate::types::id::SessionId;
 
-/// Forward-only counter holding a service's view of the current storage session id.
+/// Monotonically increasing counter holding a service's view of the current storage session id.
 ///
 /// Cloneable; clones share the same underlying counter so writers in different tasks stay coherent.
 #[derive(Clone, Debug, Default)]

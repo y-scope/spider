@@ -52,7 +52,6 @@ pub trait LivenessClient: Send + Sync {
     /// Returns an error if:
     ///
     /// * [`LivenessResponseError::Transport`] if the connection was lost or timed out.
-    /// * [`LivenessResponseError::IllegalId`] if storage rejected the registration.
     async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError>;
 
     /// Sends one heartbeat for `em_id` and returns the storage's current session id.
