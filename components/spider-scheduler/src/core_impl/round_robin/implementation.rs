@@ -23,19 +23,8 @@ use crate::{
 };
 
 /// The configuration of the round-robin scheduler core.
-///
-/// The configuration itself implements [`SchedulerCore`]: consuming it through
-/// [`SchedulerCore::run`] creates the underlying scheduler and drives its scheduling loop.
-///
-/// # Type Parameters
-///
-/// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
-/// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
 #[derive(Deserialize)]
-pub struct RoundRobinConfig<
-    SchedulerStorageClientType: SchedulerStorageClient + 'static,
-    DispatchQueueSinkType: DispatchQueueSink,
-> {
+pub struct RoundRobinConfig {
     /// The capacity of the active job queue. The scheduler will make task assignments from these
     /// jobs in a round-robin manner.
     ///
@@ -68,8 +57,89 @@ pub struct RoundRobinConfig<
 
     /// The time (in milliseconds) that the scheduler will spend on each tick.
     pub tick_interval_ms: u64,
+}
 
-    #[serde(skip)]
+impl RoundRobinConfig {
+    /// Validates the configuration and creates a ready-to-run scheduler core from it.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
+    /// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
+    ///
+    /// # Returns
+    ///
+    /// A newly created round-robin scheduler core on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`SchedulerError::InvalidConfig`] if any of the following configuration entries is 0:
+    ///   * `active_job_queue_capacity`
+    ///   * `dispatch_queue_capacity`
+    ///   * `ready_task_capacity`
+    ///   * `commit_ready_task_capacity`
+    ///   * `cleanup_ready_task_capacity`
+    pub fn make_core<
+        SchedulerStorageClientType: SchedulerStorageClient + 'static,
+        DispatchQueueSinkType: DispatchQueueSink,
+    >(
+        self,
+    ) -> Result<RoundRobinCore<SchedulerStorageClientType, DispatchQueueSinkType>, SchedulerError>
+    {
+        if self.active_job_queue_capacity == 0 {
+            return Err(SchedulerError::InvalidConfig(
+                "`active_job_queue_capacity` must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.dispatch_queue_capacity == 0 {
+            return Err(SchedulerError::InvalidConfig(
+                "`dispatch_queue_capacity` must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.ready_task_capacity == 0 {
+            return Err(SchedulerError::InvalidConfig(
+                "`ready_task_capacity` must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.commit_ready_task_capacity == 0 {
+            return Err(SchedulerError::InvalidConfig(
+                "`commit_ready_task_capacity` must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.cleanup_ready_task_capacity == 0 {
+            return Err(SchedulerError::InvalidConfig(
+                "`cleanup_ready_task_capacity` must be greater than 0".to_string(),
+            ));
+        }
+
+        Ok(RoundRobinCore {
+            config: self,
+            _marker: std::marker::PhantomData,
+        })
+    }
+}
+
+/// The round-robin implementation of [`SchedulerCore`], created from
+/// [`RoundRobinConfig::make_core`].
+///
+/// Holding an instance of this type guarantees the wrapped configuration has passed validation, so
+/// the scheduling loop can trust its invariants without re-validating.
+///
+/// # Type Parameters
+///
+/// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
+/// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
+pub struct RoundRobinCore<
+    SchedulerStorageClientType: SchedulerStorageClient + 'static,
+    DispatchQueueSinkType: DispatchQueueSink,
+> {
+    config: RoundRobinConfig,
     _marker: std::marker::PhantomData<(SchedulerStorageClientType, DispatchQueueSinkType)>,
 }
 
@@ -77,7 +147,7 @@ pub struct RoundRobinConfig<
 impl<
     SchedulerStorageClientType: SchedulerStorageClient + 'static,
     DispatchQueueSinkType: DispatchQueueSink,
-> SchedulerCore for RoundRobinConfig<SchedulerStorageClientType, DispatchQueueSinkType>
+> SchedulerCore for RoundRobinCore<SchedulerStorageClientType, DispatchQueueSinkType>
 {
     type Sink = DispatchQueueSinkType;
     type StorageClient = SchedulerStorageClientType;
@@ -93,8 +163,8 @@ impl<
             storage_client,
             sink,
             cancellation_token,
-            self,
-        )?
+            self.config,
+        )
         .run()
         .await
     }
@@ -159,7 +229,7 @@ struct RoundRobin<
 > {
     sink: DispatchQueueSinkType,
     cancellation_token: CancellationToken,
-    config: RoundRobinConfig<SchedulerStorageClientType, DispatchQueueSinkType>,
+    config: RoundRobinConfig,
     storage_session_id: SessionId,
     buffered_tasks: HashSet<(JobId, TaskId)>,
 
@@ -185,55 +255,19 @@ impl<
 {
     /// Factory function.
     ///
-    /// Creates a [`RoundRobin`] scheduler from the given config.
+    /// Creates a [`RoundRobin`] scheduler from the given config. The config must have been
+    /// validated through [`RoundRobinConfig::make_core`].
     ///
     /// # Returns
     ///
-    /// The constructed [`RoundRobin`] scheduler on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`SchedulerError::InvalidConfig`] if the config contains invalid values. Check
-    ///   [`RoundRobinConfig`]'s docstring for details.
+    /// The constructed [`RoundRobin`] scheduler.
     fn new(
         storage_session_id: SessionId,
         storage_client: SchedulerStorageClientType,
         sink: DispatchQueueSinkType,
         cancellation_token: CancellationToken,
-        config: RoundRobinConfig<SchedulerStorageClientType, DispatchQueueSinkType>,
-    ) -> Result<Self, SchedulerError> {
-        if config.active_job_queue_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`active_job_queue_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if config.dispatch_queue_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`dispatch_queue_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if config.ready_task_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`ready_task_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if config.commit_ready_task_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`commit_ready_task_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if config.cleanup_ready_task_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`cleanup_ready_task_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
+        config: RoundRobinConfig,
+    ) -> Self {
         let buffered_tasks = HashSet::with_capacity(config.ready_task_capacity);
         let active_jobs = HashMap::with_capacity(config.active_job_queue_capacity);
         let active_job_queue = Self::new_active_job_queue(config.active_job_queue_capacity);
@@ -246,7 +280,7 @@ impl<
             config.commit_ready_task_capacity + config.cleanup_ready_task_capacity,
         );
         let inbound_queue_reader = AsyncInboundQueueReader::new(storage_client);
-        Ok(Self {
+        Self {
             sink,
             cancellation_token,
             config,
@@ -261,7 +295,7 @@ impl<
             cleanup_ready_jobs,
             finalizing_jobs,
             inbound_queue_reader,
-        })
+        }
     }
 
     /// # Returns

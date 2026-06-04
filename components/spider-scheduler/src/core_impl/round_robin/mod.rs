@@ -36,4 +36,4 @@ mod implementation;
 #[cfg(test)]
 mod tests;
 
-pub use implementation::RoundRobinConfig;
+pub use implementation::{RoundRobinConfig, RoundRobinCore};
