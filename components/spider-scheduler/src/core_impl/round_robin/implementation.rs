@@ -171,7 +171,7 @@ impl<
 }
 
 /// A FIFO queue of a job's buffered ready tasks.
-struct JobTaskQueue {
+pub(super) struct JobTaskQueue {
     job_id: JobId,
     resource_group_id: ResourceGroupId,
     task_ids: VecDeque<TaskId>,
@@ -204,48 +204,40 @@ impl JobTaskQueue {
     }
 }
 
-/// A slot in the round-robin rotation that the scheduler draws task assignments from.
-#[derive(Clone)]
-enum RoundRobinSlot {
-    /// An active job: assignments are drawn from the job's buffered ready tasks.
-    Job(JobId),
-
-    /// The commit lane: assignments are drawn from the buffered commit-ready jobs.
-    CommitReady,
-
-    /// The cleanup lane: assignments are drawn from the buffered cleanup-ready jobs.
-    CleanupReady,
-}
-
 /// The round-robin scheduler core created from a [`RoundRobinConfig`].
 ///
 /// # Type Parameters
 ///
 /// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
 /// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
-struct RoundRobin<
+///
+/// # Note
+///
+/// All member variables are marked `pub(super)` to allow the test module to inspect the internal
+/// states.
+pub(super) struct RoundRobin<
     SchedulerStorageClientType: SchedulerStorageClient + 'static,
     DispatchQueueSinkType: DispatchQueueSink,
 > {
-    sink: DispatchQueueSinkType,
-    cancellation_token: CancellationToken,
-    config: RoundRobinConfig,
-    storage_session_id: SessionId,
-    buffered_tasks: HashSet<(JobId, TaskId)>,
+    pub(super) sink: DispatchQueueSinkType,
+    pub(super) cancellation_token: CancellationToken,
+    pub(super) config: RoundRobinConfig,
+    pub(super) storage_session_id: SessionId,
+    pub(super) buffered_tasks: HashSet<(JobId, TaskId)>,
 
-    active_jobs: HashMap<JobId, JobTaskQueue>,
-    active_job_queue: Vec<RoundRobinSlot>,
-    active_job_queue_round_robin_cursor: usize,
+    pub(super) active_jobs: HashMap<JobId, JobTaskQueue>,
+    pub(super) active_job_queue: Vec<RoundRobinSlot>,
+    pub(super) active_job_queue_round_robin_cursor: usize,
 
-    pending_jobs: HashMap<JobId, JobTaskQueue>,
-    pending_job_queue: VecDeque<JobId>,
+    pub(super) pending_jobs: HashMap<JobId, JobTaskQueue>,
+    pub(super) pending_job_queue: VecDeque<JobId>,
 
-    commit_ready_jobs: VecDeque<(JobId, ResourceGroupId)>,
-    cleanup_ready_jobs: VecDeque<(JobId, ResourceGroupId)>,
+    pub(super) commit_ready_jobs: VecDeque<(JobId, ResourceGroupId)>,
+    pub(super) cleanup_ready_jobs: VecDeque<(JobId, ResourceGroupId)>,
 
-    finalizing_jobs: HashSet<JobId>,
+    pub(super) finalizing_jobs: HashSet<JobId>,
 
-    inbound_queue_reader: AsyncInboundQueueReader<SchedulerStorageClientType>,
+    pub(super) inbound_queue_reader: AsyncInboundQueueReader<SchedulerStorageClientType>,
 }
 
 impl<
@@ -261,7 +253,7 @@ impl<
     /// # Returns
     ///
     /// The constructed [`RoundRobin`] scheduler.
-    fn new(
+    pub(super) fn new(
         storage_session_id: SessionId,
         storage_client: SchedulerStorageClientType,
         sink: DispatchQueueSinkType,
@@ -296,6 +288,21 @@ impl<
             finalizing_jobs,
             inbound_queue_reader,
         }
+    }
+
+    /// Executes a single scheduling tick: consumes any completed inbound poll, then makes
+    /// scheduling decisions to fill the dispatch queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::consume_inbound_poll_result`]'s return values on failure.
+    /// * Forwards [`Self::make_schedule_decisions`]'s return values on failure.
+    pub(super) async fn tick(&mut self) -> Result<(), SchedulerError> {
+        self.consume_inbound_poll_result().await?;
+        self.make_schedule_decisions().await?;
+        Ok(())
     }
 
     /// # Returns
@@ -411,21 +418,6 @@ impl<
         for task_id in job_entry.task_ids {
             self.buffered_tasks.remove(&(job_entry.job_id, task_id));
         }
-    }
-
-    /// Executes a single scheduling tick: consumes any completed inbound poll, then makes
-    /// scheduling decisions to fill the dispatch queue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`Self::consume_inbound_poll_result`]'s return values on failure.
-    /// * Forwards [`Self::make_schedule_decisions`]'s return values on failure.
-    async fn tick(&mut self) -> Result<(), SchedulerError> {
-        self.consume_inbound_poll_result().await?;
-        self.make_schedule_decisions().await?;
-        Ok(())
     }
 
     /// Loads polled inbound entries into the scheduler's internal buffers.
@@ -719,6 +711,19 @@ impl<
     }
 }
 
+/// A slot in the round-robin rotation that the scheduler draws task assignments from.
+#[derive(Clone)]
+pub(super) enum RoundRobinSlot {
+    /// An active job: assignments are drawn from the job's buffered ready tasks.
+    Job(JobId),
+
+    /// The commit lane: assignments are drawn from the buffered commit-ready jobs.
+    CommitReady,
+
+    /// The cleanup lane: assignments are drawn from the buffered cleanup-ready jobs.
+    CleanupReady,
+}
+
 /// The state of an asynchronous inbound-queue poll.
 enum InboundPollState {
     /// The poll has completed, carrying the polled session and the entries drained from each
@@ -834,7 +839,7 @@ impl InboundPollHandles {
 /// # Type Parameters
 ///
 /// * `StorageClientType` - The storage client used to poll the inbound queue.
-struct AsyncInboundQueueReader<StorageClientType: SchedulerStorageClient + 'static> {
+pub(super) struct AsyncInboundQueueReader<StorageClientType: SchedulerStorageClient + 'static> {
     storage_client: StorageClientType,
     handle: Option<InboundPollHandles>,
 }
