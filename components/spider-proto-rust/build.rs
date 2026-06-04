@@ -1,7 +1,7 @@
 use std::{env, fs, path::Path};
 
 const GENERATED_ENV_VAR: &str = "SPIDER_PROTO_GENERATED_DIR";
-const PROTO_FILES: &[&str] = &["../spider-proto/storage.proto"];
+const PROTO_FILES: &[&str] = &["../spider-proto/storage/storage.proto"];
 const PROTO_INCLUDES: &[&str] = &["../spider-proto"];
 
 /// Generates Rust protobuf code when the generated output directory is configured.
