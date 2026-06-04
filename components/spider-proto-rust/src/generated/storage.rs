@@ -248,13 +248,13 @@ pub mod execution_manager_storage_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/spider.storage.ExecutionManagerStorage/RegisterTaskInstance",
+                "/storage.ExecutionManagerStorage/RegisterTaskInstance",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "spider.storage.ExecutionManagerStorage",
+                        "storage.ExecutionManagerStorage",
                         "RegisterTaskInstance",
                     ),
                 );
@@ -277,13 +277,13 @@ pub mod execution_manager_storage_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/spider.storage.ExecutionManagerStorage/ReportTaskSuccess",
+                "/storage.ExecutionManagerStorage/ReportTaskSuccess",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "spider.storage.ExecutionManagerStorage",
+                        "storage.ExecutionManagerStorage",
                         "ReportTaskSuccess",
                     ),
                 );
@@ -306,13 +306,13 @@ pub mod execution_manager_storage_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/spider.storage.ExecutionManagerStorage/ReportTaskFailure",
+                "/storage.ExecutionManagerStorage/ReportTaskFailure",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "spider.storage.ExecutionManagerStorage",
+                        "storage.ExecutionManagerStorage",
                         "ReportTaskFailure",
                     ),
                 );
@@ -432,7 +432,7 @@ pub mod execution_manager_storage_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/spider.storage.ExecutionManagerStorage/RegisterTaskInstance" => {
+                "/storage.ExecutionManagerStorage/RegisterTaskInstance" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterTaskInstanceSvc<T: ExecutionManagerStorage>(
                         pub Arc<T>,
@@ -483,7 +483,7 @@ pub mod execution_manager_storage_server {
                     };
                     Box::pin(fut)
                 }
-                "/spider.storage.ExecutionManagerStorage/ReportTaskSuccess" => {
+                "/storage.ExecutionManagerStorage/ReportTaskSuccess" => {
                     #[allow(non_camel_case_types)]
                     struct ReportTaskSuccessSvc<T: ExecutionManagerStorage>(pub Arc<T>);
                     impl<
@@ -532,7 +532,7 @@ pub mod execution_manager_storage_server {
                     };
                     Box::pin(fut)
                 }
-                "/spider.storage.ExecutionManagerStorage/ReportTaskFailure" => {
+                "/storage.ExecutionManagerStorage/ReportTaskFailure" => {
                     #[allow(non_camel_case_types)]
                     struct ReportTaskFailureSvc<T: ExecutionManagerStorage>(pub Arc<T>);
                     impl<
@@ -614,7 +614,7 @@ pub mod execution_manager_storage_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "spider.storage.ExecutionManagerStorage";
+    pub const SERVICE_NAME: &str = "storage.ExecutionManagerStorage";
     impl<T> tonic::server::NamedService for ExecutionManagerStorageServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }

@@ -1866,7 +1866,6 @@ dependencies = [
  "futures-util",
  "rmp-serde",
  "spider-core",
- "spider-proto",
  "spider-task-executor",
  "spider-tdl",
  "thiserror",
@@ -1876,13 +1875,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "spider-proto"
+name = "spider-proto-rust"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "prost",
- "spider-core",
- "thiserror",
  "tonic",
  "tonic-build",
 ]

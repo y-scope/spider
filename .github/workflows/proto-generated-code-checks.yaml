@@ -35,4 +35,4 @@ jobs:
 
       - name: "Check if the generated proto code is the latest"
         shell: "bash"
-        run: "git diff --exit-code components/spider-proto/src/generated"
+        run: "git diff --exit-code components/spider-proto-rust/src/generated"

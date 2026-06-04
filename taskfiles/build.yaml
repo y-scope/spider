@@ -31,12 +31,12 @@ tasks:
     env:
       SPIDER_PROTO_GENERATED_DIR: "{{.GENERATED_DIR}}"
     vars:
-      GENERATED_DIR: "{{.ROOT_DIR}}/components/spider-proto/src/generated"
+      GENERATED_DIR: "{{.ROOT_DIR}}/components/spider-proto-rust/src/generated"
     dir: "{{.ROOT_DIR}}"
     deps: ["toolchains:rust"]
     cmd: |-
       . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-      cargo build --release --package spider-proto
+      cargo build --release --package spider-proto-rust
 
   rust:
     dir: "{{.ROOT_DIR}}"

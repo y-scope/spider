@@ -1,17 +1,14 @@
 [package]
-name = "spider-proto"
+name = "spider-proto-rust"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "spider_proto"
+name = "spider_proto_rust"
 path = "src/lib.rs"
 
 [dependencies]
-async-trait = "0.1.89"
 prost = "0.13.5"
-spider-core = { path = "../spider-core" }
-thiserror = "2.0.18"
 tonic = "0.12.3"
 
 [build-dependencies]

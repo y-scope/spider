@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package spider.storage;
+package storage;
 
 service ExecutionManagerStorage {
   rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);

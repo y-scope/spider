@@ -1,8 +1,8 @@
 use std::{env, fs, path::Path};
 
 const GENERATED_ENV_VAR: &str = "SPIDER_PROTO_GENERATED_DIR";
-const PROTO_FILES: &[&str] = &["proto/storage.proto"];
-const PROTO_INCLUDES: &[&str] = &["proto"];
+const PROTO_FILES: &[&str] = &["../spider-proto/storage.proto"];
+const PROTO_INCLUDES: &[&str] = &["../spider-proto"];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     for proto_file in PROTO_FILES {
