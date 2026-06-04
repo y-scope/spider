@@ -293,14 +293,13 @@ impl From<storage::StorageError> for StorageResponseError {
 ///
 /// # Returns
 ///
-/// `Ok(())` when the protobuf response contains an `ok` result on success.
+/// Converted gRPC response result if the `response` has a valid result..
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * [`StorageResponseError::Transport`] if the response does not contain a result.
-/// * Forwards [`StorageResponseError::from`]'s return values on failure.
 fn storage_operation_response_to_result(
     response: storage::StorageOperationResponse,
     missing_result_message: &'static str,
