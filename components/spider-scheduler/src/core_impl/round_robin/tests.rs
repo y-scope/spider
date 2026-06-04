@@ -903,6 +903,12 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
         .collect();
     assert_eq!(job_q_regular, []);
 
+    assert!(scheduler.buffered_tasks.is_empty());
+    assert!(scheduler.pending_jobs.is_empty());
+    assert!(scheduler.pending_job_queue.is_empty());
+    assert!(scheduler.commit_ready_jobs.is_empty());
+    assert!(scheduler.cleanup_ready_jobs.is_empty());
+
     Ok(())
 }
 
