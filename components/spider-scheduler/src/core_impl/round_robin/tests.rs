@@ -39,6 +39,8 @@ const DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 struct MockStorageInner {
     session_id: AtomicU64,
     ready_batches: Mutex<VecDeque<(SessionId, Vec<InboundEntry>)>>,
+    commit_ready_batches: Mutex<VecDeque<(SessionId, Vec<InboundEntry>)>>,
+    cleanup_ready_batches: Mutex<VecDeque<(SessionId, Vec<InboundEntry>)>>,
 }
 
 /// A mock [`SchedulerStorageClient`] backed by scripted poll batches.
@@ -62,6 +64,8 @@ impl MockStorageClient {
             inner: Arc::new(MockStorageInner {
                 session_id: AtomicU64::new(session_id),
                 ready_batches: Mutex::new(VecDeque::new()),
+                commit_ready_batches: Mutex::new(VecDeque::new()),
+                cleanup_ready_batches: Mutex::new(VecDeque::new()),
             }),
         }
     }
@@ -76,11 +80,54 @@ impl MockStorageClient {
             .push_back((session_id, entries));
     }
 
+    /// Scripts a batch to be served by the next unserved
+    /// [`SchedulerStorageClient::poll_commit_ready`] call.
+    fn push_commit_ready_batch(&self, session_id: SessionId, entries: Vec<InboundEntry>) {
+        self.inner
+            .commit_ready_batches
+            .lock()
+            .expect("commit-ready-batch lock poisoned")
+            .push_back((session_id, entries));
+    }
+
+    /// Scripts a batch to be served by the next unserved
+    /// [`SchedulerStorageClient::poll_cleanup_ready`] call.
+    fn push_cleanup_ready_batch(&self, session_id: SessionId, entries: Vec<InboundEntry>) {
+        self.inner
+            .cleanup_ready_batches
+            .lock()
+            .expect("cleanup-ready-batch lock poisoned")
+            .push_back((session_id, entries));
+    }
+
     /// # Returns
     ///
     /// The session reported on polls that have no scripted batch.
     fn current_session(&self) -> SessionId {
         self.inner.session_id.load(Ordering::Relaxed)
+    }
+
+    /// Serves one poll from the given lane's script.
+    ///
+    /// # Returns
+    ///
+    /// The lane's next scripted batch, or an empty batch under the current session if the lane's
+    /// script is exhausted.
+    fn serve_batch(
+        &self,
+        batches: &Mutex<VecDeque<(SessionId, Vec<InboundEntry>)>>,
+        max_items: usize,
+    ) -> (SessionId, Vec<InboundEntry>) {
+        let scripted_batch = batches.lock().expect("batch lock poisoned").pop_front();
+        let Some((session_id, entries)) = scripted_batch else {
+            return (self.current_session(), Vec::new());
+        };
+        assert!(
+            entries.len() <= max_items,
+            "scripted batch of {} entries exceeds the scheduler's poll limit of {max_items}",
+            entries.len(),
+        );
+        (session_id, entries)
     }
 }
 
@@ -91,37 +138,23 @@ impl SchedulerStorageClient for MockStorageClient {
         max_items: usize,
         _wait: Duration,
     ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
-        let scripted_batch = self
-            .inner
-            .ready_batches
-            .lock()
-            .expect("ready-batch lock poisoned")
-            .pop_front();
-        let Some((session_id, entries)) = scripted_batch else {
-            return Ok((self.current_session(), Vec::new()));
-        };
-        assert!(
-            entries.len() <= max_items,
-            "scripted batch of {} entries exceeds the scheduler's poll limit of {max_items}",
-            entries.len(),
-        );
-        Ok((session_id, entries))
+        Ok(self.serve_batch(&self.inner.ready_batches, max_items))
     }
 
     async fn poll_commit_ready(
         &self,
-        _max_items: usize,
+        max_items: usize,
         _wait: Duration,
     ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
-        Ok((self.current_session(), Vec::new()))
+        Ok(self.serve_batch(&self.inner.commit_ready_batches, max_items))
     }
 
     async fn poll_cleanup_ready(
         &self,
-        _max_items: usize,
+        max_items: usize,
         _wait: Duration,
     ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
-        Ok((self.current_session(), Vec::new()))
+        Ok(self.serve_batch(&self.inner.cleanup_ready_batches, max_items))
     }
 
     async fn job_state(&self, _job_id: JobId) -> Result<JobState, StorageClientError> {
@@ -188,6 +221,22 @@ fn make_ready_batch(
         }
     }
     entries
+}
+
+/// Builds one inbound batch that marks each given job as finalizing, with `task_id` (either
+/// [`TaskId::Commit`] or [`TaskId::Cleanup`]) set on every entry.
+///
+/// # Returns
+///
+/// The inbound entries of the batch.
+fn make_finalizing_batch(jobs: &[(JobId, ResourceGroupId)], task_id: TaskId) -> Vec<InboundEntry> {
+    jobs.iter()
+        .map(|&(job_id, resource_group_id)| InboundEntry {
+            resource_group_id,
+            job_id,
+            task_id,
+        })
+        .collect()
 }
 
 /// Validates the given config and spawns the scheduler's public run loop as a background task.
@@ -262,6 +311,26 @@ async fn assert_no_more_assignments(reader: &DispatchQueueReader) -> anyhow::Res
     Ok(())
 }
 
+/// # Returns
+///
+/// A vector of tuples following the order of the input assignments, each tuple containing:
+///
+/// * The job ID.
+/// * The resource group ID.
+/// * The task ID.
+fn make_assigment_tuple(assignments: &[TaskAssignment]) -> Vec<(JobId, ResourceGroupId, TaskId)> {
+    assignments
+        .iter()
+        .map(|assignment| {
+            (
+                assignment.job_id,
+                assignment.resource_group_id,
+                assignment.task_id,
+            )
+        })
+        .collect()
+}
+
 /// Asserts that `assignments` is exactly `rounds` full round-robin rotations over `jobs` in order:
 /// rotation `r` consists of task `r` of every job, following the jobs' order, so every job's task
 /// indices are dispatched FIFO.
@@ -277,17 +346,7 @@ fn assert_strict_rotation(
             })
         })
         .collect();
-    let actual: Vec<(JobId, ResourceGroupId, TaskId)> = assignments
-        .iter()
-        .map(|assignment| {
-            (
-                assignment.job_id,
-                assignment.resource_group_id,
-                assignment.task_id,
-            )
-        })
-        .collect();
-    assert_eq!(actual, expected);
+    assert_eq!(make_assigment_tuple(assignments), expected);
 }
 
 /// Asserts that `assignments` follows the round-robin scheduling policy over `jobs` without pinning
@@ -474,6 +533,64 @@ async fn pending_jobs_promote_and_schedule_round_robin() -> anyhow::Result<()> {
     // detail of the rotation bookkeeping, so assert the round-robin property instead of one
     // hard-coded sequence.
     assert_round_robin_property(phase2, pending_jobs, TASKS_PER_JOB);
+
+    cancellation_token.cancel();
+    scheduler_handle.await.expect("scheduler task panicked")?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn commit_and_cleanup_dispatch_once_per_cycle() -> anyhow::Result<()> {
+    const NUM_ACTIVE_JOBS: usize = 4;
+    const TASKS_PER_JOB: usize = 3;
+    const NUM_FINALIZING_JOBS_PER_LANE: usize = 3;
+    const DISPATCH_QUEUE_CAPACITY: usize = 1024;
+
+    let active_jobs = make_jobs(NUM_ACTIVE_JOBS);
+    let commit_ready_jobs = make_jobs(NUM_FINALIZING_JOBS_PER_LANE);
+    let cleanup_ready_jobs = make_jobs(NUM_FINALIZING_JOBS_PER_LANE);
+
+    let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
+    storage_client.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        make_ready_batch(&active_jobs, TASKS_PER_JOB, 0),
+    );
+    let mut commit_ready_batch = make_finalizing_batch(&commit_ready_jobs, TaskId::Commit);
+    // Duplicate one commit-ready entry within the batch: it must dispatch exactly once.
+    commit_ready_batch.push(commit_ready_batch[0]);
+    storage_client.push_commit_ready_batch(DEFAULT_SESSION_ID, commit_ready_batch);
+    storage_client.push_cleanup_ready_batch(
+        DEFAULT_SESSION_ID,
+        make_finalizing_batch(&cleanup_ready_jobs, TaskId::Cleanup),
+    );
+
+    let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
+    let config = make_config(NUM_ACTIVE_JOBS, DISPATCH_QUEUE_CAPACITY);
+    let (scheduler_handle, cancellation_token) = spawn_scheduler(config, storage_client, writer);
+
+    let num_assignments = NUM_ACTIVE_JOBS * TASKS_PER_JOB + 2 * NUM_FINALIZING_JOBS_PER_LANE;
+    let assignments = drain_n(&reader, num_assignments).await?;
+    assert_no_more_assignments(&reader).await?;
+
+    // The rotation is [commit lane, cleanup lane, active jobs...], so every cycle dispatches
+    // exactly one commit task and one cleanup task (while their queues are non-empty), each lane
+    // drained FIFO, followed by one task of every active job.
+    let expected: Vec<(JobId, ResourceGroupId, TaskId)> = (0..TASKS_PER_JOB)
+        .flat_map(|round| {
+            let (commit_job_id, commit_resource_group_id) = commit_ready_jobs[round];
+            let (cleanup_job_id, cleanup_resource_group_id) = cleanup_ready_jobs[round];
+            std::iter::once((commit_job_id, commit_resource_group_id, TaskId::Commit))
+                .chain(std::iter::once((
+                    cleanup_job_id,
+                    cleanup_resource_group_id,
+                    TaskId::Cleanup,
+                )))
+                .chain(active_jobs.iter().map(move |&(job_id, resource_group_id)| {
+                    (job_id, resource_group_id, TaskId::Index(round))
+                }))
+        })
+        .collect();
+    assert_eq!(make_assigment_tuple(&assignments), expected);
 
     cancellation_token.cancel();
     scheduler_handle.await.expect("scheduler task panicked")?;
