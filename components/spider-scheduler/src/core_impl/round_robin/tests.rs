@@ -110,6 +110,11 @@ impl MockStorageClient {
         self.inner.session_id.load(Ordering::Relaxed)
     }
 
+    /// Sets the session reported on polls that have no scripted batch.
+    fn set_session(&self, session_id: SessionId) {
+        self.inner.session_id.store(session_id, Ordering::Relaxed);
+    }
+
     /// Serves one poll from the given lane's script.
     ///
     /// # Returns
@@ -449,6 +454,312 @@ fn zero_capacity_configs_are_rejected() {
     }
 }
 
+/// # Returns
+///
+/// A white-box scheduler wired to the given storage client and sink, to be driven by manual
+/// [`RoundRobin::tick`] calls.
+fn make_scheduler(
+    config: RoundRobinConfig,
+    storage_client: MockStorageClient,
+    sink: DispatchQueueWriter,
+) -> TestScheduler {
+    RoundRobin::new(
+        DEFAULT_SESSION_ID,
+        storage_client,
+        sink,
+        CancellationToken::new(),
+        config,
+    )
+}
+
+/// Ticks the scheduler until `predicate` holds on its state.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * The predicate does not hold within [`DRAIN_DEADLINE`].
+/// * Forwards [`RoundRobin::tick`]'s return values on failure.
+async fn tick_until(
+    scheduler: &mut TestScheduler,
+    predicate: impl Fn(&TestScheduler) -> bool,
+) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + DRAIN_DEADLINE;
+    while !predicate(scheduler) {
+        if tokio::time::Instant::now() > deadline {
+            bail!("timed out waiting for the tick predicate to hold");
+        }
+        scheduler.tick().await?;
+        tokio::task::yield_now().await;
+    }
+    Ok(())
+}
+
+/// Drains exactly `n` task assignments while manually ticking the scheduler to refill the dispatch
+/// queue (the white-box counterpart of [`drain_n`]).
+///
+/// # Returns
+///
+/// The drained assignments in FIFO order on success, each paired with the session under which it
+/// was dequeued.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
+/// * Forwards [`RoundRobin::tick`]'s return values on failure.
+/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+async fn tick_and_drain_n(
+    scheduler: &mut TestScheduler,
+    reader: &DispatchQueueReader,
+    n: usize,
+) -> anyhow::Result<Vec<(SessionId, TaskAssignment)>> {
+    let deadline = tokio::time::Instant::now() + DRAIN_DEADLINE;
+    let mut assignments = Vec::with_capacity(n);
+    while assignments.len() < n {
+        if tokio::time::Instant::now() > deadline {
+            bail!(
+                "timed out draining assignments: got {}, expected {n}",
+                assignments.len(),
+            );
+        }
+        scheduler.tick().await?;
+        while let Some((session_id, assignment)) = reader.dequeue(Duration::ZERO).await? {
+            assignments.push((session_id, assignment));
+        }
+        tokio::task::yield_now().await;
+    }
+    Ok(assignments)
+}
+
+/// Ticks the scheduler a few extra rounds and asserts that no further assignment is dispatched.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`RoundRobin::tick`]'s return values on failure.
+/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if a further assignment is dispatched.
+async fn assert_no_further_assignments(
+    scheduler: &mut TestScheduler,
+    reader: &DispatchQueueReader,
+) -> anyhow::Result<()> {
+    const EXTRA_TICKS: usize = 8;
+    for _ in 0..EXTRA_TICKS {
+        scheduler.tick().await?;
+        tokio::task::yield_now().await;
+    }
+    let unexpected_assignment = reader.dequeue(Duration::from_millis(50)).await?;
+    assert_eq!(unexpected_assignment, None);
+    Ok(())
+}
+
+/// Drives the shared scenario where a finalizing batch drops one active and one pending job.
+///
+/// The finalizing lane is selected by `finalizing_task_id`: commit-ready for [`TaskId::Commit`],
+/// or cleanup-ready for [`TaskId::Cleanup`]. The scenario:
+///
+/// 1. Buffers four jobs (two active, two pending) and freezes dispatch via a full dispatch queue.
+/// 2. Delivers a finalizing batch for one active job and one pending job mid-stream.
+/// 3. Asserts both jobs leave the placement state with their buffered regular tasks discarded.
+/// 4. Unfreezes and asserts the drained sequence: each finalized job dispatches its finalizing task
+///    exactly once and no further regular task, while the surviving jobs complete in FIFO order.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * `finalizing_task_id` is a regular [`TaskId::Index`] task.
+/// * Forwards [`tick_until`]'s return values on failure.
+/// * Forwards [`tick_and_drain_n`]'s return values on failure.
+/// * Forwards [`assert_no_further_assignments`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if any scheduling-behavior assertion of the scenario fails.
+#[allow(clippy::too_many_lines, clippy::similar_names)]
+async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyhow::Result<()> {
+    // NOTE: We disable two linting rules for the following reasons:
+    // * `clippy::too_many_lines`: This test case is long, but we want to avoid breaking it into
+    //   smaller functions since that would also make the overall flow hard to navigate.
+    // * `clippy::similar_names`: The linter complains about `job_a_regular`, `job_b_regular`, etc.,
+    //   but these names are fine for test cases.
+    const ACTIVE_JOB_QUEUE_CAPACITY: usize = 2;
+    const DISPATCH_QUEUE_CAPACITY: usize = 2;
+    const TASKS_PER_JOB: usize = 3;
+    const NUM_PRE_FREEZE_ASSIGNMENTS: usize = DISPATCH_QUEUE_CAPACITY;
+    const NUM_FINALIZED_JOBS: usize = 2;
+
+    if matches!(finalizing_task_id, TaskId::Index(_)) {
+        bail!("`finalizing_task_id` must be `TaskId::Commit` or `TaskId::Cleanup`");
+    }
+    let is_commit = finalizing_task_id == TaskId::Commit;
+
+    // Batch order makes `job_a` and `job_b` active, `job_p` and `job_q` pending.
+    let jobs = make_jobs(4);
+    let (job_a, job_b, job_p, job_q) = (jobs[0], jobs[1], jobs[2], jobs[3]);
+
+    let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
+    storage_client.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        make_ready_batch(&jobs, TASKS_PER_JOB, 0),
+    );
+
+    let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
+    let mut scheduler = make_scheduler(
+        make_config(ACTIVE_JOB_QUEUE_CAPACITY, DISPATCH_QUEUE_CAPACITY),
+        storage_client.clone(),
+        writer,
+    );
+
+    // Step 1: ingest the ready batch. The ingesting tick also dispatches exactly two assignments
+    // (`job_a.t0`, `job_b.t0`), filling the dispatch queue; dispatch is frozen from here on because
+    // the test does not drain yet.
+    tick_until(&mut scheduler, |scheduler| {
+        !scheduler.buffered_tasks.is_empty()
+    })
+    .await?;
+    assert_eq!(
+        scheduler
+            .active_jobs
+            .keys()
+            .copied()
+            .collect::<HashSet<_>>(),
+        HashSet::from([job_a.0, job_b.0]),
+    );
+    assert_eq!(
+        scheduler
+            .pending_jobs
+            .keys()
+            .copied()
+            .collect::<HashSet<_>>(),
+        HashSet::from([job_p.0, job_q.0]),
+    );
+
+    // Step 2: with dispatch frozen, deliver the finalizing batch for one active job, `job_b`, and
+    // one pending job, `job_q`, before any of their remaining tasks can dispatch.
+    let finalizing_batch = make_finalizing_batch(&[job_b, job_q], finalizing_task_id);
+    if is_commit {
+        storage_client.push_commit_ready_batch(DEFAULT_SESSION_ID, finalizing_batch);
+    } else {
+        storage_client.push_cleanup_ready_batch(DEFAULT_SESSION_ID, finalizing_batch);
+    }
+    tick_until(&mut scheduler, |scheduler| {
+        scheduler.finalizing_jobs.contains(&job_b.0) && scheduler.finalizing_jobs.contains(&job_q.0)
+    })
+    .await?;
+
+    // Step 3: both jobs left the placement state and their buffered regular tasks are discarded;
+    // only their finalizing assignments remain queued, in arrival order.
+    assert!(!scheduler.active_jobs.contains_key(&job_b.0));
+    assert!(!scheduler.pending_jobs.contains_key(&job_q.0));
+    assert!(
+        scheduler.buffered_tasks.iter().all(|&(job_id, task_id)| {
+            (job_id != job_b.0 && job_id != job_q.0) || !matches!(task_id, TaskId::Index(_))
+        }),
+        "a finalized job still has buffered regular tasks",
+    );
+    let finalizing_queue = if is_commit {
+        &scheduler.commit_ready_jobs
+    } else {
+        &scheduler.cleanup_ready_jobs
+    };
+    assert_eq!(
+        finalizing_queue.iter().copied().collect::<Vec<_>>(),
+        vec![job_b, job_q],
+    );
+
+    // Step 4: unfreeze. Every remaining assignment is accounted for below: the pre-freeze
+    // assignments already queued, one finalizing task per finalized job, `job_a`'s remaining
+    // tasks (its first task dispatched pre-freeze), and the full task set of `job_p`, which
+    // backfills `job_b`'s freed slot.
+
+    // total number of assignments = pre-freeze assignments + finalizing assignments +
+    //     remaining `job_a` assignments + full `job_p` assignments
+    let num_assignments =
+        NUM_PRE_FREEZE_ASSIGNMENTS + NUM_FINALIZED_JOBS + (TASKS_PER_JOB - 1) + TASKS_PER_JOB;
+    let assignments: Vec<TaskAssignment> =
+        tick_and_drain_n(&mut scheduler, &reader, num_assignments)
+            .await?
+            .into_iter()
+            .map(|(_session_id, assignment)| assignment)
+            .collect();
+    assert_no_further_assignments(&mut scheduler, &reader).await?;
+    assert_eq!(scheduler.buffered_tasks.len(), 0);
+
+    let triples = make_assignment_tuple(&assignments);
+
+    // The pre-freeze head is exactly `job_a.t0`, `job_b.t0`.
+    assert_eq!(
+        &triples[..NUM_PRE_FREEZE_ASSIGNMENTS],
+        &[
+            (job_a.0, job_a.1, TaskId::Index(0)),
+            (job_b.0, job_b.1, TaskId::Index(0)),
+        ],
+    );
+
+    // Each finalized job's finalizing task dispatches exactly once, in arrival (FIFO) order.
+    let finalizing_assignments: Vec<_> = triples
+        .iter()
+        .filter(|&&(_, _, task_id)| task_id == finalizing_task_id)
+        .copied()
+        .collect();
+    assert_eq!(
+        finalizing_assignments,
+        vec![
+            (job_b.0, job_b.1, finalizing_task_id),
+            (job_q.0, job_q.1, finalizing_task_id),
+        ],
+    );
+
+    let job_a_tasks: Vec<TaskId> = triples
+        .iter()
+        .filter(|&&(job_id, ..)| job_id == job_a.0)
+        .map(|&(_, _, task_id)| task_id)
+        .collect();
+    assert_eq!(
+        job_a_tasks,
+        vec![TaskId::Index(0), TaskId::Index(1), TaskId::Index(2)],
+    );
+
+    let job_b_regular: Vec<_> = triples
+        .iter()
+        .filter(|&&(job_id, _, task_id)| job_id == job_b.0 && matches!(task_id, TaskId::Index(_)))
+        .copied()
+        .collect();
+    assert_eq!(job_b_regular, vec![(job_b.0, job_b.1, TaskId::Index(0))]);
+
+    let job_p_tasks: Vec<TaskId> = triples
+        .iter()
+        .filter(|&&(job_id, ..)| job_id == job_p.0)
+        .map(|&(_, _, task_id)| task_id)
+        .collect();
+    assert_eq!(
+        job_p_tasks,
+        vec![TaskId::Index(0), TaskId::Index(1), TaskId::Index(2)],
+    );
+
+    let job_q_regular: Vec<_> = triples
+        .iter()
+        .filter(|&&(job_id, _, task_id)| job_id == job_q.0 && matches!(task_id, TaskId::Index(_)))
+        .copied()
+        .collect();
+    assert_eq!(job_q_regular, []);
+
+    assert!(scheduler.buffered_tasks.is_empty());
+    assert!(scheduler.pending_jobs.is_empty());
+    assert!(scheduler.pending_job_queue.is_empty());
+    assert!(scheduler.commit_ready_jobs.is_empty());
+    assert!(scheduler.cleanup_ready_jobs.is_empty());
+
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn single_capacity_pool_schedules_jobs_serially() -> anyhow::Result<()> {
     const NUM_JOBS: usize = 3;
@@ -612,159 +923,31 @@ async fn commit_and_cleanup_dispatch_once_per_cycle() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// # Returns
-///
-/// A white-box scheduler wired to the given storage client and sink, to be driven by manual
-/// [`RoundRobin::tick`] calls.
-fn make_scheduler(
-    config: RoundRobinConfig,
-    storage_client: MockStorageClient,
-    sink: DispatchQueueWriter,
-) -> TestScheduler {
-    RoundRobin::new(
-        DEFAULT_SESSION_ID,
-        storage_client,
-        sink,
-        CancellationToken::new(),
-        config,
-    )
+#[tokio::test(flavor = "multi_thread")]
+async fn cleanup_ready_drops_active_and_pending_jobs() -> anyhow::Result<()> {
+    assert_finalizing_ready_drops_jobs(TaskId::Cleanup).await
 }
 
-/// Ticks the scheduler until `predicate` holds on its state.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * The predicate does not hold within [`DRAIN_DEADLINE`].
-/// * Forwards [`RoundRobin::tick`]'s return values on failure.
-async fn tick_until(
-    scheduler: &mut TestScheduler,
-    predicate: impl Fn(&TestScheduler) -> bool,
-) -> anyhow::Result<()> {
-    let deadline = tokio::time::Instant::now() + DRAIN_DEADLINE;
-    while !predicate(scheduler) {
-        if tokio::time::Instant::now() > deadline {
-            bail!("timed out waiting for the tick predicate to hold");
-        }
-        scheduler.tick().await?;
-        tokio::task::yield_now().await;
-    }
-    Ok(())
+#[tokio::test(flavor = "multi_thread")]
+async fn commit_ready_drops_active_and_pending_jobs() -> anyhow::Result<()> {
+    assert_finalizing_ready_drops_jobs(TaskId::Commit).await
 }
 
-/// Drains exactly `n` task assignments while manually ticking the scheduler to refill the dispatch
-/// queue (the white-box counterpart of [`drain_n`]).
-///
-/// # Returns
-///
-/// The drained assignments in FIFO order on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
-/// * Forwards [`RoundRobin::tick`]'s return values on failure.
-/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
-async fn tick_and_drain_n(
-    scheduler: &mut TestScheduler,
-    reader: &DispatchQueueReader,
-    n: usize,
-) -> anyhow::Result<Vec<TaskAssignment>> {
-    let deadline = tokio::time::Instant::now() + DRAIN_DEADLINE;
-    let mut assignments = Vec::with_capacity(n);
-    while assignments.len() < n {
-        if tokio::time::Instant::now() > deadline {
-            bail!(
-                "timed out draining assignments: got {}, expected {n}",
-                assignments.len(),
-            );
-        }
-        scheduler.tick().await?;
-        while let Some((_session_id, assignment)) = reader.dequeue(Duration::ZERO).await? {
-            assignments.push(assignment);
-        }
-        tokio::task::yield_now().await;
-    }
-    Ok(assignments)
-}
+#[tokio::test(flavor = "multi_thread")]
+async fn session_bump_clears_buffered_tasks() -> anyhow::Result<()> {
+    const ACTIVE_JOB_QUEUE_CAPACITY: usize = 4;
+    const DISPATCH_QUEUE_CAPACITY: usize = 4;
+    const TASKS_PER_JOB: usize = 4;
+    const NEW_SESSION_ID: SessionId = DEFAULT_SESSION_ID + 1;
+    const NEW_TASKS_PER_JOB: usize = 2;
 
-/// Ticks the scheduler a few extra rounds and asserts that no further assignment is dispatched.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`RoundRobin::tick`]'s return values on failure.
-/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
-///
-/// # Panics
-///
-/// Panics if a further assignment is dispatched.
-async fn assert_no_further_assignments(
-    scheduler: &mut TestScheduler,
-    reader: &DispatchQueueReader,
-) -> anyhow::Result<()> {
-    const EXTRA_TICKS: usize = 8;
-    for _ in 0..EXTRA_TICKS {
-        scheduler.tick().await?;
-        tokio::task::yield_now().await;
-    }
-    let unexpected_assignment = reader.dequeue(Duration::from_millis(50)).await?;
-    assert_eq!(unexpected_assignment, None);
-    Ok(())
-}
-
-/// Drives the shared scenario where a finalizing batch drops one active and one pending job.
-///
-/// The finalizing lane is selected by `finalizing_task_id`: commit-ready for [`TaskId::Commit`],
-/// or cleanup-ready for [`TaskId::Cleanup`]. The scenario:
-///
-/// 1. Buffers four jobs (two active, two pending) and freezes dispatch via a full dispatch queue.
-/// 2. Delivers a finalizing batch for one active job and one pending job mid-stream.
-/// 3. Asserts both jobs leave the placement state with their buffered regular tasks discarded.
-/// 4. Unfreezes and asserts the drained sequence: each finalized job dispatches its finalizing task
-///    exactly once and no further regular task, while the surviving jobs complete in FIFO order.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * `finalizing_task_id` is a regular [`TaskId::Index`] task.
-/// * Forwards [`tick_until`]'s return values on failure.
-/// * Forwards [`tick_and_drain_n`]'s return values on failure.
-/// * Forwards [`assert_no_further_assignments`]'s return values on failure.
-///
-/// # Panics
-///
-/// Panics if any scheduling-behavior assertion of the scenario fails.
-#[allow(clippy::too_many_lines, clippy::similar_names)]
-async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyhow::Result<()> {
-    // NOTE: We disable two linting rules for the following reasons:
-    // * `clippy::too_many_lines`: This test case is long, but we want to avoid breaking it into
-    //   smaller functions since that would also make the overall flow hard to navigate.
-    // * `clippy::similar_names`: The linter complains about `job_a_regular`, `job_b_regular`, etc.,
-    //   but these names are fine for test cases.
-    const ACTIVE_JOB_QUEUE_CAPACITY: usize = 2;
-    const DISPATCH_QUEUE_CAPACITY: usize = 2;
-    const TASKS_PER_JOB: usize = 3;
-    const NUM_PRE_FREEZE_ASSIGNMENTS: usize = DISPATCH_QUEUE_CAPACITY;
-    const NUM_FINALIZED_JOBS: usize = 2;
-
-    if matches!(finalizing_task_id, TaskId::Index(_)) {
-        bail!("`finalizing_task_id` must be `TaskId::Commit` or `TaskId::Cleanup`");
-    }
-    let is_commit = finalizing_task_id == TaskId::Commit;
-
-    // Batch order makes `job_a` and `job_b` active, `job_p` and `job_q` pending.
-    let jobs = make_jobs(4);
-    let (job_a, job_b, job_p, job_q) = (jobs[0], jobs[1], jobs[2], jobs[3]);
+    let old_jobs = make_jobs(4);
+    let new_jobs = make_jobs(2);
 
     let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
     storage_client.push_ready_batch(
         DEFAULT_SESSION_ID,
-        make_ready_batch(&jobs, TASKS_PER_JOB, 0),
+        make_ready_batch(&old_jobs, TASKS_PER_JOB, 0),
     );
 
     let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
@@ -774,150 +957,69 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
         writer,
     );
 
-    // Step 1: ingest the ready batch. The ingesting tick also dispatches exactly two assignments
-    // (`job_a.t0`, `job_b.t0`), filling the dispatch queue; dispatch is frozen from here on because
-    // the test does not drain yet.
+    // Step 1: ingest the old-session batch. The ingesting tick dispatches enough assignments to
+    // fill the dispatch queue (which the test never drains); the rest will stay in the buffer.
     tick_until(&mut scheduler, |scheduler| {
         !scheduler.buffered_tasks.is_empty()
     })
     .await?;
+    assert_eq!(scheduler.active_jobs.len(), old_jobs.len());
+    assert_eq!(
+        scheduler.buffered_tasks.len(),
+        old_jobs.len() * TASKS_PER_JOB - DISPATCH_QUEUE_CAPACITY,
+    );
+
+    // Step 2: bump the session on the storage side and deliver a batch under the new session.
+    storage_client.set_session(NEW_SESSION_ID);
+    storage_client.push_ready_batch(
+        NEW_SESSION_ID,
+        make_ready_batch(&new_jobs, NEW_TASKS_PER_JOB, 0),
+    );
+    tick_until(&mut scheduler, |scheduler| {
+        scheduler.storage_session_id == NEW_SESSION_ID
+            && new_jobs
+                .iter()
+                .all(|(job_id, _)| scheduler.active_jobs.contains_key(job_id))
+    })
+    .await?;
+
     assert_eq!(
         scheduler
             .active_jobs
             .keys()
             .copied()
             .collect::<HashSet<_>>(),
-        HashSet::from([job_a.0, job_b.0]),
-    );
-    assert_eq!(
-        scheduler
-            .pending_jobs
-            .keys()
-            .copied()
+        new_jobs
+            .iter()
+            .map(|&(job_id, _)| job_id)
             .collect::<HashSet<_>>(),
-        HashSet::from([job_p.0, job_q.0]),
     );
-
-    // Step 2: with dispatch frozen, deliver the finalizing batch for one active job, `job_b`, and
-    // one pending job, `job_q`, before any of their remaining tasks can dispatch.
-    let finalizing_batch = make_finalizing_batch(&[job_b, job_q], finalizing_task_id);
-    if is_commit {
-        storage_client.push_commit_ready_batch(DEFAULT_SESSION_ID, finalizing_batch);
-    } else {
-        storage_client.push_cleanup_ready_batch(DEFAULT_SESSION_ID, finalizing_batch);
-    }
-    tick_until(&mut scheduler, |scheduler| {
-        scheduler.finalizing_jobs.contains(&job_b.0) && scheduler.finalizing_jobs.contains(&job_q.0)
-    })
-    .await?;
-
-    // Step 3: both jobs left the placement state and their buffered regular tasks are discarded;
-    // only their finalizing assignments remain queued, in arrival order.
-    assert!(!scheduler.active_jobs.contains_key(&job_b.0));
-    assert!(!scheduler.pending_jobs.contains_key(&job_q.0));
+    assert_eq!(scheduler.pending_jobs.len(), 0);
     assert!(
-        scheduler.buffered_tasks.iter().all(|&(job_id, task_id)| {
-            (job_id != job_b.0 && job_id != job_q.0) || !matches!(task_id, TaskId::Index(_))
+        scheduler.buffered_tasks.iter().all(|(job_id, _)| {
+            new_jobs
+                .iter()
+                .any(|&(new_job_id, _)| *job_id == new_job_id)
         }),
-        "a finalized job still has buffered regular tasks",
-    );
-    let finalizing_queue = if is_commit {
-        &scheduler.commit_ready_jobs
-    } else {
-        &scheduler.cleanup_ready_jobs
-    };
-    assert_eq!(
-        finalizing_queue.iter().copied().collect::<Vec<_>>(),
-        vec![job_b, job_q],
+        "an old-session task survived the session bump",
     );
 
-    // Step 4: unfreeze. Every remaining assignment is accounted for below: the pre-freeze
-    // assignments already queued, one finalizing task per finalized job, `job_a`'s remaining
-    // tasks (its first task dispatched pre-freeze), and the full task set of `job_p`, which
-    // backfills `job_b`'s freed slot.
-
-    // total number of assignments = pre-freeze assignments + finalizing assignments +
-    //     remaining `job_a` assignments + full `job_p` assignments
-    let num_assignments =
-        NUM_PRE_FREEZE_ASSIGNMENTS + NUM_FINALIZED_JOBS + (TASKS_PER_JOB - 1) + TASKS_PER_JOB;
-    let assignments = tick_and_drain_n(&mut scheduler, &reader, num_assignments).await?;
+    // The session bump drained the dispatch queue: the frozen old-session assignments are gone, and
+    // draining yields exactly the new jobs' tasks in strict rotation, each paired with the new
+    // session.
+    let num_new_assignments = new_jobs.len() * NEW_TASKS_PER_JOB;
+    let session_stamped = tick_and_drain_n(&mut scheduler, &reader, num_new_assignments).await?;
     assert_no_further_assignments(&mut scheduler, &reader).await?;
-    assert_eq!(scheduler.buffered_tasks.len(), 0);
 
-    let triples = make_assignment_tuple(&assignments);
+    for &(session_id, _) in &session_stamped {
+        assert_eq!(session_id, NEW_SESSION_ID);
+    }
 
-    // The pre-freeze head is exactly `job_a.t0`, `job_b.t0`.
-    assert_eq!(
-        &triples[..NUM_PRE_FREEZE_ASSIGNMENTS],
-        &[
-            (job_a.0, job_a.1, TaskId::Index(0)),
-            (job_b.0, job_b.1, TaskId::Index(0)),
-        ],
-    );
-
-    // Each finalized job's finalizing task dispatches exactly once, in arrival (FIFO) order.
-    let finalizing_assignments: Vec<_> = triples
-        .iter()
-        .filter(|&&(_, _, task_id)| task_id == finalizing_task_id)
-        .copied()
+    let assignments: Vec<TaskAssignment> = session_stamped
+        .into_iter()
+        .map(|(_session_id, assignment)| assignment)
         .collect();
-    assert_eq!(
-        finalizing_assignments,
-        vec![
-            (job_b.0, job_b.1, finalizing_task_id),
-            (job_q.0, job_q.1, finalizing_task_id),
-        ],
-    );
-
-    let job_a_tasks: Vec<TaskId> = triples
-        .iter()
-        .filter(|&&(job_id, ..)| job_id == job_a.0)
-        .map(|&(_, _, task_id)| task_id)
-        .collect();
-    assert_eq!(
-        job_a_tasks,
-        vec![TaskId::Index(0), TaskId::Index(1), TaskId::Index(2)],
-    );
-
-    let job_b_regular: Vec<_> = triples
-        .iter()
-        .filter(|&&(job_id, _, task_id)| job_id == job_b.0 && matches!(task_id, TaskId::Index(_)))
-        .copied()
-        .collect();
-    assert_eq!(job_b_regular, vec![(job_b.0, job_b.1, TaskId::Index(0))]);
-
-    let job_p_tasks: Vec<TaskId> = triples
-        .iter()
-        .filter(|&&(job_id, ..)| job_id == job_p.0)
-        .map(|&(_, _, task_id)| task_id)
-        .collect();
-    assert_eq!(
-        job_p_tasks,
-        vec![TaskId::Index(0), TaskId::Index(1), TaskId::Index(2)],
-    );
-
-    let job_q_regular: Vec<_> = triples
-        .iter()
-        .filter(|&&(job_id, _, task_id)| job_id == job_q.0 && matches!(task_id, TaskId::Index(_)))
-        .copied()
-        .collect();
-    assert_eq!(job_q_regular, []);
-
-    assert!(scheduler.buffered_tasks.is_empty());
-    assert!(scheduler.pending_jobs.is_empty());
-    assert!(scheduler.pending_job_queue.is_empty());
-    assert!(scheduler.commit_ready_jobs.is_empty());
-    assert!(scheduler.cleanup_ready_jobs.is_empty());
+    assert_strict_rotation(&assignments, &new_jobs, NEW_TASKS_PER_JOB);
 
     Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn cleanup_ready_drops_active_and_pending_jobs() -> anyhow::Result<()> {
-    assert_finalizing_ready_drops_jobs(TaskId::Cleanup).await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn commit_ready_drops_active_and_pending_jobs() -> anyhow::Result<()> {
-    assert_finalizing_ready_drops_jobs(TaskId::Commit).await
 }

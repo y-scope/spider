@@ -171,8 +171,7 @@ impl<
 }
 
 /// A FIFO queue of a job's buffered ready tasks.
-#[derive(Eq, PartialEq)]
-#[derive(Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub(super) struct JobTaskQueue {
     job_id: JobId,
     resource_group_id: ResourceGroupId,
