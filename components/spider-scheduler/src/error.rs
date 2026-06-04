@@ -32,6 +32,9 @@ pub enum SchedulerError {
     #[error("internal error: {0}")]
     Internal(String),
 
+    #[error("invalid config: {0}")]
+    InvalidConfig(String),
+
     #[error("async result not ready")]
     ResultNotReady,
 }
