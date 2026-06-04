@@ -12,4 +12,4 @@ pub mod storage;
 
 pub use liveness::{LivenessClient, LivenessResponseError, RegistrationResponse};
 pub use scheduler::{SchedulerClient, SchedulerError, SchedulerResponse};
-pub use storage::{StorageClient, StorageResponseError};
+pub use storage::{GrpcStorageClient, StorageClient, StorageResponseError};

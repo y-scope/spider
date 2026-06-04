@@ -1866,11 +1866,13 @@ dependencies = [
  "futures-util",
  "rmp-serde",
  "spider-core",
+ "spider-proto-rust",
  "spider-task-executor",
  "spider-tdl",
  "thiserror",
  "tokio",
  "tokio-util",
+ "tonic",
  "tracing",
 ]
 
@@ -1879,6 +1881,7 @@ name = "spider-proto-rust"
 version = "0.1.0"
 dependencies = [
  "prost",
+ "spider-core",
  "tonic",
  "tonic-build",
 ]
