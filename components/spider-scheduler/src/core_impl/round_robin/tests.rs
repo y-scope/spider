@@ -569,6 +569,9 @@ async fn assert_no_further_assignments(
 /// 3. Asserts both jobs leave the placement state with their buffered regular tasks discarded.
 /// 4. Unfreezes and asserts the drained sequence: each finalized job dispatches its finalizing task
 ///    exactly once and no further regular task, while the surviving jobs complete in FIFO order.
+/// 5. Re-delivers regular ready tasks for the finalized jobs alongside a fresh canary job. Asserts
+///    the re-delivered tasks are ignored (the finalizing gate persists after the finalizing tasks
+///    are dispatched) while the canary job schedules normally.
 ///
 /// # Errors
 ///
@@ -756,6 +759,28 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     assert!(scheduler.pending_job_queue.is_empty());
     assert!(scheduler.commit_ready_jobs.is_empty());
     assert!(scheduler.cleanup_ready_jobs.is_empty());
+    assert_eq!(scheduler.finalizing_jobs.len(), NUM_FINALIZED_JOBS);
+
+    assert!(scheduler.finalizing_jobs.contains(&job_b.0));
+    assert!(scheduler.finalizing_jobs.contains(&job_q.0));
+
+    // Step 5: The finalizing gate remains active after the finalizing tasks have been dispatched,
+    // so re-delivered regular tasks for finalized jobs must be ignored. A fresh canary job is
+    // included in the same batch. Since a batch is ingested atomically within a single tick,
+    // successful dispatch of the canary's tasks proves that the finalized jobs' entries have
+    // already been processed (and ignored), rather than still being in flight.
+    let canary_jobs = make_jobs(1);
+    let mut late_batch = make_ready_batch(&[job_b, job_q], TASKS_PER_JOB, 0);
+    late_batch.extend(make_ready_batch(&canary_jobs, TASKS_PER_JOB, 0));
+    storage_client.push_ready_batch(DEFAULT_SESSION_ID, late_batch);
+
+    let late_assignments: Vec<_> = tick_and_drain_n(&mut scheduler, &reader, TASKS_PER_JOB)
+        .await?
+        .into_iter()
+        .map(|(_session_id, assignment)| assignment)
+        .collect();
+    assert_strict_rotation(&late_assignments, &canary_jobs, TASKS_PER_JOB);
+    assert_no_further_assignments(&mut scheduler, &reader).await?;
 
     Ok(())
 }

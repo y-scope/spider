@@ -3,7 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use async_trait::async_trait;
@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// The configuration of the round-robin scheduler core.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct RoundRobinConfig {
     /// The capacity of the active job queue. The scheduler will make task assignments from these
     /// jobs in a round-robin manner.
@@ -224,6 +224,7 @@ pub(super) struct RoundRobin<
     pub(super) cancellation_token: CancellationToken,
     pub(super) config: RoundRobinConfig,
     pub(super) storage_session_id: SessionId,
+
     pub(super) buffered_tasks: HashSet<(JobId, TaskId)>,
 
     pub(super) active_jobs: HashMap<JobId, JobTaskQueue>,
@@ -237,6 +238,7 @@ pub(super) struct RoundRobin<
     pub(super) cleanup_ready_jobs: VecDeque<(JobId, ResourceGroupId)>,
 
     pub(super) finalizing_jobs: HashSet<JobId>,
+    pub(super) finalizing_job_queue: VecDeque<(JobId, SystemTime)>,
 
     pub(super) inbound_queue_reader: AsyncInboundQueueReader<SchedulerStorageClientType>,
 }
@@ -272,6 +274,7 @@ impl<
         let finalizing_jobs = HashSet::with_capacity(
             config.commit_ready_task_capacity + config.cleanup_ready_task_capacity,
         );
+        let finalizing_job_queue = VecDeque::new();
         let inbound_queue_reader = AsyncInboundQueueReader::new(storage_client);
         Self {
             sink,
@@ -287,6 +290,7 @@ impl<
             commit_ready_jobs,
             cleanup_ready_jobs,
             finalizing_jobs,
+            finalizing_job_queue,
             inbound_queue_reader,
         }
     }
@@ -300,9 +304,12 @@ impl<
     ///
     /// * Forwards [`Self::consume_inbound_poll_result`]'s return values on failure.
     /// * Forwards [`Self::make_schedule_decisions`]'s return values on failure.
+    /// * Forwards [`Self::retire_expired_finalizing_jobs`]'s return values on failure.
     pub(super) async fn tick(&mut self) -> Result<(), SchedulerError> {
+        tracing::info!("Starting scheduling tick.");
         self.consume_inbound_poll_result().await?;
         self.make_schedule_decisions().await?;
+        self.retire_expired_finalizing_jobs()?;
         Ok(())
     }
 
@@ -327,16 +334,25 @@ impl<
     ///
     /// * Forwards [`Self::tick`]'s return values on failure.
     async fn run(mut self) -> Result<(), SchedulerError> {
+        tracing::info!(
+            config = ? self.config,
+            init_session_id = self.storage_session_id,
+            "Round-robin scheduler started."
+        );
         let tick_interval = Duration::from_millis(self.config.tick_interval_ms);
         loop {
             let now = tokio::time::Instant::now();
             let cancellation_token = self.cancellation_token.clone();
             select! {
                 () = cancellation_token.cancelled() => {
+                    tracing::info!("Round-robin scheduler cancelled. Shutting down.");
                     return Ok(());
                 }
                 result = self.tick() => {
-                    let () = result?;
+                    result.inspect_err(|err| tracing::error!(
+                        err = % err,
+                        "Round-robin scheduler exits on error."
+                    ))?;
                 }
             }
             let elapsed = now.elapsed();
@@ -358,6 +374,7 @@ impl<
         self.commit_ready_jobs.clear();
         self.cleanup_ready_jobs.clear();
         self.finalizing_jobs.clear();
+        self.finalizing_job_queue.clear();
 
         self.active_job_queue = Self::new_active_job_queue(self.config.active_job_queue_capacity);
         self.active_job_queue_round_robin_cursor = 0;
@@ -372,6 +389,7 @@ impl<
     ///
     /// * [`SchedulerError::Internal`] if the given job is not currently active.
     fn retire_active_job(&mut self, job_id: JobId) -> Result<(), SchedulerError> {
+        tracing::info!(job_id = ? job_id, "Retiring active job.");
         if let Some(index) = self.active_job_queue.iter().position(|entry| match entry {
             RoundRobinSlot::Job(id) => *id == job_id,
             _ => false,
@@ -392,6 +410,10 @@ impl<
         }
 
         if let Some(next_pending_job) = self.pop_next_pending_job() {
+            tracing::info!(
+                job_id = ? next_pending_job.job_id,
+                "Pending job promoted to active job."
+            );
             self.active_job_queue
                 .push(RoundRobinSlot::Job(next_pending_job.job_id));
             self.active_jobs
@@ -416,9 +438,48 @@ impl<
 
     /// Removes all of the given job's queued tasks from the buffered-task set.
     fn discard_job_tasks(&mut self, job_entry: JobTaskQueue) {
+        tracing::info!(
+            job_id = ? job_entry.job_id,
+            num_tasks = job_entry.task_ids.len(),
+            "Discarding job tasks."
+        );
         for task_id in job_entry.task_ids {
             self.buffered_tasks.remove(&(job_entry.job_id, task_id));
         }
+    }
+
+    /// Inserts a job as it is considered finalizing (commit-ready or cleanup-ready). Once inserted,
+    /// any further tasks for the job will be ignored until this queue is reset.
+    fn mark_job_finalizing(&mut self, job_id: JobId) {
+        if self.finalizing_jobs.insert(job_id) {
+            self.finalizing_job_queue
+                .push_back((job_id, SystemTime::now()));
+        }
+    }
+
+    /// Retires expired finalizing jobs.
+    ///
+    /// A finalizing job is considered expired once it has remained in the finalizing state for more
+    /// than 6 hours. This timeout is currently hard-coded but may be made configurable through
+    /// [`RoundRobinConfig`] in the future.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SystemTime::elapsed`]'s return values on failure.
+    fn retire_expired_finalizing_jobs(&mut self) -> Result<(), SchedulerError> {
+        const EXPIRATION_TIME: Duration = Duration::from_hours(6);
+        while let Some((job_id, insertion_time)) = self.finalizing_job_queue.front() {
+            if insertion_time.elapsed()? > EXPIRATION_TIME {
+                tracing::info!(job_id = ? job_id, "Finalizing job retired.");
+                self.finalizing_jobs.remove(job_id);
+                self.finalizing_job_queue.pop_front();
+            } else {
+                break;
+            }
+        }
+        Ok(())
     }
 
     /// Loads polled inbound entries into the scheduler's internal buffers.
@@ -439,7 +500,8 @@ impl<
     /// * [`SchedulerError::InvalidSessionId`] if the polled session is older than the current
     ///   session.
     /// * Forwards [`DispatchQueueSink::bump_session_id`]'s return values on failure.
-    /// * Forwards [`Self::retire_active_job`]'s return values on failure.
+    /// * Forwards [`Self::enqueue_commit_ready_entries`]'s return values on failure.
+    /// * Forwards [`Self::enqueue_cleanup_ready_entries`]'s return values on failure.
     async fn ingest_inbound_entries(
         &mut self,
         curr_session_id: SessionId,
@@ -452,13 +514,40 @@ impl<
             return Err(SchedulerError::InvalidSessionId(storage_session_id));
         }
         if storage_session_id > curr_session_id {
+            tracing::info!(
+                curr_session_id = ? curr_session_id,
+                storage_session_id = ? storage_session_id,
+                "New session detected. Clearing existing placement state and bumping dispatch \
+                 queue session."
+            );
             self.storage_session_id = storage_session_id;
             self.clear();
             self.sink.bump_session_id(storage_session_id).await?;
         }
 
-        // Load commit ready tasks and cleanup ready tasks first to avoid loading a job that
-        // is already cancelled or commit-ready.
+        // Load commit-ready tasks and cleanup-ready tasks first to avoid loading a job that is
+        // already finalizing.
+        self.enqueue_commit_ready_entries(commit_ready_entries)?;
+        self.enqueue_cleanup_ready_entries(cleanup_ready_entries)?;
+        self.enqueue_ready_entries(ready_entries);
+
+        Ok(())
+    }
+
+    /// Enqueues polled commit-ready entries: each entry's job is marked finalizing, queued for a
+    /// commit-task assignment, and removed from the active or pending set.
+    ///
+    /// Entries whose tasks are already buffered are ignored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::retire_active_job`]'s return values on failure.
+    fn enqueue_commit_ready_entries(
+        &mut self,
+        commit_ready_entries: Vec<InboundEntry>,
+    ) -> Result<(), SchedulerError> {
         for inbound_entry in commit_ready_entries {
             if !self
                 .buffered_tasks
@@ -466,7 +555,13 @@ impl<
             {
                 continue;
             }
-            self.finalizing_jobs.insert(inbound_entry.job_id);
+
+            tracing::info!(
+                job_id = ? inbound_entry.job_id,
+                "Commit-ready task received. Finalizing job."
+            );
+
+            self.mark_job_finalizing(inbound_entry.job_id);
             self.commit_ready_jobs
                 .push_back((inbound_entry.job_id, inbound_entry.resource_group_id));
 
@@ -480,6 +575,23 @@ impl<
             }
         }
 
+        Ok(())
+    }
+
+    /// Enqueues polled cleanup-ready entries: each entry's job is marked finalizing, queued for a
+    /// cleanup-task assignment, and removed from the active or pending set.
+    ///
+    /// Entries whose tasks are already buffered are ignored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::retire_active_job`]'s return values on failure.
+    fn enqueue_cleanup_ready_entries(
+        &mut self,
+        cleanup_ready_entries: Vec<InboundEntry>,
+    ) -> Result<(), SchedulerError> {
         for inbound_entry in cleanup_ready_entries {
             if !self
                 .buffered_tasks
@@ -487,7 +599,13 @@ impl<
             {
                 continue;
             }
-            self.finalizing_jobs.insert(inbound_entry.job_id);
+
+            tracing::info!(
+                job_id = ? inbound_entry.job_id,
+                "Cleanup-ready task received. Finalizing job."
+            );
+
+            self.mark_job_finalizing(inbound_entry.job_id);
             self.cleanup_ready_jobs
                 .push_back((inbound_entry.job_id, inbound_entry.resource_group_id));
 
@@ -501,8 +619,19 @@ impl<
             }
         }
 
+        Ok(())
+    }
+
+    /// Enqueues polled regular ready entries into their jobs' task queues
+    ///
+    /// Entries of finalizing jobs and entries whose tasks are already buffered are ignored.
+    fn enqueue_ready_entries(&mut self, ready_entries: Vec<InboundEntry>) {
         for inbound_entry in ready_entries {
             if self.finalizing_jobs.contains(&inbound_entry.job_id) {
+                tracing::info!(
+                    job_id = ? inbound_entry.job_id,
+                    "Ready task received for a finalizing job. Ignored."
+                );
                 continue;
             }
             if !self
@@ -511,6 +640,13 @@ impl<
             {
                 continue;
             }
+
+            tracing::debug!(
+                job_id = ? inbound_entry.job_id,
+                task_id = ? inbound_entry.task_id,
+                "Inbound task received."
+            );
+
             if let Some(active_job) = self.active_jobs.get_mut(&inbound_entry.job_id) {
                 active_job.enqueue(inbound_entry.task_id);
                 continue;
@@ -519,7 +655,12 @@ impl<
                 pending_job.enqueue(inbound_entry.task_id);
                 continue;
             }
+
             if self.active_jobs.len() < self.config.active_job_queue_capacity {
+                tracing::info!(
+                    job_id = ? inbound_entry.job_id,
+                    "New job received. Placing in active job queue."
+                );
                 self.active_jobs.insert(
                     inbound_entry.job_id,
                     JobTaskQueue::new(
@@ -532,6 +673,11 @@ impl<
                     .push(RoundRobinSlot::Job(inbound_entry.job_id));
                 continue;
             }
+
+            tracing::info!(
+                job_id = ? inbound_entry.job_id,
+                "New job received. Placing in pending job queue."
+            );
             self.pending_jobs.insert(
                 inbound_entry.job_id,
                 JobTaskQueue::new(
@@ -542,8 +688,6 @@ impl<
             );
             self.pending_job_queue.push_back(inbound_entry.job_id);
         }
-
-        Ok(())
     }
 
     /// Consumes the in-flight inbound poll if it has completed, ingesting its entries and starting
@@ -569,6 +713,7 @@ impl<
                 commit_ready_entries,
                 cleanup_ready_entries,
             } => {
+                tracing::info!("Inbound poll completed.");
                 self.ingest_inbound_entries(
                     curr_session_id,
                     storage_session_id,
@@ -600,10 +745,11 @@ impl<
     /// * Forwards [`DispatchQueueSink::enqueue`]'s return values on failure.
     /// * Forwards [`Self::retire_active_job`]'s return values on failure.
     async fn make_schedule_decisions(&mut self) -> Result<(), SchedulerError> {
-        let mut remaining_dispatch_slots = self
+        let dispatch_slots = self
             .config
             .dispatch_queue_capacity
             .saturating_sub(self.sink.size());
+        let mut remaining_dispatch_slots = dispatch_slots;
         while remaining_dispatch_slots > 0 && !self.buffered_tasks.is_empty() {
             if self.active_job_queue_round_robin_cursor >= self.active_job_queue.len() {
                 self.active_job_queue_round_robin_cursor = 0;
@@ -635,7 +781,6 @@ impl<
                         })
                         .await?;
                     self.buffered_tasks.remove(&(job_id, TaskId::Cleanup));
-                    self.finalizing_jobs.remove(&job_id);
                     remaining_dispatch_slots -= 1;
                 }
                 RoundRobinSlot::CommitReady => {
@@ -651,7 +796,6 @@ impl<
                         })
                         .await?;
                     self.buffered_tasks.remove(&(job_id, TaskId::Commit));
-                    self.finalizing_jobs.remove(&job_id);
                     remaining_dispatch_slots -= 1;
                 }
                 RoundRobinSlot::Job(job_id) => {
@@ -676,6 +820,12 @@ impl<
                 }
             }
         }
+
+        tracing::info!(
+            dispatch_slots = dispatch_slots,
+            num_task_assignments_enqueued = dispatch_slots - remaining_dispatch_slots,
+            "Decision-making loop completed."
+        );
 
         Ok(())
     }
@@ -915,6 +1065,7 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
 
         if max_ready_entries == 0 && max_commit_ready_entries == 0 && max_cleanup_ready_entries == 0
         {
+            tracing::info!("Inbound poll skipped: all entry limits are 0.");
             return Ok(());
         }
 
@@ -953,6 +1104,13 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
             commit_ready_handle,
             cleanup_ready_handle,
         });
+
+        tracing::info!(
+            max_ready_entries = ? max_ready_entries,
+            max_commit_ready_entries = ? max_commit_ready_entries,
+            max_cleanup_ready_entries = ? max_cleanup_ready_entries,
+            "Inbound poll initiated."
+        );
 
         Ok(())
     }

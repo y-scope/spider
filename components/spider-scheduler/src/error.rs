@@ -37,4 +37,7 @@ pub enum SchedulerError {
 
     #[error("async result not ready")]
     ResultNotReady,
+
+    #[error(transparent)]
+    SystemTime(#[from] std::time::SystemTimeError),
 }
