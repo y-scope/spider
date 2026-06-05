@@ -87,13 +87,12 @@ use spider_core::{
     job::JobState,
     task::TaskIndex,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId, TaskInstanceId},
         io::{ExecutionContext, TaskOutput},
     },
 };
 use spider_storage::{
     cache::{
-        TaskId,
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
         job_submission::ValidatedJobSubmission,

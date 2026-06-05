@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Database, encode::IsNull};
 use uuid::Uuid;
 
+use crate::task::TaskIndex;
+
 /// A generic identifier type that wraps a UUID and a type marker.
 ///
 /// # Type Parameters:
@@ -96,9 +98,18 @@ pub type UuidBytes = uuid::Bytes;
 pub enum ResourceGroupIdMarker {}
 pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TaskIdMarker {}
-pub type TaskId = Id<TaskIdMarker>;
+/// Identifier of a task inside a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TaskId {
+    /// The index of the task in the job's task graph.
+    Index(TaskIndex),
+
+    /// The commit task.
+    Commit,
+
+    /// The cleanup task.
+    Cleanup,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobIdMarker {}
@@ -169,33 +180,3 @@ where
 }
 
 pub type SignedJobId = SignedId<JobIdMarker>;
-
-pub type SignedTaskId = SignedId<TaskIdMarker>;
-
-#[cfg(test)]
-mod tests {
-    use std::any::TypeId;
-
-    use super::*;
-
-    #[test]
-    fn test_id_basic() {
-        let id = TaskId::new();
-        let underlying_uuid = id.as_uuid_ref().to_owned();
-        assert_eq!(id, TaskId::from(underlying_uuid));
-
-        assert_ne!(TypeId::of::<TaskId>(), TypeId::of::<JobId>());
-    }
-
-    #[test]
-    fn task_id_json_roundtrip() {
-        let id = TaskId::new();
-        let deserialized_id: TaskId = serde_json::from_str(
-            serde_json::to_string(&id)
-                .expect("JSON serialization failure")
-                .as_str(),
-        )
-        .expect("JSON deserialization failure");
-        assert_eq!(id, deserialized_id);
-    }
-}

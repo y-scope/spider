@@ -23,12 +23,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId};
+use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId, TaskInstanceId};
 use tokio::sync::mpsc;
 
 use crate::{
     cache::{
-        TaskId,
         error::InternalError,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
