@@ -14,4 +14,5 @@ members = [
   "tests/huntsman/integration-test-tasks",
   "tests/huntsman/task-executor",
   "tests/huntsman/tdl-integration",
+  "tests/huntsman/test-utils",
 ]
