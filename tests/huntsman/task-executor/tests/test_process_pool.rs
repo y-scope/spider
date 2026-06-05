@@ -28,7 +28,13 @@ use spider_execution_manager::process_pool::{
 };
 use spider_task_executor::ExecutorError;
 use spider_tdl::TdlError;
-use task_executor_tests::{PACKAGE_NAME, decode_single_output, task_executor_bin, tdl_package_dir};
+use test_utils::{
+    PACKAGE_NAME,
+    decode_single_output,
+    single_input,
+    task_executor_bin,
+    tdl_package_dir,
+};
 
 /// Generous timeout for tasks expected to finish quickly.
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -87,25 +93,6 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
             inputs,
         },
     }
-}
-
-/// Wraps `value` into a single-payload input list.
-///
-/// # Type Parameters
-///
-/// * `T` - The Serde-serializable value type carried as the task's single input.
-///
-/// # Returns
-///
-/// A `Vec<TaskInput>` of length 1 carrying the msgpack-encoded `value`.
-///
-/// # Panics
-///
-/// Panics if msgpack encoding fails.
-fn single_input<T: serde::Serialize>(value: &T) -> Vec<TaskInput> {
-    vec![TaskInput::ValuePayload(
-        rmp_serde::to_vec(value).expect("msgpack encode input"),
-    )]
 }
 
 #[tokio::test]
