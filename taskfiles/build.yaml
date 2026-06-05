@@ -27,11 +27,9 @@ tasks:
     cmds:
       - "uv build --directory {{.G_SRC_PYTHON_DIR}} -o {{.G_BUILD_PYTHON_DIR}}"
 
-  proto-generate:
+  spider-proto-rust-codegen:
     env:
-      SPIDER_PROTO_GENERATED_DIR: "{{.GENERATED_DIR}}"
-    vars:
-      GENERATED_DIR: "{{.ROOT_DIR}}/components/spider-proto-rust/src/generated"
+      SPIDER_PROTO_RUST_GENERATE_FROM_SOURCE: "ON"
     dir: "{{.ROOT_DIR}}"
     deps: ["toolchains:rust"]
     cmd: |-
@@ -41,7 +39,6 @@ tasks:
   rust:
     dir: "{{.ROOT_DIR}}"
     deps:
-      - "proto-generate"
       - "toolchains:rust"
     cmd: |-
       . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"

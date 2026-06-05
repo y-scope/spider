@@ -29,9 +29,9 @@ jobs:
       - name: "Install dev dependencies"
         run: "./tools/scripts/lib_install/linux/install-dev.sh"
 
-      - name: "Generate proto Rust code"
+      - name: "`spider-proto-rust` code generation"
         shell: "bash"
-        run: "task build:proto-generate"
+        run: "task build:spider-proto-rust-codegen"
 
       - name: "Check if the generated proto code is the latest"
         shell: "bash"
