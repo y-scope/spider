@@ -10,7 +10,7 @@ use spider_core::{
     job::JobState,
     task::{TaskIndex, TaskState},
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId, TaskInstanceId},
         io::{ExecutionContext, TaskOutput},
     },
 };
@@ -18,7 +18,6 @@ use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     cache::{
-        TaskId,
         error::{CacheError, InternalError, InternalError::UnexpectedJobState, StaleStateError},
         job_submission::ValidatedJobSubmission,
         task::TaskGraph,
