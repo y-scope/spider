@@ -59,7 +59,7 @@ const SLOW_FIB_INDEX: u64 = 45;
 /// Panics if [`ProcessPool::new`] fails — i.e., the task-executor binary cannot be spawned.
 fn build_pool() -> ProcessPool {
     let em_id = ExecutionManagerId::new();
-    let log_dir = std::env::temp_dir().join(format!("spider-em-pool-test-{}", em_id.as_uuid_ref()));
+    let log_dir = std::env::temp_dir().join(format!("spider-em-pool-test-{em_id}"));
     let config = ProcessPoolConfig {
         em_id,
         executor_binary_path: task_executor_bin(),

@@ -555,7 +555,7 @@ async fn test_delete_expired_terminated_jobs() {
 #[ignore = "requires MariaDB"]
 async fn test_add_duplicate_resource_group() {
     let storage = create_mariadb_connector().await;
-    let external_id = uuid::Uuid::new_v4().to_string();
+    let external_id = format!("test-resource-group-{}", rand::random::<u64>());
 
     storage
         .add(external_id.clone(), b"password".to_vec())
@@ -576,7 +576,7 @@ async fn test_verify_correct_password() {
 
     let rg_id = storage
         .add(
-            uuid::Uuid::new_v4().to_string(),
+            format!("test-resource-group-{}", rand::random::<u64>()),
             b"correct-password".to_vec(),
         )
         .await
@@ -595,7 +595,7 @@ async fn test_verify_wrong_password() {
 
     let rg_id = storage
         .add(
-            uuid::Uuid::new_v4().to_string(),
+            format!("test-resource-group-{}", rand::random::<u64>()),
             b"correct-password".to_vec(),
         )
         .await

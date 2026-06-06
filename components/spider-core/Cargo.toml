@@ -14,10 +14,9 @@ semver = "1.0.27"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 spider-derive = { path = "../spider-derive" }
-sqlx = { version = "0.8.6", features = ["mysql", "uuid"] }
+sqlx = { version = "0.8.6", features = ["mysql"] }
 strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.18"
-uuid = { version = "1.19.0", features = ["serde", "v4"] }
 
 [dev-dependencies]
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
