@@ -102,7 +102,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING CAST(`id` AS BINARY(16)) AS `id`;",
+             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
             table = JOBS_TABLE_NAME,
         );
 
@@ -170,8 +170,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
 
         let outputs_bytes = serialized_outputs.ok_or_else(|| {
             DbError::CorruptedDbState(format!(
-                "job `{}` succeeded but has no serialized outputs",
-                job_id.as_uuid_ref()
+                "job `{job_id}` succeeded but has no serialized outputs"
             ))
         })?;
         let outputs: Vec<TaskOutput> =
@@ -201,10 +200,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         }
 
         let message = error_message.ok_or_else(|| {
-            DbError::CorruptedDbState(format!(
-                "job `{}` failed but has no error message",
-                job_id.as_uuid_ref()
-            ))
+            DbError::CorruptedDbState(format!("job `{job_id}` failed but has no error message"))
         })?;
         Ok(message)
     }
@@ -344,7 +340,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         const DELETE_BATCH_SIZE: usize = 1000;
 
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` IN \
+            "SELECT `id` FROM `{table}` WHERE `state` IN \
              ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
              INTERVAL ? SECOND LIMIT {DELETE_BATCH_SIZE} FOR UPDATE;",
             table = JOBS_TABLE_NAME,
@@ -394,8 +390,7 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING CAST(`id` \
-             AS BINARY(16)) AS `id`;",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING `id`;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
@@ -462,7 +457,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         ip_address: IpAddr,
     ) -> Result<ExecutionManagerId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`ip_address`) VALUES (?) RETURNING CAST(`id` AS BINARY(16));",
+            "INSERT INTO `{table}` (`ip_address`) VALUES (?) RETURNING `id`;",
             table = EXECUTION_MANAGERS_TABLE_NAME,
         );
 
@@ -539,8 +534,8 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         const UPDATE_BATCH_SIZE: usize = 1000;
 
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT CAST(`id` AS BINARY(16)) FROM `{table}` WHERE `state` = '{alive_state}' AND \
-             `last_heartbeat_at` < CURRENT_TIMESTAMP - INTERVAL ? SECOND FOR UPDATE;",
+            "SELECT `id` FROM `{table}` WHERE `state` = '{alive_state}' AND `last_heartbeat_at` < \
+             CURRENT_TIMESTAMP - INTERVAL ? SECOND FOR UPDATE;",
             table = EXECUTION_MANAGERS_TABLE_NAME,
             alive_state = ExecutionManagerState::Alive.as_str(),
         );
@@ -601,7 +596,7 @@ const fn resource_groups_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{RESOURCE_GROUPS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `external_id` VARCHAR(256) NOT NULL,
   `password` VARBINARY(2048) NOT NULL,
   PRIMARY KEY (`id`),
@@ -615,8 +610,8 @@ const fn jobs_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
-  `resource_group_id` UUID NOT NULL,
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `resource_group_id` BIGINT UNSIGNED NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `serialized_task_graph` LONGTEXT NOT NULL,
   `serialized_job_inputs` LONGBLOB NOT NULL,
@@ -642,7 +637,7 @@ const fn execution_managers_creation_query() -> &'static str {
     formatcp!(
         r"
 CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
-  `id` UUID NOT NULL DEFAULT UUID_v7(),
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `ip_address` VARCHAR(45) NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `last_heartbeat_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
