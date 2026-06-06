@@ -2,16 +2,16 @@ syntax = "proto3";
 
 package storage;
 
-service ExecutionManagerStorage {
+service TaskInstanceManagementService {
   rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);
   rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (StorageOperationResponse);
   rpc ReportTaskFailure(ReportTaskFailureRequest) returns (StorageOperationResponse);
 }
 
 message RegisterTaskInstanceRequest {
-  bytes job_id = 1;
-  bytes task_id = 2;
-  bytes execution_manager_id = 3;
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
   uint64 session_id = 4;
 }
 
@@ -23,35 +23,41 @@ message RegisterTaskInstanceResponse {
 }
 
 message ReportTaskSuccessRequest {
-  bytes job_id = 1;
-  bytes task_id = 2;
-  bytes execution_manager_id = 3;
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
   uint64 session_id = 4;
-  oneof output_payload {
-    bytes serialized_outputs = 5;
-  }
+  bytes serialized_outputs = 5;
 }
 
 message ReportTaskFailureRequest {
-  bytes job_id = 1;
-  bytes task_id = 2;
-  bytes execution_manager_id = 3;
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
   uint64 session_id = 4;
   string error_message = 5;
 }
 
+message TaskId {
+  oneof kind {
+    uint64 index = 1;
+    Void commit = 2;
+    Void cleanup = 3;
+  }
+}
+
 message StorageOperationResponse {
   oneof result {
-    Empty ok = 1;
+    Void ok = 1;
     StorageError error = 2;
   }
 }
 
-message Empty {}
+message Void {}
 
 message StorageError {
-  enum Kind {
-    KIND_UNSPECIFIED = 0;
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
     STALE_SESSION = 1;
     CACHE_STALE = 2;
     TRANSPORT = 3;
@@ -59,7 +65,7 @@ message StorageError {
     INVALID_INPUT = 5;
   }
 
-  Kind kind = 1;
+  ErrCode err_code = 1;
   string message = 2;
   uint64 storage_session = 3;
 }

@@ -1,13 +1,52 @@
 //! Helpers for converting Spider IDs to protobuf fields.
 
-use spider_core::types::id::Id;
+use spider_core::types::id::TaskId;
 
-/// Converts a Spider UUID-backed ID into the protobuf byte representation.
+use crate::storage::{self, task_id};
+
+/// Converts a [`TaskId`] into its protobuf representation.
 ///
 /// # Returns
 ///
-/// The UUID bytes for `id`.
+/// A protobuf task ID with the matching task ID variant.
+///
+/// # Panics
+///
+/// Panics if a [`TaskId::Index`] value does not fit in `u64`.
 #[must_use]
-pub fn id_to_bytes<TypeMarker: std::fmt::Debug + PartialEq + Eq>(id: &Id<TypeMarker>) -> Vec<u8> {
-    id.as_bytes().to_vec()
+pub fn task_id_to_protocol(task_id: TaskId) -> storage::TaskId {
+    let kind = match task_id {
+        TaskId::Index(task_index) => {
+            task_id::Kind::Index(u64::try_from(task_index).expect("task index does not fit in u64"))
+        }
+        TaskId::Commit => task_id::Kind::Commit(storage::Void {}),
+        TaskId::Cleanup => task_id::Kind::Cleanup(storage::Void {}),
+    };
+    storage::TaskId { kind: Some(kind) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_id_to_protocol_u64_converts_index_task() {
+        let task_id = task_id_to_protocol(TaskId::Index(7));
+
+        assert!(matches!(task_id.kind, Some(task_id::Kind::Index(7))));
+    }
+
+    #[test]
+    fn task_id_to_protocol_converts_commit_task() {
+        let task_id = task_id_to_protocol(TaskId::Commit);
+
+        assert!(matches!(task_id.kind, Some(task_id::Kind::Commit(_))));
+    }
+
+    #[test]
+    fn task_id_to_protocol_converts_cleanup_task() {
+        let task_id = task_id_to_protocol(TaskId::Cleanup);
+
+        assert!(matches!(task_id.kind, Some(task_id::Kind::Cleanup(_))));
+    }
 }

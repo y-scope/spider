@@ -9,14 +9,13 @@ use spider_core::types::{
     io::ExecutionContext,
 };
 use spider_proto_rust::{
-    id::id_to_bytes,
+    id::task_id_to_protocol,
     storage::{
         self,
-        execution_manager_storage_client::ExecutionManagerStorageClient,
         register_task_instance_response,
-        report_task_success_request,
         storage_error,
         storage_operation_response,
+        task_instance_management_service_client::TaskInstanceManagementServiceClient,
     },
 };
 use tonic::transport::{Channel, Endpoint};
@@ -148,7 +147,7 @@ pub trait StorageClient: Send + Sync {
 /// gRPC-backed [`StorageClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcStorageClient {
-    inner: ExecutionManagerStorageClient<Channel>,
+    inner: TaskInstanceManagementServiceClient<Channel>,
 }
 
 impl GrpcStorageClient {
@@ -164,7 +163,7 @@ impl GrpcStorageClient {
     ///
     /// * [`StorageResponseError::Transport`] if tonic cannot create or connect to the endpoint.
     pub async fn connect(endpoint: Endpoint) -> Result<Self, StorageResponseError> {
-        ExecutionManagerStorageClient::connect(endpoint)
+        TaskInstanceManagementServiceClient::connect(endpoint)
             .await
             .map(|inner| Self { inner })
             .map_err(to_transport_error)
@@ -181,9 +180,9 @@ impl StorageClient for GrpcStorageClient {
         session_id: SessionId,
     ) -> Result<ExecutionContext, StorageResponseError> {
         let request = storage::RegisterTaskInstanceRequest {
-            job_id: id_to_bytes(&job_id),
-            task_id: id_to_bytes(&task_id),
-            execution_manager_id: id_to_bytes(&em_id),
+            job_id: job_id.get(),
+            task_id: Some(task_id_to_protocol(task_id)),
+            execution_manager_id: em_id.get(),
             session_id,
         };
         let response = {
@@ -219,12 +218,11 @@ impl StorageClient for GrpcStorageClient {
         serialized_outputs: Option<Vec<u8>>,
     ) -> Result<(), StorageResponseError> {
         let request = storage::ReportTaskSuccessRequest {
-            job_id: id_to_bytes(&job_id),
-            task_id: id_to_bytes(&task_id),
-            execution_manager_id: id_to_bytes(&em_id),
+            job_id: job_id.get(),
+            task_id: Some(task_id_to_protocol(task_id)),
+            execution_manager_id: em_id.get(),
             session_id,
-            output_payload: serialized_outputs
-                .map(report_task_success_request::OutputPayload::SerializedOutputs),
+            serialized_outputs: serialized_outputs.unwrap_or_default(),
         };
         let response = {
             let mut client = self.inner.clone();
@@ -250,9 +248,9 @@ impl StorageClient for GrpcStorageClient {
         error_message: String,
     ) -> Result<(), StorageResponseError> {
         let request = storage::ReportTaskFailureRequest {
-            job_id: id_to_bytes(&job_id),
-            task_id: id_to_bytes(&task_id),
-            execution_manager_id: id_to_bytes(&em_id),
+            job_id: job_id.get(),
+            task_id: Some(task_id_to_protocol(task_id)),
+            execution_manager_id: em_id.get(),
             session_id,
             error_message,
         };
@@ -274,16 +272,16 @@ impl StorageClient for GrpcStorageClient {
 
 impl From<storage::StorageError> for StorageResponseError {
     fn from(error: storage::StorageError) -> Self {
-        match storage_error::Kind::try_from(error.kind) {
-            Ok(storage_error::Kind::StaleSession) => Self::StaleSession {
+        match storage_error::ErrCode::try_from(error.err_code) {
+            Ok(storage_error::ErrCode::StaleSession) => Self::StaleSession {
                 storage_session: error.storage_session,
             },
-            Ok(storage_error::Kind::CacheStale) => Self::CacheStale(error.message),
-            Ok(storage_error::Kind::Transport) => Self::Transport(error.message),
-            Ok(storage_error::Kind::Server | storage_error::Kind::Unspecified) => {
+            Ok(storage_error::ErrCode::CacheStale) => Self::CacheStale(error.message),
+            Ok(storage_error::ErrCode::Transport) => Self::Transport(error.message),
+            Ok(storage_error::ErrCode::Server | storage_error::ErrCode::Unspecified) => {
                 Self::Server(error.message)
             }
-            Ok(storage_error::Kind::InvalidInput) => Self::InvalidInput(error.message),
+            Ok(storage_error::ErrCode::InvalidInput) => Self::InvalidInput(error.message),
             Err(error) => Self::Transport(format!("unknown storage error kind: {error}")),
         }
     }
@@ -329,7 +327,7 @@ mod tests {
     #[test]
     fn storage_error_maps_stale_session() {
         let error = storage::StorageError {
-            kind: storage_error::Kind::StaleSession.into(),
+            err_code: storage_error::ErrCode::StaleSession.into(),
             message: "stale".to_owned(),
             storage_session: 7,
         };
@@ -345,7 +343,7 @@ mod tests {
     #[test]
     fn storage_error_maps_unknown_kind_to_transport_error() {
         let error = storage::StorageError {
-            kind: 99,
+            err_code: 99,
             message: "unknown".to_owned(),
             storage_session: 0,
         };
