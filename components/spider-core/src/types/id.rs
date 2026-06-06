@@ -24,7 +24,10 @@ use crate::task::TaskIndex;
 /// type SomeTypeId = Id<SomeTypeIdMarker>;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id<TypeMarker: Debug + PartialEq + Eq>(u64, PhantomData<TypeMarker>);
+pub struct Id<TypeMarker: Debug + PartialEq + Eq> {
+    raw: u64,
+    _marker: PhantomData<TypeMarker>,
+}
 
 impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
     fn default() -> Self {
@@ -38,24 +41,25 @@ impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
     /// Production IDs should be assigned by persistent storage instead.
     #[must_use]
     pub fn random() -> Self {
-        Self(rand::random(), PhantomData)
+        Self::from(rand::random())
     }
 
     #[must_use]
     pub const fn from(id: u64) -> Self {
-        Self(id, PhantomData)
+        Self {
+            raw: id,
+            _marker: PhantomData,
+        }
     }
 
     #[must_use]
     pub const fn get(&self) -> u64 {
-        self.0
+        self.raw
     }
 }
 
-impl<TypeMarker, Db> sqlx::Type<Db> for Id<TypeMarker>
+impl<TypeMarker: Debug + PartialEq + Eq, Db: Database> sqlx::Type<Db> for Id<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-    Db: Database,
     u64: sqlx::Type<Db>,
 {
     fn type_info() -> <Db as Database>::TypeInfo {
@@ -67,65 +71,52 @@ where
     }
 }
 
-impl<'encode, TypeMarker, Db> sqlx::Encode<'encode, Db> for Id<TypeMarker>
+impl<'encode, TypeMarker: Debug + PartialEq + Eq, Db: Database> sqlx::Encode<'encode, Db>
+    for Id<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-    Db: Database,
     u64: sqlx::Encode<'encode, Db>,
 {
     fn encode_by_ref(
         &self,
         buf: &mut <Db as Database>::ArgumentBuffer<'encode>,
     ) -> Result<IsNull, sqlx::error::BoxDynError> {
-        self.0.encode_by_ref(buf)
+        self.get().encode_by_ref(buf)
     }
 }
 
-impl<'decode, TypeMarker, Db> sqlx::Decode<'decode, Db> for Id<TypeMarker>
+impl<'decode, TypeMarker: Debug + PartialEq + Eq, Db: Database> sqlx::Decode<'decode, Db>
+    for Id<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-    Db: Database,
     u64: sqlx::Decode<'decode, Db>,
 {
     fn decode(
         value: <Db as Database>::ValueRef<'decode>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
-        u64::decode(value).map(|id| Self(id, PhantomData))
+        u64::decode(value).map(|id| Self::from(id))
     }
 }
 
-impl<TypeMarker> Display for Id<TypeMarker>
-where
-    TypeMarker: Debug + PartialEq + Eq,
-{
+impl<TypeMarker: Debug + PartialEq + Eq> Display for Id<TypeMarker> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, formatter)
+        Display::fmt(&self.get(), formatter)
     }
 }
 
-impl<TypeMarker> Serialize for Id<TypeMarker>
-where
-    TypeMarker: Debug + PartialEq + Eq,
-{
-    fn serialize<SerializerImpl>(
+impl<TypeMarker: Debug + PartialEq + Eq> Serialize for Id<TypeMarker> {
+    fn serialize<SerializerImpl: Serializer>(
         &self,
         serializer: SerializerImpl,
-    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error>
-    where
-        SerializerImpl: Serializer, {
-        self.0.serialize(serializer)
+    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error> {
+        self.get().serialize(serializer)
     }
 }
 
-impl<'deserializer_lifetime, TypeMarker> Deserialize<'deserializer_lifetime> for Id<TypeMarker>
-where
-    TypeMarker: Debug + PartialEq + Eq,
+impl<'deserializer_lifetime, TypeMarker: Debug + PartialEq + Eq> Deserialize<'deserializer_lifetime>
+    for Id<TypeMarker>
 {
-    fn deserialize<DeserializerImpl>(
+    fn deserialize<DeserializerImpl: Deserializer<'deserializer_lifetime>>(
         deserializer: DeserializerImpl,
-    ) -> Result<Self, DeserializerImpl::Error>
-    where
-        DeserializerImpl: Deserializer<'deserializer_lifetime>, {
+    ) -> Result<Self, DeserializerImpl::Error> {
         u64::deserialize(deserializer).map(Self::from)
     }
 }
