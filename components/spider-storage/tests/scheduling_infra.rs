@@ -359,7 +359,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let ctx = EmContext {
         receiver: ready_receiver,
         jcb: jcb.clone(),
-        execution_manager_id: ExecutionManagerId::new(),
+        execution_manager_id: ExecutionManagerId::random(),
         terminal_state_sender: terminal_state_sender.clone(),
         done_receiver: done_receiver.clone(),
         seen_tasks: Arc::new(DashMap::new()),
@@ -374,7 +374,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let mut join_set = tokio::task::JoinSet::new();
     for _ in 0..NUM_EXECUTION_MANAGERS {
         let mut em_ctx = ctx.clone();
-        em_ctx.execution_manager_id = ExecutionManagerId::new();
+        em_ctx.execution_manager_id = ExecutionManagerId::random();
         join_set.spawn(async move { run_execution_manager(em_ctx).await });
     }
 

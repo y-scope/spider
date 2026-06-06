@@ -1,15 +1,12 @@
 use std::{
     fmt::{Debug, Display},
     marker::PhantomData,
-    sync::atomic::{AtomicU64, Ordering},
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::{Database, encode::IsNull};
 
 use crate::task::TaskIndex;
-
-static NEXT_SYNTHETIC_ID: AtomicU64 = AtomicU64::new(u64::MAX);
 
 /// A generic identifier type that wraps a numeric ID and a type marker.
 ///
@@ -31,17 +28,17 @@ pub struct Id<TypeMarker: Debug + PartialEq + Eq>(u64, PhantomData<TypeMarker>);
 
 impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
     fn default() -> Self {
-        Self::new()
+        Self::from(0)
     }
 }
 
 impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
+    /// Creates a random ID for tests.
+    ///
+    /// Production IDs should be assigned by persistent storage instead.
     #[must_use]
-    pub fn new() -> Self {
-        Self(
-            NEXT_SYNTHETIC_ID.fetch_sub(1, Ordering::Relaxed),
-            PhantomData,
-        )
+    pub fn random() -> Self {
+        Self(rand::random(), PhantomData)
     }
 
     #[must_use]
@@ -242,11 +239,9 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_ids_count_down_from_u64_max() {
-        let first = JobId::new();
-        let second = JobId::new();
+    fn default_id_is_zero() {
+        let job_id = JobId::default();
 
-        assert!(first.get() > second.get());
-        assert!(first.get() > u64::MAX / 2);
+        assert_eq!(job_id.get(), 0);
     }
 }

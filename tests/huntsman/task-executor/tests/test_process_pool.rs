@@ -58,7 +58,7 @@ const SLOW_FIB_INDEX: u64 = 45;
 ///
 /// Panics if [`ProcessPool::new`] fails — i.e., the task-executor binary cannot be spawned.
 fn build_pool() -> ProcessPool {
-    let em_id = ExecutionManagerId::new();
+    let em_id = ExecutionManagerId::random();
     let log_dir = std::env::temp_dir().join(format!("spider-em-pool-test-{em_id}"));
     let config = ProcessPoolConfig {
         em_id,
@@ -77,9 +77,9 @@ fn build_pool() -> ProcessPool {
 /// supplies `hard_timeout` directly to [`ProcessPool::execute`]), and the supplied `inputs`.
 fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
     ExecuteRequest {
-        job_id: JobId::new(),
+        job_id: JobId::random(),
         task_id: TaskId::Index(0),
-        resource_group_id: ResourceGroupId::new(),
+        resource_group_id: ResourceGroupId::random(),
         ctx: ExecutionContext {
             task_instance_id: 1,
             tdl_context: TdlContext {

@@ -1394,6 +1394,7 @@ name = "spider-core"
 version = "0.1.0"
 dependencies = [
  "non-empty-string",
+ "rand 0.9.4",
  "rmp-serde",
  "semver",
  "serde",
