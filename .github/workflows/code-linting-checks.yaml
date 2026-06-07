@@ -47,7 +47,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-common.sh"
 
       - run: "task lint:toml-check"
 
@@ -75,7 +75,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-wolf.sh"
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
@@ -151,7 +151,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-common.sh"
 
       - run: "task lint:py-check"
 
@@ -174,7 +174,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-huntsman.sh"
 
       - run: "task lint:check-rust"
 
