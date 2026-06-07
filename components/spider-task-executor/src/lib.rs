@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod manager;
+pub mod protocol;
 
 pub use error::ExecutorError;
 pub use manager::{TdlPackage, TdlPackageManager};

@@ -30,10 +30,10 @@ mod tests {
     #[test]
     fn round_trip_msgpack() -> anyhow::Result<()> {
         let ctx = TaskContext {
-            job_id: JobId::new(),
-            task_id: TaskId::new(),
+            job_id: JobId::random(),
+            task_id: TaskId::Index(0),
             task_instance_id: 13,
-            resource_group_id: ResourceGroupId::new(),
+            resource_group_id: ResourceGroupId::random(),
         };
         let encoded = rmp_serde::to_vec(&ctx)?;
         let decoded: TaskContext = rmp_serde::from_slice(&encoded)?;

@@ -47,7 +47,7 @@ pub async fn create_mariadb_connector() -> MariaDbStorageConnector {
 ///
 /// Panics if the resource group creation fails.
 pub async fn create_test_resource_group(storage: &MariaDbStorageConnector) -> ResourceGroupId {
-    let external_id = uuid::Uuid::new_v4().to_string();
+    let external_id = format!("test-resource-group-{}", rand::random::<u64>());
     storage
         .add(external_id, b"test-password".to_vec())
         .await

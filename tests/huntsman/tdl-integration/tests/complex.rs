@@ -32,10 +32,10 @@ fn lib_path() -> std::path::PathBuf {
 /// An encoded task context for testing.
 fn encode_ctx() -> Vec<u8> {
     let ctx = TaskContext {
-        job_id: JobId::new(),
-        task_id: TaskId::new(),
+        job_id: JobId::random(),
+        task_id: TaskId::Index(0),
         task_instance_id: 1,
-        resource_group_id: ResourceGroupId::new(),
+        resource_group_id: ResourceGroupId::random(),
     };
     rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
 }
@@ -88,8 +88,8 @@ fn decode_complex_vec(output_bytes: &[u8]) -> anyhow::Result<ComplexVec> {
 fn load_and_query_name() -> anyhow::Result<()> {
     let path = lib_path();
     let mut manager = TdlPackageManager::new();
-    let name = manager.load(&path)?;
-    assert_eq!(name, PACKAGE_NAME);
+    let pkg = manager.load(&path)?;
+    assert_eq!(pkg.name(), PACKAGE_NAME);
     let pkg = manager
         .get(PACKAGE_NAME)
         .expect("just-loaded package should be retrievable");

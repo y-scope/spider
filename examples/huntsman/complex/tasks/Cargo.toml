@@ -12,4 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 huntsman-complex-types = { path = "../types" }
 serde = { version = "1.0.228", features = ["derive"] }
-spider-tdl = { path = "../../../../components/spider-tdl", features = ["derive"] }
+spider-tdl = {
+  path = "../../../../components/spider-tdl",
+  features = ["derive"]
+}

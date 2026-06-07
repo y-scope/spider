@@ -1,0 +1,37 @@
+[package]
+name = "task-executor-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "task_executor_tests"
+path = "src/lib.rs"
+
+[[test]]
+name = "executor"
+path = "tests/test_executor.rs"
+
+[[test]]
+name = "overhead_instrument"
+path = "tests/overhead_instrument.rs"
+
+[[test]]
+name = "process_pool"
+path = "tests/test_process_pool.rs"
+
+[dev-dependencies]
+integration-test-tasks = { path = "../integration-test-tasks" }
+rmp-serde = "1.3.1"
+spider-core = { path = "../../../components/spider-core" }
+spider-execution-manager = {
+  path = "../../../components/spider-execution-manager"
+}
+spider-task-executor = { path = "../../../components/spider-task-executor" }
+spider-tdl = { path = "../../../components/spider-tdl" }
+tabled = "0.20.0"
+test-utils = { path = "../test-utils" }
+tokio = {
+  version = "1.50.0",
+  features = ["macros", "rt", "rt-multi-thread", "time"]
+}

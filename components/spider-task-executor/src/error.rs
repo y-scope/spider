@@ -6,11 +6,11 @@ use spider_tdl::{TdlError, Version};
 ///
 /// [`TdlError`] (failure inside a user task) is wrapped via [`Self::TaskError`] so callers can
 /// distinguish executor-internal failures from in-task failures.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum ExecutorError {
     /// `dlopen` failed or a required FFI symbol was missing.
     #[error("failed to load TDL package library: {0}")]
-    InvalidLibrary(#[from] libloading::Error),
+    InvalidLibrary(String),
 
     /// The package's declared `spider-tdl` ABI version is not compatible with the executor's.
     #[error(
@@ -33,7 +33,7 @@ pub enum ExecutorError {
 
     /// The byte buffer contains invalid UTF-8 patterns.
     #[error("invalid UTF-8: {0}")]
-    InvalidUtf8(#[from] std::str::Utf8Error),
+    InvalidUtf8(String),
 
     /// A user task returned a [`TdlError`] across the FFI boundary.
     #[error("task execution failed: {0}")]
@@ -42,7 +42,25 @@ pub enum ExecutorError {
     /// The msgpack-encoded error payload returned by a failing task could not be decoded back into
     /// a [`TdlError`].
     #[error("failed to deserialize error payload: {0}")]
-    ErrorPayloadDeserializationFailure(#[from] rmp_serde::decode::Error),
+    ErrorPayloadDeserializationFailure(String),
+}
+
+impl From<libloading::Error> for ExecutorError {
+    fn from(value: libloading::Error) -> Self {
+        Self::InvalidLibrary(value.to_string())
+    }
+}
+
+impl From<std::str::Utf8Error> for ExecutorError {
+    fn from(value: std::str::Utf8Error) -> Self {
+        Self::InvalidUtf8(value.to_string())
+    }
+}
+
+impl From<rmp_serde::decode::Error> for ExecutorError {
+    fn from(value: rmp_serde::decode::Error) -> Self {
+        Self::ErrorPayloadDeserializationFailure(value.to_string())
+    }
 }
 
 impl ExecutorError {

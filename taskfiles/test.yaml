@@ -209,12 +209,20 @@ tasks:
   # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
   spider-huntsman-unit-tests-executor:
     internal: true
+    vars:
+      # TDL packages are staged under `${G_TDL_PACKAGES_DIR}/<package_name>/lib<package_name>.so`
+      # so that the `spider-task-executor` binary can resolve them via the on-disk layout it
+      # documents.
+      G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
+      G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
     env:
       MARIADB_PORT: "{{.MARIADB_PORT}}"
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
       MARIADB_USERNAME: "{{.MARIADB_USERNAME}}"
       MARIADB_PASSWORD: "{{.MARIADB_PASSWORD}}"
-      SPIDER_TDL_PACKAGE_COMPLEX: "{{.G_RUST_BUILD_DIR}}/release/libhuntsman_complex.so"
+      SPIDER_TDL_PACKAGE_COMPLEX: "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
+      SPIDER_TDL_PACKAGE_DIR: "{{.G_TDL_PACKAGES_DIR}}"
+      SPIDER_TASK_EXECUTOR_BIN: "{{.G_RUST_RELEASE_DIR}}/spider-task-executor"
       SPIDER_TEST_INSTRUMENT_OUTPUT_DIR:
         sh: "echo {{.G_BUILD_DIR}}/spider-instrument-$(uuidgen)"
     requires:
@@ -222,11 +230,22 @@ tasks:
     dir: "{{.ROOT_DIR}}"
     deps: ["toolchains:rust"]
     cmds:
-      - "mkdir ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
+      - "mkdir -p ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo build --package huntsman-complex --release
+        # `--bin` is a workspace-wide target filter; combining it with cdylib packages in the
+        # same `cargo build` would silently exclude the `.so` artifacts. Use one invocation per
+        # artifact to keep the target selection unambiguous.
+        cargo build --release --package huntsman-complex
+        cargo build --release --package integration-test-tasks
+        cargo build --release --package spider-task-executor --bin spider-task-executor
+        mkdir -p "{{.G_TDL_PACKAGES_DIR}}/complex" \
+                 "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks"
+        cp "{{.G_RUST_RELEASE_DIR}}/libhuntsman_complex.so" \
+           "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
+        cp "{{.G_RUST_RELEASE_DIR}}/libintegration_test_tasks.so" \
+           "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks/libintegration_test_tasks.so"
         cargo nextest run --all --all-features --run-ignored all --release
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do

@@ -14,7 +14,6 @@ use spider_core::{
         io::TaskOutput,
     },
 };
-use uuid::Uuid;
 
 use crate::{
     cache::{
@@ -102,7 +101,7 @@ impl ExternalJobOrchestration for MockDbConnector {
         _resource_group_id: ResourceGroupId,
         _job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         self.states.insert(job_id, JobState::Ready);
         Ok(job_id)
     }
@@ -177,7 +176,7 @@ impl ResourceGroupManagement for MockDbConnector {
         password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError> {
         let counter = self.next_resource_group_id.fetch_add(1, Ordering::Relaxed);
-        let id = ResourceGroupId::from(Uuid::from_u64_pair(0, counter as u64));
+        let id = ResourceGroupId::from(counter as u64);
         self.resource_groups.insert(id, password);
         Ok(id)
     }
@@ -216,7 +215,7 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
         let counter = self
             .next_execution_manager_id
             .fetch_add(1, Ordering::Relaxed);
-        let id = ExecutionManagerId::from(Uuid::from_u64_pair(0, counter as u64));
+        let id = ExecutionManagerId::from(counter as u64);
         self.execution_managers.insert(id, ip_address);
         Ok(id)
     }
