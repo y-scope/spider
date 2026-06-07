@@ -198,7 +198,7 @@ pub fn create_task_instance_pool<
     ready_queue_sender: ReadyQueueSenderType,
     execution_manager_liveness_store: LivenessStoreType,
     cancellation_token: CancellationToken,
-    config: TaskInstancePoolConfig,
+    config: &TaskInstancePoolConfig,
 ) -> (
     TaskInstancePoolHandle,
     JoinHandle<Result<(), InternalError>>,
@@ -214,8 +214,9 @@ pub fn create_task_instance_pool<
         execution_manager_pool: HashSet::new(),
         receiver,
     };
+    let gc_interval = config.gc_interval;
     let pool_join_handle =
-        tokio::spawn(async move { pool.run(cancellation_token, config.gc_interval).await });
+        tokio::spawn(async move { pool.run(cancellation_token, gc_interval).await });
     let handle = TaskInstancePoolHandle {
         next_task_instance_id,
         sender,
@@ -818,7 +819,7 @@ mod tests {
             ready_queue_sender.clone(),
             RejectAllLivenessStore,
             cancellation_token.clone(),
-            TaskInstancePoolConfig {
+            &TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
                 gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
@@ -867,7 +868,7 @@ mod tests {
             ready_queue_sender,
             liveness_store.clone(),
             cancellation_token.clone(),
-            TaskInstancePoolConfig {
+            &TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
                 gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
@@ -922,7 +923,7 @@ mod tests {
             MockReadyQueueSender::default(),
             MockExecutionManagerLivenessManagement::default(),
             cancellation_token.clone(),
-            TaskInstancePoolConfig {
+            &TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
                 gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,
@@ -946,7 +947,7 @@ mod tests {
             ready_queue_sender.clone(),
             RejectAllLivenessStore,
             cancellation_token.clone(),
-            TaskInstancePoolConfig {
+            &TaskInstancePoolConfig {
                 execution_manager_stale_after_sec: 60,
                 gc_interval: 60,
                 channel_size: DEFAULT_CHANNEL_SIZE,

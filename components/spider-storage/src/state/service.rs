@@ -712,7 +712,7 @@ mod tests {
     ) -> TestServiceState {
         use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
         let (_sender, receiver) =
-            create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
+            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
         TestServiceState::new(
             db,
             session_id,
@@ -733,7 +733,7 @@ mod tests {
     ) -> (TestServiceStateWithReadyQueue, ReadyQueueSenderHandle) {
         use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
         let (sender, receiver) =
-            create_ready_queue(ReadyQueueConfig::default()).expect("ready queue creation");
+            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
         let service = TestServiceStateWithReadyQueue::new(
             db,
             0,
