@@ -3,7 +3,7 @@
 //! The execution manager acquires tasks from the scheduler through [`SchedulerClient`].
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, JobId, SessionId, TaskId};
+use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId};
 
 /// A task assignment handed to the execution manager by the scheduler.
 ///
@@ -14,6 +14,7 @@ use spider_core::types::id::{ExecutionManagerId, JobId, SessionId, TaskId};
 pub struct SchedulerResponse {
     pub job_id: JobId,
     pub task_id: TaskId,
+    pub resource_group_id: ResourceGroupId,
     pub session_id: SessionId,
 }
 

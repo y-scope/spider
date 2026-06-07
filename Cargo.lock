@@ -290,6 +290,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "em-runtime-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "spider-core",
+ "spider-execution-manager",
+ "test-utils",
+ "tokio",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
