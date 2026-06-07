@@ -290,7 +290,7 @@ mod tests {
         cancellation_token: CancellationToken,
     ) -> (LivenessHandle, JoinHandle<()>) {
         spawn(
-            ExecutionManagerId::new(),
+            ExecutionManagerId::random(),
             client,
             tracker,
             cancellation_token,
