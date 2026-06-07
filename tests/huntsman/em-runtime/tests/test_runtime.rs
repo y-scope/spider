@@ -45,9 +45,9 @@ const TIGHT_WAIT: Duration = Duration::from_millis(500);
 /// alongside the requested `session_id`.
 fn assignment_with_session(session_id: u64) -> SchedulerResponse {
     SchedulerResponse {
-        job_id: JobId::new(),
-        task_id: TaskId::new(),
-        resource_group_id: ResourceGroupId::new(),
+        job_id: JobId::random(),
+        task_id: TaskId::Index(0),
+        resource_group_id: ResourceGroupId::random(),
         session_id,
     }
 }
@@ -102,9 +102,8 @@ async fn wait_until(predicate: impl Fn() -> bool, timeout: Duration) -> bool {
 ///
 /// Panics if the hard-coded loopback ip fails to parse — never in practice.
 fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
-    let unique = ExecutionManagerId::new();
-    let log_dir =
-        std::env::temp_dir().join(format!("spider-em-runtime-test-{}", unique.as_uuid_ref()));
+    let unique = ExecutionManagerId::random();
+    let log_dir = std::env::temp_dir().join(format!("spider-em-runtime-test-{unique}"));
     RuntimeConfig {
         em_ip: "127.0.0.1".parse().expect("parse loopback"),
         heartbeat_interval,
