@@ -24,10 +24,7 @@ use std::{
 
 use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId};
-use tokio::{
-    sync::{mpsc, mpsc::error::TryRecvError},
-    task::JoinHandle,
-};
+use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -39,6 +36,60 @@ use crate::{
     db::ExecutionManagerLivenessManagement,
     ready_queue::ReadyQueueSender,
 };
+
+/// Configuration for a task instance pool actor.
+///
+/// Controls GC timing, channel buffering, and execution manager staleness detection.
+#[derive(Debug, Clone, Copy)]
+pub struct TaskInstancePoolConfig {
+    /// Seconds without a heartbeat after which an execution manager is considered stale.
+    pub execution_manager_stale_cutoff_sec: u64,
+
+    /// Interval in seconds between GC cycles that check for dead execution managers.
+    pub gc_interval_sec: u64,
+
+    /// The capacity of the bounded message channel.
+    pub message_channel_capacity: usize,
+}
+
+impl TaskInstancePoolConfig {
+    /// Validates the configuration parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskInstancePoolInvalidConfig`] if `execution_manager_stale_cutoff_sec`,
+    ///   `gc_interval_sec`, or `message_channel_capacity` is zero.
+    pub const fn validate(&self) -> Result<(), InternalError> {
+        if self.execution_manager_stale_cutoff_sec == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "execution_manager_stale_cutoff_sec must be greater than zero",
+            ));
+        }
+        if self.gc_interval_sec == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "gc_interval_sec must be greater than zero",
+            ));
+        }
+        if self.message_channel_capacity == 0 {
+            return Err(InternalError::TaskInstancePoolInvalidConfig(
+                "message_channel_capacity must be greater than zero",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for TaskInstancePoolConfig {
+    fn default() -> Self {
+        Self {
+            execution_manager_stale_cutoff_sec: 60,
+            gc_interval_sec: 30,
+            message_channel_capacity: 128,
+        }
+    }
+}
 
 /// Metadata for a running task instance tracked by the task instance pool.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,111 +169,6 @@ pub trait TaskInstancePoolConnector: Clone + Send + Sync {
 pub struct TaskInstancePoolHandle {
     next_task_instance_id: Arc<AtomicU64>,
     sender: mpsc::Sender<PoolMessage>,
-}
-
-/// Configuration for a task instance pool actor.
-///
-/// Controls GC timing, channel buffering, and execution manager staleness detection.
-#[derive(Debug, Clone, Copy)]
-pub struct TaskInstancePoolConfig {
-    /// Seconds without a heartbeat after which an execution manager is considered stale.
-    pub execution_manager_stale_after_sec: u64,
-    /// Interval in seconds between GC cycles that check for dead execution managers.
-    pub gc_interval: u64,
-    /// Maximum number of pending registration messages in the pool channel.
-    pub channel_size: usize,
-}
-
-impl TaskInstancePoolConfig {
-    /// Creates a new [`TaskInstancePoolConfig`] with validation.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * `execution_manager_stale_after_sec` is zero.
-    /// * `gc_interval` is zero.
-    /// * `channel_size` is zero.
-    pub const fn new(
-        execution_manager_stale_after_sec: u64,
-        gc_interval: u64,
-        channel_size: usize,
-    ) -> Result<Self, InternalError> {
-        if execution_manager_stale_after_sec == 0 {
-            return Err(InternalError::TaskInstancePoolInvalidConfig(
-                "execution_manager_stale_after_sec must be greater than zero",
-            ));
-        }
-        if gc_interval == 0 {
-            return Err(InternalError::TaskInstancePoolInvalidConfig(
-                "gc_interval must be greater than zero",
-            ));
-        }
-        if channel_size == 0 {
-            return Err(InternalError::TaskInstancePoolInvalidConfig(
-                "channel_size must be greater than zero",
-            ));
-        }
-        Ok(Self {
-            execution_manager_stale_after_sec,
-            gc_interval,
-            channel_size,
-        })
-    }
-}
-
-impl Default for TaskInstancePoolConfig {
-    fn default() -> Self {
-        Self {
-            execution_manager_stale_after_sec: 60,
-            gc_interval: 30,
-            channel_size: 128,
-        }
-    }
-}
-
-/// Creates a task instance pool and returns the handle plus the spawned actor task.
-///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
-/// * `LivenessStoreType` - The execution manager liveness store implementation.
-///
-/// # Returns
-///
-/// A [`TaskInstancePoolHandle`] and the spawned actor's [`JoinHandle`].
-pub fn create_task_instance_pool<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
-    LivenessStoreType: ExecutionManagerLivenessManagement + 'static,
->(
-    ready_queue_sender: ReadyQueueSenderType,
-    execution_manager_liveness_store: LivenessStoreType,
-    cancellation_token: CancellationToken,
-    config: &TaskInstancePoolConfig,
-) -> (
-    TaskInstancePoolHandle,
-    JoinHandle<Result<(), InternalError>>,
-) {
-    let next_task_instance_id = Arc::new(AtomicU64::new(1));
-    let (sender, receiver) = mpsc::channel(config.channel_size);
-
-    let pool = TaskInstancePool {
-        ready_queue_sender,
-        execution_manager_liveness_store,
-        execution_manager_stale_after_sec: config.execution_manager_stale_after_sec,
-        instances: Vec::new(),
-        execution_manager_pool: HashSet::new(),
-        receiver,
-    };
-    let gc_interval = config.gc_interval;
-    let pool_join_handle =
-        tokio::spawn(async move { pool.run(cancellation_token, gc_interval).await });
-    let handle = TaskInstancePoolHandle {
-        next_task_instance_id,
-        sender,
-    };
-
-    (handle, pool_join_handle)
 }
 
 #[async_trait]
@@ -349,16 +295,15 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     async fn run(
         mut self,
         cancellation_token: CancellationToken,
-        gc_interval: u64,
+        gc_interval_sec: u64,
     ) -> Result<(), InternalError> {
-        let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval));
+        let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval_sec));
         // The first tick completes immediately; skip it so we don't GC right at startup.
         gc_interval.tick().await;
 
         loop {
             tokio::select! {
                 () = cancellation_token.cancelled() => {
-                    self.drain_received_messages().await?;
                     return Ok(());
                 }
                 message = self.receiver.recv() => {
@@ -371,22 +316,6 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
                 _ = gc_interval.tick() => {
                     let () = self.run_gc_cycle_at(SystemTime::now()).await?;
                 }
-            }
-        }
-    }
-
-    /// Drains all messages already accepted by the pool channel.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`Self::handle_message`]'s return values on failure.
-    async fn drain_received_messages(&mut self) -> Result<(), InternalError> {
-        loop {
-            match self.receiver.try_recv() {
-                Ok(message) => self.handle_message(message).await?,
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
             }
         }
     }
@@ -547,6 +476,64 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
             }
         }
     }
+}
+
+/// Creates a task instance pool.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
+/// * `LivenessStoreType` - The execution manager liveness store implementation.
+///
+/// # Returns
+///
+/// A tuple on success, containing:
+///
+/// * A [`TaskInstancePoolHandle`] for registering task instances to the pool.
+/// * A [`JoinHandle`] for the task instance pool actor.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`TaskInstancePoolConfig::validate`]'s return values on failure.
+pub fn create_task_instance_pool<
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    LivenessStoreType: ExecutionManagerLivenessManagement + 'static,
+>(
+    ready_queue_sender: ReadyQueueSenderType,
+    execution_manager_liveness_store: LivenessStoreType,
+    cancellation_token: CancellationToken,
+    config: &TaskInstancePoolConfig,
+) -> Result<
+    (
+        TaskInstancePoolHandle,
+        JoinHandle<Result<(), InternalError>>,
+    ),
+    InternalError,
+> {
+    config.validate()?;
+
+    let next_task_instance_id = Arc::new(AtomicU64::new(1));
+    let (sender, receiver) = mpsc::channel(config.message_channel_capacity);
+
+    let pool = TaskInstancePool {
+        ready_queue_sender,
+        execution_manager_liveness_store,
+        execution_manager_stale_after_sec: config.execution_manager_stale_cutoff_sec,
+        instances: Vec::new(),
+        execution_manager_pool: HashSet::new(),
+        receiver,
+    };
+    let gc_interval_sec = config.gc_interval_sec;
+    let pool_join_handle =
+        tokio::spawn(async move { pool.run(cancellation_token, gc_interval_sec).await });
+    let handle = TaskInstancePoolHandle {
+        next_task_instance_id,
+        sender,
+    };
+
+    Ok((handle, pool_join_handle))
 }
 
 #[cfg(test)]
@@ -820,11 +807,12 @@ mod tests {
             RejectAllLivenessStore,
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
-                execution_manager_stale_after_sec: 60,
-                gc_interval: 60,
-                channel_size: DEFAULT_CHANNEL_SIZE,
+                execution_manager_stale_cutoff_sec: 60,
+                gc_interval_sec: 60,
+                message_channel_capacity: DEFAULT_CHANNEL_SIZE,
             },
-        );
+        )
+        .expect("pool creation should succeed");
         let tcb = build_single_task_tcb().await;
         let task_instance_id = 1;
         let _ = tcb
@@ -869,11 +857,12 @@ mod tests {
             liveness_store.clone(),
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
-                execution_manager_stale_after_sec: 60,
-                gc_interval: 60,
-                channel_size: DEFAULT_CHANNEL_SIZE,
+                execution_manager_stale_cutoff_sec: 60,
+                gc_interval_sec: 60,
+                message_channel_capacity: DEFAULT_CHANNEL_SIZE,
             },
-        );
+        )
+        .expect("pool creation should succeed");
         let execution_manager_id = ExecutionManagerId::new();
 
         let tcb1 = build_single_task_tcb().await;
@@ -924,11 +913,12 @@ mod tests {
             MockExecutionManagerLivenessManagement::default(),
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
-                execution_manager_stale_after_sec: 60,
-                gc_interval: 60,
-                channel_size: DEFAULT_CHANNEL_SIZE,
+                execution_manager_stale_cutoff_sec: 60,
+                gc_interval_sec: 60,
+                message_channel_capacity: DEFAULT_CHANNEL_SIZE,
             },
-        );
+        )
+        .expect("pool creation should succeed");
 
         cancellation_token.cancel();
 
@@ -948,11 +938,12 @@ mod tests {
             RejectAllLivenessStore,
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
-                execution_manager_stale_after_sec: 60,
-                gc_interval: 60,
-                channel_size: DEFAULT_CHANNEL_SIZE,
+                execution_manager_stale_cutoff_sec: 60,
+                gc_interval_sec: 60,
+                message_channel_capacity: DEFAULT_CHANNEL_SIZE,
             },
-        );
+        )
+        .expect("pool creation should succeed");
         let tcb = build_single_task_tcb().await;
         let task_instance_id = 1;
         let _ = tcb
@@ -983,61 +974,6 @@ mod tests {
             messages.contains(&ReadyMessage::Task(job_id, 0)),
             "registration should be processed before shutdown, got: {messages:?}"
         );
-    }
-
-    #[tokio::test]
-    async fn run_drains_queued_registrations_when_already_cancelled() {
-        let ready_queue_sender = MockReadyQueueSender::default();
-        let cancellation_token = CancellationToken::new();
-        cancellation_token.cancel();
-        let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let mut expected_messages: Vec<ReadyMessage> = Vec::new();
-
-        for task_index in 0..3 {
-            let tcb = build_single_task_tcb().await;
-            let task_instance_id = task_index as TaskInstanceId + 1;
-            let _ = tcb
-                .register_task_instance(task_instance_id)
-                .await
-                .expect("TCB registration should succeed");
-            let metadata = make_task_instance_metadata(
-                TaskId::Index(task_index),
-                task_instance_id,
-                ExecutionManagerId::new(),
-                SystemTime::now(),
-            );
-            expected_messages.push(ReadyMessage::Task(metadata.job_id, task_index));
-            sender
-                .send(PoolMessage::Register {
-                    tcb: Tcb::Task(tcb),
-                    metadata,
-                })
-                .await
-                .expect("pool message should be queued");
-        }
-
-        drop(sender);
-        let pool = TaskInstancePool {
-            ready_queue_sender: ready_queue_sender.clone(),
-            execution_manager_liveness_store: RejectAllLivenessStore,
-            execution_manager_pool: HashSet::new(),
-            execution_manager_stale_after_sec: 60,
-            instances: Vec::new(),
-            receiver,
-        };
-
-        pool.run(cancellation_token, 60)
-            .await
-            .expect("pool should stop cleanly");
-
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
-        assert_eq!(messages.len(), expected_messages.len(), "got: {messages:?}");
-        for expected in &expected_messages {
-            assert!(
-                messages.contains(expected),
-                "missing drained registration {expected:?}, got: {messages:?}"
-            );
-        }
     }
 
     #[tokio::test]

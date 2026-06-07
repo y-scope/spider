@@ -85,13 +85,17 @@ impl<
 ///
 /// # Returns
 ///
-/// A newly created [`Runtime`] on success.
+/// A tuple on success, containing:
+///
+/// * The newly created runtime instance.
+/// * The runtime's cancellation token.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
+/// * Forwards [`create_task_instance_pool`]'s return values on failure.
 /// * Forwards [`create_ready_queue`]'s return values on failure.
 pub async fn create_server_runtime(
     db_config: &DatabaseConfig,
@@ -114,7 +118,8 @@ pub async fn create_server_runtime(
         db.clone(),
         cancellation_token.clone(),
         task_instance_pool_config,
-    );
+    )
+    .map_err(CacheError::from)?;
 
     // TODO: Recover jobs from the database.
     let service_state = ServiceState::new(
