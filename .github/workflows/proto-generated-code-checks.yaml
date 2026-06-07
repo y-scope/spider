@@ -27,7 +27,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/linux/install-dev.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-huntsman.sh"
 
       - name: "`spider-proto-rust` code generation"
         shell: "bash"
