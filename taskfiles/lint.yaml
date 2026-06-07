@@ -314,4 +314,4 @@ tasks:
     deps: ["toolchains:rust"]
     cmd: |-
       . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-      cargo +nightly clippy --all-targets --all-features {{.CARGO_CLIPPY_FLAGS}}
+      cargo +nightly clippy --workspace --all-targets --all-features {{.CARGO_CLIPPY_FLAGS}}
