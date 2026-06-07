@@ -4,6 +4,7 @@ members = [
   "components/spider-core",
   "components/spider-derive",
   "components/spider-execution-manager",
+  "components/spider-proto-rust",
   "components/spider-storage",
   "components/spider-task-executor",
   "components/spider-tdl",
@@ -15,4 +16,14 @@ members = [
   "tests/huntsman/task-executor",
   "tests/huntsman/tdl-integration",
   "tests/huntsman/test-utils",
+]
+default-members = [
+  "components/spider-core",
+  "components/spider-derive",
+  "components/spider-execution-manager",
+  "components/spider-proto-rust",
+  "components/spider-storage",
+  "components/spider-task-executor",
+  "components/spider-tdl",
+  "components/spider-tdl-derive",
 ]
