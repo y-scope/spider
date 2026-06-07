@@ -97,7 +97,7 @@ impl<
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
 /// * Forwards [`create_task_instance_pool`]'s return values on failure.
 /// * Forwards [`create_ready_queue`]'s return values on failure.
-pub async fn create_server_runtime(
+pub async fn create_runtime(
     db_config: &DatabaseConfig,
     ready_queue_config: &ReadyQueueConfig,
     task_instance_pool_config: &TaskInstancePoolConfig,
