@@ -1,10 +1,14 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::{Database, encode::IsNull};
-use uuid::Uuid;
 
-/// A generic identifier type that wraps a UUID and a type marker.
+use crate::task::TaskIndex;
+
+/// A generic identifier type that wraps a numeric ID and a type marker.
 ///
 /// # Type Parameters:
 ///
@@ -13,92 +17,126 @@ use uuid::Uuid;
 /// # Examples
 ///
 /// ```rust
+/// use spider_core::types::id::Id;
+///
 /// #[derive(Debug, PartialEq, Eq)]
 /// enum SomeTypeIdMarker {}
 /// type SomeTypeId = Id<SomeTypeIdMarker>;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Id<TypeMarker: Debug + PartialEq + Eq>(Uuid, PhantomData<TypeMarker>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Id<TypeMarker: Debug + PartialEq + Eq> {
+    raw: u64,
+    _marker: PhantomData<TypeMarker>,
+}
 
 impl<TypeMarker: Debug + PartialEq + Eq> Default for Id<TypeMarker> {
     fn default() -> Self {
-        Self::new()
+        Self::from(0)
     }
 }
 
 impl<TypeMarker: Debug + PartialEq + Eq> Id<TypeMarker> {
+    /// Creates a random ID for tests.
+    ///
+    /// Production IDs should be assigned by persistent storage instead.
     #[must_use]
-    pub fn new() -> Self {
-        Self(Uuid::new_v4(), PhantomData)
+    pub fn random() -> Self {
+        Self::from(rand::random())
     }
 
     #[must_use]
-    pub const fn from(uid: Uuid) -> Self {
-        Self(uid, PhantomData)
+    pub const fn from(id: u64) -> Self {
+        Self {
+            raw: id,
+            _marker: PhantomData,
+        }
     }
 
     #[must_use]
-    pub const fn as_uuid_ref(&self) -> &Uuid {
-        &self.0
-    }
-
-    #[must_use]
-    pub const fn as_bytes(&self) -> &UuidBytes {
-        self.0.as_bytes()
+    pub const fn get(&self) -> u64 {
+        self.raw
     }
 }
 
-impl<TypeMarker, Db> sqlx::Type<Db> for Id<TypeMarker>
+impl<TypeMarker: Debug + PartialEq + Eq, Db: Database> sqlx::Type<Db> for Id<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-    Db: Database,
-    Uuid: sqlx::Type<Db>,
+    u64: sqlx::Type<Db>,
 {
     fn type_info() -> <Db as Database>::TypeInfo {
-        <Uuid as sqlx::Type<Db>>::type_info()
+        <u64 as sqlx::Type<Db>>::type_info()
     }
 
     fn compatible(ty: &<Db as Database>::TypeInfo) -> bool {
-        <Uuid as sqlx::Type<Db>>::compatible(ty)
+        <u64 as sqlx::Type<Db>>::compatible(ty)
     }
 }
 
-impl<'encode, TypeMarker, Db> sqlx::Encode<'encode, Db> for Id<TypeMarker>
+impl<'encode, TypeMarker: Debug + PartialEq + Eq, Db: Database> sqlx::Encode<'encode, Db>
+    for Id<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-    Db: Database,
-    Uuid: sqlx::Encode<'encode, Db>,
+    u64: sqlx::Encode<'encode, Db>,
 {
     fn encode_by_ref(
         &self,
         buf: &mut <Db as Database>::ArgumentBuffer<'encode>,
     ) -> Result<IsNull, sqlx::error::BoxDynError> {
-        self.0.encode_by_ref(buf)
+        self.get().encode_by_ref(buf)
     }
 }
 
-impl<'decode, TypeMarker, Db> sqlx::Decode<'decode, Db> for Id<TypeMarker>
+impl<'decode, TypeMarker: Debug + PartialEq + Eq, Db: Database> sqlx::Decode<'decode, Db>
+    for Id<TypeMarker>
 where
-    TypeMarker: Debug + PartialEq + Eq,
-    Db: Database,
-    Uuid: sqlx::Decode<'decode, Db>,
+    u64: sqlx::Decode<'decode, Db>,
 {
     fn decode(
         value: <Db as Database>::ValueRef<'decode>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
-        Uuid::decode(value).map(|uuid| Self(uuid, PhantomData))
+        u64::decode(value).map(|id| Self::from(id))
     }
 }
 
-pub type UuidBytes = uuid::Bytes;
+impl<TypeMarker: Debug + PartialEq + Eq> Display for Id<TypeMarker> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.get(), formatter)
+    }
+}
+
+impl<TypeMarker: Debug + PartialEq + Eq> Serialize for Id<TypeMarker> {
+    fn serialize<SerializerImpl: Serializer>(
+        &self,
+        serializer: SerializerImpl,
+    ) -> Result<SerializerImpl::Ok, SerializerImpl::Error> {
+        self.get().serialize(serializer)
+    }
+}
+
+impl<'deserializer_lifetime, TypeMarker: Debug + PartialEq + Eq> Deserialize<'deserializer_lifetime>
+    for Id<TypeMarker>
+{
+    fn deserialize<DeserializerImpl: Deserializer<'deserializer_lifetime>>(
+        deserializer: DeserializerImpl,
+    ) -> Result<Self, DeserializerImpl::Error> {
+        u64::deserialize(deserializer).map(Self::from)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResourceGroupIdMarker {}
 pub type ResourceGroupId = Id<ResourceGroupIdMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TaskIdMarker {}
-pub type TaskId = Id<TaskIdMarker>;
+/// Identifier of a task inside a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TaskId {
+    /// The index of the task in the job's task graph.
+    Index(TaskIndex),
+
+    /// The commit task.
+    Commit,
+
+    /// The cleanup task.
+    Cleanup,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobIdMarker {}
@@ -170,32 +208,31 @@ where
 
 pub type SignedJobId = SignedId<JobIdMarker>;
 
-pub type SignedTaskId = SignedId<TaskIdMarker>;
-
 #[cfg(test)]
 mod tests {
-    use std::any::TypeId;
-
-    use super::*;
+    use super::{JobId, ResourceGroupId};
 
     #[test]
-    fn test_id_basic() {
-        let id = TaskId::new();
-        let underlying_uuid = id.as_uuid_ref().to_owned();
-        assert_eq!(id, TaskId::from(underlying_uuid));
+    fn id_serializes_as_u64() {
+        let job_id = JobId::from(42);
+        let serialized =
+            serde_json::to_string(&job_id).expect("job id serialization should succeed");
 
-        assert_ne!(TypeId::of::<TaskId>(), TypeId::of::<JobId>());
+        assert_eq!(serialized, "42");
     }
 
     #[test]
-    fn task_id_json_roundtrip() {
-        let id = TaskId::new();
-        let deserialized_id: TaskId = serde_json::from_str(
-            serde_json::to_string(&id)
-                .expect("JSON serialization failure")
-                .as_str(),
-        )
-        .expect("JSON deserialization failure");
-        assert_eq!(id, deserialized_id);
+    fn distinct_id_markers_can_share_numeric_values() {
+        let job_id = JobId::from(7);
+        let resource_group_id = ResourceGroupId::from(7);
+
+        assert_eq!(job_id.get(), resource_group_id.get());
+    }
+
+    #[test]
+    fn default_id_is_zero() {
+        let job_id = JobId::default();
+
+        assert_eq!(job_id.get(), 0);
     }
 }

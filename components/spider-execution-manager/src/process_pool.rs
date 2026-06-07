@@ -217,10 +217,10 @@ impl ProcessPool {
     fn spawn_executor(&self) -> Result<ExecutorHandle, InternalError> {
         let executor_id = self.next_executor_id.fetch_add(1, Ordering::Relaxed);
         std::fs::create_dir_all(&self.config.log_dir)?;
-        let log_path = self.config.log_dir.join(format!(
-            "{}-{executor_id}.log",
-            self.config.em_id.as_uuid_ref()
-        ));
+        let log_path = self
+            .config
+            .log_dir
+            .join(format!("{}-{executor_id}.log", self.config.em_id));
         let log_file = File::options().create(true).append(true).open(&log_path)?;
 
         let mut command = Command::new(&self.config.executor_binary_path);

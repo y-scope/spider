@@ -282,7 +282,7 @@ mod tests {
                 .expect("job submission should be valid");
         SharedJobControlBlock::create(
             job_id,
-            spider_core::types::id::ResourceGroupId::new(),
+            spider_core::types::id::ResourceGroupId::random(),
             job_submission,
             MockReadyQueueSender,
             MockDbConnector,
@@ -296,7 +296,7 @@ mod tests {
     async fn job_cache_insert_and_get() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
 
         let jcb = create_test_jcb(job_id).await;
         cache.insert(jcb)?;
@@ -310,7 +310,7 @@ mod tests {
     async fn job_cache_remove_returns_inserted_jcb() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
 
         let jcb = create_test_jcb(job_id).await;
         cache.insert(jcb)?;
@@ -327,7 +327,7 @@ mod tests {
     async fn job_cache_get_returns_none_for_nonexistent_job() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
 
         let result = cache.get(job_id);
         assert!(
@@ -341,7 +341,7 @@ mod tests {
     async fn job_cache_insert_duplicate_returns_error() -> anyhow::Result<()> {
         let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
             JobCache::new();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
 
         let jcb1 = create_test_jcb(job_id).await;
         cache.insert(jcb1)?;
@@ -372,7 +372,7 @@ mod tests {
         for i in 0..num_tasks {
             let cache = Arc::clone(&cache);
             tracker.spawn(async move {
-                let job_id = JobId::new();
+                let job_id = JobId::random();
                 let jcb = create_test_jcb(job_id).await;
                 cache
                     .insert(jcb)
@@ -456,13 +456,13 @@ mod tests {
             })
             .expect("task insertion should succeed");
 
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         let job_submission =
             ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
                 .expect("job submission should be valid");
         let jcb = SharedJobControlBlock::create(
             job_id,
-            spider_core::types::id::ResourceGroupId::new(),
+            spider_core::types::id::ResourceGroupId::random(),
             job_submission,
             sender,
             MockDbConnector,

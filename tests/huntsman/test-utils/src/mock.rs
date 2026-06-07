@@ -314,7 +314,7 @@ impl MockLiveness {
     pub fn with_initial_session(initial_session: SessionId) -> Self {
         Self {
             inner: Arc::new(LivenessInner {
-                em_id: ExecutionManagerId::new(),
+                em_id: ExecutionManagerId::random(),
                 initial_session: AtomicU64::new(initial_session),
                 register_response: Mutex::new(None),
                 heartbeat_responses: Mutex::new(VecDeque::new()),

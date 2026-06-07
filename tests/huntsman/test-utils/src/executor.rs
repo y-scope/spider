@@ -191,10 +191,10 @@ pub fn tdl_package_dir() -> PathBuf {
 #[must_use]
 pub fn build_ctx() -> Vec<u8> {
     let ctx = TaskContext {
-        job_id: JobId::new(),
-        task_id: TaskId::new(),
+        job_id: JobId::random(),
+        task_id: TaskId::Index(0),
         task_instance_id: 1,
-        resource_group_id: ResourceGroupId::new(),
+        resource_group_id: ResourceGroupId::random(),
     };
     rmp_serde::to_vec(&ctx).expect("serialize TaskContext")
 }
