@@ -1,0 +1,16 @@
+[package]
+name = "integration-test-tasks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+# `cdylib` is what the task-executor dlopens; `rlib` lets other Rust crates (the integration
+# tests) `use` constants like `INSTRUMENT_SLEEP_US`.
+crate-type = ["cdylib", "rlib"]
+name = "integration_test_tasks"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+spider-tdl = { path = "../../../components/spider-tdl", features = ["derive"] }

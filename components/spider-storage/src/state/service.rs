@@ -4,7 +4,7 @@ use spider_core::{
     job::JobState,
     task::{TaskGraph, TaskIndex},
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId, TaskInstanceId},
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
@@ -15,7 +15,6 @@ use spider_tdl::{
 
 use crate::{
     cache::{
-        TaskId,
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
         job_submission::ValidatedJobSubmission,
@@ -796,7 +795,7 @@ mod tests {
 
         SharedJobControlBlock::create(
             job_id,
-            ResourceGroupId::new(),
+            ResourceGroupId::random(),
             job_submission,
             MockReadyQueueSender,
             MockDbConnector::default(),
@@ -812,7 +811,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -829,7 +828,7 @@ mod tests {
         let service = create_test_service();
         let result = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 "invalid json".to_owned(),
                 create_empty_serialized_inputs(),
             )
@@ -849,7 +848,7 @@ mod tests {
             .expect("task graph serialization should succeed");
         let result = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 task_graph,
                 create_empty_serialized_inputs(),
             )
@@ -870,7 +869,7 @@ mod tests {
             .expect("task graph serialization should succeed");
         let result = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 task_graph,
                 create_empty_serialized_inputs(),
             )
@@ -888,7 +887,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -904,7 +903,7 @@ mod tests {
     #[tokio::test]
     async fn start_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
-        let result = service.start_job(JobId::new()).await;
+        let result = service.start_job(JobId::random()).await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "start_job should return JobNotFound when job is not in cache"
@@ -915,7 +914,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
         let service = create_test_service();
-        let result = service.cancel_job(JobId::new()).await;
+        let result = service.cancel_job(JobId::random()).await;
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "cancel_job should return JobNotFound when job is not in cache or DB"
@@ -926,7 +925,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_returns_terminal_state_from_db_when_not_in_cache() -> anyhow::Result<()> {
         let db = MockDbConnector::default();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         db.states.insert(job_id, JobState::Cancelled);
 
         let service = create_test_service_with_db(db);
@@ -942,7 +941,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_transitions_to_terminal_state() -> anyhow::Result<()> {
         let service = create_test_service();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
         service.inner.job_cache.insert(jcb).await?;
 
@@ -964,7 +963,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -978,7 +977,7 @@ mod tests {
     #[tokio::test]
     async fn get_job_state_falls_back_to_db_when_not_in_cache() -> anyhow::Result<()> {
         let db = MockDbConnector::default();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         db.states.insert(job_id, JobState::Failed);
 
         let service = create_test_service_with_db(db);
@@ -990,7 +989,7 @@ mod tests {
     #[tokio::test]
     async fn get_job_state_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
-        let result = service.get_job_state(JobId::new()).await;
+        let result = service.get_job_state(JobId::random()).await;
         assert!(result.is_err(), "get_job_state should fail for unknown job");
         Ok(())
     }
@@ -998,7 +997,7 @@ mod tests {
     #[tokio::test]
     async fn get_job_outputs_returns_outputs_from_db() -> anyhow::Result<()> {
         let db = MockDbConnector::default();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3]];
         db.outputs.insert(job_id, outputs.clone());
 
@@ -1014,7 +1013,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -1026,7 +1025,7 @@ mod tests {
                 TEST_SESSION_ID,
                 job_id,
                 TaskId::Index(0),
-                ExecutionManagerId::new(),
+                ExecutionManagerId::random(),
             )
             .await?;
         let serialized_outputs = create_test_serialized_outputs();
@@ -1050,7 +1049,7 @@ mod tests {
     #[tokio::test]
     async fn get_job_outputs_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
-        let result = service.get_job_outputs(JobId::new()).await;
+        let result = service.get_job_outputs(JobId::random()).await;
         assert!(
             result.is_err(),
             "get_job_outputs should fail for unknown job"
@@ -1064,7 +1063,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -1081,7 +1080,7 @@ mod tests {
     #[tokio::test]
     async fn get_job_error_returns_error_message_from_db() -> anyhow::Result<()> {
         let db = MockDbConnector::default();
-        let job_id = JobId::new();
+        let job_id = JobId::random();
         let error_msg = "something went wrong".to_owned();
         db.errors.insert(job_id, error_msg.clone());
 
@@ -1094,7 +1093,7 @@ mod tests {
     #[tokio::test]
     async fn get_job_error_returns_error_for_unknown_job() -> anyhow::Result<()> {
         let service = create_test_service();
-        let result = service.get_job_error(JobId::new()).await;
+        let result = service.get_job_error(JobId::random()).await;
         assert!(
             matches!(result, Err(StorageServerError::Db(DbError::JobNotFound(_)))),
             "get_job_error should fail for unknown job"
@@ -1108,7 +1107,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -1120,7 +1119,7 @@ mod tests {
                 TEST_SESSION_ID,
                 job_id,
                 TaskId::Index(0),
-                ExecutionManagerId::new(),
+                ExecutionManagerId::random(),
             )
             .await?;
         assert_eq!(
@@ -1136,9 +1135,9 @@ mod tests {
         let result = service
             .create_task_instance(
                 TEST_SESSION_ID,
-                JobId::new(),
+                JobId::random(),
                 TaskId::Index(0),
-                ExecutionManagerId::new(),
+                ExecutionManagerId::random(),
             )
             .await;
         assert!(
@@ -1154,7 +1153,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -1166,7 +1165,7 @@ mod tests {
                 TEST_SESSION_ID,
                 job_id,
                 TaskId::Index(0),
-                ExecutionManagerId::new(),
+                ExecutionManagerId::random(),
             )
             .await?;
         let state = service
@@ -1192,7 +1191,7 @@ mod tests {
         let result = service
             .succeed_task_instance(
                 TEST_SESSION_ID,
-                JobId::new(),
+                JobId::random(),
                 1,
                 0,
                 create_test_serialized_outputs(),
@@ -1211,7 +1210,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -1223,7 +1222,7 @@ mod tests {
                 TEST_SESSION_ID,
                 job_id,
                 TaskId::Index(0),
-                ExecutionManagerId::new(),
+                ExecutionManagerId::random(),
             )
             .await?;
         let state = service
@@ -1249,7 +1248,7 @@ mod tests {
         let result = service
             .fail_task_instance(
                 TEST_SESSION_ID,
-                JobId::new(),
+                JobId::random(),
                 1,
                 TaskId::Index(0),
                 "error".to_owned(),
@@ -1277,7 +1276,7 @@ mod tests {
         let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
         let job_id = service
             .register_job(
-                ResourceGroupId::new(),
+                ResourceGroupId::random(),
                 serialized_task_graph,
                 serialized_inputs,
             )
@@ -1289,7 +1288,7 @@ mod tests {
                     STALE_SESSION_ID,
                     job_id,
                     TaskId::Index(TASK_INDEX),
-                    ExecutionManagerId::new(),
+                    ExecutionManagerId::random(),
                 )
                 .await;
             assert!(
@@ -1371,8 +1370,8 @@ mod tests {
     async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
         const TASK_INDEX: TaskIndex = 0;
         let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
-        let rg_id = ResourceGroupId::new();
-        let job_id = JobId::new();
+        let rg_id = ResourceGroupId::random();
+        let job_id = JobId::random();
         sender
             .send_task_ready(rg_id, job_id, vec![TASK_INDEX])
             .await
@@ -1404,8 +1403,8 @@ mod tests {
     #[tokio::test]
     async fn poll_commit_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
         let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
-        let rg_id = ResourceGroupId::new();
-        let job_id = JobId::new();
+        let rg_id = ResourceGroupId::random();
+        let job_id = JobId::random();
         sender
             .send_commit_ready(rg_id, job_id)
             .await
@@ -1424,8 +1423,8 @@ mod tests {
     #[tokio::test]
     async fn poll_cleanup_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
         let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
-        let rg_id = ResourceGroupId::new();
-        let job_id = JobId::new();
+        let rg_id = ResourceGroupId::random();
+        let job_id = JobId::random();
         sender
             .send_cleanup_ready(rg_id, job_id)
             .await
@@ -1467,7 +1466,7 @@ mod tests {
     async fn update_execution_manager_heartbeat_fails_for_unknown_em() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
-            .update_execution_manager_heartbeat(ExecutionManagerId::new())
+            .update_execution_manager_heartbeat(ExecutionManagerId::random())
             .await;
 
         assert!(

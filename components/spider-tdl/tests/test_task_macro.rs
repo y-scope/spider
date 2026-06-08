@@ -80,10 +80,10 @@ fn translate(_ctx: TaskContext, p: Point, dx: int32, dy: int32) -> Result<(Point
 /// A mocked encoded task context for testing.
 fn make_encoded_ctx() -> Vec<u8> {
     let ctx = TaskContext {
-        job_id: JobId::new(),
-        task_id: TaskId::new(),
+        job_id: JobId::random(),
+        task_id: TaskId::Index(0),
         task_instance_id: 1,
-        resource_group_id: ResourceGroupId::new(),
+        resource_group_id: ResourceGroupId::random(),
     };
     rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
 }
@@ -302,10 +302,10 @@ fn direct_execute_call_round_trips() -> anyhow::Result<()> {
     const EXPECTED_SUM: int32 = OPERAND_A + OPERAND_B;
 
     let ctx = TaskContext {
-        job_id: JobId::new(),
-        task_id: TaskId::new(),
+        job_id: JobId::random(),
+        task_id: TaskId::Index(0),
         task_instance_id: 1,
-        resource_group_id: ResourceGroupId::new(),
+        resource_group_id: ResourceGroupId::random(),
     };
 
     let mut inputs = TaskInputsSerializer::new();
