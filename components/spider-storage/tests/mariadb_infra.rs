@@ -16,6 +16,23 @@ use spider_storage::{
 /// Panics if any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`,
 /// `MARIADB_USERNAME`, `MARIADB_PASSWORD`) is missing or if the connection fails.
 pub async fn create_mariadb_connector() -> MariaDbStorageConnector {
+    MariaDbStorageConnector::connect(&create_mariadb_config())
+        .await
+        .expect("connect failed")
+}
+
+/// Creates a [`DatabaseConfig`] from environment variables.
+///
+/// # Returns
+///
+/// A [`DatabaseConfig`] configured from environment variables.
+///
+/// # Panics
+///
+/// Panics if any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`,
+/// `MARIADB_USERNAME`, `MARIADB_PASSWORD`) is missing or if `MARIADB_PORT` is invalid.
+#[must_use]
+pub fn create_mariadb_config() -> DatabaseConfig {
     let port: u16 = std::env::var("MARIADB_PORT")
         .expect("MARIADB_PORT")
         .parse()
@@ -24,17 +41,14 @@ pub async fn create_mariadb_connector() -> MariaDbStorageConnector {
     let username = std::env::var("MARIADB_USERNAME").expect("MARIADB_USERNAME");
     let password = std::env::var("MARIADB_PASSWORD").expect("MARIADB_PASSWORD");
 
-    let config = DatabaseConfig {
+    DatabaseConfig {
         host: "localhost".to_string(),
         port,
         name: database,
         username,
         password: SecretString::from(password),
         max_connections: 5,
-    };
-    MariaDbStorageConnector::connect(&config)
-        .await
-        .expect("connect failed")
+    }
 }
 
 /// Registers a new resource group with a random external ID and a fixed test password.
