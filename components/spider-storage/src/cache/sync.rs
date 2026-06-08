@@ -19,6 +19,13 @@ impl<Type: Send + Sync> Reader<Type> {
 
     /// # Returns
     ///
+    /// A writer for the same shared data.
+    pub(crate) fn writer(&self) -> Writer<Type> {
+        Writer::new(self.inner.clone())
+    }
+
+    /// # Returns
+    ///
     /// A guard that allows read access to the shared data. The guard will be released when it goes
     /// out of scope.
     pub async fn read(&self) -> RwLockReadGuard<'_, Type> {

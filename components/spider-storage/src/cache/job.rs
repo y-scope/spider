@@ -47,6 +47,20 @@ pub struct SharedJobControlBlock<
         Arc<JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
 }
 
+/// Persistent job state used to recover a job control block.
+pub struct JobRecoveryContext {
+    /// The persisted job ID.
+    pub id: JobId,
+    /// The owning resource group.
+    pub owner_id: ResourceGroupId,
+    /// The source-of-truth database state.
+    pub state: JobState,
+    /// The original job submission.
+    pub job_submission: ValidatedJobSubmission,
+    /// The committed job outputs, if the job has reached the commit phase.
+    pub job_outputs: Option<Vec<TaskOutput>>,
+}
+
 impl<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: InternalJobOrchestration,
@@ -91,6 +105,87 @@ impl<
                 },
             }),
         })
+    }
+
+    /// Recovers a job control block from persistent database state.
+    ///
+    /// This constructor does not mutate the database. It rebuilds enough cache state to resume
+    /// scheduling:
+    ///
+    /// * [`JobState::Running`] jobs enqueue their initially-ready regular tasks.
+    /// * [`JobState::CommitReady`] jobs enqueue the commit task.
+    /// * [`JobState::CleanupReady`] jobs enqueue the cleanup task.
+    ///
+    /// # Returns
+    ///
+    /// The recovered [`SharedJobControlBlock`] on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UnexpectedJobState`] if `state` is not recoverable.
+    /// * Forwards [`TaskGraph::create`]'s return values on failure.
+    /// * Forwards [`TaskGraph::restore_outputs`]'s return values on failure.
+    /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
+    pub async fn recover(
+        recovery_context: JobRecoveryContext,
+        ready_queue_sender: ReadyQueueSenderType,
+        db_connector: DbConnectorType,
+        task_instance_pool_connector: TaskInstancePoolConnectorType,
+    ) -> Result<Self, CacheError> {
+        let JobRecoveryContext {
+            id,
+            owner_id,
+            state,
+            job_submission,
+            job_outputs,
+        } = recovery_context;
+        if !matches!(
+            state,
+            JobState::Running | JobState::CommitReady | JobState::CleanupReady
+        ) {
+            return Err(UnexpectedJobState {
+                current: state,
+                expected: JobState::Running,
+            }
+            .into());
+        }
+
+        let num_tasks = job_submission.task_graph().get_num_tasks();
+        let mut task_graph = TaskGraph::create(job_submission).await?;
+        if let Some(outputs) = job_outputs {
+            task_graph.restore_outputs(outputs).await?;
+        }
+        let num_incomplete_tasks = if matches!(state, JobState::CommitReady) {
+            0
+        } else {
+            num_tasks
+        };
+
+        if matches!(state, JobState::CleanupReady) {
+            task_graph.cancel_non_terminal().await;
+        }
+
+        let job_execution_state = JobExecutionState {
+            state,
+            task_graph,
+            num_incomplete_tasks: AtomicUsize::new(num_incomplete_tasks),
+            ready_queue_sender,
+            db_connector,
+            task_instance_pool_connector,
+        };
+        let recovered = Self {
+            inner: Arc::new(JobControlBlock {
+                id,
+                owner_id,
+                job_execution_state: JobExecutionStateHandle {
+                    inner: tokio::sync::RwLock::new(job_execution_state),
+                },
+            }),
+        };
+        recovered.resend_ready_tasks().await?;
+        Ok(recovered)
     }
 
     /// Returns the job ID.

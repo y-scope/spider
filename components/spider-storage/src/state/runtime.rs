@@ -4,9 +4,12 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    cache::error::{CacheError, InternalError},
+    cache::{
+        error::{CacheError, InternalError},
+        job::{JobRecoveryContext, SharedJobControlBlock},
+    },
     config::DatabaseConfig,
-    db::{DbStorage, MariaDbStorageConnector, SessionManagement},
+    db::{DbStorage, MariaDbStorageConnector, RecoverableJob, SessionManagement},
     ready_queue::{ReadyQueueConfig, ReadyQueueSender, ReadyQueueSenderHandle, create_ready_queue},
     state::{JobCache, ServiceState, StorageServerError},
     task_instance_pool::{
@@ -121,11 +124,16 @@ pub async fn create_runtime(
     )
     .map_err(CacheError::from)?;
 
-    // TODO: Recover jobs from the database.
+    let job_cache = recover_job_cache(
+        &db,
+        ready_queue_sender.clone(),
+        task_instance_pool_connector.clone(),
+    )
+    .await?;
     let service_state = ServiceState::new(
         db,
         session_id,
-        JobCache::new(),
+        job_cache,
         ready_queue_sender,
         ready_queue_receiver,
         task_instance_pool_connector,
@@ -143,6 +151,63 @@ pub async fn create_runtime(
 }
 
 const STOP_BACKGROUND_TASKS_TIMEOUT_SEC: u64 = 30;
+
+/// Recovers jobs from persistent storage into the cache.
+///
+/// # Returns
+///
+/// A [`JobCache`] containing all recoverable jobs on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`DbStorage::get_recoverable_jobs`]'s return values on failure.
+/// * Forwards [`SharedJobControlBlock::recover`]'s return values on failure.
+/// * Forwards [`JobCache::insert`]'s return values on failure.
+async fn recover_job_cache<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: DbStorage,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+>(
+    db: &DbConnectorType,
+    ready_queue_sender: ReadyQueueSenderType,
+    task_instance_pool_connector: TaskInstancePoolConnectorType,
+) -> Result<
+    JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    StorageServerError,
+> {
+    let job_cache = JobCache::new();
+    for recoverable_job in db.get_recoverable_jobs().await? {
+        let RecoverableJob {
+            id,
+            resource_group_id,
+            state,
+            job_submission,
+            job_outputs,
+        } = recoverable_job;
+        let jcb = SharedJobControlBlock::recover(
+            JobRecoveryContext {
+                id,
+                owner_id: resource_group_id,
+                state,
+                job_submission,
+                job_outputs,
+            },
+            ready_queue_sender.clone(),
+            db.clone(),
+            task_instance_pool_connector.clone(),
+        )
+        .await?;
+        job_cache.insert(jcb).await?;
+        tracing::info!(
+            job_id = ? id,
+            job_state = ? state,
+            "Job recovered into cache.",
+        );
+    }
+    Ok(job_cache)
+}
 
 #[cfg(test)]
 mod tests {

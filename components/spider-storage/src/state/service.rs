@@ -83,6 +83,14 @@ impl<
         }
     }
 
+    /// # Returns
+    ///
+    /// The storage session ID owned by this service state.
+    #[must_use]
+    pub fn session_id(&self) -> SessionId {
+        self.inner.session_id
+    }
+
     /// Registers a job in the database and inserts its control block into the cache.
     ///
     /// # Returns

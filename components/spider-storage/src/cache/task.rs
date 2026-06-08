@@ -172,6 +172,30 @@ impl TaskGraph {
         &self.outputs
     }
 
+    /// Restores graph outputs from persisted job outputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskOutputsLengthMismatch`] if the number of persisted outputs does not
+    ///   match the number of graph outputs.
+    pub async fn restore_outputs(
+        &self,
+        persisted_outputs: Vec<TaskOutput>,
+    ) -> Result<(), InternalError> {
+        if persisted_outputs.len() != self.outputs.len() {
+            return Err(InternalError::TaskOutputsLengthMismatch(
+                self.outputs.len(),
+                persisted_outputs.len(),
+            ));
+        }
+        for (output_reader, output) in self.outputs.iter().zip(persisted_outputs) {
+            *output_reader.writer().write().await = Some(output);
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub const fn has_commit_task(&self) -> bool {
         self.commit_task.is_some()
