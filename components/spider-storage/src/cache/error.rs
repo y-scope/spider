@@ -78,11 +78,17 @@ pub enum InternalError {
     #[error("invalid config: {0}")]
     ReadyQueueInvalidConfig(&'static str),
 
+    #[error("invalid config: {0}")]
+    TaskInstancePoolInvalidConfig(&'static str),
+
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
 
     #[error(transparent)]
     WireError(#[from] WireError),
+
+    #[error(transparent)]
+    Db(#[from] crate::db::DbError),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

@@ -296,7 +296,7 @@ impl ReadyQueueReceiverHandle {
 ///
 /// * Forwards [`ReadyQueueConfig::validate`]'s return values on failure.
 pub fn create_ready_queue(
-    config: ReadyQueueConfig,
+    config: &ReadyQueueConfig,
 ) -> Result<(ReadyQueueSenderHandle, ReadyQueueReceiverHandle), InternalError> {
     config.validate()?;
 
@@ -379,7 +379,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_returns_early_when_max_items_reached() -> anyhow::Result<()> {
-        let (sender, receiver) = create_ready_queue(ReadyQueueConfig {
+        let (sender, receiver) = create_ready_queue(&ReadyQueueConfig {
             task_capacity: 1,
             commit_capacity: 1,
             cleanup_capacity: 1,
@@ -425,7 +425,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_returns_empty_when_wait_elapses() -> anyhow::Result<()> {
-        let (_sender, receiver) = create_ready_queue(ReadyQueueConfig {
+        let (_sender, receiver) = create_ready_queue(&ReadyQueueConfig {
             task_capacity: 1,
             commit_capacity: 1,
             cleanup_capacity: 1,
