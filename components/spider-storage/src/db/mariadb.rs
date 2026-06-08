@@ -5,9 +5,10 @@ use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
     job::JobState,
+    task::TaskGraph,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
-        io::TaskOutput,
+        io::{TaskInput, TaskOutput},
     },
 };
 use spider_derive::MySqlEnum;
@@ -22,6 +23,7 @@ use crate::{
         ExecutionManagerLivenessManagement,
         ExternalJobOrchestration,
         InternalJobOrchestration,
+        RecoverableJob,
         ResourceGroupManagement,
         SessionManagement,
         error::ExpectedStates,
@@ -379,6 +381,63 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
         tx.commit().await?;
         Ok(deleted_job_ids)
+    }
+
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJob>, DbError> {
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT `id`, `resource_group_id`, `state`, `serialized_task_graph`, \
+             `serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE `state` IN \
+             ('{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
+            table = JOBS_TABLE_NAME,
+            running_state = JobState::Running.as_str(),
+            commit_ready_state = JobState::CommitReady.as_str(),
+            cleanup_ready_state = JobState::CleanupReady.as_str(),
+        );
+
+        let rows = sqlx::query_as::<
+            _,
+            (
+                JobId,
+                ResourceGroupId,
+                JobState,
+                String,
+                Vec<u8>,
+                Option<Vec<u8>>,
+            ),
+        >(SELECT_QUERY)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(
+                |(
+                    id,
+                    resource_group_id,
+                    state,
+                    serialized_task_graph,
+                    serialized_job_inputs,
+                    serialized_job_outputs,
+                )| {
+                    let task_graph = TaskGraph::from_json(&serialized_task_graph)
+                        .map_err(DbError::task_graph_de)?;
+                    let job_inputs: Vec<TaskInput> =
+                        rmp_serde::from_slice(&serialized_job_inputs).map_err(DbError::value_de)?;
+                    let job_submission = ValidatedJobSubmission::create(task_graph, job_inputs)
+                        .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
+                    let job_outputs = serialized_job_outputs
+                        .map(|outputs| rmp_serde::from_slice(&outputs).map_err(DbError::value_de))
+                        .transpose()?;
+
+                    Ok(RecoverableJob {
+                        id,
+                        resource_group_id,
+                        state,
+                        job_submission,
+                        job_outputs,
+                    })
+                },
+            )
+            .collect()
     }
 }
 
