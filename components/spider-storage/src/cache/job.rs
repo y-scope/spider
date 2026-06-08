@@ -125,6 +125,7 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if `state` is not recoverable.
+    /// * [`InternalError::TaskGraphCorrupted`] if a commit-ready job has no persisted outputs.
     /// * Forwards [`TaskGraph::create`]'s return values on failure.
     /// * Forwards [`TaskGraph::restore_outputs`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
@@ -154,6 +155,12 @@ impl<
 
         let num_tasks = job_submission.task_graph().get_num_tasks();
         let mut task_graph = TaskGraph::create(job_submission).await?;
+        if matches!(state, JobState::CommitReady) && job_outputs.is_none() {
+            return Err(InternalError::TaskGraphCorrupted(
+                "commit-ready job has no persisted outputs".to_owned(),
+            )
+            .into());
+        }
         if let Some(outputs) = job_outputs {
             task_graph.restore_outputs(outputs).await?;
         }
