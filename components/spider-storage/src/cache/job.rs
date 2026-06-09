@@ -22,7 +22,7 @@ use crate::{
         job_submission::ValidatedJobSubmission,
         task::TaskGraph,
     },
-    db::InternalJobOrchestration,
+    db::{InternalJobOrchestration, RecoverableJob},
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
@@ -45,20 +45,6 @@ pub struct SharedJobControlBlock<
 > {
     inner:
         Arc<JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
-}
-
-/// Persistent job state used to recover a job control block.
-pub struct JobRecoveryContext {
-    /// The persisted job ID.
-    pub id: JobId,
-    /// The owning resource group.
-    pub owner_id: ResourceGroupId,
-    /// The source-of-truth database state.
-    pub state: JobState,
-    /// The original job submission.
-    pub job_submission: ValidatedJobSubmission,
-    /// The committed job outputs, if the job has reached the commit phase.
-    pub job_outputs: Option<Vec<TaskOutput>>,
 }
 
 impl<
@@ -130,18 +116,18 @@ impl<
     /// * Forwards [`TaskGraph::restore_outputs`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
     pub async fn recover(
-        recovery_context: JobRecoveryContext,
+        recoverable_job: RecoverableJob,
         ready_queue_sender: ReadyQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
-        let JobRecoveryContext {
+        let RecoverableJob {
             id,
-            owner_id,
+            resource_group_id,
             state,
             job_submission,
             job_outputs,
-        } = recovery_context;
+        } = recoverable_job;
         if !matches!(
             state,
             JobState::Running | JobState::CommitReady | JobState::CleanupReady
@@ -185,7 +171,7 @@ impl<
         let recovered = Self {
             inner: Arc::new(JobControlBlock {
                 id,
-                owner_id,
+                owner_id: resource_group_id,
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },

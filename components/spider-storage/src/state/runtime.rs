@@ -6,10 +6,10 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     cache::{
         error::{CacheError, InternalError},
-        job::{JobRecoveryContext, SharedJobControlBlock},
+        job::SharedJobControlBlock,
     },
     config::DatabaseConfig,
-    db::{DbStorage, MariaDbStorageConnector, RecoverableJob, SessionManagement},
+    db::{DbStorage, MariaDbStorageConnector, SessionManagement},
     ready_queue::{ReadyQueueConfig, ReadyQueueSender, ReadyQueueSenderHandle, create_ready_queue},
     state::{JobCache, ServiceState, StorageServerError},
     task_instance_pool::{
@@ -179,21 +179,10 @@ async fn recover_job_cache<
 > {
     let job_cache = JobCache::new();
     for recoverable_job in db.get_recoverable_jobs().await? {
-        let RecoverableJob {
-            id,
-            resource_group_id,
-            state,
-            job_submission,
-            job_outputs,
-        } = recoverable_job;
+        let id = recoverable_job.id;
+        let state = recoverable_job.state;
         let jcb = SharedJobControlBlock::recover(
-            JobRecoveryContext {
-                id,
-                owner_id: resource_group_id,
-                state,
-                job_submission,
-                job_outputs,
-            },
+            recoverable_job,
             ready_queue_sender.clone(),
             db.clone(),
             task_instance_pool_connector.clone(),
