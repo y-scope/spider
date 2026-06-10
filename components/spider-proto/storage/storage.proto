@@ -2,10 +2,108 @@ syntax = "proto3";
 
 package storage;
 
+service JobManagementService {
+  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc StartJob(JobIdRequest) returns (JobStateResponse);
+  rpc CancelJob(JobIdRequest) returns (JobStateResponse);
+  rpc GetJobState(JobIdRequest) returns (JobStateResponse);
+  rpc GetJobOutputs(JobIdRequest) returns (JobOutputsResponse);
+  rpc GetJobError(JobIdRequest) returns (JobErrorResponse);
+  rpc DeleteExpiredTerminatedJobs(DeleteExpiredTerminatedJobsRequest)
+      returns (DeleteExpiredTerminatedJobsResponse);
+  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (StorageOperationResponse);
+}
+
 service TaskInstanceManagementService {
   rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);
   rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (StorageOperationResponse);
   rpc ReportTaskFailure(ReportTaskFailureRequest) returns (StorageOperationResponse);
+}
+
+service ResourceGroupManagementService {
+  rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
+  rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (StorageOperationResponse);
+  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (StorageOperationResponse);
+}
+
+service ExecutionManagerLivenessService {
+  rpc RegisterExecutionManager(RegisterExecutionManagerRequest)
+      returns (ExecutionManagerIdResponse);
+  rpc UpdateExecutionManagerHeartbeat(ExecutionManagerIdRequest)
+      returns (StorageOperationResponse);
+  rpc IsExecutionManagerAlive(ExecutionManagerIdRequest)
+      returns (IsExecutionManagerAliveResponse);
+  rpc GetDeadExecutionManagers(GetDeadExecutionManagersRequest)
+      returns (GetDeadExecutionManagersResponse);
+}
+
+service SessionManagementService {
+  rpc GetSession(Void) returns (GetSessionResponse);
+}
+
+message SubmitJobRequest {
+  uint64 resource_group_id = 1;
+  bytes serialized_task_graph = 2;
+  repeated bytes serialized_inputs = 3;
+  uint64 session_id = 4;
+}
+
+message SubmitJobResponse {
+  oneof result {
+    uint64 job_id = 1;
+    StorageError error = 2;
+  }
+}
+
+message JobIdRequest {
+  uint64 job_id = 1;
+  uint64 session_id = 2;
+}
+
+message JobStateResponse {
+  oneof result {
+    JobState state = 1;
+    StorageError error = 2;
+  }
+}
+
+message JobOutputsResponse {
+  oneof result {
+    JobOutputs outputs = 1;
+    StorageError error = 2;
+  }
+}
+
+message JobOutputs {
+  repeated bytes outputs = 1;
+}
+
+message JobErrorResponse {
+  oneof result {
+    string error_message = 1;
+    StorageError error = 2;
+  }
+}
+
+message DeleteExpiredTerminatedJobsRequest {
+  uint64 expire_after_sec = 1;
+  uint64 session_id = 2;
+}
+
+message DeleteExpiredTerminatedJobsResponse {
+  oneof result {
+    DeletedJobs deleted_jobs = 1;
+    StorageError error = 2;
+  }
+}
+
+message DeletedJobs {
+  repeated uint64 job_ids = 1;
+}
+
+message ResendReadyTasksRequest {
+  optional uint64 job_id = 1;
+  uint64 session_id = 2;
 }
 
 message RegisterTaskInstanceRequest {
@@ -38,12 +136,91 @@ message ReportTaskFailureRequest {
   string error_message = 5;
 }
 
+message AddResourceGroupRequest {
+  string external_resource_group_id = 1;
+  bytes password = 2;
+  uint64 session_id = 3;
+}
+
+message ResourceGroupIdRequest {
+  uint64 resource_group_id = 1;
+  uint64 session_id = 2;
+}
+
+message ResourceGroupIdResponse {
+  oneof result {
+    uint64 resource_group_id = 1;
+    StorageError error = 2;
+  }
+}
+
+message VerifyResourceGroupRequest {
+  uint64 resource_group_id = 1;
+  bytes password = 2;
+  uint64 session_id = 3;
+}
+
+message RegisterExecutionManagerRequest {
+  string ip_address = 1;
+  uint64 session_id = 2;
+}
+
+message ExecutionManagerIdRequest {
+  uint64 execution_manager_id = 1;
+  uint64 session_id = 2;
+}
+
+message ExecutionManagerIdResponse {
+  oneof result {
+    uint64 execution_manager_id = 1;
+    StorageError error = 2;
+  }
+}
+
+message IsExecutionManagerAliveResponse {
+  oneof result {
+    bool alive = 1;
+    StorageError error = 2;
+  }
+}
+
+message GetDeadExecutionManagersRequest {
+  uint64 stale_after_sec = 1;
+  uint64 session_id = 2;
+}
+
+message GetDeadExecutionManagersResponse {
+  oneof result {
+    DeadExecutionManagers dead_execution_managers = 1;
+    StorageError error = 2;
+  }
+}
+
+message DeadExecutionManagers {
+  repeated uint64 execution_manager_ids = 1;
+}
+
+message GetSessionResponse {
+  uint64 session_id = 1;
+}
+
 message TaskId {
   oneof kind {
     uint64 index = 1;
     Void commit = 2;
     Void cleanup = 3;
   }
+}
+
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  READY = 1;
+  RUNNING = 2;
+  COMMIT_READY = 3;
+  CLEANUP_READY = 4;
+  SUCCEEDED = 5;
+  FAILED = 6;
+  CANCELLED = 7;
 }
 
 message StorageOperationResponse {
