@@ -28,9 +28,9 @@ service ResourceGroupManagementService {
 
 service ExecutionManagerLivenessService {
   rpc RegisterExecutionManager(RegisterExecutionManagerRequest)
-      returns (ExecutionManagerIdResponse);
+      returns (RegisterExecutionManagerResponse);
   rpc UpdateExecutionManagerHeartbeat(ExecutionManagerIdRequest)
-      returns (StorageOperationResponse);
+      returns (UpdateExecutionManagerHeartbeatResponse);
   rpc IsExecutionManagerAlive(ExecutionManagerIdRequest)
       returns (IsExecutionManagerAliveResponse);
   rpc GetDeadExecutionManagers(GetDeadExecutionManagersRequest)
@@ -162,17 +162,27 @@ message VerifyResourceGroupRequest {
 
 message RegisterExecutionManagerRequest {
   string ip_address = 1;
-  uint64 session_id = 2;
 }
 
 message ExecutionManagerIdRequest {
   uint64 execution_manager_id = 1;
+}
+
+message ExecutionManagerRegistration {
+  uint64 execution_manager_id = 1;
   uint64 session_id = 2;
 }
 
-message ExecutionManagerIdResponse {
+message RegisterExecutionManagerResponse {
   oneof result {
-    uint64 execution_manager_id = 1;
+    ExecutionManagerRegistration registration = 1;
+    StorageError error = 2;
+  }
+}
+
+message UpdateExecutionManagerHeartbeatResponse {
+  oneof result {
+    uint64 session_id = 1;
     StorageError error = 2;
   }
 }

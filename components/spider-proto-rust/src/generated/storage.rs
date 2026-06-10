@@ -212,27 +212,50 @@ pub struct VerifyResourceGroupRequest {
 pub struct RegisterExecutionManagerRequest {
     #[prost(string, tag = "1")]
     pub ip_address: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "2")]
-    pub session_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ExecutionManagerIdRequest {
+    #[prost(uint64, tag = "1")]
+    pub execution_manager_id: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ExecutionManagerRegistration {
     #[prost(uint64, tag = "1")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "2")]
     pub session_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExecutionManagerIdResponse {
-    #[prost(oneof = "execution_manager_id_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<execution_manager_id_response::Result>,
+pub struct RegisterExecutionManagerResponse {
+    #[prost(oneof = "register_execution_manager_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<register_execution_manager_response::Result>,
 }
-/// Nested message and enum types in `ExecutionManagerIdResponse`.
-pub mod execution_manager_id_response {
+/// Nested message and enum types in `RegisterExecutionManagerResponse`.
+pub mod register_execution_manager_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Registration(super::ExecutionManagerRegistration),
+        #[prost(message, tag = "2")]
+        Error(super::StorageError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateExecutionManagerHeartbeatResponse {
+    #[prost(
+        oneof = "update_execution_manager_heartbeat_response::Result",
+        tags = "1, 2"
+    )]
+    pub result: ::core::option::Option<
+        update_execution_manager_heartbeat_response::Result,
+    >,
+}
+/// Nested message and enum types in `UpdateExecutionManagerHeartbeatResponse`.
+pub mod update_execution_manager_heartbeat_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
         #[prost(uint64, tag = "1")]
-        ExecutionManagerId(u64),
+        SessionId(u64),
         #[prost(message, tag = "2")]
         Error(super::StorageError),
     }
@@ -1177,7 +1200,7 @@ pub mod execution_manager_liveness_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::RegisterExecutionManagerRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ExecutionManagerIdResponse>,
+            tonic::Response<super::RegisterExecutionManagerResponse>,
             tonic::Status,
         > {
             self.inner
@@ -1206,7 +1229,7 @@ pub mod execution_manager_liveness_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ExecutionManagerIdRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::UpdateExecutionManagerHeartbeatResponse>,
             tonic::Status,
         > {
             self.inner
@@ -2602,14 +2625,14 @@ pub mod execution_manager_liveness_service_server {
             &self,
             request: tonic::Request<super::RegisterExecutionManagerRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ExecutionManagerIdResponse>,
+            tonic::Response<super::RegisterExecutionManagerResponse>,
             tonic::Status,
         >;
         async fn update_execution_manager_heartbeat(
             &self,
             request: tonic::Request<super::ExecutionManagerIdRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::UpdateExecutionManagerHeartbeatResponse>,
             tonic::Status,
         >;
         async fn is_execution_manager_alive(
@@ -2715,7 +2738,7 @@ pub mod execution_manager_liveness_service_server {
                         T: ExecutionManagerLivenessService,
                     > tonic::server::UnaryService<super::RegisterExecutionManagerRequest>
                     for RegisterExecutionManagerSvc<T> {
-                        type Response = super::ExecutionManagerIdResponse;
+                        type Response = super::RegisterExecutionManagerResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2770,7 +2793,7 @@ pub mod execution_manager_liveness_service_server {
                         T: ExecutionManagerLivenessService,
                     > tonic::server::UnaryService<super::ExecutionManagerIdRequest>
                     for UpdateExecutionManagerHeartbeatSvc<T> {
-                        type Response = super::StorageOperationResponse;
+                        type Response = super::UpdateExecutionManagerHeartbeatResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
