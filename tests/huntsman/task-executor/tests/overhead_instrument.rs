@@ -28,12 +28,7 @@ use std::{
 use integration_test_tasks::INSTRUMENT_SLEEP_US;
 use spider_task_executor::protocol::{ExecutorOutcome, Response};
 use tabled::{Table, Tabled};
-use task_executor_tests::{
-    ExecutorHandle,
-    decode_single_output,
-    encode_single_input,
-    execute_request,
-};
+use test_utils::{ExecutorHandle, decode_single_output, encode_single_input, execute_request};
 
 const PAYLOAD_LEN: usize = 100;
 const ITERATIONS: usize = 10;

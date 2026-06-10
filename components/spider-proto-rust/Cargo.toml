@@ -1,0 +1,16 @@
+[package]
+name = "spider-proto-rust"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "spider_proto_rust"
+path = "src/lib.rs"
+
+[dependencies]
+prost = "0.13.5"
+spider-core = { path = "../spider-core" }
+tonic = "0.12.3"
+
+[build-dependencies]
+tonic-build = "0.12.3"

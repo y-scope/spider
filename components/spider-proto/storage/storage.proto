@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package storage;
+
+service TaskInstanceManagementService {
+  rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);
+  rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (StorageOperationResponse);
+  rpc ReportTaskFailure(ReportTaskFailureRequest) returns (StorageOperationResponse);
+}
+
+message RegisterTaskInstanceRequest {
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
+  uint64 session_id = 4;
+}
+
+message RegisterTaskInstanceResponse {
+  oneof result {
+    bytes execution_context = 1;
+    StorageError error = 2;
+  }
+}
+
+message ReportTaskSuccessRequest {
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
+  uint64 session_id = 4;
+  bytes serialized_outputs = 5;
+}
+
+message ReportTaskFailureRequest {
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
+  uint64 session_id = 4;
+  string error_message = 5;
+}
+
+message TaskId {
+  oneof kind {
+    uint64 index = 1;
+    Void commit = 2;
+    Void cleanup = 3;
+  }
+}
+
+message StorageOperationResponse {
+  oneof result {
+    Void ok = 1;
+    StorageError error = 2;
+  }
+}
+
+message Void {}
+
+message StorageError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    STALE_SESSION = 1;
+    CACHE_STALE = 2;
+    TRANSPORT = 3;
+    SERVER = 4;
+    INVALID_INPUT = 5;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+  uint64 storage_session = 3;
+}

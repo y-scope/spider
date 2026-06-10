@@ -23,12 +23,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskInstanceId};
+use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId, TaskInstanceId};
 use tokio::sync::mpsc;
 
 use crate::{
     cache::{
-        TaskId,
         error::InternalError,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
@@ -684,8 +683,8 @@ mod tests {
     ) -> TaskInstanceMetadata {
         const SOFT_TIMEOUT_MS: Duration = Duration::from_millis(100);
         TaskInstanceMetadata {
-            resource_group_id: ResourceGroupId::new(),
-            job_id: JobId::new(),
+            resource_group_id: ResourceGroupId::random(),
+            job_id: JobId::random(),
             task_id,
             task_instance_id,
             execution_manager_id,
@@ -768,7 +767,7 @@ mod tests {
         let metadata = make_task_instance_metadata(
             TaskId::Index(0),
             task_instance_id,
-            ExecutionManagerId::new(),
+            ExecutionManagerId::random(),
             SystemTime::now(),
         );
         let job_id = metadata.job_id;
@@ -798,7 +797,7 @@ mod tests {
             Duration::from_mins(1),
             DEFAULT_CHANNEL_SIZE,
         );
-        let execution_manager_id = ExecutionManagerId::new();
+        let execution_manager_id = ExecutionManagerId::random();
 
         let tcb1 = build_single_task_tcb().await;
         let metadata1 = make_task_instance_metadata(
@@ -841,7 +840,7 @@ mod tests {
             liveness_store,
             Duration::from_mins(1),
         );
-        let em_id = ExecutionManagerId::new();
+        let em_id = ExecutionManagerId::random();
 
         // Create a few tasks and terminate them immediately.
         for i in 0..NUM_TASKS {
@@ -885,7 +884,7 @@ mod tests {
             liveness_store,
             Duration::from_mins(1),
         );
-        let em_id = ExecutionManagerId::new();
+        let em_id = ExecutionManagerId::random();
         let gc_starting_time = SystemTime::now();
         // soft_timeout_ddl = registered_at + 100ms
         // deadline = now - 900ms
@@ -943,7 +942,7 @@ mod tests {
             liveness_store.clone(),
             Duration::from_mins(1),
         );
-        let em_id = ExecutionManagerId::new();
+        let em_id = ExecutionManagerId::random();
         let now = SystemTime::now();
 
         let mut expected_messages: Vec<ReadyMessage> = Vec::new();
@@ -1001,7 +1000,7 @@ mod tests {
             liveness_store.clone(),
             Duration::from_mins(1),
         );
-        let em_id = ExecutionManagerId::new();
+        let em_id = ExecutionManagerId::random();
         let now = SystemTime::now();
 
         for i in 0..NUM_TASKS {
@@ -1059,8 +1058,8 @@ mod tests {
             liveness_store.clone(),
             Duration::from_mins(1),
         );
-        let alive_em = ExecutionManagerId::new();
-        let dead_em = ExecutionManagerId::new();
+        let alive_em = ExecutionManagerId::random();
+        let dead_em = ExecutionManagerId::random();
         let now = SystemTime::now();
         // soft timeout deadline = now - 900ms
         let elapsed_registration = now - Duration::from_secs(1);
