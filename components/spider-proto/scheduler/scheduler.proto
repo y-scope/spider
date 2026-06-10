@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package scheduler;
+
+import "common/common.proto";
+
+service SchedulerService {
+  rpc NextTask(NextTaskRequest) returns (NextTaskResponse);
+}
+
+message NextTaskRequest {
+  uint64 execution_manager_id = 1;
+}
+
+message NextTaskResponse {
+  oneof result {
+    SchedulerAssignment assignment = 1;
+    common.Void no_task = 2;
+  }
+}
+
+message SchedulerAssignment {
+  uint64 resource_group_id = 1;
+  uint64 job_id = 2;
+  common.TaskId task_id = 3;
+  uint64 session_id = 4;
+}

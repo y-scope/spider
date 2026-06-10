@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package storage;
 
+import "common/common.proto";
+
 service JobManagementService {
   rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
   rpc StartJob(JobIdRequest) returns (JobStateResponse);
@@ -38,7 +40,7 @@ service ExecutionManagerLivenessService {
 }
 
 service SessionManagementService {
-  rpc GetSession(Void) returns (GetSessionResponse);
+  rpc GetSession(common.Void) returns (GetSessionResponse);
 }
 
 message SubmitJobRequest {
@@ -108,7 +110,7 @@ message ResendReadyTasksRequest {
 
 message RegisterTaskInstanceRequest {
   uint64 job_id = 1;
-  TaskId task_id = 2;
+  common.TaskId task_id = 2;
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
 }
@@ -122,7 +124,7 @@ message RegisterTaskInstanceResponse {
 
 message ReportTaskSuccessRequest {
   uint64 job_id = 1;
-  TaskId task_id = 2;
+  common.TaskId task_id = 2;
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
   bytes serialized_outputs = 5;
@@ -130,7 +132,7 @@ message ReportTaskSuccessRequest {
 
 message ReportTaskFailureRequest {
   uint64 job_id = 1;
-  TaskId task_id = 2;
+  common.TaskId task_id = 2;
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
   string error_message = 5;
@@ -214,14 +216,6 @@ message GetSessionResponse {
   uint64 session_id = 1;
 }
 
-message TaskId {
-  oneof kind {
-    uint64 index = 1;
-    Void commit = 2;
-    Void cleanup = 3;
-  }
-}
-
 enum JobState {
   JOB_STATE_UNSPECIFIED = 0;
   READY = 1;
@@ -235,12 +229,10 @@ enum JobState {
 
 message StorageOperationResponse {
   oneof result {
-    Void ok = 1;
+    common.Void ok = 1;
     StorageError error = 2;
   }
 }
-
-message Void {}
 
 message StorageError {
   enum ErrCode {

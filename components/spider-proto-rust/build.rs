@@ -10,7 +10,11 @@ const SPIDER_PROTO_RUST_GENERATED_DIR: &str = "src/generated";
 const SPIDER_PROTO_ROOT: &str = "spider-proto";
 
 /// The protobuf source files to compile, relative to [`SPIDER_PROTO_ROOT`].
-const SPIDER_PROTO_SOURCE_FILES: &[&str] = &["storage/storage.proto"];
+const SPIDER_PROTO_SOURCE_FILES: &[&str] = &[
+    "common/common.proto",
+    "storage/storage.proto",
+    "scheduler/scheduler.proto",
+];
 
 fn main() {
     // Rerun the build script whenever the generation gate is toggled or changes value.

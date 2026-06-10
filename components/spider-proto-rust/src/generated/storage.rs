@@ -121,7 +121,7 @@ pub struct RegisterTaskInstanceRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
     #[prost(message, optional, tag = "2")]
-    pub task_id: ::core::option::Option<TaskId>,
+    pub task_id: ::core::option::Option<super::common::TaskId>,
     #[prost(uint64, tag = "3")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
@@ -147,7 +147,7 @@ pub struct ReportTaskSuccessRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
     #[prost(message, optional, tag = "2")]
-    pub task_id: ::core::option::Option<TaskId>,
+    pub task_id: ::core::option::Option<super::common::TaskId>,
     #[prost(uint64, tag = "3")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
@@ -160,7 +160,7 @@ pub struct ReportTaskFailureRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
     #[prost(message, optional, tag = "2")]
-    pub task_id: ::core::option::Option<TaskId>,
+    pub task_id: ::core::option::Option<super::common::TaskId>,
     #[prost(uint64, tag = "3")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
@@ -307,23 +307,6 @@ pub struct GetSessionResponse {
     #[prost(uint64, tag = "1")]
     pub session_id: u64,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct TaskId {
-    #[prost(oneof = "task_id::Kind", tags = "1, 2, 3")]
-    pub kind: ::core::option::Option<task_id::Kind>,
-}
-/// Nested message and enum types in `TaskId`.
-pub mod task_id {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
-        #[prost(uint64, tag = "1")]
-        Index(u64),
-        #[prost(message, tag = "2")]
-        Commit(super::Void),
-        #[prost(message, tag = "3")]
-        Cleanup(super::Void),
-    }
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StorageOperationResponse {
     #[prost(oneof = "storage_operation_response::Result", tags = "1, 2")]
@@ -334,13 +317,11 @@ pub mod storage_operation_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
         #[prost(message, tag = "1")]
-        Ok(super::Void),
+        Ok(super::super::common::Void),
         #[prost(message, tag = "2")]
         Error(super::StorageError),
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Void {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StorageError {
     #[prost(enumeration = "storage_error::ErrCode", tag = "1")]
@@ -1409,7 +1390,7 @@ pub mod session_management_service_client {
         }
         pub async fn get_session(
             &mut self,
-            request: impl tonic::IntoRequest<super::Void>,
+            request: impl tonic::IntoRequest<super::super::common::Void>,
         ) -> std::result::Result<
             tonic::Response<super::GetSessionResponse>,
             tonic::Status,
@@ -2996,7 +2977,7 @@ pub mod session_management_service_server {
     pub trait SessionManagementService: std::marker::Send + std::marker::Sync + 'static {
         async fn get_session(
             &self,
-            request: tonic::Request<super::Void>,
+            request: tonic::Request<super::super::common::Void>,
         ) -> std::result::Result<
             tonic::Response<super::GetSessionResponse>,
             tonic::Status,
@@ -3084,7 +3065,8 @@ pub mod session_management_service_server {
                     struct GetSessionSvc<T: SessionManagementService>(pub Arc<T>);
                     impl<
                         T: SessionManagementService,
-                    > tonic::server::UnaryService<super::Void> for GetSessionSvc<T> {
+                    > tonic::server::UnaryService<super::super::common::Void>
+                    for GetSessionSvc<T> {
                         type Response = super::GetSessionResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3092,7 +3074,7 @@ pub mod session_management_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Void>,
+                            request: tonic::Request<super::super::common::Void>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
