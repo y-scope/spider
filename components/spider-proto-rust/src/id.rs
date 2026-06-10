@@ -17,6 +17,21 @@ impl From<TaskId> for storage::TaskId {
     }
 }
 
+impl TryFrom<storage::TaskId> for TaskId {
+    type Error = String;
+
+    fn try_from(task_id: storage::TaskId) -> Result<Self, Self::Error> {
+        match task_id.kind {
+            Some(task_id::Kind::Index(task_index)) => usize::try_from(task_index)
+                .map(TaskId::Index)
+                .map_err(|error| format!("task index does not fit in usize: {error}")),
+            Some(task_id::Kind::Commit(_)) => Ok(Self::Commit),
+            Some(task_id::Kind::Cleanup(_)) => Ok(Self::Cleanup),
+            None => Err("task id missing kind".to_owned()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -40,5 +55,23 @@ mod tests {
         let task_id = storage::TaskId::from(TaskId::Cleanup);
 
         assert!(matches!(task_id.kind, Some(task_id::Kind::Cleanup(_))));
+    }
+
+    #[test]
+    fn protocol_task_id_to_core_converts_index_task() {
+        let task_id = TaskId::try_from(storage::TaskId {
+            kind: Some(task_id::Kind::Index(7)),
+        })
+        .expect("protocol task id conversion should succeed");
+
+        assert_eq!(task_id, TaskId::Index(7));
+    }
+
+    #[test]
+    fn protocol_task_id_to_core_rejects_missing_kind() {
+        let error = TaskId::try_from(storage::TaskId { kind: None })
+            .expect_err("missing task id kind should fail");
+
+        assert!(error.contains("missing kind"));
     }
 }
