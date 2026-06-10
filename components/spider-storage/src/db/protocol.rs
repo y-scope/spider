@@ -15,17 +15,12 @@ use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
 ///
 /// Only jobs that have already started execution are recoverable. [`JobState::Ready`] jobs remain
 /// database-only until a client starts them.
-pub struct RecoverableJob {
-    /// The persisted job ID.
+pub struct RecoverableJobContext {
     pub id: JobId,
-    /// The owning resource group.
     pub resource_group_id: ResourceGroupId,
-    /// The source-of-truth database state.
     pub state: JobState,
-    /// The original job submission.
-    pub job_submission: ValidatedJobSubmission,
-    /// The committed job outputs, if the job has reached the commit phase.
-    pub job_outputs: Option<Vec<TaskOutput>>,
+    pub submission: ValidatedJobSubmission,
+    pub outputs: Option<Vec<TaskOutput>>,
 }
 
 /// The database storage interface. A database storage must implement the following traits:
@@ -262,7 +257,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
         expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError>;
 
-    /// Gets all jobs that should be recovered into the cache.
+    /// Gets all jobs that should be recovered and cached in the storage service startup.
     ///
     /// # Returns
     ///
@@ -276,7 +271,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     /// * [`DbError::TaskGraphDeserializationFailure`] if a persisted task graph is invalid.
     /// * [`DbError::ValueDeserializationFailure`] if persisted inputs or outputs are invalid.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJob>, DbError>;
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError>;
 }
 
 /// Defines the storage interface for resource group management in the database.

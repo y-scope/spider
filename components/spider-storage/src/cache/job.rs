@@ -18,11 +18,11 @@ use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     cache::{
-        error::{CacheError, InternalError, InternalError::UnexpectedJobState, StaleStateError},
+        error::{CacheError, InternalError, StaleStateError},
         job_submission::ValidatedJobSubmission,
         task::TaskGraph,
     },
-    db::{InternalJobOrchestration, RecoverableJob},
+    db::{InternalJobOrchestration, RecoverableJobContext},
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
@@ -93,14 +93,13 @@ impl<
         })
     }
 
-    /// Recovers a job control block from persistent database state.
+    /// Recovers a job control block from the given recoverable job context (assumed to be returned
+    /// from persistent storage).
     ///
-    /// This constructor does not mutate the database. It rebuilds enough cache state to resume
-    /// scheduling:
+    /// # NOTE
     ///
-    /// * [`JobState::Running`] jobs enqueue their initially-ready regular tasks.
-    /// * [`JobState::CommitReady`] jobs enqueue the commit task.
-    /// * [`JobState::CleanupReady`] jobs enqueue the cleanup task.
+    /// * This constructor does not mutate the storage states.
+    /// * This constructor does not send recovered tasks to the ready-queue.
     ///
     /// # Returns
     ///
@@ -111,54 +110,70 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if `state` is not recoverable.
-    /// * [`InternalError::TaskGraphCorrupted`] if a commit-ready job has no persisted outputs.
+    /// * [`InternalError::InvalidRecoverableJobContext`] if:
+    ///   * A commit-ready job doesn't have a commit task specified.
+    ///   * A commit-ready job doesn't have outputs ready.
+    ///   * A cleanup-ready job doesn't have a cleanup task specified.
     /// * Forwards [`TaskGraph::create`]'s return values on failure.
-    /// * Forwards [`TaskGraph::restore_outputs`]'s return values on failure.
-    /// * Forwards [`SharedJobControlBlock::resend_ready_tasks`]'s return values on failure.
     pub async fn recover(
-        recoverable_job: RecoverableJob,
+        recoverable_job_context: RecoverableJobContext,
         ready_queue_sender: ReadyQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
-        let RecoverableJob {
+        let RecoverableJobContext {
             id,
             resource_group_id,
             state,
-            job_submission,
-            job_outputs,
-        } = recoverable_job;
-        if !matches!(
-            state,
-            JobState::Running | JobState::CommitReady | JobState::CleanupReady
-        ) {
-            return Err(UnexpectedJobState {
-                current: state,
-                expected: JobState::Running,
+            submission,
+            outputs,
+        } = recoverable_job_context;
+
+        let (num_incomplete_tasks, task_graph) = match state {
+            JobState::Running => {
+                let num_tasks = submission.task_graph().get_num_tasks();
+                let task_graph = TaskGraph::create(submission).await?;
+                (num_tasks, task_graph)
             }
-            .into());
-        }
-
-        let num_tasks = job_submission.task_graph().get_num_tasks();
-        let mut task_graph = TaskGraph::create(job_submission).await?;
-        if matches!(state, JobState::CommitReady) && job_outputs.is_none() {
-            return Err(InternalError::TaskGraphCorrupted(
-                "commit-ready job has no persisted outputs".to_owned(),
-            )
-            .into());
-        }
-        if let Some(outputs) = job_outputs {
-            task_graph.restore_outputs(outputs).await?;
-        }
-        let num_incomplete_tasks = if matches!(state, JobState::CommitReady) {
-            0
-        } else {
-            num_tasks
+            JobState::CommitReady => {
+                let Some(commit_task_descriptor) =
+                    submission.task_graph().get_commit_task_descriptor()
+                else {
+                    return Err(InternalError::InvalidRecoverableJobContext(String::from(
+                        "commit-ready job doesn't have a commit task specified",
+                    ))
+                    .into());
+                };
+                let Some(outputs) = outputs else {
+                    return Err(InternalError::InvalidRecoverableJobContext(String::from(
+                        "commit-ready job doesn't have outputs ready",
+                    ))
+                    .into());
+                };
+                let task_graph =
+                    TaskGraph::recover_from_commit_ready(commit_task_descriptor, outputs);
+                (0, task_graph)
+            }
+            JobState::CleanupReady => {
+                let Some(cleanup_task_descriptor) =
+                    submission.task_graph().get_cleanup_task_descriptor()
+                else {
+                    return Err(InternalError::InvalidRecoverableJobContext(String::from(
+                        "cleanup-ready job doesn't have a cleanup task specified",
+                    ))
+                    .into());
+                };
+                let task_graph = TaskGraph::recover_from_cleanup_ready(cleanup_task_descriptor);
+                (0, task_graph)
+            }
+            other => {
+                return Err(InternalError::UnexpectedJobState {
+                    current: other,
+                    expected: JobState::Running,
+                }
+                .into());
+            }
         };
-
-        if matches!(state, JobState::CleanupReady) {
-            task_graph.cancel_non_terminal().await;
-        }
 
         let job_execution_state = JobExecutionState {
             state,
@@ -168,7 +183,7 @@ impl<
             db_connector,
             task_instance_pool_connector,
         };
-        let recovered = Self {
+        Ok(Self {
             inner: Arc::new(JobControlBlock {
                 id,
                 owner_id: resource_group_id,
@@ -176,9 +191,7 @@ impl<
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },
             }),
-        };
-        recovered.resend_ready_tasks().await?;
-        Ok(recovered)
+        })
     }
 
     /// Returns the job ID.
@@ -1109,7 +1122,7 @@ impl<
             if self.state.is_terminal() || matches!(self.state, JobState::CleanupReady) {
                 return Err(StaleStateError::JobNoLongerCommitReady.into());
             }
-            return Err(UnexpectedJobState {
+            return Err(InternalError::UnexpectedJobState {
                 current: self.state,
                 expected: JobState::CommitReady,
             }
@@ -1131,7 +1144,7 @@ impl<
             if self.state.is_terminal() {
                 return Err(StaleStateError::JobNoLongerCleanupReady.into());
             }
-            return Err(UnexpectedJobState {
+            return Err(InternalError::UnexpectedJobState {
                 current: self.state,
                 expected: JobState::CleanupReady,
             }
@@ -1149,7 +1162,7 @@ impl<
     /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
     fn ensure_succeeded(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::Succeeded) {
-            return Err(UnexpectedJobState {
+            return Err(InternalError::UnexpectedJobState {
                 current: self.state,
                 expected: JobState::Succeeded,
             }

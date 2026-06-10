@@ -271,6 +271,17 @@ impl<
         Ok(self.inner.db.get_error(job_id).await?)
     }
 
+    /// Resends ready tasks for all jobs in the cache to the ready queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobCache::resend_ready_tasks`]'s return values on failure.
+    pub async fn resend_ready_tasks(&self) -> Result<(), StorageServerError> {
+        self.inner.job_cache.resend_ready_tasks().await
+    }
+
     /// Creates a task instance for the given task and registers it in the task instance pool.
     ///
     /// # Returns

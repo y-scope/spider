@@ -84,6 +84,9 @@ pub enum InternalError {
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
 
+    #[error("invalid recoverable job context: {0}")]
+    InvalidRecoverableJobContext(String),
+
     #[error(transparent)]
     WireError(#[from] WireError),
 

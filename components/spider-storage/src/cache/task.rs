@@ -119,6 +119,49 @@ impl TaskGraph {
         })
     }
 
+    /// Recovers a task graph from the commit-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with task outputs and the commit task recovered, while the underlying task
+    /// graph is initialized to empty.
+    pub(super) fn recover_from_commit_ready(
+        commit_task_descriptor: &TerminationTaskDescriptor,
+        outputs: Vec<TaskOutput>,
+    ) -> Self {
+        let outputs = outputs
+            .into_iter()
+            .map(|output_payload| Reader::new(SharedRw::new(RwLock::new(Some(output_payload)))))
+            .collect();
+        Self {
+            tasks: vec![],
+            outputs,
+            commit_task: Some(SharedTerminationTaskControlBlock::create(
+                commit_task_descriptor,
+            )),
+            cleanup_task: None,
+        }
+    }
+
+    /// Recovers a task graph from the cleanup-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with the cleanup task recovered, while the underlying task graph and the
+    /// outputs are initialized to empty.
+    pub(super) fn recover_from_cleanup_ready(
+        cleanup_task_descriptor: &TerminationTaskDescriptor,
+    ) -> Self {
+        Self {
+            tasks: vec![],
+            outputs: vec![],
+            commit_task: None,
+            cleanup_task: Some(SharedTerminationTaskControlBlock::create(
+                cleanup_task_descriptor,
+            )),
+        }
+    }
+
     /// Marks all TCBs and commit TCB as cancelled, if not terminated.
     pub async fn cancel_non_terminal(&mut self) {
         for tcb in &self.tasks {
@@ -170,30 +213,6 @@ impl TaskGraph {
     #[must_use]
     pub const fn get_outputs(&self) -> &Vec<OutputReader> {
         &self.outputs
-    }
-
-    /// Restores graph outputs from persisted job outputs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::TaskOutputsLengthMismatch`] if the number of persisted outputs does not
-    ///   match the number of graph outputs.
-    pub async fn restore_outputs(
-        &self,
-        persisted_outputs: Vec<TaskOutput>,
-    ) -> Result<(), InternalError> {
-        if persisted_outputs.len() != self.outputs.len() {
-            return Err(InternalError::TaskOutputsLengthMismatch(
-                self.outputs.len(),
-                persisted_outputs.len(),
-            ));
-        }
-        for (output_reader, output) in self.outputs.iter().zip(persisted_outputs) {
-            *output_reader.writer().write().await = Some(output);
-        }
-        Ok(())
     }
 
     #[must_use]

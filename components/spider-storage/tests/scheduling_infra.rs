@@ -103,7 +103,7 @@ use spider_storage::{
         ExternalJobOrchestration,
         InternalJobOrchestration,
         MariaDbStorageConnector,
-        RecoverableJob,
+        RecoverableJobContext,
     },
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
@@ -183,7 +183,7 @@ impl InternalJobOrchestration for NoopDbConnector {
         Ok(Vec::new())
     }
 
-    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJob>, DbError> {
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
         Ok(Vec::new())
     }
 }

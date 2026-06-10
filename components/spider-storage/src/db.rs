@@ -9,7 +9,7 @@ pub use protocol::{
     ExecutionManagerLivenessManagement,
     ExternalJobOrchestration,
     InternalJobOrchestration,
-    RecoverableJob,
+    RecoverableJobContext,
     ResourceGroupManagement,
     SessionManagement,
 };

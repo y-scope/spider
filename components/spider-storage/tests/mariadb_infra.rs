@@ -29,8 +29,11 @@ pub async fn create_mariadb_connector() -> MariaDbStorageConnector {
 ///
 /// # Panics
 ///
-/// Panics if any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`,
-/// `MARIADB_USERNAME`, `MARIADB_PASSWORD`) is missing or if `MARIADB_PORT` is invalid.
+/// Panics if:
+///
+/// * Any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`, `MARIADB_USERNAME`, or
+///   `MARIADB_PASSWORD`) is missing.
+/// * The value of `MARIADB_PORT` is invalid.
 #[must_use]
 pub fn create_mariadb_config() -> DatabaseConfig {
     let port: u16 = std::env::var("MARIADB_PORT")
