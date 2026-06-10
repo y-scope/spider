@@ -1,0 +1,14 @@
+[package]
+name = "spider-scheduler"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "spider_scheduler"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1.89"
+spider-core = { path = "../spider-core" }
+thiserror = "2.0.18"
+tokio-util = "0.7.18"
