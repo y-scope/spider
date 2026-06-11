@@ -11,13 +11,13 @@ service JobManagementService {
   rpc GetJobError(JobIdRequest) returns (JobErrorResponse);
   rpc DeleteExpiredTerminatedJobs(DeleteExpiredTerminatedJobsRequest)
       returns (DeleteExpiredTerminatedJobsResponse);
-  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (StorageOperationResponse);
+  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (JobManagementOperationResponse);
 }
 
 service TaskInstanceManagementService {
   rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);
-  rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (StorageOperationResponse);
-  rpc ReportTaskFailure(ReportTaskFailureRequest) returns (StorageOperationResponse);
+  rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (TaskInstanceOperationResponse);
+  rpc ReportTaskFailure(ReportTaskFailureRequest) returns (TaskInstanceOperationResponse);
 }
 
 service SchedulerStorageService {
@@ -28,8 +28,8 @@ service SchedulerStorageService {
 
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
-  rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (StorageOperationResponse);
-  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (StorageOperationResponse);
+  rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (ResourceGroupOperationResponse);
+  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (ResourceGroupOperationResponse);
 }
 
 service ExecutionManagerLivenessService {
@@ -57,7 +57,7 @@ message SubmitJobRequest {
 message SubmitJobResponse {
   oneof result {
     uint64 job_id = 1;
-    StorageError error = 2;
+    JobManagementError error = 2;
   }
 }
 
@@ -69,14 +69,14 @@ message JobIdRequest {
 message JobStateResponse {
   oneof result {
     JobState state = 1;
-    StorageError error = 2;
+    JobManagementError error = 2;
   }
 }
 
 message JobOutputsResponse {
   oneof result {
     JobOutputs outputs = 1;
-    StorageError error = 2;
+    JobManagementError error = 2;
   }
 }
 
@@ -87,7 +87,7 @@ message JobOutputs {
 message JobErrorResponse {
   oneof result {
     string error_message = 1;
-    StorageError error = 2;
+    JobManagementError error = 2;
   }
 }
 
@@ -99,7 +99,7 @@ message DeleteExpiredTerminatedJobsRequest {
 message DeleteExpiredTerminatedJobsResponse {
   oneof result {
     DeletedJobs deleted_jobs = 1;
-    StorageError error = 2;
+    JobManagementError error = 2;
   }
 }
 
@@ -120,7 +120,7 @@ message PollReadyTasksRequest {
 message PollReadyTasksResponse {
   oneof result {
     ReadyTasks tasks = 1;
-    StorageError error = 2;
+    SchedulerStorageError error = 2;
   }
 }
 
@@ -145,7 +145,7 @@ message RegisterTaskInstanceRequest {
 message RegisterTaskInstanceResponse {
   oneof result {
     bytes execution_context = 1;
-    StorageError error = 2;
+    TaskInstanceError error = 2;
   }
 }
 
@@ -179,7 +179,7 @@ message ResourceGroupIdRequest {
 message ResourceGroupIdResponse {
   oneof result {
     uint64 resource_group_id = 1;
-    StorageError error = 2;
+    ResourceGroupError error = 2;
   }
 }
 
@@ -205,21 +205,21 @@ message ExecutionManagerRegistration {
 message RegisterExecutionManagerResponse {
   oneof result {
     ExecutionManagerRegistration registration = 1;
-    StorageError error = 2;
+    ExecutionManagerLivenessError error = 2;
   }
 }
 
 message UpdateExecutionManagerHeartbeatResponse {
   oneof result {
     uint64 session_id = 1;
-    StorageError error = 2;
+    ExecutionManagerLivenessError error = 2;
   }
 }
 
 message IsExecutionManagerAliveResponse {
   oneof result {
     bool alive = 1;
-    StorageError error = 2;
+    ExecutionManagerLivenessError error = 2;
   }
 }
 
@@ -231,7 +231,7 @@ message GetDeadExecutionManagersRequest {
 message GetDeadExecutionManagersResponse {
   oneof result {
     DeadExecutionManagers dead_execution_managers = 1;
-    StorageError error = 2;
+    ExecutionManagerLivenessError error = 2;
   }
 }
 
@@ -262,28 +262,90 @@ enum JobState {
   CANCELLED = 7;
 }
 
-message StorageOperationResponse {
+message JobManagementOperationResponse {
   oneof result {
     Void ok = 1;
-    StorageError error = 2;
+    JobManagementError error = 2;
+  }
+}
+
+message TaskInstanceOperationResponse {
+  oneof result {
+    Void ok = 1;
+    TaskInstanceError error = 2;
+  }
+}
+
+message ResourceGroupOperationResponse {
+  oneof result {
+    Void ok = 1;
+    ResourceGroupError error = 2;
   }
 }
 
 message Void {}
 
-message StorageError {
+message JobManagementError {
   enum ErrCode {
     ERR_CODE_UNSPECIFIED = 0;
     STALE_SESSION = 1;
-    CACHE_STALE = 2;
-    TRANSPORT = 3;
-    SERVER = 4;
-    INVALID_INPUT = 5;
-    INBOUND_CLOSED = 6;
-    JOB_NOT_FOUND = 7;
+    SERVER = 2;
+    INVALID_INPUT = 3;
+    JOB_NOT_FOUND = 4;
   }
 
   ErrCode err_code = 1;
   string message = 2;
   uint64 storage_session = 3;
+}
+
+message TaskInstanceError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    STALE_SESSION = 1;
+    CACHE_STALE = 2;
+    SERVER = 3;
+    INVALID_INPUT = 4;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+  uint64 storage_session = 3;
+}
+
+message SchedulerStorageError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    INBOUND_CLOSED = 1;
+    SERVER = 2;
+    INVALID_INPUT = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+}
+
+message ResourceGroupError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    STALE_SESSION = 1;
+    SERVER = 2;
+    INVALID_INPUT = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+  uint64 storage_session = 3;
+}
+
+message ExecutionManagerLivenessError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    MARKED_DEAD = 1;
+    INVALID_INPUT = 2;
+    SERVER = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
 }
