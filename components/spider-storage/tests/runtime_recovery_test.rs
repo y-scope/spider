@@ -50,7 +50,25 @@ async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
         recovered_service.get_job_state(job_id).await?,
         JobState::Running
     );
+    let expected_outputs = succeed_ready_job(&recovered_service, job_id).await?;
+    assert_job_outputs_on_success(&recovered_service, job_id, &expected_outputs).await?;
     recovered_runtime.stop().await?;
+
+    // Create another runtime to test the job state and outputs are persisted.
+    let (recovered_runtime, _) = create_runtime(
+        &db_config,
+        &ReadyQueueConfig::default(),
+        &TaskInstancePoolConfig::default(),
+    )
+    .await?;
+    assert_job_outputs_on_success(
+        &recovered_runtime.get_service_state(),
+        job_id,
+        &expected_outputs,
+    )
+    .await?;
+    recovered_runtime.stop().await?;
+
     Ok(())
 }
 
@@ -63,26 +81,7 @@ async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Re
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
-    let ready_entries = recovered_service
-        .poll_ready_tasks(32, Duration::from_secs(1))
-        .await?;
-    let job_entries = find_entry_for_job(ready_entries, job_id);
-    assert_eq!(job_entries.len(), 1);
-    let task_index = job_entries[0].task_kind;
-
-    let task_instance_id =
-        run_recovered_regular_task(&recovered_service, job_id, task_index).await?;
-    let _state = recovered_service
-        .succeed_task_instance(
-            recovered_service.session_id(),
-            job_id,
-            task_instance_id,
-            task_index,
-            serialized_single_output()?,
-        )
-        .await?;
-
-    let expected_outputs = TaskOutputsSerializer::deserialize(&serialized_single_output()?)?;
+    let expected_outputs = succeed_ready_job(&recovered_service, job_id).await?;
     assert_job_outputs_on_success(&recovered_service, job_id, &expected_outputs).await?;
     recovered_runtime.stop().await?;
 
@@ -466,6 +465,51 @@ async fn run_recovered_regular_task<
         )
         .await?;
     Ok(execution_context.task_instance_id)
+}
+
+/// Runs the ready task for a single-task job to completion.
+///
+/// # Returns
+///
+/// The expected job outputs on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`ServiceState::poll_ready_tasks`]'s return values on failure.
+/// * Forwards [`run_recovered_regular_task`]'s return values on failure.
+/// * Forwards [`serialized_single_output`]'s return values on failure.
+/// * Forwards [`ServiceState::succeed_task_instance`]'s return values on failure.
+/// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
+async fn succeed_ready_job<
+    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    DbConnectorType: spider_storage::db::DbStorage,
+    TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
+>(
+    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    job_id: JobId,
+) -> anyhow::Result<Vec<TaskOutput>> {
+    let ready_entries = service.poll_ready_tasks(32, Duration::from_secs(1)).await?;
+    let job_entries = find_entry_for_job(ready_entries, job_id);
+    assert_eq!(job_entries.len(), 1);
+    let task_index = job_entries[0].task_kind;
+
+    let task_instance_id = run_recovered_regular_task(service, job_id, task_index).await?;
+    let state = service
+        .succeed_task_instance(
+            service.session_id(),
+            job_id,
+            task_instance_id,
+            task_index,
+            serialized_single_output()?,
+        )
+        .await?;
+    assert_eq!(state, JobState::Succeeded);
+
+    Ok(TaskOutputsSerializer::deserialize(
+        &serialized_single_output()?,
+    )?)
 }
 
 /// Asserts that registering a regular task instance on the given job is rejected because the job
