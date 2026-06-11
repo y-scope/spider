@@ -387,8 +387,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         const SELECT_QUERY: &str = formatcp!(
             "SELECT `id`, `resource_group_id`, `state`, `serialized_task_graph`, \
              `serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE `state` IN \
-             ('{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
+             ('{ready_state}','{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
             table = JOBS_TABLE_NAME,
+            ready_state = JobState::Ready.as_str(),
             running_state = JobState::Running.as_str(),
             commit_ready_state = JobState::CommitReady.as_str(),
             cleanup_ready_state = JobState::CleanupReady.as_str(),

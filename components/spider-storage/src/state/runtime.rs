@@ -202,19 +202,34 @@ async fn recover_job_cache<
 mod tests {
     use std::time::Duration;
 
+    use spider_core::{
+        job::JobState,
+        task::{
+            DataTypeDescriptor,
+            ExecutionPolicy,
+            TaskDescriptor,
+            TaskGraph as SubmittedTaskGraph,
+            TdlContext,
+            ValueTypeDescriptor,
+        },
+        types::{
+            id::{JobId, ResourceGroupId},
+            io::TaskInput,
+        },
+    };
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
     use crate::{
-        cache::error::InternalError,
-        db::SessionManagement,
+        cache::{error::InternalError, job_submission::ValidatedJobSubmission},
+        db::{ExternalJobOrchestration, RecoverableJobContext, SessionManagement},
         ready_queue::{ReadyQueueConfig, ReadyQueueSenderHandle, create_ready_queue},
         state::{
             JobCache,
             ServiceState,
             StorageServerError,
-            test_utils::{MockDbConnector, MockTaskInstancePoolConnector},
+            test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
         },
     };
 
@@ -310,5 +325,52 @@ mod tests {
             "pool task failure should return Cache error"
         );
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn recover_ready_job_cache_entry_allows_starting_later() -> anyhow::Result<()> {
+        let job_id = JobId::random();
+        let db = MockDbConnector::default();
+        db.states.insert(job_id, JobState::Ready);
+        let context = RecoverableJobContext {
+            id: job_id,
+            resource_group_id: ResourceGroupId::from(1),
+            state: JobState::Ready,
+            submission: create_test_job_submission()?,
+            outputs: None,
+        };
+
+        let jcb = SharedJobControlBlock::recover(
+            context,
+            MockReadyQueueSender,
+            db.clone(),
+            MockTaskInstancePoolConnector,
+        )
+        .await?;
+
+        assert_eq!(jcb.state().await, JobState::Ready);
+        jcb.start().await?;
+        assert_eq!(jcb.state().await, JobState::Running);
+        assert_eq!(db.get_state(job_id).await?, JobState::Running);
+        Ok(())
+    }
+
+    fn create_test_job_submission() -> anyhow::Result<ValidatedJobSubmission> {
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let mut task_graph = SubmittedTaskGraph::new(None, None)?;
+        task_graph.insert_task(TaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: "test_fn".to_owned(),
+            },
+            execution_policy: Some(ExecutionPolicy::default()),
+            inputs: vec![bytes_type.clone()],
+            outputs: vec![bytes_type],
+            input_sources: None,
+        })?;
+        Ok(ValidatedJobSubmission::create(
+            task_graph,
+            vec![TaskInput::ValuePayload(vec![0u8; 4])],
+        )?)
     }
 }

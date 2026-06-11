@@ -130,7 +130,7 @@ impl<
         } = recoverable_job_context;
 
         let (num_incomplete_tasks, task_graph) = match state {
-            JobState::Running => {
+            JobState::Ready | JobState::Running => {
                 let num_tasks = submission.task_graph().get_num_tasks();
                 let task_graph = TaskGraph::create(submission).await?;
                 (num_tasks, task_graph)

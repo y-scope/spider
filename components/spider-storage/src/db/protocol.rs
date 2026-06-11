@@ -13,8 +13,7 @@ use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
 
 /// A job persisted in the database that should be rebuilt in the storage cache on startup.
 ///
-/// Only jobs that have already started execution are recoverable. [`JobState::Ready`] jobs remain
-/// database-only until a client starts them.
+/// All non-terminal jobs are recoverable.
 pub struct RecoverableJobContext {
     pub id: JobId,
     pub resource_group_id: ResourceGroupId,
@@ -261,8 +260,8 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// # Returns
     ///
-    /// All persisted jobs in [`JobState::Running`], [`JobState::CommitReady`], or
-    /// [`JobState::CleanupReady`] on success.
+    /// All persisted jobs in [`JobState::Ready`], [`JobState::Running`],
+    /// [`JobState::CommitReady`], or [`JobState::CleanupReady`] on success.
     ///
     /// # Errors
     ///

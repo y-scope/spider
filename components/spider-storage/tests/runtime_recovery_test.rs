@@ -25,7 +25,7 @@ use crate::{
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
-async fn restarted_storage_cache_does_not_recover_ready_job() -> anyhow::Result<()> {
+async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
     let db_config = create_mariadb_config();
     let (runtime, _) = create_runtime(
         &db_config,
@@ -45,14 +45,10 @@ async fn restarted_storage_cache_does_not_recover_ready_job() -> anyhow::Result<
     )
     .await?;
     let recovered_service = recovered_runtime.get_service_state();
-    let start_result = recovered_service.start_job(job_id).await;
-    assert!(
-        matches!(start_result, Err(StorageServerError::JobNotFound(id)) if id == job_id),
-        "ready job should not be recovered into cache"
-    );
+    recovered_service.start_job(job_id).await?;
     assert_eq!(
         recovered_service.get_job_state(job_id).await?,
-        JobState::Ready
+        JobState::Running
     );
     recovered_runtime.stop().await?;
     Ok(())
