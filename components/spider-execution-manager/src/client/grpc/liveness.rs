@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, SessionId};
 use spider_proto_rust::storage::{
     self,
+    execution_manager_liveness_error,
     execution_manager_liveness_service_client::ExecutionManagerLivenessServiceClient,
     register_execution_manager_response,
-    storage_error,
     update_execution_manager_heartbeat_response,
 };
 use tonic::transport::{Channel, Endpoint};
@@ -125,19 +125,23 @@ fn heartbeat_response_to_result(
 /// # Returns
 ///
 /// The corresponding [`LivenessResponseError`].
-fn storage_error_to_liveness_error(error: storage::StorageError) -> LivenessResponseError {
-    match storage_error::ErrCode::try_from(error.err_code) {
-        Ok(storage_error::ErrCode::CacheStale) => LivenessResponseError::MarkedDead,
-        Ok(storage_error::ErrCode::InvalidInput) => LivenessResponseError::IllegalId(error.message),
-        Ok(
-            storage_error::ErrCode::Transport
-            | storage_error::ErrCode::Server
-            | storage_error::ErrCode::StaleSession
-            | storage_error::ErrCode::Unspecified,
-        ) => LivenessResponseError::Transport(error.message),
-        Err(error) => {
-            LivenessResponseError::Transport(format!("unknown storage error kind: {error}"))
+fn storage_error_to_liveness_error(
+    error: storage::ExecutionManagerLivenessError,
+) -> LivenessResponseError {
+    match execution_manager_liveness_error::ErrCode::try_from(error.err_code) {
+        Ok(execution_manager_liveness_error::ErrCode::MarkedDead) => {
+            LivenessResponseError::MarkedDead
         }
+        Ok(execution_manager_liveness_error::ErrCode::InvalidInput) => {
+            LivenessResponseError::IllegalId(error.message)
+        }
+        Ok(
+            execution_manager_liveness_error::ErrCode::Server
+            | execution_manager_liveness_error::ErrCode::Unspecified,
+        ) => LivenessResponseError::Transport(error.message),
+        Err(error) => LivenessResponseError::Transport(format!(
+            "unknown execution manager liveness error kind: {error}"
+        )),
     }
 }
 
@@ -194,10 +198,9 @@ mod tests {
 
     #[test]
     fn liveness_storage_error_maps_invalid_input_to_illegal_id() {
-        let error = storage::StorageError {
-            err_code: storage_error::ErrCode::InvalidInput.into(),
+        let error = storage::ExecutionManagerLivenessError {
+            err_code: execution_manager_liveness_error::ErrCode::InvalidInput.into(),
             message: "bad em id".to_owned(),
-            storage_session: 0,
         };
 
         match storage_error_to_liveness_error(error) {
