@@ -20,6 +20,12 @@ service TaskInstanceManagementService {
   rpc ReportTaskFailure(ReportTaskFailureRequest) returns (StorageOperationResponse);
 }
 
+service SchedulerStorageService {
+  rpc PollReadyTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc PollReadyCommitTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc PollReadyCleanupTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+}
+
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
   rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (StorageOperationResponse);
@@ -104,6 +110,29 @@ message DeletedJobs {
 message ResendReadyTasksRequest {
   optional uint64 job_id = 1;
   uint64 session_id = 2;
+}
+
+message PollReadyTasksRequest {
+  uint64 max_items = 1;
+  uint64 wait_ns = 2;
+}
+
+message PollReadyTasksResponse {
+  oneof result {
+    ReadyTasks tasks = 1;
+    StorageError error = 2;
+  }
+}
+
+message ReadyTasks {
+  uint64 session_id = 1;
+  repeated ReadyTask tasks = 2;
+}
+
+message ReadyTask {
+  uint64 resource_group_id = 1;
+  uint64 job_id = 2;
+  TaskId task_id = 3;
 }
 
 message RegisterTaskInstanceRequest {
@@ -250,6 +279,8 @@ message StorageError {
     TRANSPORT = 3;
     SERVER = 4;
     INVALID_INPUT = 5;
+    INBOUND_CLOSED = 6;
+    JOB_NOT_FOUND = 7;
   }
 
   ErrCode err_code = 1;

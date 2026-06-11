@@ -117,6 +117,44 @@ pub struct ResendReadyTasksRequest {
     pub session_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct PollReadyTasksRequest {
+    #[prost(uint64, tag = "1")]
+    pub max_items: u64,
+    #[prost(uint64, tag = "2")]
+    pub wait_ns: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PollReadyTasksResponse {
+    #[prost(oneof = "poll_ready_tasks_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<poll_ready_tasks_response::Result>,
+}
+/// Nested message and enum types in `PollReadyTasksResponse`.
+pub mod poll_ready_tasks_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Tasks(super::ReadyTasks),
+        #[prost(message, tag = "2")]
+        Error(super::StorageError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReadyTasks {
+    #[prost(uint64, tag = "1")]
+    pub session_id: u64,
+    #[prost(message, repeated, tag = "2")]
+    pub tasks: ::prost::alloc::vec::Vec<ReadyTask>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ReadyTask {
+    #[prost(uint64, tag = "1")]
+    pub resource_group_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub job_id: u64,
+    #[prost(message, optional, tag = "3")]
+    pub task_id: ::core::option::Option<TaskId>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RegisterTaskInstanceRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
@@ -371,6 +409,8 @@ pub mod storage_error {
         Transport = 3,
         Server = 4,
         InvalidInput = 5,
+        InboundClosed = 6,
+        JobNotFound = 7,
     }
     impl ErrCode {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -385,6 +425,8 @@ pub mod storage_error {
                 Self::Transport => "TRANSPORT",
                 Self::Server => "SERVER",
                 Self::InvalidInput => "INVALID_INPUT",
+                Self::InboundClosed => "INBOUND_CLOSED",
+                Self::JobNotFound => "JOB_NOT_FOUND",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -396,6 +438,8 @@ pub mod storage_error {
                 "TRANSPORT" => Some(Self::Transport),
                 "SERVER" => Some(Self::Server),
                 "INVALID_INPUT" => Some(Self::InvalidInput),
+                "INBOUND_CLOSED" => Some(Self::InboundClosed),
+                "JOB_NOT_FOUND" => Some(Self::JobNotFound),
                 _ => None,
             }
         }
@@ -915,6 +959,185 @@ pub mod task_instance_management_service_client {
                     GrpcMethod::new(
                         "storage.TaskInstanceManagementService",
                         "ReportTaskFailure",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+    }
+}
+/// Generated client implementations.
+pub mod scheduler_storage_service_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
+    #[derive(Debug, Clone)]
+    pub struct SchedulerStorageServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl SchedulerStorageServiceClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> SchedulerStorageServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> SchedulerStorageServiceClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            SchedulerStorageServiceClient::new(
+                InterceptedService::new(inner, interceptor),
+            )
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn poll_ready_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.SchedulerStorageService/PollReadyTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("storage.SchedulerStorageService", "PollReadyTasks"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn poll_ready_commit_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.SchedulerStorageService/PollReadyCommitTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.SchedulerStorageService",
+                        "PollReadyCommitTasks",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn poll_ready_cleanup_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.SchedulerStorageService/PollReadyCleanupTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.SchedulerStorageService",
+                        "PollReadyCleanupTasks",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -2302,6 +2525,307 @@ pub mod task_instance_management_service_server {
     /// Generated gRPC service name
     pub const SERVICE_NAME: &str = "storage.TaskInstanceManagementService";
     impl<T> tonic::server::NamedService for TaskInstanceManagementServiceServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+/// Generated server implementations.
+pub mod scheduler_storage_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with SchedulerStorageServiceServer.
+    #[async_trait]
+    pub trait SchedulerStorageService: std::marker::Send + std::marker::Sync + 'static {
+        async fn poll_ready_tasks(
+            &self,
+            request: tonic::Request<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+        async fn poll_ready_commit_tasks(
+            &self,
+            request: tonic::Request<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+        async fn poll_ready_cleanup_tasks(
+            &self,
+            request: tonic::Request<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+    }
+    #[derive(Debug)]
+    pub struct SchedulerStorageServiceServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> SchedulerStorageServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>>
+    for SchedulerStorageServiceServer<T>
+    where
+        T: SchedulerStorageService,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/storage.SchedulerStorageService/PollReadyTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct PollReadyTasksSvc<T: SchedulerStorageService>(pub Arc<T>);
+                    impl<
+                        T: SchedulerStorageService,
+                    > tonic::server::UnaryService<super::PollReadyTasksRequest>
+                    for PollReadyTasksSvc<T> {
+                        type Response = super::PollReadyTasksResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PollReadyTasksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerStorageService>::poll_ready_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PollReadyTasksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.SchedulerStorageService/PollReadyCommitTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct PollReadyCommitTasksSvc<T: SchedulerStorageService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: SchedulerStorageService,
+                    > tonic::server::UnaryService<super::PollReadyTasksRequest>
+                    for PollReadyCommitTasksSvc<T> {
+                        type Response = super::PollReadyTasksResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PollReadyTasksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerStorageService>::poll_ready_commit_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PollReadyCommitTasksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.SchedulerStorageService/PollReadyCleanupTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct PollReadyCleanupTasksSvc<T: SchedulerStorageService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: SchedulerStorageService,
+                    > tonic::server::UnaryService<super::PollReadyTasksRequest>
+                    for PollReadyCleanupTasksSvc<T> {
+                        type Response = super::PollReadyTasksResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PollReadyTasksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerStorageService>::poll_ready_cleanup_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PollReadyCleanupTasksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for SchedulerStorageServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "storage.SchedulerStorageService";
+    impl<T> tonic::server::NamedService for SchedulerStorageServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
