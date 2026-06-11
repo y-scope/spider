@@ -50,7 +50,7 @@ async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
         recovered_service.get_job_state(job_id).await?,
         JobState::Running
     );
-    let expected_outputs = succeed_ready_job(&recovered_service, job_id).await?;
+    let expected_outputs = run_single_task_job_to_succeed(&recovered_service, job_id).await?;
     assert_job_outputs_on_success(&recovered_service, job_id, &expected_outputs).await?;
     recovered_runtime.stop().await?;
 
@@ -81,7 +81,7 @@ async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Re
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
-    let expected_outputs = succeed_ready_job(&recovered_service, job_id).await?;
+    let expected_outputs = run_single_task_job_to_succeed(&recovered_service, job_id).await?;
     assert_job_outputs_on_success(&recovered_service, job_id, &expected_outputs).await?;
     recovered_runtime.stop().await?;
 
@@ -482,7 +482,7 @@ async fn run_recovered_regular_task<
 /// * Forwards [`serialized_single_output`]'s return values on failure.
 /// * Forwards [`ServiceState::succeed_task_instance`]'s return values on failure.
 /// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
-async fn succeed_ready_job<
+async fn run_single_task_job_to_succeed<
     ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,

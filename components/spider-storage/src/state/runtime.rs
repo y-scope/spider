@@ -197,3 +197,118 @@ async fn recover_job_cache<
     }
     Ok(job_cache)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::task::JoinHandle;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+    use crate::{
+        cache::error::InternalError,
+        db::SessionManagement,
+        ready_queue::{ReadyQueueConfig, ReadyQueueSenderHandle, create_ready_queue},
+        state::{
+            JobCache,
+            ServiceState,
+            StorageServerError,
+            test_utils::{MockDbConnector, MockTaskInstancePoolConnector},
+        },
+    };
+
+    type TestServerRuntime =
+        Runtime<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
+
+    fn create_test_runtime(
+        cancellation_token: CancellationToken,
+        mock_task_instance_pool_handle: JoinHandle<Result<(), InternalError>>,
+        stop_timeout_sec: u64,
+    ) -> TestServerRuntime {
+        let db = MockDbConnector::default();
+        let session_id = db.session_id();
+        let (sender, receiver) =
+            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
+        let service_state = ServiceState::new(
+            db,
+            session_id,
+            JobCache::new(),
+            sender,
+            receiver,
+            MockTaskInstancePoolConnector,
+        );
+
+        Runtime {
+            service_state,
+            cancellation_token,
+            task_instance_pool_join_handle: mock_task_instance_pool_handle,
+            stop_timeout: Duration::from_secs(stop_timeout_sec),
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_runtime_on_success() -> anyhow::Result<()> {
+        let cancellation_token = CancellationToken::new();
+        let task_cancellation_token = cancellation_token.clone();
+        let mock_task_instance_pool_handle: JoinHandle<Result<(), InternalError>> =
+            tokio::spawn(async move {
+                task_cancellation_token.cancelled().await;
+                Ok(())
+            });
+
+        let runtime = create_test_runtime(
+            cancellation_token,
+            mock_task_instance_pool_handle,
+            STOP_BACKGROUND_TASKS_TIMEOUT_SEC,
+        );
+        runtime
+            .stop()
+            .await
+            .expect("stop_background_tasks should succeed");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stop_runtime_on_timeout() -> anyhow::Result<()> {
+        let cancellation_token = CancellationToken::new();
+        let mock_task_instance_pool_handle: JoinHandle<Result<(), InternalError>> =
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                Ok(())
+            });
+
+        let runtime = create_test_runtime(cancellation_token, mock_task_instance_pool_handle, 0);
+        let result = runtime.stop().await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "timeout should return Stopping"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stop_runtime_on_task_error() -> anyhow::Result<()> {
+        let cancellation_token = CancellationToken::new();
+        let mock_task_instance_pool_handle: JoinHandle<Result<(), InternalError>> =
+            tokio::spawn(async move {
+                Err(InternalError::TaskInstancePoolCorrupted(
+                    "test failure".to_owned(),
+                ))
+            });
+
+        let runtime = create_test_runtime(
+            cancellation_token,
+            mock_task_instance_pool_handle,
+            STOP_BACKGROUND_TASKS_TIMEOUT_SEC,
+        );
+        let result = runtime.stop().await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Cache(_))),
+            "pool task failure should return Cache error"
+        );
+        Ok(())
+    }
+}
