@@ -12,5 +12,5 @@ async-trait = "0.1.89"
 spider-core = { path = "../spider-core" }
 spider-proto-rust = { path = "../spider-proto-rust" }
 thiserror = "2.0.18"
-tonic = "0.12.3"
 tokio-util = "0.7.18"
+tonic = "0.12.3"
