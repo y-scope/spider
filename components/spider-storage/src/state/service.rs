@@ -83,6 +83,14 @@ impl<
         }
     }
 
+    /// # Returns
+    ///
+    /// The storage session ID owned by this service state.
+    #[must_use]
+    pub fn session_id(&self) -> SessionId {
+        self.inner.session_id
+    }
+
     /// Registers a job in the database and inserts its control block into the cache.
     ///
     /// # Returns
@@ -261,6 +269,17 @@ impl<
     /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
         Ok(self.inner.db.get_error(job_id).await?)
+    }
+
+    /// Resends ready tasks for all jobs in the cache to the ready queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobCache::resend_ready_tasks`]'s return values on failure.
+    pub async fn resend_ready_tasks(&self) -> Result<(), StorageServerError> {
+        self.inner.job_cache.resend_ready_tasks().await
     }
 
     /// Creates a task instance for the given task and registers it in the task instance pool.

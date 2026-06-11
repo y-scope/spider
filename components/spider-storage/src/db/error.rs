@@ -40,6 +40,9 @@ pub enum DbError {
     #[error("Task graph serialization failure: {0}")]
     TaskGraphSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    #[error("Task graph deserialization failure: {0}")]
+    TaskGraphDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("Value serialization failure: {0}")]
     ValueSerializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
@@ -55,6 +58,12 @@ impl DbError {
         e: SerializationError,
     ) -> Self {
         Self::TaskGraphSerializationFailure(Box::new(e))
+    }
+
+    pub fn task_graph_de<DeserializationError: std::error::Error + Send + Sync + 'static>(
+        e: DeserializationError,
+    ) -> Self {
+        Self::TaskGraphDeserializationFailure(Box::new(e))
     }
 
     pub fn value_ser<SerializationError: serde::ser::Error + Send + Sync + 'static>(

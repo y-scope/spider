@@ -98,7 +98,13 @@ use spider_storage::{
         job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
-    db::{DbError, ExternalJobOrchestration, InternalJobOrchestration, MariaDbStorageConnector},
+    db::{
+        DbError,
+        ExternalJobOrchestration,
+        InternalJobOrchestration,
+        MariaDbStorageConnector,
+        RecoverableJobContext,
+    },
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
@@ -174,6 +180,10 @@ impl InternalJobOrchestration for NoopDbConnector {
         &self,
         _expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError> {
+        Ok(Vec::new())
+    }
+
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
         Ok(Vec::new())
     }
 }

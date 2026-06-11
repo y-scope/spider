@@ -27,6 +27,7 @@ use crate::{
         ExecutionManagerLivenessManagement,
         ExternalJobOrchestration,
         InternalJobOrchestration,
+        RecoverableJobContext,
         ResourceGroupManagement,
         SessionManagement,
     },
@@ -164,6 +165,10 @@ impl InternalJobOrchestration for MockDbConnector {
         &self,
         _expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError> {
+        Ok(Vec::new())
+    }
+
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
         Ok(Vec::new())
     }
 }
