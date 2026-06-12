@@ -10,12 +10,12 @@ use spider_core::{
 };
 use spider_proto_rust::storage::{
     self,
-    job_management_error,
-    job_management_service_client::JobManagementServiceClient,
+    inbound_queue_response_error,
+    inbound_queue_service_client::InboundQueueServiceClient,
+    job_orchestration_error,
+    job_orchestration_service_client::JobOrchestrationServiceClient,
     job_state_response,
     poll_ready_tasks_response,
-    scheduler_storage_error,
-    scheduler_storage_service_client::SchedulerStorageServiceClient,
     session_management_service_client::SessionManagementServiceClient,
 };
 use tonic::transport::{Channel, Endpoint};
@@ -29,8 +29,8 @@ use crate::{
 /// gRPC-backed [`SchedulerStorageClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcSchedulerStorageClient {
-    scheduler_client: SchedulerStorageServiceClient<Channel>,
-    job_client: JobManagementServiceClient<Channel>,
+    scheduler_client: InboundQueueServiceClient<Channel>,
+    job_client: JobOrchestrationServiceClient<Channel>,
     session_tracker: SessionTracker,
 }
 
@@ -52,8 +52,8 @@ impl GrpcSchedulerStorageClient {
         let session_id = Self::get_initial_session(channel.clone()).await?;
 
         Ok(Self {
-            scheduler_client: SchedulerStorageServiceClient::new(channel.clone()),
-            job_client: JobManagementServiceClient::new(channel),
+            scheduler_client: InboundQueueServiceClient::new(channel.clone()),
+            job_client: JobOrchestrationServiceClient::new(channel),
             session_tracker: SessionTracker::new(session_id),
         })
     }
@@ -144,9 +144,9 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     }
 }
 
-impl From<storage::SchedulerStorageError> for StorageClientError {
-    fn from(error: storage::SchedulerStorageError) -> Self {
-        scheduler_storage_error_to_client_error(error)
+impl From<storage::InboundQueueResponseError> for StorageClientError {
+    fn from(error: storage::InboundQueueResponseError) -> Self {
+        inbound_queue_response_error_to_client_error(error)
     }
 }
 
@@ -254,7 +254,7 @@ fn job_state_response_to_result(
             .map_err(|error| StorageClientError::Transport(error.to_string()))
             .and_then(|state| JobState::try_from(state).map_err(StorageClientError::Transport)),
         Some(job_state_response::Result::Error(error)) => {
-            Err(job_management_error_to_client_error(error, job_id))
+            Err(job_orchestration_error_to_client_error(error, job_id))
         }
         None => Err(StorageClientError::Transport(
             "job state response missing `result` message".to_owned(),
@@ -264,18 +264,20 @@ fn job_state_response_to_result(
 
 /// # Returns
 ///
-/// [`storage::SchedulerStorageError`] converted into [`StorageClientError`].
-fn scheduler_storage_error_to_client_error(
-    error: storage::SchedulerStorageError,
+/// [`storage::InboundQueueResponseError`] converted into [`StorageClientError`].
+fn inbound_queue_response_error_to_client_error(
+    error: storage::InboundQueueResponseError,
 ) -> StorageClientError {
-    match scheduler_storage_error::ErrCode::try_from(error.err_code) {
-        Ok(scheduler_storage_error::ErrCode::InboundClosed) => StorageClientError::InboundClosed,
-        Ok(scheduler_storage_error::ErrCode::InvalidInput) => {
+    match inbound_queue_response_error::ErrCode::try_from(error.err_code) {
+        Ok(inbound_queue_response_error::ErrCode::InboundClosed) => {
+            StorageClientError::InboundClosed
+        }
+        Ok(inbound_queue_response_error::ErrCode::InvalidInput) => {
             StorageClientError::InvalidInput(error.message)
         }
         Ok(
-            scheduler_storage_error::ErrCode::Server
-            | scheduler_storage_error::ErrCode::Unspecified,
+            inbound_queue_response_error::ErrCode::Server
+            | inbound_queue_response_error::ErrCode::Unspecified,
         ) => StorageClientError::Server(error.message),
         Err(error) => {
             StorageClientError::Transport(format!("unknown scheduler storage error kind: {error}"))
@@ -285,24 +287,25 @@ fn scheduler_storage_error_to_client_error(
 
 /// # Returns
 ///
-/// [`storage::JobManagementError`] converted into [`StorageClientError`].
-fn job_management_error_to_client_error(
-    error: storage::JobManagementError,
+/// [`storage::JobOrchestrationError`] converted into [`StorageClientError`].
+fn job_orchestration_error_to_client_error(
+    error: storage::JobOrchestrationError,
     requested_job_id: JobId,
 ) -> StorageClientError {
-    match job_management_error::ErrCode::try_from(error.err_code) {
-        Ok(job_management_error::ErrCode::JobNotFound) => {
+    match job_orchestration_error::ErrCode::try_from(error.err_code) {
+        Ok(job_orchestration_error::ErrCode::JobNotFound) => {
             StorageClientError::JobNotFound(requested_job_id)
         }
-        Ok(job_management_error::ErrCode::StaleSession) => StorageClientError::StaleSession {
+        Ok(job_orchestration_error::ErrCode::StaleSession) => StorageClientError::StaleSession {
             storage_session: error.storage_session,
         },
-        Ok(job_management_error::ErrCode::InvalidInput) => {
+        Ok(job_orchestration_error::ErrCode::InvalidInput) => {
             StorageClientError::InvalidInput(error.message)
         }
-        Ok(job_management_error::ErrCode::Server | job_management_error::ErrCode::Unspecified) => {
-            StorageClientError::Server(error.message)
-        }
+        Ok(
+            job_orchestration_error::ErrCode::Server
+            | job_orchestration_error::ErrCode::Unspecified,
+        ) => StorageClientError::Server(error.message),
         Err(error) => {
             StorageClientError::Transport(format!("unknown job management error kind: {error}"))
         }
@@ -321,7 +324,11 @@ fn to_transport_error(error: impl std::fmt::Display) -> StorageClientError {
 #[cfg(test)]
 mod tests {
     use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
-    use spider_proto_rust::storage::{self, poll_ready_tasks_response, scheduler_storage_error};
+    use spider_proto_rust::storage::{
+        self,
+        inbound_queue_response_error,
+        poll_ready_tasks_response,
+    };
 
     use super::*;
 
@@ -378,9 +385,9 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_storage_error_maps_inbound_closed() {
-        let error = storage::SchedulerStorageError {
-            err_code: scheduler_storage_error::ErrCode::InboundClosed.into(),
+    fn inbound_queue_response_error_maps_inbound_closed() {
+        let error = storage::InboundQueueResponseError {
+            err_code: inbound_queue_response_error::ErrCode::InboundClosed.into(),
             message: "closed".to_owned(),
         };
 

@@ -11,7 +11,7 @@ use spider_core::types::{
 use spider_proto_rust::storage::{
     self,
     register_task_instance_response,
-    task_instance_error,
+    task_instance_management_error,
     task_instance_management_service_client::TaskInstanceManagementServiceClient,
     task_instance_operation_response,
 };
@@ -136,17 +136,22 @@ impl StorageClient for GrpcStorageClient {
     }
 }
 
-impl From<storage::TaskInstanceError> for StorageResponseError {
-    fn from(error: storage::TaskInstanceError) -> Self {
-        match task_instance_error::ErrCode::try_from(error.err_code) {
-            Ok(task_instance_error::ErrCode::StaleSession) => Self::StaleSession {
+impl From<storage::TaskInstanceManagementError> for StorageResponseError {
+    fn from(error: storage::TaskInstanceManagementError) -> Self {
+        match task_instance_management_error::ErrCode::try_from(error.err_code) {
+            Ok(task_instance_management_error::ErrCode::StaleSession) => Self::StaleSession {
                 storage_session: error.storage_session,
             },
-            Ok(task_instance_error::ErrCode::CacheStale) => Self::CacheStale(error.message),
+            Ok(task_instance_management_error::ErrCode::CacheStale) => {
+                Self::CacheStale(error.message)
+            }
             Ok(
-                task_instance_error::ErrCode::Server | task_instance_error::ErrCode::Unspecified,
+                task_instance_management_error::ErrCode::Server
+                | task_instance_management_error::ErrCode::Unspecified,
             ) => Self::Server(error.message),
-            Ok(task_instance_error::ErrCode::InvalidInput) => Self::InvalidInput(error.message),
+            Ok(task_instance_management_error::ErrCode::InvalidInput) => {
+                Self::InvalidInput(error.message)
+            }
             Err(error) => Self::Transport(format!("unknown task instance error kind: {error}")),
         }
     }
@@ -183,8 +188,8 @@ mod tests {
 
     #[test]
     fn storage_error_maps_stale_session() {
-        let error = storage::TaskInstanceError {
-            err_code: task_instance_error::ErrCode::StaleSession.into(),
+        let error = storage::TaskInstanceManagementError {
+            err_code: task_instance_management_error::ErrCode::StaleSession.into(),
             message: "stale".to_owned(),
             storage_session: 7,
         };
@@ -199,7 +204,7 @@ mod tests {
 
     #[test]
     fn storage_error_maps_unknown_kind_to_transport_error() {
-        let error = storage::TaskInstanceError {
+        let error = storage::TaskInstanceManagementError {
             err_code: 99,
             message: "unknown".to_owned(),
             storage_session: 0,
