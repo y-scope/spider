@@ -172,7 +172,7 @@ impl<
     ///
     /// The number of expired entries processed by this GC cycle.
     async fn run_gc_cycle_at(&mut self, now: Instant) -> usize {
-        let mut num_removed_jobs = 0;
+        let mut expired_job_ids = Vec::new();
         while let Some(terminated_job) = self.pending_jobs.front() {
             if now.duration_since(terminated_job.enqueued_at) < self.terminated_job_retention {
                 break;
@@ -181,14 +181,18 @@ impl<
                 .pending_jobs
                 .pop_front()
                 .expect("pending terminated job should exist");
-            self.job_cache.remove(terminated_job.job_id).await;
-            num_removed_jobs += 1;
+            expired_job_ids.push(terminated_job.job_id);
+        }
+        let num_expired_jobs = expired_job_ids.len();
+        let num_removed_jobs = self.job_cache.remove_batch(&expired_job_ids).await;
+        if num_expired_jobs > 0 {
             tracing::info!(
-                job_id = ? terminated_job.job_id,
-                "Terminated job removed from cache.",
+                num_expired_jobs,
+                num_removed_jobs,
+                "Terminated jobs removed from cache.",
             );
         }
-        num_removed_jobs
+        num_expired_jobs
     }
 
     /// # Returns
