@@ -11,7 +11,7 @@ use crate::{
     config::DatabaseConfig,
     db::{DbStorage, MariaDbStorageConnector, SessionManagement},
     ready_queue::{ReadyQueueConfig, ReadyQueueSender, ReadyQueueSenderHandle, create_ready_queue},
-    state::{JobCache, ServiceState, StorageServerError},
+    state::{JobCache, JobCacheGcConfig, ServiceState, StorageServerError, create_job_cache_gc},
     task_instance_pool::{
         TaskInstancePoolConfig,
         TaskInstancePoolConnector,
@@ -36,6 +36,7 @@ pub struct Runtime<
         ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     cancellation_token: CancellationToken,
     task_instance_pool_join_handle: JoinHandle<Result<(), InternalError>>,
+    job_cache_gc_join_handle: JoinHandle<Result<(), InternalError>>,
     stop_timeout: Duration,
 }
 
@@ -56,18 +57,27 @@ impl<
     pub async fn stop(mut self) -> Result<(), StorageServerError> {
         self.cancellation_token.cancel();
         tokio::select! {
-            result = &mut self.task_instance_pool_join_handle => {
+            result = async {
+                let task_instance_pool_result = Self::wait_for_background_task(
+                    "task instance pool",
+                    &mut self.task_instance_pool_join_handle,
+                )
+                .await;
+                let job_cache_gc_result = Self::wait_for_background_task(
+                    "job cache GC",
+                    &mut self.job_cache_gc_join_handle,
+                )
+                .await;
+                task_instance_pool_result?;
+                job_cache_gc_result
+            } => {
                 result
-                    .map_err(|e| {
-                        let msg = format!("task instance pool panic: {e}");
-                        CacheError::Internal(InternalError::TaskInstancePoolCorrupted(msg))
-                    })?
-                    .map_err(|e| StorageServerError::Cache(CacheError::Internal(e)))
             }
             () = tokio::time::sleep(self.stop_timeout) => {
                 self.task_instance_pool_join_handle.abort();
+                self.job_cache_gc_join_handle.abort();
                 Err(StorageServerError::Stopping(
-                    "task instance pool stop timed out".to_owned(),
+                    "background task stop timed out".to_owned(),
                 ))
             }
         }
@@ -81,6 +91,26 @@ impl<
         &self,
     ) -> ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> {
         self.service_state.clone()
+    }
+
+    /// Waits for a background task to stop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::Cache`] if the task terminated on error or panic.
+    async fn wait_for_background_task(
+        name: &'static str,
+        join_handle: &mut JoinHandle<Result<(), InternalError>>,
+    ) -> Result<(), StorageServerError> {
+        join_handle
+            .await
+            .map_err(|e| {
+                let msg = format!("{name} panic: {e}");
+                CacheError::Internal(InternalError::TaskInstancePoolCorrupted(msg))
+            })?
+            .map_err(|e| StorageServerError::Cache(CacheError::Internal(e)))
     }
 }
 
@@ -130,13 +160,20 @@ pub async fn create_runtime(
         task_instance_pool_connector.clone(),
     )
     .await?;
-    let service_state = ServiceState::new(
+    let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
+        job_cache.clone(),
+        cancellation_token.clone(),
+        &JobCacheGcConfig::default(),
+    )
+    .map_err(CacheError::from)?;
+    let service_state = ServiceState::new_with_job_cache_gc(
         db,
         session_id,
         job_cache,
         ready_queue_sender,
         ready_queue_receiver,
         task_instance_pool_connector,
+        job_cache_gc_handle,
     );
 
     Ok((
@@ -144,6 +181,7 @@ pub async fn create_runtime(
             service_state,
             cancellation_token: cancellation_token.clone(),
             task_instance_pool_join_handle,
+            job_cache_gc_join_handle,
             stop_timeout: Duration::from_secs(STOP_BACKGROUND_TASKS_TIMEOUT_SEC),
         },
         cancellation_token,
@@ -238,11 +276,14 @@ mod tests {
             receiver,
             MockTaskInstancePoolConnector,
         );
+        let job_cache_gc_join_handle: JoinHandle<Result<(), InternalError>> =
+            tokio::spawn(async { Ok(()) });
 
         Runtime {
             service_state,
             cancellation_token,
             task_instance_pool_join_handle: mock_task_instance_pool_handle,
+            job_cache_gc_join_handle,
             stop_timeout: Duration::from_secs(stop_timeout_sec),
         }
     }

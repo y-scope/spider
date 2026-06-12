@@ -1,4 +1,7 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    sync::Arc,
+};
 
 use spider_core::types::id::JobId;
 use tokio::sync::RwLock;
@@ -10,6 +13,14 @@ use crate::{
     state::StorageServerError,
     task_instance_pool::TaskInstancePoolConnector,
 };
+
+type JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> = HashMap<
+    JobId,
+    SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+>;
+
+type SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> =
+    Arc<RwLock<JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>>;
 
 /// An in-memory cache for job control blocks.
 ///
@@ -26,16 +37,7 @@ pub struct JobCache<
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    jobs: RwLock<
-        HashMap<
-            JobId,
-            SharedJobControlBlock<
-                ReadyQueueSenderType,
-                DbConnectorType,
-                TaskInstancePoolConnectorType,
-            >,
-        >,
-    >,
+    jobs: SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
 }
 
 impl<
@@ -48,7 +50,7 @@ impl<
     #[must_use]
     pub fn new() -> Self {
         Self {
-            jobs: RwLock::new(HashMap::new()),
+            jobs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -129,6 +131,19 @@ impl<
 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> Clone for JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+{
+    fn clone(&self) -> Self {
+        Self {
+            jobs: Arc::clone(&self.jobs),
+        }
     }
 }
 
