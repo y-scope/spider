@@ -28,7 +28,13 @@ use spider_execution_manager::process_pool::{
 };
 use spider_task_executor::ExecutorError;
 use spider_tdl::TdlError;
-use task_executor_tests::{PACKAGE_NAME, decode_single_output, task_executor_bin, tdl_package_dir};
+use test_utils::{
+    PACKAGE_NAME,
+    decode_single_output,
+    single_input,
+    task_executor_bin,
+    tdl_package_dir,
+};
 
 /// Generous timeout for tasks expected to finish quickly.
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -52,8 +58,8 @@ const SLOW_FIB_INDEX: u64 = 45;
 ///
 /// Panics if [`ProcessPool::new`] fails — i.e., the task-executor binary cannot be spawned.
 fn build_pool() -> ProcessPool {
-    let em_id = ExecutionManagerId::new();
-    let log_dir = std::env::temp_dir().join(format!("spider-em-pool-test-{}", em_id.as_uuid_ref()));
+    let em_id = ExecutionManagerId::random();
+    let log_dir = std::env::temp_dir().join(format!("spider-em-pool-test-{em_id}"));
     let config = ProcessPoolConfig {
         em_id,
         executor_binary_path: task_executor_bin(),
@@ -71,9 +77,9 @@ fn build_pool() -> ProcessPool {
 /// supplies `hard_timeout` directly to [`ProcessPool::execute`]), and the supplied `inputs`.
 fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
     ExecuteRequest {
-        job_id: JobId::new(),
+        job_id: JobId::random(),
         task_id: TaskId::Index(0),
-        resource_group_id: ResourceGroupId::new(),
+        resource_group_id: ResourceGroupId::random(),
         ctx: ExecutionContext {
             task_instance_id: 1,
             tdl_context: TdlContext {
@@ -87,25 +93,6 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
             inputs,
         },
     }
-}
-
-/// Wraps `value` into a single-payload input list.
-///
-/// # Type Parameters
-///
-/// * `T` - The Serde-serializable value type carried as the task's single input.
-///
-/// # Returns
-///
-/// A `Vec<TaskInput>` of length 1 carrying the msgpack-encoded `value`.
-///
-/// # Panics
-///
-/// Panics if msgpack encoding fails.
-fn single_input<T: serde::Serialize>(value: &T) -> Vec<TaskInput> {
-    vec![TaskInput::ValuePayload(
-        rmp_serde::to_vec(value).expect("msgpack encode input"),
-    )]
 }
 
 #[tokio::test]

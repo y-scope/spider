@@ -237,8 +237,8 @@ mod tests {
     /// A new [`TaskAssignment`] with the given `task_id` and other ID fields are auto-generated.
     fn make_assignment_with_task_id(task_id: TaskId) -> TaskAssignment {
         TaskAssignment {
-            resource_group_id: ResourceGroupId::new(),
-            job_id: JobId::new(),
+            resource_group_id: ResourceGroupId::random(),
+            job_id: JobId::random(),
             task_id,
         }
     }
