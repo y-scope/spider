@@ -40,7 +40,7 @@ impl GrpcStorageClient {
     pub async fn connect(endpoint: Endpoint) -> Result<Self, StorageResponseError> {
         TaskInstanceManagementServiceClient::connect(endpoint)
             .await
-            .map(|inner| Self { client: inner })
+            .map(|client| Self { client })
             .map_err(to_transport_error)
     }
 }
