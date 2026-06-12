@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn bump_smaller_smaller_session_id_returns_invalid() -> Result<()> {
+    async fn bump_smaller_session_id_returns_invalid() -> Result<()> {
         const SESSION_ID: SessionId = 5;
         const SMALLER_SESSION_ID: SessionId = SESSION_ID - 1;
 
@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn bump_higher_succeeds() -> Result<()> {
+    async fn bump_higher_session_id_succeeds() -> Result<()> {
         const SESSION_ID: SessionId = 5;
         const NEW_SESSION_ID: SessionId = SESSION_ID + 1;
 
