@@ -1868,10 +1868,14 @@ dependencies = [
 name = "spider-scheduler"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-channel",
  "async-trait",
+ "dashmap",
  "spider-core",
  "spider-proto-rust",
  "thiserror",
+ "tokio",
  "tokio-util",
  "tonic",
 ]
