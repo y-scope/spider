@@ -2,7 +2,10 @@
 
 use spider_core::types::id::TaskId;
 
-use crate::storage::{self, task_id};
+use crate::{
+    error::Error,
+    storage::{self, task_id},
+};
 
 impl From<TaskId> for storage::TaskId {
     fn from(task_id: TaskId) -> Self {
@@ -18,16 +21,16 @@ impl From<TaskId> for storage::TaskId {
 }
 
 impl TryFrom<storage::TaskId> for TaskId {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(task_id: storage::TaskId) -> Result<Self, Self::Error> {
         match task_id.kind {
-            Some(task_id::Kind::Index(task_index)) => usize::try_from(task_index)
-                .map(TaskId::Index)
-                .map_err(|error| format!("task index does not fit in usize: {error}")),
+            Some(task_id::Kind::Index(task_index)) => Ok(Self::Index(
+                usize::try_from(task_index).map_err(|_| Error::TaskIndexOutOfRange(task_index))?,
+            )),
             Some(task_id::Kind::Commit(_)) => Ok(Self::Commit),
             Some(task_id::Kind::Cleanup(_)) => Ok(Self::Cleanup),
-            None => Err("task id missing kind".to_owned()),
+            None => Err(Error::TaskIdKindMissing),
         }
     }
 }
@@ -72,6 +75,6 @@ mod tests {
         let error = TaskId::try_from(storage::TaskId { kind: None })
             .expect_err("missing task id kind should fail");
 
-        assert!(error.contains("missing kind"));
+        assert!(matches!(error, Error::TaskIdKindMissing));
     }
 }

@@ -2,7 +2,7 @@
 
 use spider_core::job::JobState;
 
-use crate::storage;
+use crate::{error::Error, storage};
 
 impl From<JobState> for storage::JobState {
     fn from(state: JobState) -> Self {
@@ -19,11 +19,11 @@ impl From<JobState> for storage::JobState {
 }
 
 impl TryFrom<storage::JobState> for JobState {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(state: storage::JobState) -> Result<Self, Self::Error> {
         match state {
-            storage::JobState::Unspecified => Err("job state is unspecified".to_owned()),
+            storage::JobState::Unspecified => Err(Error::JobStateUnspecified),
             storage::JobState::Ready => Ok(Self::Ready),
             storage::JobState::Running => Ok(Self::Running),
             storage::JobState::CommitReady => Ok(Self::CommitReady),
@@ -39,7 +39,7 @@ impl TryFrom<storage::JobState> for JobState {
 mod tests {
     use spider_core::job::JobState;
 
-    use crate::storage::JobState as ProtocolJobState;
+    use crate::{error::Error, storage::JobState as ProtocolJobState};
 
     #[test]
     fn job_state_to_protocol_converts_succeeded() {
@@ -61,6 +61,6 @@ mod tests {
         let error = JobState::try_from(ProtocolJobState::Unspecified)
             .expect_err("unspecified job state should fail");
 
-        assert!(error.contains("unspecified"));
+        assert!(matches!(error, Error::JobStateUnspecified));
     }
 }

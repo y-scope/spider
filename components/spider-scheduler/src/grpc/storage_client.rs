@@ -227,7 +227,10 @@ fn ready_task_to_inbound_entry(
     let task_id = task
         .task_id
         .ok_or_else(|| StorageClientError::Transport("ready task missing task ID".to_owned()))
-        .and_then(|task_id| TaskId::try_from(task_id).map_err(StorageClientError::Transport))?;
+        .and_then(|task_id| {
+            TaskId::try_from(task_id)
+                .map_err(|error| StorageClientError::Transport(error.to_string()))
+        })?;
     Ok(InboundEntry {
         resource_group_id: ResourceGroupId::from(task.resource_group_id),
         job_id: JobId::from(task.job_id),
@@ -252,7 +255,10 @@ fn job_state_response_to_result(
     match response.result {
         Some(job_state_response::Result::State(state)) => storage::JobState::try_from(state)
             .map_err(|error| StorageClientError::Transport(error.to_string()))
-            .and_then(|state| JobState::try_from(state).map_err(StorageClientError::Transport)),
+            .and_then(|state| {
+                JobState::try_from(state)
+                    .map_err(|error| StorageClientError::Transport(error.to_string()))
+            }),
         Some(job_state_response::Result::Error(error)) => {
             Err(job_orchestration_error_to_client_error(error, job_id))
         }

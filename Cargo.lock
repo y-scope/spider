@@ -1859,6 +1859,7 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "spider-core",
+ "thiserror",
  "tonic",
  "tonic-build",
 ]
