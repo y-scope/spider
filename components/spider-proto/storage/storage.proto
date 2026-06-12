@@ -59,7 +59,6 @@ message SubmitJobResponse {
 
 message JobIdRequest {
   uint64 job_id = 1;
-  uint64 session_id = 2;
 }
 
 message JobStateResponse {
@@ -110,7 +109,7 @@ message ResendReadyTasksRequest {
 
 message PollReadyTasksRequest {
   uint64 max_items = 1;
-  uint64 wait_ns = 2;
+  uint64 wait_ms = 2;
 }
 
 message PollReadyTasksResponse {

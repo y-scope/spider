@@ -5,7 +5,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    session::SessionTracker,
     types::id::{JobId, ResourceGroupId, SessionId, TaskId},
 };
 use spider_proto_rust::storage::{
@@ -16,7 +15,6 @@ use spider_proto_rust::storage::{
     job_orchestration_service_client::JobOrchestrationServiceClient,
     job_state_response,
     poll_ready_tasks_response,
-    session_management_service_client::SessionManagementServiceClient,
 };
 use tonic::transport::{Channel, Endpoint};
 
@@ -31,7 +29,6 @@ use crate::{
 pub struct GrpcSchedulerStorageClient {
     scheduler_client: InboundQueueServiceClient<Channel>,
     job_client: JobOrchestrationServiceClient<Channel>,
-    session_tracker: SessionTracker,
 }
 
 impl GrpcSchedulerStorageClient {
@@ -46,35 +43,13 @@ impl GrpcSchedulerStorageClient {
     /// Returns an error if:
     ///
     /// * [`StorageClientError::Transport`] if tonic cannot create or connect to the endpoint.
-    /// * Forwards [`Self::get_initial_session`]'s return values on failure.
     pub async fn connect(endpoint: Endpoint) -> Result<Self, StorageClientError> {
         let channel = endpoint.connect().await.map_err(to_transport_error)?;
-        let session_id = Self::get_initial_session(channel.clone()).await?;
 
         Ok(Self {
             scheduler_client: InboundQueueServiceClient::new(channel.clone()),
             job_client: JobOrchestrationServiceClient::new(channel),
-            session_tracker: SessionTracker::new(session_id),
         })
-    }
-
-    /// Fetches storage's current session ID.
-    ///
-    /// # Returns
-    ///
-    /// The current storage session ID on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`StorageClientError::Transport`] if the request fails.
-    async fn get_initial_session(channel: Channel) -> Result<SessionId, StorageClientError> {
-        SessionManagementServiceClient::new(channel)
-            .get_session(storage::Void {})
-            .await
-            .map(|response| response.into_inner().session_id)
-            .map_err(to_transport_error)
     }
 }
 
@@ -131,7 +106,6 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     async fn job_state(&self, job_id: JobId) -> Result<JobState, StorageClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
-            session_id: self.session_tracker.current(),
         };
         let response = self
             .job_client
@@ -146,7 +120,17 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
 
 impl From<storage::InboundQueueResponseError> for StorageClientError {
     fn from(error: storage::InboundQueueResponseError) -> Self {
-        inbound_queue_response_error_to_client_error(error)
+        match inbound_queue_response_error::ErrCode::try_from(error.err_code) {
+            Ok(inbound_queue_response_error::ErrCode::InboundClosed) => Self::InboundClosed,
+            Ok(inbound_queue_response_error::ErrCode::InvalidInput) => {
+                Self::InvalidInput(error.message)
+            }
+            Ok(
+                inbound_queue_response_error::ErrCode::Server
+                | inbound_queue_response_error::ErrCode::Unspecified,
+            ) => Self::Server(error.message),
+            Err(error) => Self::Transport(format!("unknown scheduler storage error kind: {error}")),
+        }
     }
 }
 
@@ -158,27 +142,21 @@ impl From<storage::InboundQueueResponseError> for StorageClientError {
 ///
 /// Returns an error if:
 ///
-/// * [`StorageClientError::Transport`] if either value cannot fit in the protobuf field type.
+/// * [`StorageClientError::InvalidInput`] if either value cannot fit in the protobuf field type.
 fn poll_ready_tasks_request(
     max_items: usize,
     wait: Duration,
 ) -> Result<storage::PollReadyTasksRequest, StorageClientError> {
     Ok(storage::PollReadyTasksRequest {
-        max_items: u64::try_from(max_items).map_err(to_transport_error)?,
-        wait_ns: u64::try_from(wait.as_nanos()).map_err(to_transport_error)?,
+        max_items: u64::try_from(max_items).map_err(to_invalid_input_error)?,
+        wait_ms: u64::try_from(wait.as_millis()).map_err(to_invalid_input_error)?,
     })
 }
 
 /// # Returns
 ///
-/// [`storage::PollReadyTasksResponse`] converted into scheduler entries on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`StorageClientError::Transport`] if the response is malformed.
-/// * Forwards [`StorageClientError::from`]'s return values on failure.
+/// [`storage::PollReadyTasksResponse`] converted into
+/// [`Result<(SessionId, Vec<InboundEntry>), StorageClientError>`].
 fn poll_ready_tasks_response_to_result(
     response: storage::PollReadyTasksResponse,
 ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
@@ -193,13 +171,8 @@ fn poll_ready_tasks_response_to_result(
 
 /// # Returns
 ///
-/// [`storage::ReadyTasks`] converted into scheduler entries on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`StorageClientError::Transport`] if a ready task is missing or has an invalid task ID.
+/// [`storage::ReadyTasks`] converted into
+/// [`Result<(SessionId, Vec<InboundEntry>), StorageClientError>`].
 fn ready_tasks_to_result(
     tasks: storage::ReadyTasks,
 ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
@@ -240,14 +213,7 @@ fn ready_task_to_inbound_entry(
 
 /// # Returns
 ///
-/// [`storage::JobStateResponse`] converted into [`JobState`] on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`StorageClientError::Transport`] if the response is malformed.
-/// * Forwards [`StorageClientError::from`]'s return values on failure.
+/// [`storage::JobStateResponse`] converted into [`Result<JobState, StorageClientError>`].
 fn job_state_response_to_result(
     response: storage::JobStateResponse,
     job_id: JobId,
@@ -265,29 +231,6 @@ fn job_state_response_to_result(
         None => Err(StorageClientError::Transport(
             "job state response missing `result` message".to_owned(),
         )),
-    }
-}
-
-/// # Returns
-///
-/// [`storage::InboundQueueResponseError`] converted into [`StorageClientError`].
-fn inbound_queue_response_error_to_client_error(
-    error: storage::InboundQueueResponseError,
-) -> StorageClientError {
-    match inbound_queue_response_error::ErrCode::try_from(error.err_code) {
-        Ok(inbound_queue_response_error::ErrCode::InboundClosed) => {
-            StorageClientError::InboundClosed
-        }
-        Ok(inbound_queue_response_error::ErrCode::InvalidInput) => {
-            StorageClientError::InvalidInput(error.message)
-        }
-        Ok(
-            inbound_queue_response_error::ErrCode::Server
-            | inbound_queue_response_error::ErrCode::Unspecified,
-        ) => StorageClientError::Server(error.message),
-        Err(error) => {
-            StorageClientError::Transport(format!("unknown scheduler storage error kind: {error}"))
-        }
     }
 }
 
@@ -327,6 +270,15 @@ fn to_transport_error(error: impl std::fmt::Display) -> StorageClientError {
     StorageClientError::Transport(error.to_string())
 }
 
+/// Converts a displayable out-of-range error into [`StorageClientError::InvalidInput`].
+///
+/// # Returns
+///
+/// A [`StorageClientError::InvalidInput`] containing `error`'s display string.
+fn to_invalid_input_error(error: impl std::fmt::Display) -> StorageClientError {
+    StorageClientError::InvalidInput(error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
@@ -338,16 +290,21 @@ mod tests {
 
     use super::*;
 
+    const SESSION_ID: SessionId = 11;
+    const RESOURCE_GROUP_ID: u64 = 3;
+    const JOB_ID: u64 = 5;
+    const TASK_INDEX: usize = 7;
+
     #[test]
     fn poll_ready_tasks_response_converts_entries() {
         let response = storage::PollReadyTasksResponse {
             result: Some(poll_ready_tasks_response::Result::Tasks(
                 storage::ReadyTasks {
-                    session_id: 11,
+                    session_id: SESSION_ID,
                     tasks: vec![storage::ReadyTask {
-                        resource_group_id: 3,
-                        job_id: 5,
-                        task_id: Some(storage::TaskId::from(TaskId::Index(7))),
+                        resource_group_id: RESOURCE_GROUP_ID,
+                        job_id: JOB_ID,
+                        task_id: Some(storage::TaskId::from(TaskId::Index(TASK_INDEX))),
                     }],
                 },
             )),
@@ -356,26 +313,28 @@ mod tests {
         let (session_id, entries) = poll_ready_tasks_response_to_result(response)
             .expect("poll response conversion should succeed");
 
-        assert_eq!(session_id, 11);
+        assert_eq!(session_id, SESSION_ID);
         assert_eq!(
             entries,
             vec![InboundEntry {
-                resource_group_id: ResourceGroupId::from(3),
-                job_id: JobId::from(5),
-                task_id: TaskId::Index(7),
+                resource_group_id: ResourceGroupId::from(RESOURCE_GROUP_ID),
+                job_id: JobId::from(JOB_ID),
+                task_id: TaskId::Index(TASK_INDEX),
             }]
         );
     }
 
     #[test]
     fn poll_ready_tasks_response_rejects_missing_task_id() {
+        const MISSING_TASK_ID_MESSAGE: &str = "missing task ID";
+
         let response = storage::PollReadyTasksResponse {
             result: Some(poll_ready_tasks_response::Result::Tasks(
                 storage::ReadyTasks {
-                    session_id: 11,
+                    session_id: SESSION_ID,
                     tasks: vec![storage::ReadyTask {
-                        resource_group_id: 3,
-                        job_id: 5,
+                        resource_group_id: RESOURCE_GROUP_ID,
+                        job_id: JOB_ID,
                         task_id: None,
                     }],
                 },
@@ -384,7 +343,7 @@ mod tests {
 
         match poll_ready_tasks_response_to_result(response) {
             Err(StorageClientError::Transport(message)) => {
-                assert!(message.contains("missing task ID"));
+                assert!(message.contains(MISSING_TASK_ID_MESSAGE));
             }
             result => panic!("unexpected poll response conversion result: {result:?}"),
         }
@@ -392,9 +351,11 @@ mod tests {
 
     #[test]
     fn inbound_queue_response_error_maps_inbound_closed() {
+        const ERROR_MESSAGE: &str = "closed";
+
         let error = storage::InboundQueueResponseError {
             err_code: inbound_queue_response_error::ErrCode::InboundClosed.into(),
-            message: "closed".to_owned(),
+            message: ERROR_MESSAGE.to_owned(),
         };
 
         assert!(matches!(

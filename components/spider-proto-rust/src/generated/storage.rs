@@ -29,8 +29,6 @@ pub mod submit_job_response {
 pub struct JobIdRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
-    #[prost(uint64, tag = "2")]
-    pub session_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobStateResponse {
@@ -121,7 +119,7 @@ pub struct PollReadyTasksRequest {
     #[prost(uint64, tag = "1")]
     pub max_items: u64,
     #[prost(uint64, tag = "2")]
-    pub wait_ns: u64,
+    pub wait_ms: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PollReadyTasksResponse {
