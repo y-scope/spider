@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, SessionId};
 use spider_proto_rust::storage::{
     self,
+    execution_manager_liveness_error,
     execution_manager_liveness_service_client::ExecutionManagerLivenessServiceClient,
     register_execution_manager_response,
-    storage_error,
     update_execution_manager_heartbeat_response,
 };
 use tonic::transport::{Channel, Endpoint};
@@ -36,7 +36,7 @@ impl GrpcLivenessClient {
     pub async fn connect(endpoint: Endpoint) -> Result<Self, LivenessResponseError> {
         ExecutionManagerLivenessServiceClient::connect(endpoint)
             .await
-            .map(|inner| Self { client: inner })
+            .map(|client| Self { client })
             .map_err(to_transport_error)
     }
 }
@@ -77,6 +77,24 @@ impl LivenessClient for GrpcLivenessClient {
     }
 }
 
+impl From<storage::ExecutionManagerLivenessError> for LivenessResponseError {
+    fn from(error: storage::ExecutionManagerLivenessError) -> Self {
+        match execution_manager_liveness_error::ErrCode::try_from(error.err_code) {
+            Ok(execution_manager_liveness_error::ErrCode::MarkedDead) => Self::MarkedDead,
+            Ok(execution_manager_liveness_error::ErrCode::InvalidInput) => {
+                Self::IllegalId(error.message)
+            }
+            Ok(
+                execution_manager_liveness_error::ErrCode::Server
+                | execution_manager_liveness_error::ErrCode::Unspecified,
+            ) => Self::Transport(error.message),
+            Err(error) => Self::Transport(format!(
+                "unknown execution manager liveness error kind: {error}"
+            )),
+        }
+    }
+}
+
 /// # Returns
 ///
 /// [`storage::RegisterExecutionManagerResponse`] converted into
@@ -91,9 +109,7 @@ fn register_response_to_result(
                 session_id: registration.session_id,
             })
         }
-        Some(register_execution_manager_response::Result::Error(error)) => {
-            Err(storage_error_to_liveness_error(error))
-        }
+        Some(register_execution_manager_response::Result::Error(error)) => Err(error.into()),
         None => Err(LivenessResponseError::Transport(
             "register execution manager response missing result".to_owned(),
         )),
@@ -112,32 +128,11 @@ fn heartbeat_response_to_result(
             Ok(session_id)
         }
         Some(update_execution_manager_heartbeat_response::Result::Error(error)) => {
-            Err(storage_error_to_liveness_error(error))
+            Err(error.into())
         }
         None => Err(LivenessResponseError::Transport(
             "update execution manager heartbeat response missing result".to_owned(),
         )),
-    }
-}
-
-/// Converts a protobuf storage error into a liveness client error.
-///
-/// # Returns
-///
-/// The corresponding [`LivenessResponseError`].
-fn storage_error_to_liveness_error(error: storage::StorageError) -> LivenessResponseError {
-    match storage_error::ErrCode::try_from(error.err_code) {
-        Ok(storage_error::ErrCode::CacheStale) => LivenessResponseError::MarkedDead,
-        Ok(storage_error::ErrCode::InvalidInput) => LivenessResponseError::IllegalId(error.message),
-        Ok(
-            storage_error::ErrCode::Transport
-            | storage_error::ErrCode::Server
-            | storage_error::ErrCode::StaleSession
-            | storage_error::ErrCode::Unspecified,
-        ) => LivenessResponseError::Transport(error.message),
-        Err(error) => {
-            LivenessResponseError::Transport(format!("unknown storage error kind: {error}"))
-        }
     }
 }
 
@@ -159,11 +154,14 @@ mod tests {
 
     #[test]
     fn register_response_to_result_returns_registration() {
+        const SESSION_ID: SessionId = 7;
+        const EM_ID: ExecutionManagerId = ExecutionManagerId::from(5);
+
         let response = storage::RegisterExecutionManagerResponse {
             result: Some(register_execution_manager_response::Result::Registration(
                 storage::ExecutionManagerRegistration {
-                    execution_manager_id: 5,
-                    session_id: 7,
+                    execution_manager_id: EM_ID.get(),
+                    session_id: SESSION_ID,
                 },
             )),
         };
@@ -174,35 +172,40 @@ mod tests {
         assert_eq!(
             registration,
             RegistrationResponse {
-                em_id: ExecutionManagerId::from(5),
-                session_id: 7,
+                em_id: EM_ID,
+                session_id: SESSION_ID,
             }
         );
     }
 
     #[test]
     fn heartbeat_response_to_result_returns_session_id() {
+        const SESSION_ID: SessionId = 9;
+
         let response = storage::UpdateExecutionManagerHeartbeatResponse {
-            result: Some(update_execution_manager_heartbeat_response::Result::SessionId(9)),
+            result: Some(
+                update_execution_manager_heartbeat_response::Result::SessionId(SESSION_ID),
+            ),
         };
 
         let session_id = heartbeat_response_to_result(response)
             .expect("heartbeat response conversion should succeed");
 
-        assert_eq!(session_id, 9);
+        assert_eq!(session_id, SESSION_ID);
     }
 
     #[test]
     fn liveness_storage_error_maps_invalid_input_to_illegal_id() {
-        let error = storage::StorageError {
-            err_code: storage_error::ErrCode::InvalidInput.into(),
-            message: "bad em id".to_owned(),
-            storage_session: 0,
+        const ERROR_MSG: &str = "bad em id";
+
+        let error = storage::ExecutionManagerLivenessError {
+            err_code: execution_manager_liveness_error::ErrCode::InvalidInput.into(),
+            message: ERROR_MSG.to_owned(),
         };
 
-        match storage_error_to_liveness_error(error) {
+        match LivenessResponseError::from(error) {
             LivenessResponseError::IllegalId(message) => {
-                assert_eq!(message, "bad em id");
+                assert_eq!(message, ERROR_MSG);
             }
             error => panic!("unexpected liveness response error: {error:?}"),
         }

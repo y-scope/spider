@@ -5,8 +5,8 @@ pub struct SubmitJobRequest {
     pub resource_group_id: u64,
     #[prost(bytes = "vec", tag = "2")]
     pub serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", repeated, tag = "3")]
-    pub serialized_inputs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub serialized_inputs: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint64, tag = "4")]
     pub session_id: u64,
 }
@@ -22,15 +22,13 @@ pub mod submit_job_response {
         #[prost(uint64, tag = "1")]
         JobId(u64),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::JobOrchestrationError),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct JobIdRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
-    #[prost(uint64, tag = "2")]
-    pub session_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobStateResponse {
@@ -44,7 +42,7 @@ pub mod job_state_response {
         #[prost(enumeration = "super::JobState", tag = "1")]
         State(i32),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::JobOrchestrationError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -59,7 +57,7 @@ pub mod job_outputs_response {
         #[prost(message, tag = "1")]
         Outputs(super::JobOutputs),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::JobOrchestrationError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -79,7 +77,7 @@ pub mod job_error_response {
         #[prost(string, tag = "1")]
         ErrorMessage(::prost::alloc::string::String),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::JobOrchestrationError),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -101,7 +99,7 @@ pub mod delete_expired_terminated_jobs_response {
         #[prost(message, tag = "1")]
         DeletedJobs(super::DeletedJobs),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::JobOrchestrationError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -117,11 +115,49 @@ pub struct ResendReadyTasksRequest {
     pub session_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct PollReadyTasksRequest {
+    #[prost(uint64, tag = "1")]
+    pub max_items: u64,
+    #[prost(uint64, tag = "2")]
+    pub wait_ms: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PollReadyTasksResponse {
+    #[prost(oneof = "poll_ready_tasks_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<poll_ready_tasks_response::Result>,
+}
+/// Nested message and enum types in `PollReadyTasksResponse`.
+pub mod poll_ready_tasks_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Tasks(super::ReadyTasks),
+        #[prost(message, tag = "2")]
+        Error(super::InboundQueueResponseError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReadyTasks {
+    #[prost(uint64, tag = "1")]
+    pub session_id: u64,
+    #[prost(message, repeated, tag = "2")]
+    pub tasks: ::prost::alloc::vec::Vec<ReadyTask>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ReadyTask {
+    #[prost(uint64, tag = "1")]
+    pub resource_group_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub job_id: u64,
+    #[prost(message, optional, tag = "3")]
+    pub task_id: ::core::option::Option<TaskId>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RegisterTaskInstanceRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
     #[prost(message, optional, tag = "2")]
-    pub task_id: ::core::option::Option<super::common::TaskId>,
+    pub task_id: ::core::option::Option<TaskId>,
     #[prost(uint64, tag = "3")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
@@ -139,7 +175,7 @@ pub mod register_task_instance_response {
         #[prost(bytes, tag = "1")]
         ExecutionContext(::prost::alloc::vec::Vec<u8>),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::TaskInstanceManagementError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -147,7 +183,7 @@ pub struct ReportTaskSuccessRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
     #[prost(message, optional, tag = "2")]
-    pub task_id: ::core::option::Option<super::common::TaskId>,
+    pub task_id: ::core::option::Option<TaskId>,
     #[prost(uint64, tag = "3")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
@@ -160,7 +196,7 @@ pub struct ReportTaskFailureRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
     #[prost(message, optional, tag = "2")]
-    pub task_id: ::core::option::Option<super::common::TaskId>,
+    pub task_id: ::core::option::Option<TaskId>,
     #[prost(uint64, tag = "3")]
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
@@ -196,7 +232,7 @@ pub mod resource_group_id_response {
         #[prost(uint64, tag = "1")]
         ResourceGroupId(u64),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::ResourceGroupManagementError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -237,7 +273,7 @@ pub mod register_execution_manager_response {
         #[prost(message, tag = "1")]
         Registration(super::ExecutionManagerRegistration),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::ExecutionManagerLivenessError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -257,7 +293,7 @@ pub mod update_execution_manager_heartbeat_response {
         #[prost(uint64, tag = "1")]
         SessionId(u64),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::ExecutionManagerLivenessError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -272,7 +308,7 @@ pub mod is_execution_manager_alive_response {
         #[prost(bool, tag = "1")]
         Alive(bool),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::ExecutionManagerLivenessError),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -294,7 +330,7 @@ pub mod get_dead_execution_managers_response {
         #[prost(message, tag = "1")]
         DeadExecutionManagers(super::DeadExecutionManagers),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Error(super::ExecutionManagerLivenessError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -307,32 +343,138 @@ pub struct GetSessionResponse {
     #[prost(uint64, tag = "1")]
     pub session_id: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StorageOperationResponse {
-    #[prost(oneof = "storage_operation_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<storage_operation_response::Result>,
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TaskId {
+    #[prost(oneof = "task_id::Kind", tags = "1, 2, 3")]
+    pub kind: ::core::option::Option<task_id::Kind>,
 }
-/// Nested message and enum types in `StorageOperationResponse`.
-pub mod storage_operation_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Ok(super::super::common::Void),
+/// Nested message and enum types in `TaskId`.
+pub mod task_id {
+    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(uint64, tag = "1")]
+        Index(u64),
         #[prost(message, tag = "2")]
-        Error(super::StorageError),
+        Commit(super::Void),
+        #[prost(message, tag = "3")]
+        Cleanup(super::Void),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StorageError {
-    #[prost(enumeration = "storage_error::ErrCode", tag = "1")]
+pub struct JobManagementOperationResponse {
+    #[prost(oneof = "job_management_operation_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<job_management_operation_response::Result>,
+}
+/// Nested message and enum types in `JobManagementOperationResponse`.
+pub mod job_management_operation_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Ok(super::Void),
+        #[prost(message, tag = "2")]
+        Error(super::JobOrchestrationError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaskInstanceOperationResponse {
+    #[prost(oneof = "task_instance_operation_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<task_instance_operation_response::Result>,
+}
+/// Nested message and enum types in `TaskInstanceOperationResponse`.
+pub mod task_instance_operation_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Ok(super::Void),
+        #[prost(message, tag = "2")]
+        Error(super::TaskInstanceManagementError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResourceGroupOperationResponse {
+    #[prost(oneof = "resource_group_operation_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<resource_group_operation_response::Result>,
+}
+/// Nested message and enum types in `ResourceGroupOperationResponse`.
+pub mod resource_group_operation_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Ok(super::Void),
+        #[prost(message, tag = "2")]
+        Error(super::ResourceGroupManagementError),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Void {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct JobOrchestrationError {
+    #[prost(enumeration = "job_orchestration_error::ErrCode", tag = "1")]
     pub err_code: i32,
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
     #[prost(uint64, tag = "3")]
     pub storage_session: u64,
 }
-/// Nested message and enum types in `StorageError`.
-pub mod storage_error {
+/// Nested message and enum types in `JobOrchestrationError`.
+pub mod job_orchestration_error {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ErrCode {
+        Unspecified = 0,
+        StaleSession = 1,
+        Server = 2,
+        InvalidInput = 3,
+        JobNotFound = 4,
+    }
+    impl ErrCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
+                Self::StaleSession => "STALE_SESSION",
+                Self::Server => "SERVER",
+                Self::InvalidInput => "INVALID_INPUT",
+                Self::JobNotFound => "JOB_NOT_FOUND",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
+                "STALE_SESSION" => Some(Self::StaleSession),
+                "SERVER" => Some(Self::Server),
+                "INVALID_INPUT" => Some(Self::InvalidInput),
+                "JOB_NOT_FOUND" => Some(Self::JobNotFound),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaskInstanceManagementError {
+    #[prost(enumeration = "task_instance_management_error::ErrCode", tag = "1")]
+    pub err_code: i32,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "3")]
+    pub storage_session: u64,
+}
+/// Nested message and enum types in `TaskInstanceManagementError`.
+pub mod task_instance_management_error {
     #[derive(
         Clone,
         Copy,
@@ -349,9 +491,8 @@ pub mod storage_error {
         Unspecified = 0,
         StaleSession = 1,
         CacheStale = 2,
-        Transport = 3,
-        Server = 4,
-        InvalidInput = 5,
+        Server = 3,
+        InvalidInput = 4,
     }
     impl ErrCode {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -363,7 +504,6 @@ pub mod storage_error {
                 Self::Unspecified => "ERR_CODE_UNSPECIFIED",
                 Self::StaleSession => "STALE_SESSION",
                 Self::CacheStale => "CACHE_STALE",
-                Self::Transport => "TRANSPORT",
                 Self::Server => "SERVER",
                 Self::InvalidInput => "INVALID_INPUT",
             }
@@ -374,9 +514,166 @@ pub mod storage_error {
                 "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
                 "STALE_SESSION" => Some(Self::StaleSession),
                 "CACHE_STALE" => Some(Self::CacheStale),
-                "TRANSPORT" => Some(Self::Transport),
                 "SERVER" => Some(Self::Server),
                 "INVALID_INPUT" => Some(Self::InvalidInput),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InboundQueueResponseError {
+    #[prost(enumeration = "inbound_queue_response_error::ErrCode", tag = "1")]
+    pub err_code: i32,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `InboundQueueResponseError`.
+pub mod inbound_queue_response_error {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ErrCode {
+        Unspecified = 0,
+        InboundClosed = 1,
+        Server = 2,
+        InvalidInput = 3,
+    }
+    impl ErrCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
+                Self::InboundClosed => "INBOUND_CLOSED",
+                Self::Server => "SERVER",
+                Self::InvalidInput => "INVALID_INPUT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
+                "INBOUND_CLOSED" => Some(Self::InboundClosed),
+                "SERVER" => Some(Self::Server),
+                "INVALID_INPUT" => Some(Self::InvalidInput),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResourceGroupManagementError {
+    #[prost(enumeration = "resource_group_management_error::ErrCode", tag = "1")]
+    pub err_code: i32,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "3")]
+    pub storage_session: u64,
+}
+/// Nested message and enum types in `ResourceGroupManagementError`.
+pub mod resource_group_management_error {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ErrCode {
+        Unspecified = 0,
+        StaleSession = 1,
+        Server = 2,
+        InvalidInput = 3,
+    }
+    impl ErrCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
+                Self::StaleSession => "STALE_SESSION",
+                Self::Server => "SERVER",
+                Self::InvalidInput => "INVALID_INPUT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
+                "STALE_SESSION" => Some(Self::StaleSession),
+                "SERVER" => Some(Self::Server),
+                "INVALID_INPUT" => Some(Self::InvalidInput),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExecutionManagerLivenessError {
+    #[prost(enumeration = "execution_manager_liveness_error::ErrCode", tag = "1")]
+    pub err_code: i32,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `ExecutionManagerLivenessError`.
+pub mod execution_manager_liveness_error {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ErrCode {
+        Unspecified = 0,
+        MarkedDead = 1,
+        InvalidInput = 2,
+        Server = 3,
+    }
+    impl ErrCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
+                Self::MarkedDead => "MARKED_DEAD",
+                Self::InvalidInput => "INVALID_INPUT",
+                Self::Server => "SERVER",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
+                "MARKED_DEAD" => Some(Self::MarkedDead),
+                "INVALID_INPUT" => Some(Self::InvalidInput),
+                "SERVER" => Some(Self::Server),
                 _ => None,
             }
         }
@@ -427,7 +724,7 @@ impl JobState {
     }
 }
 /// Generated client implementations.
-pub mod job_management_service_client {
+pub mod job_orchestration_service_client {
     #![allow(
         unused_variables,
         dead_code,
@@ -438,10 +735,10 @@ pub mod job_management_service_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct JobManagementServiceClient<T> {
+    pub struct JobOrchestrationServiceClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl JobManagementServiceClient<tonic::transport::Channel> {
+    impl JobOrchestrationServiceClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -452,7 +749,7 @@ pub mod job_management_service_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> JobManagementServiceClient<T>
+    impl<T> JobOrchestrationServiceClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -470,7 +767,7 @@ pub mod job_management_service_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> JobManagementServiceClient<InterceptedService<T, F>>
+        ) -> JobOrchestrationServiceClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -484,7 +781,9 @@ pub mod job_management_service_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
-            JobManagementServiceClient::new(InterceptedService::new(inner, interceptor))
+            JobOrchestrationServiceClient::new(
+                InterceptedService::new(inner, interceptor),
+            )
         }
         /// Compress requests with the given encoding.
         ///
@@ -534,11 +833,11 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/SubmitJob",
+                "/storage.JobOrchestrationService/SubmitJob",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("storage.JobManagementService", "SubmitJob"));
+                .insert(GrpcMethod::new("storage.JobOrchestrationService", "SubmitJob"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn start_job(
@@ -558,11 +857,11 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/StartJob",
+                "/storage.JobOrchestrationService/StartJob",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("storage.JobManagementService", "StartJob"));
+                .insert(GrpcMethod::new("storage.JobOrchestrationService", "StartJob"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn cancel_job(
@@ -582,11 +881,11 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/CancelJob",
+                "/storage.JobOrchestrationService/CancelJob",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("storage.JobManagementService", "CancelJob"));
+                .insert(GrpcMethod::new("storage.JobOrchestrationService", "CancelJob"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_job_state(
@@ -606,11 +905,13 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/GetJobState",
+                "/storage.JobOrchestrationService/GetJobState",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("storage.JobManagementService", "GetJobState"));
+                .insert(
+                    GrpcMethod::new("storage.JobOrchestrationService", "GetJobState"),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_job_outputs(
@@ -630,12 +931,12 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/GetJobOutputs",
+                "/storage.JobOrchestrationService/GetJobOutputs",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("storage.JobManagementService", "GetJobOutputs"),
+                    GrpcMethod::new("storage.JobOrchestrationService", "GetJobOutputs"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -656,11 +957,13 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/GetJobError",
+                "/storage.JobOrchestrationService/GetJobError",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("storage.JobManagementService", "GetJobError"));
+                .insert(
+                    GrpcMethod::new("storage.JobOrchestrationService", "GetJobError"),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn delete_expired_terminated_jobs(
@@ -680,13 +983,13 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/DeleteExpiredTerminatedJobs",
+                "/storage.JobOrchestrationService/DeleteExpiredTerminatedJobs",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "storage.JobManagementService",
+                        "storage.JobOrchestrationService",
                         "DeleteExpiredTerminatedJobs",
                     ),
                 );
@@ -696,7 +999,7 @@ pub mod job_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ResendReadyTasksRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::JobManagementOperationResponse>,
             tonic::Status,
         > {
             self.inner
@@ -709,12 +1012,15 @@ pub mod job_management_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobManagementService/ResendReadyTasks",
+                "/storage.JobOrchestrationService/ResendReadyTasks",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("storage.JobManagementService", "ResendReadyTasks"),
+                    GrpcMethod::new(
+                        "storage.JobOrchestrationService",
+                        "ResendReadyTasks",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -846,7 +1152,7 @@ pub mod task_instance_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ReportTaskSuccessRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::TaskInstanceOperationResponse>,
             tonic::Status,
         > {
             self.inner
@@ -875,7 +1181,7 @@ pub mod task_instance_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ReportTaskFailureRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::TaskInstanceOperationResponse>,
             tonic::Status,
         > {
             self.inner
@@ -896,6 +1202,183 @@ pub mod task_instance_management_service_client {
                     GrpcMethod::new(
                         "storage.TaskInstanceManagementService",
                         "ReportTaskFailure",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+    }
+}
+/// Generated client implementations.
+pub mod inbound_queue_service_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
+    #[derive(Debug, Clone)]
+    pub struct InboundQueueServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl InboundQueueServiceClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> InboundQueueServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InboundQueueServiceClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            InboundQueueServiceClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn poll_ready_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.InboundQueueService/PollReadyTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("storage.InboundQueueService", "PollReadyTasks"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn poll_ready_commit_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.InboundQueueService/PollReadyCommitTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.InboundQueueService",
+                        "PollReadyCommitTasks",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn poll_ready_cleanup_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.InboundQueueService/PollReadyCleanupTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.InboundQueueService",
+                        "PollReadyCleanupTasks",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1028,7 +1511,7 @@ pub mod resource_group_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::VerifyResourceGroupRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
         > {
             self.inner
@@ -1057,7 +1540,7 @@ pub mod resource_group_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ResourceGroupIdRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
         > {
             self.inner
@@ -1390,7 +1873,7 @@ pub mod session_management_service_client {
         }
         pub async fn get_session(
             &mut self,
-            request: impl tonic::IntoRequest<super::super::common::Void>,
+            request: impl tonic::IntoRequest<super::Void>,
         ) -> std::result::Result<
             tonic::Response<super::GetSessionResponse>,
             tonic::Status,
@@ -1417,7 +1900,7 @@ pub mod session_management_service_client {
     }
 }
 /// Generated server implementations.
-pub mod job_management_service_server {
+pub mod job_orchestration_service_server {
     #![allow(
         unused_variables,
         dead_code,
@@ -1426,9 +1909,9 @@ pub mod job_management_service_server {
         clippy::let_unit_value,
     )]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with JobManagementServiceServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with JobOrchestrationServiceServer.
     #[async_trait]
-    pub trait JobManagementService: std::marker::Send + std::marker::Sync + 'static {
+    pub trait JobOrchestrationService: std::marker::Send + std::marker::Sync + 'static {
         async fn submit_job(
             &self,
             request: tonic::Request<super::SubmitJobRequest>,
@@ -1482,19 +1965,19 @@ pub mod job_management_service_server {
             &self,
             request: tonic::Request<super::ResendReadyTasksRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::JobManagementOperationResponse>,
             tonic::Status,
         >;
     }
     #[derive(Debug)]
-    pub struct JobManagementServiceServer<T> {
+    pub struct JobOrchestrationServiceServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T> JobManagementServiceServer<T> {
+    impl<T> JobOrchestrationServiceServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -1546,9 +2029,9 @@ pub mod job_management_service_server {
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>>
-    for JobManagementServiceServer<T>
+    for JobOrchestrationServiceServer<T>
     where
-        T: JobManagementService,
+        T: JobOrchestrationService,
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
@@ -1563,11 +2046,11 @@ pub mod job_management_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/storage.JobManagementService/SubmitJob" => {
+                "/storage.JobOrchestrationService/SubmitJob" => {
                     #[allow(non_camel_case_types)]
-                    struct SubmitJobSvc<T: JobManagementService>(pub Arc<T>);
+                    struct SubmitJobSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::SubmitJobRequest>
                     for SubmitJobSvc<T> {
                         type Response = super::SubmitJobResponse;
@@ -1581,7 +2064,7 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::submit_job(&inner, request)
+                                <T as JobOrchestrationService>::submit_job(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -1609,11 +2092,11 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/StartJob" => {
+                "/storage.JobOrchestrationService/StartJob" => {
                     #[allow(non_camel_case_types)]
-                    struct StartJobSvc<T: JobManagementService>(pub Arc<T>);
+                    struct StartJobSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::JobIdRequest>
                     for StartJobSvc<T> {
                         type Response = super::JobStateResponse;
@@ -1627,7 +2110,7 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::start_job(&inner, request)
+                                <T as JobOrchestrationService>::start_job(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -1655,11 +2138,11 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/CancelJob" => {
+                "/storage.JobOrchestrationService/CancelJob" => {
                     #[allow(non_camel_case_types)]
-                    struct CancelJobSvc<T: JobManagementService>(pub Arc<T>);
+                    struct CancelJobSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::JobIdRequest>
                     for CancelJobSvc<T> {
                         type Response = super::JobStateResponse;
@@ -1673,7 +2156,7 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::cancel_job(&inner, request)
+                                <T as JobOrchestrationService>::cancel_job(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -1701,11 +2184,11 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/GetJobState" => {
+                "/storage.JobOrchestrationService/GetJobState" => {
                     #[allow(non_camel_case_types)]
-                    struct GetJobStateSvc<T: JobManagementService>(pub Arc<T>);
+                    struct GetJobStateSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::JobIdRequest>
                     for GetJobStateSvc<T> {
                         type Response = super::JobStateResponse;
@@ -1719,7 +2202,10 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::get_job_state(&inner, request)
+                                <T as JobOrchestrationService>::get_job_state(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1747,11 +2233,11 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/GetJobOutputs" => {
+                "/storage.JobOrchestrationService/GetJobOutputs" => {
                     #[allow(non_camel_case_types)]
-                    struct GetJobOutputsSvc<T: JobManagementService>(pub Arc<T>);
+                    struct GetJobOutputsSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::JobIdRequest>
                     for GetJobOutputsSvc<T> {
                         type Response = super::JobOutputsResponse;
@@ -1765,7 +2251,7 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::get_job_outputs(
+                                <T as JobOrchestrationService>::get_job_outputs(
                                         &inner,
                                         request,
                                     )
@@ -1796,11 +2282,11 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/GetJobError" => {
+                "/storage.JobOrchestrationService/GetJobError" => {
                     #[allow(non_camel_case_types)]
-                    struct GetJobErrorSvc<T: JobManagementService>(pub Arc<T>);
+                    struct GetJobErrorSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::JobIdRequest>
                     for GetJobErrorSvc<T> {
                         type Response = super::JobErrorResponse;
@@ -1814,7 +2300,10 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::get_job_error(&inner, request)
+                                <T as JobOrchestrationService>::get_job_error(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1842,13 +2331,13 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/DeleteExpiredTerminatedJobs" => {
+                "/storage.JobOrchestrationService/DeleteExpiredTerminatedJobs" => {
                     #[allow(non_camel_case_types)]
-                    struct DeleteExpiredTerminatedJobsSvc<T: JobManagementService>(
+                    struct DeleteExpiredTerminatedJobsSvc<T: JobOrchestrationService>(
                         pub Arc<T>,
                     );
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<
                         super::DeleteExpiredTerminatedJobsRequest,
                     > for DeleteExpiredTerminatedJobsSvc<T> {
@@ -1865,7 +2354,7 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::delete_expired_terminated_jobs(
+                                <T as JobOrchestrationService>::delete_expired_terminated_jobs(
                                         &inner,
                                         request,
                                     )
@@ -1896,14 +2385,14 @@ pub mod job_management_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/storage.JobManagementService/ResendReadyTasks" => {
+                "/storage.JobOrchestrationService/ResendReadyTasks" => {
                     #[allow(non_camel_case_types)]
-                    struct ResendReadyTasksSvc<T: JobManagementService>(pub Arc<T>);
+                    struct ResendReadyTasksSvc<T: JobOrchestrationService>(pub Arc<T>);
                     impl<
-                        T: JobManagementService,
+                        T: JobOrchestrationService,
                     > tonic::server::UnaryService<super::ResendReadyTasksRequest>
                     for ResendReadyTasksSvc<T> {
-                        type Response = super::StorageOperationResponse;
+                        type Response = super::JobManagementOperationResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -1914,7 +2403,7 @@ pub mod job_management_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as JobManagementService>::resend_ready_tasks(
+                                <T as JobOrchestrationService>::resend_ready_tasks(
                                         &inner,
                                         request,
                                     )
@@ -1965,7 +2454,7 @@ pub mod job_management_service_server {
             }
         }
     }
-    impl<T> Clone for JobManagementServiceServer<T> {
+    impl<T> Clone for JobOrchestrationServiceServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -1978,8 +2467,8 @@ pub mod job_management_service_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "storage.JobManagementService";
-    impl<T> tonic::server::NamedService for JobManagementServiceServer<T> {
+    pub const SERVICE_NAME: &str = "storage.JobOrchestrationService";
+    impl<T> tonic::server::NamedService for JobOrchestrationServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
@@ -2007,14 +2496,14 @@ pub mod task_instance_management_service_server {
             &self,
             request: tonic::Request<super::ReportTaskSuccessRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::TaskInstanceOperationResponse>,
             tonic::Status,
         >;
         async fn report_task_failure(
             &self,
             request: tonic::Request<super::ReportTaskFailureRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::TaskInstanceOperationResponse>,
             tonic::Status,
         >;
     }
@@ -2155,7 +2644,7 @@ pub mod task_instance_management_service_server {
                         T: TaskInstanceManagementService,
                     > tonic::server::UnaryService<super::ReportTaskSuccessRequest>
                     for ReportTaskSuccessSvc<T> {
-                        type Response = super::StorageOperationResponse;
+                        type Response = super::TaskInstanceOperationResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2206,7 +2695,7 @@ pub mod task_instance_management_service_server {
                         T: TaskInstanceManagementService,
                     > tonic::server::UnaryService<super::ReportTaskFailureRequest>
                     for ReportTaskFailureSvc<T> {
-                        type Response = super::StorageOperationResponse;
+                        type Response = super::TaskInstanceOperationResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2287,6 +2776,302 @@ pub mod task_instance_management_service_server {
     }
 }
 /// Generated server implementations.
+pub mod inbound_queue_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with InboundQueueServiceServer.
+    #[async_trait]
+    pub trait InboundQueueService: std::marker::Send + std::marker::Sync + 'static {
+        async fn poll_ready_tasks(
+            &self,
+            request: tonic::Request<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+        async fn poll_ready_commit_tasks(
+            &self,
+            request: tonic::Request<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+        async fn poll_ready_cleanup_tasks(
+            &self,
+            request: tonic::Request<super::PollReadyTasksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+    }
+    #[derive(Debug)]
+    pub struct InboundQueueServiceServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> InboundQueueServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for InboundQueueServiceServer<T>
+    where
+        T: InboundQueueService,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/storage.InboundQueueService/PollReadyTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct PollReadyTasksSvc<T: InboundQueueService>(pub Arc<T>);
+                    impl<
+                        T: InboundQueueService,
+                    > tonic::server::UnaryService<super::PollReadyTasksRequest>
+                    for PollReadyTasksSvc<T> {
+                        type Response = super::PollReadyTasksResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PollReadyTasksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as InboundQueueService>::poll_ready_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PollReadyTasksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.InboundQueueService/PollReadyCommitTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct PollReadyCommitTasksSvc<T: InboundQueueService>(pub Arc<T>);
+                    impl<
+                        T: InboundQueueService,
+                    > tonic::server::UnaryService<super::PollReadyTasksRequest>
+                    for PollReadyCommitTasksSvc<T> {
+                        type Response = super::PollReadyTasksResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PollReadyTasksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as InboundQueueService>::poll_ready_commit_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PollReadyCommitTasksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.InboundQueueService/PollReadyCleanupTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct PollReadyCleanupTasksSvc<T: InboundQueueService>(pub Arc<T>);
+                    impl<
+                        T: InboundQueueService,
+                    > tonic::server::UnaryService<super::PollReadyTasksRequest>
+                    for PollReadyCleanupTasksSvc<T> {
+                        type Response = super::PollReadyTasksResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PollReadyTasksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as InboundQueueService>::poll_ready_cleanup_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PollReadyCleanupTasksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for InboundQueueServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "storage.InboundQueueService";
+    impl<T> tonic::server::NamedService for InboundQueueServiceServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+/// Generated server implementations.
 pub mod resource_group_management_service_server {
     #![allow(
         unused_variables,
@@ -2310,14 +3095,14 @@ pub mod resource_group_management_service_server {
             &self,
             request: tonic::Request<super::VerifyResourceGroupRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
         >;
         async fn delete_resource_group(
             &self,
             request: tonic::Request<super::ResourceGroupIdRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::StorageOperationResponse>,
+            tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
         >;
     }
@@ -2458,7 +3243,7 @@ pub mod resource_group_management_service_server {
                         T: ResourceGroupManagementService,
                     > tonic::server::UnaryService<super::VerifyResourceGroupRequest>
                     for VerifyResourceGroupSvc<T> {
-                        type Response = super::StorageOperationResponse;
+                        type Response = super::ResourceGroupOperationResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2509,7 +3294,7 @@ pub mod resource_group_management_service_server {
                         T: ResourceGroupManagementService,
                     > tonic::server::UnaryService<super::ResourceGroupIdRequest>
                     for DeleteResourceGroupSvc<T> {
-                        type Response = super::StorageOperationResponse;
+                        type Response = super::ResourceGroupOperationResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2977,7 +3762,7 @@ pub mod session_management_service_server {
     pub trait SessionManagementService: std::marker::Send + std::marker::Sync + 'static {
         async fn get_session(
             &self,
-            request: tonic::Request<super::super::common::Void>,
+            request: tonic::Request<super::Void>,
         ) -> std::result::Result<
             tonic::Response<super::GetSessionResponse>,
             tonic::Status,
@@ -3065,8 +3850,7 @@ pub mod session_management_service_server {
                     struct GetSessionSvc<T: SessionManagementService>(pub Arc<T>);
                     impl<
                         T: SessionManagementService,
-                    > tonic::server::UnaryService<super::super::common::Void>
-                    for GetSessionSvc<T> {
+                    > tonic::server::UnaryService<super::Void> for GetSessionSvc<T> {
                         type Response = super::GetSessionResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3074,7 +3858,7 @@ pub mod session_management_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::super::common::Void>,
+                            request: tonic::Request<super::Void>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

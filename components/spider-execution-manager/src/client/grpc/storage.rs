@@ -8,15 +8,12 @@ use spider_core::types::{
     id::{ExecutionManagerId, JobId, SessionId, TaskId},
     io::ExecutionContext,
 };
-use spider_proto_rust::{
-    common,
-    storage::{
-        self,
-        register_task_instance_response,
-        storage_error,
-        storage_operation_response,
-        task_instance_management_service_client::TaskInstanceManagementServiceClient,
-    },
+use spider_proto_rust::storage::{
+    self,
+    register_task_instance_response,
+    task_instance_management_error,
+    task_instance_management_service_client::TaskInstanceManagementServiceClient,
+    task_instance_operation_response,
 };
 use tonic::transport::{Channel, Endpoint};
 
@@ -43,7 +40,7 @@ impl GrpcStorageClient {
     pub async fn connect(endpoint: Endpoint) -> Result<Self, StorageResponseError> {
         TaskInstanceManagementServiceClient::connect(endpoint)
             .await
-            .map(|inner| Self { client: inner })
+            .map(|client| Self { client })
             .map_err(to_transport_error)
     }
 }
@@ -59,7 +56,7 @@ impl StorageClient for GrpcStorageClient {
     ) -> Result<ExecutionContext, StorageResponseError> {
         let request = storage::RegisterTaskInstanceRequest {
             job_id: job_id.get(),
-            task_id: Some(common::TaskId::from(task_id)),
+            task_id: Some(storage::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
         };
@@ -96,7 +93,7 @@ impl StorageClient for GrpcStorageClient {
     ) -> Result<(), StorageResponseError> {
         let request = storage::ReportTaskSuccessRequest {
             job_id: job_id.get(),
-            task_id: Some(common::TaskId::from(task_id)),
+            task_id: Some(storage::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
             serialized_outputs: serialized_outputs.unwrap_or_default(),
@@ -122,7 +119,7 @@ impl StorageClient for GrpcStorageClient {
     ) -> Result<(), StorageResponseError> {
         let request = storage::ReportTaskFailureRequest {
             job_id: job_id.get(),
-            task_id: Some(common::TaskId::from(task_id)),
+            task_id: Some(storage::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
             error_message,
@@ -139,32 +136,37 @@ impl StorageClient for GrpcStorageClient {
     }
 }
 
-impl From<storage::StorageError> for StorageResponseError {
-    fn from(error: storage::StorageError) -> Self {
-        match storage_error::ErrCode::try_from(error.err_code) {
-            Ok(storage_error::ErrCode::StaleSession) => Self::StaleSession {
+impl From<storage::TaskInstanceManagementError> for StorageResponseError {
+    fn from(error: storage::TaskInstanceManagementError) -> Self {
+        match task_instance_management_error::ErrCode::try_from(error.err_code) {
+            Ok(task_instance_management_error::ErrCode::StaleSession) => Self::StaleSession {
                 storage_session: error.storage_session,
             },
-            Ok(storage_error::ErrCode::CacheStale) => Self::CacheStale(error.message),
-            Ok(storage_error::ErrCode::Transport) => Self::Transport(error.message),
-            Ok(storage_error::ErrCode::Server | storage_error::ErrCode::Unspecified) => {
-                Self::Server(error.message)
+            Ok(task_instance_management_error::ErrCode::CacheStale) => {
+                Self::CacheStale(error.message)
             }
-            Ok(storage_error::ErrCode::InvalidInput) => Self::InvalidInput(error.message),
-            Err(error) => Self::Transport(format!("unknown storage error kind: {error}")),
+            Ok(
+                task_instance_management_error::ErrCode::Server
+                | task_instance_management_error::ErrCode::Unspecified,
+            ) => Self::Server(error.message),
+            Ok(task_instance_management_error::ErrCode::InvalidInput) => {
+                Self::InvalidInput(error.message)
+            }
+            Err(error) => Self::Transport(format!("unknown task instance error kind: {error}")),
         }
     }
 }
 
 /// # Returns
 ///
-/// [`storage::StorageOperationResponse`] converted into [`Result<(), StorageResponseError>`].
+/// [`storage::TaskInstanceOperationResponse`] converted into
+/// [`Result<(), StorageResponseError>`].
 fn storage_operation_response_to_result(
-    response: storage::StorageOperationResponse,
+    response: storage::TaskInstanceOperationResponse,
 ) -> Result<(), StorageResponseError> {
     match response.result {
-        Some(storage_operation_response::Result::Ok(_)) => Ok(()),
-        Some(storage_operation_response::Result::Error(error)) => Err(error.into()),
+        Some(task_instance_operation_response::Result::Ok(_)) => Ok(()),
+        Some(task_instance_operation_response::Result::Error(error)) => Err(error.into()),
         None => Err(StorageResponseError::Transport(
             "storage operation response missing `result` message".to_owned(),
         )),
@@ -186,8 +188,8 @@ mod tests {
 
     #[test]
     fn storage_error_maps_stale_session() {
-        let error = storage::StorageError {
-            err_code: storage_error::ErrCode::StaleSession.into(),
+        let error = storage::TaskInstanceManagementError {
+            err_code: task_instance_management_error::ErrCode::StaleSession.into(),
             message: "stale".to_owned(),
             storage_session: 7,
         };
@@ -202,7 +204,7 @@ mod tests {
 
     #[test]
     fn storage_error_maps_unknown_kind_to_transport_error() {
-        let error = storage::StorageError {
+        let error = storage::TaskInstanceManagementError {
             err_code: 99,
             message: "unknown".to_owned(),
             storage_session: 0,
@@ -210,7 +212,7 @@ mod tests {
 
         match StorageResponseError::from(error) {
             StorageResponseError::Transport(message) => {
-                assert!(message.contains("unknown storage error kind"));
+                assert!(message.contains("unknown task instance error kind"));
             }
             error => panic!("unexpected storage response error: {error:?}"),
         }
@@ -218,7 +220,7 @@ mod tests {
 
     #[test]
     fn missing_storage_operation_result_is_transport_error() {
-        match storage_operation_response_to_result(storage::StorageOperationResponse {
+        match storage_operation_response_to_result(storage::TaskInstanceOperationResponse {
             result: None,
         }) {
             Err(StorageResponseError::Transport(_)) => {}

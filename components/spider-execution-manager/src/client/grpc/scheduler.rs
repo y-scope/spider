@@ -100,7 +100,10 @@ pub fn scheduler_response_to_result(
             let task_id = assignment
                 .task_id
                 .ok_or_else(|| SchedulerError::Protocol("assignment missing task ID".to_owned()))
-                .and_then(|task_id| TaskId::try_from(task_id).map_err(SchedulerError::Protocol))?;
+                .and_then(|task_id| {
+                    TaskId::try_from(task_id)
+                        .map_err(|error| SchedulerError::Protocol(error.to_string()))
+                })?;
 
             Ok(Some(SchedulerResponse {
                 job_id: JobId::from(assignment.job_id),
