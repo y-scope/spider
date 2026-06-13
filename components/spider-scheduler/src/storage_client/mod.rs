@@ -10,6 +10,10 @@ use spider_core::{
 
 use crate::{error::StorageClientError, types::InboundEntry};
 
+pub mod grpc;
+
+pub use grpc::GrpcSchedulerStorageClient;
+
 /// The scheduler's view of the storage layer.
 ///
 /// Abstracts the storage-owned inbound queue and the read-only queries a scheduling algorithm

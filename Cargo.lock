@@ -1859,6 +1859,7 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "spider-core",
+ "thiserror",
  "tonic",
  "tonic-build",
 ]
@@ -1872,9 +1873,11 @@ dependencies = [
  "async-trait",
  "dashmap",
  "spider-core",
+ "spider-proto-rust",
  "thiserror",
  "tokio",
  "tokio-util",
+ "tonic",
 ]
 
 [[package]]

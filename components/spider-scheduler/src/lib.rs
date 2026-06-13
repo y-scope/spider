@@ -41,6 +41,6 @@ pub use crate::{
     core::SchedulerCore,
     dispatch_queue::{DispatchQueueSink, DispatchQueueSource},
     error::{SchedulerError, StorageClientError},
-    storage_client::SchedulerStorageClient,
+    storage_client::{GrpcSchedulerStorageClient, SchedulerStorageClient},
     types::{InboundEntry, TaskAssignment},
 };
