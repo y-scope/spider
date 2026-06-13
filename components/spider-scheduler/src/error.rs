@@ -12,6 +12,25 @@ pub enum StorageClientError {
     /// No job with the requested identifier exists.
     #[error("job not found: {0:?}")]
     JobNotFound(JobId),
+
+    /// The scheduler's storage session is stale.
+    #[error("stale storage session: {storage_session:?}")]
+    StaleSession {
+        /// Storage's current session ID.
+        storage_session: SessionId,
+    },
+
+    /// The storage server returned an invalid input error.
+    #[error("invalid storage request: {0}")]
+    InvalidInput(String),
+
+    /// The storage server returned an otherwise-uncategorized error.
+    #[error("storage server error: {0}")]
+    Server(String),
+
+    /// The storage transport failed or returned malformed data.
+    #[error("storage transport error: {0}")]
+    Transport(String),
 }
 
 /// Errors returned by the scheduler runtime and its components.

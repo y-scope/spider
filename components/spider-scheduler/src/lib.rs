@@ -32,7 +32,6 @@
 //! ```
 
 pub mod core;
-pub mod core_impl;
 pub mod dispatch_queue;
 pub mod error;
 pub mod storage_client;
@@ -42,6 +41,6 @@ pub use crate::{
     core::SchedulerCore,
     dispatch_queue::{DispatchQueueSink, DispatchQueueSource},
     error::{SchedulerError, StorageClientError},
-    storage_client::SchedulerStorageClient,
+    storage_client::{GrpcSchedulerStorageClient, SchedulerStorageClient},
     types::{InboundEntry, TaskAssignment},
 };

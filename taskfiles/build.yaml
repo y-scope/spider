@@ -1,5 +1,8 @@
 version: "3"
 
+includes:
+  toolchains: "toolchains.yaml"
+
 tasks:
   cpp-target:
     internal: true
@@ -23,6 +26,23 @@ tasks:
   spider-py:
     cmds:
       - "uv build --directory {{.G_SRC_PYTHON_DIR}} -o {{.G_BUILD_PYTHON_DIR}}"
+
+  spider-proto-rust-codegen:
+    env:
+      SPIDER_PROTO_RUST_GENERATE_FROM_SOURCE: "ON"
+    dir: "{{.ROOT_DIR}}"
+    deps: ["toolchains:rust"]
+    cmd: |-
+      . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+      cargo build --release --package spider-proto-rust
+
+  rust:
+    dir: "{{.ROOT_DIR}}"
+    deps:
+      - "toolchains:rust"
+    cmd: |-
+      . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+      cargo build --release --all-features
 
   tdl-generate-parsers:
     vars:

@@ -237,8 +237,8 @@ mod tests {
     /// A new [`TaskAssignment`] with the given `task_id` and other ID fields are auto-generated.
     fn make_assignment_with_task_id(task_id: TaskId) -> TaskAssignment {
         TaskAssignment {
-            resource_group_id: ResourceGroupId::new(),
-            job_id: JobId::new(),
+            resource_group_id: ResourceGroupId::random(),
+            job_id: JobId::random(),
             task_id,
         }
     }
@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn bump_smaller_smaller_session_id_returns_invalid() -> Result<()> {
+    async fn bump_smaller_session_id_returns_invalid() -> Result<()> {
         const SESSION_ID: SessionId = 5;
         const SMALLER_SESSION_ID: SessionId = SESSION_ID - 1;
 
@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn bump_higher_succeeds() -> Result<()> {
+    async fn bump_higher_session_id_succeeds() -> Result<()> {
         const SESSION_ID: SessionId = 5;
         const NEW_SESSION_ID: SessionId = SESSION_ID + 1;
 

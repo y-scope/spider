@@ -1,0 +1,323 @@
+syntax = "proto3";
+
+package storage;
+
+service JobOrchestrationService {
+  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc StartJob(JobIdRequest) returns (JobStateResponse);
+  rpc CancelJob(JobIdRequest) returns (JobStateResponse);
+  rpc GetJobState(JobIdRequest) returns (JobStateResponse);
+  rpc GetJobOutputs(JobIdRequest) returns (JobOutputsResponse);
+  rpc GetJobError(JobIdRequest) returns (JobErrorResponse);
+  rpc DeleteExpiredTerminatedJobs(DeleteExpiredTerminatedJobsRequest)
+      returns (DeleteExpiredTerminatedJobsResponse);
+  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (JobManagementOperationResponse);
+}
+
+service TaskInstanceManagementService {
+  rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);
+  rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (TaskInstanceOperationResponse);
+  rpc ReportTaskFailure(ReportTaskFailureRequest) returns (TaskInstanceOperationResponse);
+}
+
+service InboundQueueService {
+  rpc PollReadyTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc PollReadyCommitTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc PollReadyCleanupTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+}
+
+service ResourceGroupManagementService {
+  rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
+  rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (ResourceGroupOperationResponse);
+  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (ResourceGroupOperationResponse);
+}
+
+service ExecutionManagerLivenessService {
+  rpc RegisterExecutionManager(RegisterExecutionManagerRequest)
+      returns (RegisterExecutionManagerResponse);
+  rpc UpdateExecutionManagerHeartbeat(ExecutionManagerIdRequest)
+      returns (UpdateExecutionManagerHeartbeatResponse);
+}
+
+service SessionManagementService {
+  rpc GetSession(Void) returns (GetSessionResponse);
+}
+
+message SubmitJobRequest {
+  uint64 resource_group_id = 1;
+  bytes serialized_task_graph = 2;
+  bytes serialized_inputs = 3;
+  uint64 session_id = 4;
+}
+
+message SubmitJobResponse {
+  oneof result {
+    uint64 job_id = 1;
+    JobOrchestrationError error = 2;
+  }
+}
+
+message JobIdRequest {
+  uint64 job_id = 1;
+}
+
+message JobStateResponse {
+  oneof result {
+    JobState state = 1;
+    JobOrchestrationError error = 2;
+  }
+}
+
+message JobOutputsResponse {
+  oneof result {
+    JobOutputs outputs = 1;
+    JobOrchestrationError error = 2;
+  }
+}
+
+message JobOutputs {
+  repeated bytes outputs = 1;
+}
+
+message JobErrorResponse {
+  oneof result {
+    string error_message = 1;
+    JobOrchestrationError error = 2;
+  }
+}
+
+message DeleteExpiredTerminatedJobsRequest {
+  uint64 expire_after_sec = 1;
+  uint64 session_id = 2;
+}
+
+message DeleteExpiredTerminatedJobsResponse {
+  oneof result {
+    DeletedJobs deleted_jobs = 1;
+    JobOrchestrationError error = 2;
+  }
+}
+
+message DeletedJobs {
+  repeated uint64 job_ids = 1;
+}
+
+message ResendReadyTasksRequest {
+  optional uint64 job_id = 1;
+  uint64 session_id = 2;
+}
+
+message PollReadyTasksRequest {
+  uint64 max_items = 1;
+  uint64 wait_ms = 2;
+}
+
+message PollReadyTasksResponse {
+  oneof result {
+    ReadyTasks tasks = 1;
+    InboundQueueResponseError error = 2;
+  }
+}
+
+message ReadyTasks {
+  uint64 session_id = 1;
+  repeated ReadyTask tasks = 2;
+}
+
+message ReadyTask {
+  uint64 resource_group_id = 1;
+  uint64 job_id = 2;
+  TaskId task_id = 3;
+}
+
+message RegisterTaskInstanceRequest {
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
+  uint64 session_id = 4;
+}
+
+message RegisterTaskInstanceResponse {
+  oneof result {
+    bytes execution_context = 1;
+    TaskInstanceManagementError error = 2;
+  }
+}
+
+message ReportTaskSuccessRequest {
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
+  uint64 session_id = 4;
+  bytes serialized_outputs = 5;
+}
+
+message ReportTaskFailureRequest {
+  uint64 job_id = 1;
+  TaskId task_id = 2;
+  uint64 execution_manager_id = 3;
+  uint64 session_id = 4;
+  string error_message = 5;
+}
+
+message AddResourceGroupRequest {
+  string external_resource_group_id = 1;
+  bytes password = 2;
+  uint64 session_id = 3;
+}
+
+message ResourceGroupIdRequest {
+  uint64 resource_group_id = 1;
+  uint64 session_id = 2;
+}
+
+message ResourceGroupIdResponse {
+  oneof result {
+    uint64 resource_group_id = 1;
+    ResourceGroupManagementError error = 2;
+  }
+}
+
+message VerifyResourceGroupRequest {
+  uint64 resource_group_id = 1;
+  bytes password = 2;
+  uint64 session_id = 3;
+}
+
+message RegisterExecutionManagerRequest {
+  string ip_address = 1;
+}
+
+message ExecutionManagerIdRequest {
+  uint64 execution_manager_id = 1;
+}
+
+message ExecutionManagerRegistration {
+  uint64 execution_manager_id = 1;
+  uint64 session_id = 2;
+}
+
+message RegisterExecutionManagerResponse {
+  oneof result {
+    ExecutionManagerRegistration registration = 1;
+    ExecutionManagerLivenessError error = 2;
+  }
+}
+
+message UpdateExecutionManagerHeartbeatResponse {
+  oneof result {
+    uint64 session_id = 1;
+    ExecutionManagerLivenessError error = 2;
+  }
+}
+
+message GetSessionResponse {
+  uint64 session_id = 1;
+}
+
+message TaskId {
+  oneof kind {
+    uint64 index = 1;
+    Void commit = 2;
+    Void cleanup = 3;
+  }
+}
+
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  READY = 1;
+  RUNNING = 2;
+  COMMIT_READY = 3;
+  CLEANUP_READY = 4;
+  SUCCEEDED = 5;
+  FAILED = 6;
+  CANCELLED = 7;
+}
+
+message JobManagementOperationResponse {
+  oneof result {
+    Void ok = 1;
+    JobOrchestrationError error = 2;
+  }
+}
+
+message TaskInstanceOperationResponse {
+  oneof result {
+    Void ok = 1;
+    TaskInstanceManagementError error = 2;
+  }
+}
+
+message ResourceGroupOperationResponse {
+  oneof result {
+    Void ok = 1;
+    ResourceGroupManagementError error = 2;
+  }
+}
+
+message Void {}
+
+message JobOrchestrationError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    STALE_SESSION = 1;
+    SERVER = 2;
+    INVALID_INPUT = 3;
+    JOB_NOT_FOUND = 4;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+  uint64 storage_session = 3;
+}
+
+message TaskInstanceManagementError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    STALE_SESSION = 1;
+    CACHE_STALE = 2;
+    SERVER = 3;
+    INVALID_INPUT = 4;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+  uint64 storage_session = 3;
+}
+
+message InboundQueueResponseError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    INBOUND_CLOSED = 1;
+    SERVER = 2;
+    INVALID_INPUT = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+}
+
+message ResourceGroupManagementError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    STALE_SESSION = 1;
+    SERVER = 2;
+    INVALID_INPUT = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+  uint64 storage_session = 3;
+}
+
+message ExecutionManagerLivenessError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    MARKED_DEAD = 1;
+    INVALID_INPUT = 2;
+    SERVER = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+}

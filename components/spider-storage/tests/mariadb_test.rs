@@ -80,7 +80,7 @@ async fn test_register_job() {
 #[ignore = "requires MariaDB"]
 async fn test_register_job_invalid_resource_group() {
     let storage = create_mariadb_connector().await;
-    let fake_rg_id = ResourceGroupId::new();
+    let fake_rg_id = ResourceGroupId::random();
     let (graph, inputs) = single_task_graph();
     let job_submission =
         ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
@@ -555,7 +555,7 @@ async fn test_delete_expired_terminated_jobs() {
 #[ignore = "requires MariaDB"]
 async fn test_add_duplicate_resource_group() {
     let storage = create_mariadb_connector().await;
-    let external_id = uuid::Uuid::new_v4().to_string();
+    let external_id = format!("test-resource-group-{}", rand::random::<u64>());
 
     storage
         .add(external_id.clone(), b"password".to_vec())
@@ -576,7 +576,7 @@ async fn test_verify_correct_password() {
 
     let rg_id = storage
         .add(
-            uuid::Uuid::new_v4().to_string(),
+            format!("test-resource-group-{}", rand::random::<u64>()),
             b"correct-password".to_vec(),
         )
         .await
@@ -595,7 +595,7 @@ async fn test_verify_wrong_password() {
 
     let rg_id = storage
         .add(
-            uuid::Uuid::new_v4().to_string(),
+            format!("test-resource-group-{}", rand::random::<u64>()),
             b"correct-password".to_vec(),
         )
         .await
@@ -612,7 +612,7 @@ async fn test_verify_wrong_password() {
 #[ignore = "requires MariaDB"]
 async fn test_verify_nonexistent_resource_group() {
     let storage = create_mariadb_connector().await;
-    let fake_rg_id = ResourceGroupId::new();
+    let fake_rg_id = ResourceGroupId::random();
 
     let result = storage.verify(fake_rg_id, b"password").await;
     assert!(
@@ -625,7 +625,7 @@ async fn test_verify_nonexistent_resource_group() {
 #[ignore = "requires MariaDB"]
 async fn test_start_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result = storage.start(fake_job_id).await;
     assert!(
@@ -638,7 +638,7 @@ async fn test_start_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_set_state_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result =
         InternalJobOrchestration::set_state(&storage, fake_job_id, JobState::Running).await;
@@ -652,7 +652,7 @@ async fn test_set_state_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_get_state_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result = storage.get_state(fake_job_id).await;
     assert!(
@@ -665,7 +665,7 @@ async fn test_get_state_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_get_outputs_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result = storage.get_outputs(fake_job_id).await;
     assert!(
@@ -678,7 +678,7 @@ async fn test_get_outputs_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_get_error_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result = storage.get_error(fake_job_id).await;
     assert!(
@@ -691,7 +691,7 @@ async fn test_get_error_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_commit_outputs_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result =
         InternalJobOrchestration::commit_outputs(&storage, fake_job_id, vec![vec![]], false).await;
@@ -705,7 +705,7 @@ async fn test_commit_outputs_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_cancel_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result = InternalJobOrchestration::cancel(&storage, fake_job_id, false).await;
     assert!(
@@ -718,7 +718,7 @@ async fn test_cancel_job_not_found() {
 #[ignore = "requires MariaDB"]
 async fn test_fail_job_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::new();
+    let fake_job_id = JobId::random();
 
     let result = InternalJobOrchestration::fail(&storage, fake_job_id, "error".to_string()).await;
     assert!(
@@ -822,7 +822,7 @@ async fn test_update_execution_manager_heartbeat() {
 #[ignore = "requires MariaDB"]
 async fn test_update_execution_manager_heartbeat_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_em_id = ExecutionManagerId::new();
+    let fake_em_id = ExecutionManagerId::random();
 
     let result = storage.update_execution_manager_heartbeat(fake_em_id).await;
     assert!(
@@ -873,7 +873,7 @@ async fn test_is_execution_manager_alive_em_alive() {
 #[ignore = "requires MariaDB"]
 async fn test_is_execution_manager_alive_em_not_found() {
     let storage = create_mariadb_connector().await;
-    let fake_em_id = ExecutionManagerId::new();
+    let fake_em_id = ExecutionManagerId::random();
 
     let result = storage.is_execution_manager_alive(fake_em_id).await;
     assert!(
