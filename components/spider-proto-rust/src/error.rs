@@ -7,7 +7,7 @@ pub enum Error {
     #[error("task index does not fit in `usize`: {0}")]
     TaskIndexOutOfRange(u64),
 
-    /// A protobuf [`crate::storage::TaskId`] carried no `kind`.
+    /// A protobuf [`crate::common::TaskId`] carried no `kind`.
     #[error("task id missing kind")]
     TaskIdKindMissing,
 
