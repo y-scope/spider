@@ -296,48 +296,6 @@ pub mod update_execution_manager_heartbeat_response {
         Error(super::ExecutionManagerLivenessError),
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IsExecutionManagerAliveResponse {
-    #[prost(oneof = "is_execution_manager_alive_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<is_execution_manager_alive_response::Result>,
-}
-/// Nested message and enum types in `IsExecutionManagerAliveResponse`.
-pub mod is_execution_manager_alive_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(bool, tag = "1")]
-        Alive(bool),
-        #[prost(message, tag = "2")]
-        Error(super::ExecutionManagerLivenessError),
-    }
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct GetDeadExecutionManagersRequest {
-    #[prost(uint64, tag = "1")]
-    pub stale_after_sec: u64,
-    #[prost(uint64, tag = "2")]
-    pub session_id: u64,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetDeadExecutionManagersResponse {
-    #[prost(oneof = "get_dead_execution_managers_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<get_dead_execution_managers_response::Result>,
-}
-/// Nested message and enum types in `GetDeadExecutionManagersResponse`.
-pub mod get_dead_execution_managers_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        DeadExecutionManagers(super::DeadExecutionManagers),
-        #[prost(message, tag = "2")]
-        Error(super::ExecutionManagerLivenessError),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeadExecutionManagers {
-    #[prost(uint64, repeated, tag = "1")]
-    pub execution_manager_ids: ::prost::alloc::vec::Vec<u64>,
-}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetSessionResponse {
     #[prost(uint64, tag = "1")]
@@ -1714,64 +1672,6 @@ pub mod execution_manager_liveness_service_client {
                     GrpcMethod::new(
                         "storage.ExecutionManagerLivenessService",
                         "UpdateExecutionManagerHeartbeat",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn is_execution_manager_alive(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ExecutionManagerIdRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::IsExecutionManagerAliveResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/storage.ExecutionManagerLivenessService/IsExecutionManagerAlive",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "storage.ExecutionManagerLivenessService",
-                        "IsExecutionManagerAlive",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn get_dead_execution_managers(
-            &mut self,
-            request: impl tonic::IntoRequest<super::GetDeadExecutionManagersRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetDeadExecutionManagersResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/storage.ExecutionManagerLivenessService/GetDeadExecutionManagers",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "storage.ExecutionManagerLivenessService",
-                        "GetDeadExecutionManagers",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -3401,20 +3301,6 @@ pub mod execution_manager_liveness_service_server {
             tonic::Response<super::UpdateExecutionManagerHeartbeatResponse>,
             tonic::Status,
         >;
-        async fn is_execution_manager_alive(
-            &self,
-            request: tonic::Request<super::ExecutionManagerIdRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::IsExecutionManagerAliveResponse>,
-            tonic::Status,
-        >;
-        async fn get_dead_execution_managers(
-            &self,
-            request: tonic::Request<super::GetDeadExecutionManagersRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetDeadExecutionManagersResponse>,
-            tonic::Status,
-        >;
     }
     #[derive(Debug)]
     pub struct ExecutionManagerLivenessServiceServer<T> {
@@ -3586,114 +3472,6 @@ pub mod execution_manager_liveness_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = UpdateExecutionManagerHeartbeatSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/storage.ExecutionManagerLivenessService/IsExecutionManagerAlive" => {
-                    #[allow(non_camel_case_types)]
-                    struct IsExecutionManagerAliveSvc<
-                        T: ExecutionManagerLivenessService,
-                    >(
-                        pub Arc<T>,
-                    );
-                    impl<
-                        T: ExecutionManagerLivenessService,
-                    > tonic::server::UnaryService<super::ExecutionManagerIdRequest>
-                    for IsExecutionManagerAliveSvc<T> {
-                        type Response = super::IsExecutionManagerAliveResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ExecutionManagerIdRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ExecutionManagerLivenessService>::is_execution_manager_alive(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = IsExecutionManagerAliveSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/storage.ExecutionManagerLivenessService/GetDeadExecutionManagers" => {
-                    #[allow(non_camel_case_types)]
-                    struct GetDeadExecutionManagersSvc<
-                        T: ExecutionManagerLivenessService,
-                    >(
-                        pub Arc<T>,
-                    );
-                    impl<
-                        T: ExecutionManagerLivenessService,
-                    > tonic::server::UnaryService<super::GetDeadExecutionManagersRequest>
-                    for GetDeadExecutionManagersSvc<T> {
-                        type Response = super::GetDeadExecutionManagersResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                super::GetDeadExecutionManagersRequest,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ExecutionManagerLivenessService>::get_dead_execution_managers(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = GetDeadExecutionManagersSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

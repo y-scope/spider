@@ -37,10 +37,6 @@ service ExecutionManagerLivenessService {
       returns (RegisterExecutionManagerResponse);
   rpc UpdateExecutionManagerHeartbeat(ExecutionManagerIdRequest)
       returns (UpdateExecutionManagerHeartbeatResponse);
-  rpc IsExecutionManagerAlive(ExecutionManagerIdRequest)
-      returns (IsExecutionManagerAliveResponse);
-  rpc GetDeadExecutionManagers(GetDeadExecutionManagersRequest)
-      returns (GetDeadExecutionManagersResponse);
 }
 
 service SessionManagementService {
@@ -213,29 +209,6 @@ message UpdateExecutionManagerHeartbeatResponse {
     uint64 session_id = 1;
     ExecutionManagerLivenessError error = 2;
   }
-}
-
-message IsExecutionManagerAliveResponse {
-  oneof result {
-    bool alive = 1;
-    ExecutionManagerLivenessError error = 2;
-  }
-}
-
-message GetDeadExecutionManagersRequest {
-  uint64 stale_after_sec = 1;
-  uint64 session_id = 2;
-}
-
-message GetDeadExecutionManagersResponse {
-  oneof result {
-    DeadExecutionManagers dead_execution_managers = 1;
-    ExecutionManagerLivenessError error = 2;
-  }
-}
-
-message DeadExecutionManagers {
-  repeated uint64 execution_manager_ids = 1;
 }
 
 message GetSessionResponse {
