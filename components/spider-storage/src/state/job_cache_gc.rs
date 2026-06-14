@@ -71,12 +71,10 @@ pub struct JobCacheGcHandle {
 
 impl JobCacheGcHandle {
     /// Enqueues a terminated job for delayed cache removal.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the GC actor has stopped.
-    pub fn enqueue_terminated_job(&self, job_id: JobId) -> Result<(), JobId> {
-        self.sender.send(job_id).map_err(|e| e.0)
+    pub fn enqueue_terminated_job(&self, job_id: JobId) {
+        // Fire-and-forget: if the channel has been closed, just leave it. The GC coroutine is
+        // closed by a cancellation token.
+        let _ = self.sender.send(job_id);
     }
 
     /// # Returns
@@ -87,128 +85,21 @@ impl JobCacheGcHandle {
     }
 }
 
-struct TerminatedJob {
-    job_id: JobId,
-    enqueued_at: Instant,
-}
-
-struct JobCacheGc<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> {
-    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    pending_jobs: VecDeque<TerminatedJob>,
-    terminated_job_retention: Duration,
-    receiver: UnboundedReceiver<JobId>,
-}
-
-impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> JobCacheGc<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
-{
-    /// # Returns
-    ///
-    /// A new [`JobCacheGc`] actor over the given cache and message receiver.
-    const fn new(
-        job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        terminated_job_retention: Duration,
-        receiver: UnboundedReceiver<JobId>,
-    ) -> Self {
-        Self {
-            job_cache,
-            pending_jobs: VecDeque::new(),
-            terminated_job_retention,
-            receiver,
-        }
-    }
-
-    /// Runs the actor loop until cancellation or sender shutdown.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * No errors are returned by the current implementation.
-    async fn run(
-        mut self,
-        cancellation_token: CancellationToken,
-        gc_interval_sec: u64,
-    ) -> Result<(), InternalError> {
-        let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval_sec));
-        gc_interval.tick().await;
-
-        loop {
-            tokio::select! {
-                () = cancellation_token.cancelled() => {
-                    return Ok(());
-                }
-                job_id = self.receiver.recv() => {
-                    let Some(job_id) = job_id else {
-                        return Ok(());
-                    };
-                    self.enqueue_terminated_job(job_id, Instant::now());
-                }
-                _ = gc_interval.tick() => {
-                    let _removed_jobs = self.run_gc_cycle_at(Instant::now()).await;
-                }
-            }
-        }
-    }
-
-    /// Adds a terminated job to the actor-owned GC queue.
-    fn enqueue_terminated_job(&mut self, job_id: JobId, enqueued_at: Instant) {
-        self.pending_jobs.push_back(TerminatedJob {
-            job_id,
-            enqueued_at,
-        });
-    }
-
-    /// Removes expired terminated jobs from the cache.
-    ///
-    /// # Returns
-    ///
-    /// The number of expired entries processed by this GC cycle.
-    async fn run_gc_cycle_at(&mut self, now: Instant) -> usize {
-        let mut expired_job_ids = Vec::new();
-        while let Some(terminated_job) = self.pending_jobs.front() {
-            if now.duration_since(terminated_job.enqueued_at) < self.terminated_job_retention {
-                break;
-            }
-            let terminated_job = self
-                .pending_jobs
-                .pop_front()
-                .expect("pending terminated job should exist");
-            expired_job_ids.push(terminated_job.job_id);
-        }
-        let num_expired_jobs = expired_job_ids.len();
-        let num_removed_jobs = self.job_cache.remove_batch(&expired_job_ids).await;
-        if num_expired_jobs > 0 {
-            tracing::info!(
-                num_expired_jobs,
-                num_removed_jobs,
-                "Terminated jobs removed from cache.",
-            );
-        }
-        num_expired_jobs
-    }
-
-    /// # Returns
-    ///
-    /// The number of jobs currently queued for delayed GC.
-    #[cfg(test)]
-    fn pending_len(&self) -> usize {
-        self.pending_jobs.len()
-    }
-}
-
 /// Creates a job-cache GC actor.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The type of the ready queue sender required by the job cache.
+/// * `DbConnectorType` - The type of the DB-layer connector required by the job cache.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector required by the
+///   job cache.
 ///
 /// # Returns
 ///
-/// A tuple containing the enqueue handle and spawned actor join handle on success.
+/// A tuple on success, containing:
+///
+/// * The handle for enqueueing terminated jobs into the GC actor.
+/// * The join handle for the GC actor.
 ///
 /// # Errors
 ///
@@ -235,6 +126,119 @@ pub fn create_job_cache_gc<
     let join_handle =
         tokio::spawn(async move { gc.run(cancellation_token, gc_interval_sec).await });
     Ok((JobCacheGcHandle::new(sender), join_handle))
+}
+
+struct TerminatedJob {
+    job_id: JobId,
+    enqueued_at: Instant,
+}
+
+struct JobCacheGc<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> {
+    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    terminated_jobs: VecDeque<TerminatedJob>,
+    terminated_job_retention: Duration,
+    receiver: UnboundedReceiver<JobId>,
+}
+
+impl<
+    ReadyQueueSenderType: ReadyQueueSender,
+    DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> JobCacheGc<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+{
+    /// # Returns
+    ///
+    /// A new [`JobCacheGc`] actor over the given cache and message receiver.
+    const fn new(
+        job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        terminated_job_retention: Duration,
+        receiver: UnboundedReceiver<JobId>,
+    ) -> Self {
+        Self {
+            job_cache,
+            terminated_jobs: VecDeque::new(),
+            terminated_job_retention,
+            receiver,
+        }
+    }
+
+    /// Runs the actor loop until cancellation or sender shutdown.
+    ///
+    /// # Errors
+    ///
+    /// No errors are returned by the current implementation.
+    async fn run(
+        mut self,
+        cancellation_token: CancellationToken,
+        gc_interval_sec: u64,
+    ) -> Result<(), InternalError> {
+        let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval_sec));
+        gc_interval.tick().await;
+
+        loop {
+            tokio::select! {
+                biased;
+                () = cancellation_token.cancelled() => {
+                    return Ok(());
+                }
+                _ = gc_interval.tick() => {
+                    let _removed_jobs = self.run_gc_cycle_at(Instant::now()).await;
+                }
+                job_id = self.receiver.recv() => {
+                    let Some(job_id) = job_id else {
+                        return Ok(());
+                    };
+                    self.enqueue_terminated_job(job_id);
+                }
+            }
+        }
+    }
+
+    /// Adds a terminated job to the actor-owned GC queue.
+    fn enqueue_terminated_job(&mut self, job_id: JobId) {
+        self.terminated_jobs.push_back(TerminatedJob {
+            job_id,
+            enqueued_at: Instant::now(),
+        });
+    }
+
+    /// Removes expired terminated jobs from the cache.
+    ///
+    /// # Returns
+    ///
+    /// The number of expired entries processed by this GC cycle.
+    async fn run_gc_cycle_at(&mut self, now: Instant) -> usize {
+        let mut expired_job_ids = Vec::new();
+        while let Some(terminated_job) = self.terminated_jobs.front() {
+            if now.duration_since(terminated_job.enqueued_at) < self.terminated_job_retention {
+                break;
+            }
+            tracing::info!(
+                job_id = % terminated_job.job_id,
+                "Terminated job expired, removing from cache."
+            );
+            expired_job_ids.push(terminated_job.job_id);
+            self.terminated_jobs.pop_front();
+        }
+        if expired_job_ids.is_empty() {
+            return 0;
+        }
+        let num_expired_jobs = expired_job_ids.len();
+        self.job_cache.remove_batch(&expired_job_ids).await;
+        num_expired_jobs
+    }
+
+    /// # Returns
+    ///
+    /// The number of terminated jobs currently queued for retention.
+    #[cfg(test)]
+    fn get_num_queued_terminated_jobs(&self) -> usize {
+        self.terminated_jobs.len()
+    }
 }
 
 #[cfg(test)]
@@ -283,12 +287,16 @@ mod tests {
         );
         let now = Instant::now();
         let job_id = JobId::random();
-        gc.enqueue_terminated_job(job_id, now);
+        gc.enqueue_terminated_job(job_id);
 
         let removed = gc.run_gc_cycle_at(now + Duration::from_secs(9)).await;
 
         assert_eq!(removed, 0, "job should not be removed before retention");
-        assert_eq!(gc.pending_len(), 1, "job should remain queued for GC");
+        assert_eq!(
+            gc.get_num_queued_terminated_jobs(),
+            1,
+            "job should remain queued for GC"
+        );
         Ok(())
     }
 
@@ -300,14 +308,18 @@ mod tests {
             Duration::from_secs(10),
             tokio::sync::mpsc::unbounded_channel().1,
         );
-        let now = Instant::now();
         let job_id = JobId::random();
-        gc.enqueue_terminated_job(job_id, now);
+        gc.enqueue_terminated_job(job_id);
+        let now = Instant::now();
 
         let removed = gc.run_gc_cycle_at(now + Duration::from_secs(10)).await;
 
         assert_eq!(removed, 1, "job should be removed after retention");
-        assert_eq!(gc.pending_len(), 0, "job should no longer be queued");
+        assert_eq!(
+            gc.get_num_queued_terminated_jobs(),
+            0,
+            "job should no longer be queued"
+        );
         Ok(())
     }
 
@@ -319,14 +331,18 @@ mod tests {
             Duration::from_secs(10),
             tokio::sync::mpsc::unbounded_channel().1,
         );
+        gc.enqueue_terminated_job(JobId::random());
+        gc.enqueue_terminated_job(JobId::random());
         let now = Instant::now();
-        gc.enqueue_terminated_job(JobId::random(), now);
-        gc.enqueue_terminated_job(JobId::random(), now);
 
         let removed = gc.run_gc_cycle_at(now + Duration::from_secs(10)).await;
 
         assert_eq!(removed, 2, "all expired jobs should be removed");
-        assert_eq!(gc.pending_len(), 0, "no expired job should remain queued");
+        assert_eq!(
+            gc.get_num_queued_terminated_jobs(),
+            0,
+            "no expired job should remain queued"
+        );
         Ok(())
     }
 }

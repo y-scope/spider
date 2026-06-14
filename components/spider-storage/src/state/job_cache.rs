@@ -14,14 +14,6 @@ use crate::{
     task_instance_pool::TaskInstancePoolConnector,
 };
 
-type JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> = HashMap<
-    JobId,
-    SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
->;
-
-type SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> =
-    Arc<RwLock<JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>>;
-
 /// An in-memory cache for job control blocks.
 ///
 /// This type provides concurrent access to job control blocks via a [`tokio::sync::RwLock`] over a
@@ -32,6 +24,7 @@ type SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnect
 /// * `ReadyQueueSenderType` - The type of the ready queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
+#[derive(Clone)]
 pub struct JobCache<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: InternalJobOrchestration,
@@ -147,18 +140,13 @@ impl<
     }
 }
 
-impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: InternalJobOrchestration,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> Clone for JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
-{
-    fn clone(&self) -> Self {
-        Self {
-            jobs: Arc::clone(&self.jobs),
-        }
-    }
-}
+type JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> = HashMap<
+    JobId,
+    SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+>;
+
+type SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> =
+    Arc<RwLock<JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>>;
 
 #[cfg(test)]
 mod tests {
@@ -265,7 +253,7 @@ mod tests {
         cache.insert(create_test_jcb(second_job_id).await).await?;
 
         let num_removed_jobs = cache
-            .remove_batch(&[first_job_id, missing_job_id, second_job_id])
+            .remove_batch(&[first_job_id, missing_job_id, second_job_id, second_job_id])
             .await;
 
         assert_eq!(

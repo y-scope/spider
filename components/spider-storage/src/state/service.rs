@@ -62,35 +62,9 @@ impl<
     ///
     /// # Returns
     ///
-    /// A newly created [`ServiceState`] from its constituent parts.
-    pub fn new(
-        db: DbConnectorType,
-        session_id: SessionId,
-        job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        ready_queue_sender: ReadyQueueSenderType,
-        ready_queue_receiver: ReadyQueueReceiverHandle,
-        task_instance_pool_connector: TaskInstancePoolConnectorType,
-    ) -> Self {
-        Self {
-            inner: Arc::new(ServiceStateInner {
-                db,
-                session_id,
-                job_cache,
-                ready_queue_sender,
-                ready_queue_receiver,
-                task_instance_pool_connector,
-                job_cache_gc_handle: None,
-            }),
-        }
-    }
-
-    /// Factory function with a job-cache GC enqueue handle.
-    ///
-    /// # Returns
-    ///
     /// A newly created [`ServiceState`] that notifies the GC actor when cached jobs terminate.
     #[must_use]
-    pub fn new_with_job_cache_gc(
+    pub fn new(
         db: DbConnectorType,
         session_id: SessionId,
         job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
@@ -107,7 +81,7 @@ impl<
                 ready_queue_sender,
                 ready_queue_receiver,
                 task_instance_pool_connector,
-                job_cache_gc_handle: Some(job_cache_gc_handle),
+                job_cache_gc_handle,
             }),
         }
     }
@@ -224,7 +198,7 @@ impl<
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
             let state = jcb.cancel().await?;
-            self.enqueue_terminal_job_if_needed(job_id, state);
+            self.enqueue_for_gc_if_terminal(job_id, state);
             tracing::info!(
                 job_id = ? job_id,
                 "Job cancelled.",
@@ -387,7 +361,7 @@ impl<
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
-        self.enqueue_terminal_job_if_needed(job_id, state);
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? TaskId::Index(task_index),
@@ -426,7 +400,7 @@ impl<
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
-        self.enqueue_terminal_job_if_needed(job_id, state);
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? TaskId::Commit,
@@ -465,7 +439,7 @@ impl<
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
-        self.enqueue_terminal_job_if_needed(job_id, state);
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? TaskId::Cleanup,
@@ -507,7 +481,7 @@ impl<
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
-        self.enqueue_terminal_job_if_needed(job_id, state);
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? task_id,
@@ -693,18 +667,11 @@ impl<
     }
 
     /// Enqueues a job for delayed cache GC if it has reached a terminal state.
-    fn enqueue_terminal_job_if_needed(&self, job_id: JobId, state: JobState) {
-        if !state.is_terminal() {
-            return;
-        }
-        let Some(job_cache_gc_handle) = &self.inner.job_cache_gc_handle else {
-            return;
-        };
-        if let Err(job_id) = job_cache_gc_handle.enqueue_terminated_job(job_id) {
-            tracing::warn!(
-                job_id = ? job_id,
-                "Failed to enqueue terminated job for cache GC.",
-            );
+    fn enqueue_for_gc_if_terminal(&self, job_id: JobId, state: JobState) {
+        if state.is_terminal() {
+            self.inner
+                .job_cache_gc_handle
+                .enqueue_terminated_job(job_id);
         }
     }
 }
@@ -727,7 +694,7 @@ struct ServiceStateInner<
     ready_queue_sender: ReadyQueueSenderType,
     ready_queue_receiver: ReadyQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
-    job_cache_gc_handle: Option<JobCacheGcHandle>,
+    job_cache_gc_handle: JobCacheGcHandle,
 }
 
 #[cfg(test)]
@@ -787,6 +754,7 @@ mod tests {
             MockReadyQueueSender,
             create_ready_queue_receiver(),
             MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
         )
     }
 
@@ -815,6 +783,7 @@ mod tests {
             sender.clone(),
             receiver,
             MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
         );
         (service, sender)
     }
@@ -1339,7 +1308,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let service = TestServiceState::new_with_job_cache_gc(
+        let service = TestServiceState::new(
             MockDbConnector::default(),
             TEST_SESSION_ID,
             JobCache::new(),
@@ -1355,8 +1324,8 @@ mod tests {
         service.cancel_job(job_id).await?;
 
         assert_eq!(
-            receiver.recv().await,
-            Some(job_id),
+            receiver.try_recv(),
+            Ok(job_id),
             "cancelled job should be enqueued for cache GC"
         );
         Ok(())
@@ -1365,7 +1334,7 @@ mod tests {
     #[tokio::test]
     async fn succeed_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let service = TestServiceState::new_with_job_cache_gc(
+        let service = TestServiceState::new(
             MockDbConnector::default(),
             TEST_SESSION_ID,
             JobCache::new(),
@@ -1403,8 +1372,8 @@ mod tests {
             .await?;
 
         assert_eq!(
-            receiver.recv().await,
-            Some(job_id),
+            receiver.try_recv(),
+            Ok(job_id),
             "succeeded job should be enqueued for cache GC"
         );
         Ok(())
@@ -1413,7 +1382,7 @@ mod tests {
     #[tokio::test]
     async fn fail_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let service = TestServiceState::new_with_job_cache_gc(
+        let service = TestServiceState::new(
             MockDbConnector::default(),
             TEST_SESSION_ID,
             JobCache::new(),

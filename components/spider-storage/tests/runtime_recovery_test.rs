@@ -12,7 +12,14 @@ use spider_storage::{
     cache::error::{CacheError, StaleStateError},
     db::ExternalJobOrchestration,
     ready_queue::{CleanupTaskMarker, CommitTaskMarker, ReadyQueueConfig, ReadyQueueEntry},
-    state::{Runtime, ServiceState, StorageServerError, create_runtime},
+    state::{
+        JobCacheGcConfig,
+        Runtime,
+        ServiceState,
+        StorageServerError,
+        create_runtime,
+        runtime::RuntimeConfig,
+    },
     task_instance_pool::TaskInstancePoolConfig,
 };
 use spider_tdl::wire::{TaskInputsSerializer, TaskOutputsSerializer};
@@ -26,24 +33,14 @@ use crate::{
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
-    let db_config = create_mariadb_config();
-    let (runtime, _) = create_runtime(
-        &db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let config = create_runtime_config();
+    let (runtime, _) = create_runtime(&config).await?;
     let service = runtime.get_service_state();
     let job_id = register_job(&service, false, false).await?;
     assert_eq!(service.get_job_state(job_id).await?, JobState::Ready);
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(
-        &db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(&config).await?;
     let recovered_service = recovered_runtime.get_service_state();
     recovered_service.start_job(job_id).await?;
     assert_eq!(
@@ -55,12 +52,7 @@ async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
     recovered_runtime.stop().await?;
 
     // Create another runtime to test the job state and outputs are persisted.
-    let (recovered_runtime, _) = create_runtime(
-        &db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(&config).await?;
     assert_job_outputs_on_success(
         &recovered_runtime.get_service_state(),
         job_id,
@@ -76,8 +68,8 @@ async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Result<()> {
-    let db_config = create_mariadb_config();
-    let (job_id, recovered_runtime) = restart_after_starting_job(&db_config, false, false).await?;
+    let config = create_runtime_config();
+    let (job_id, recovered_runtime) = restart_after_starting_job(&config, false, false).await?;
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
@@ -86,12 +78,7 @@ async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Re
     recovered_runtime.stop().await?;
 
     // Create another runtime to test the job state and outputs are persisted.
-    let (recovered_runtime, _) = create_runtime(
-        &db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(&config).await?;
     assert_job_outputs_on_success(
         &recovered_runtime.get_service_state(),
         job_id,
@@ -107,8 +94,8 @@ async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Re
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<()> {
-    let db_config = create_mariadb_config();
-    let (job_id, recovered_runtime) = restart_after_commit_ready(&db_config).await?;
+    let config = create_runtime_config();
+    let (job_id, recovered_runtime) = restart_after_commit_ready(&config).await?;
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
@@ -148,12 +135,7 @@ async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<(
     recovered_runtime.stop().await?;
 
     // Create another runtime to test the job state and outputs are persisted.
-    let (recovered_runtime, _) = create_runtime(
-        &db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(&config).await?;
     assert_job_outputs_on_success(
         &recovered_runtime.get_service_state(),
         job_id,
@@ -169,8 +151,8 @@ async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<(
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<()> {
-    let db_config = create_mariadb_config();
-    let (job_id, recovered_runtime) = restart_after_cleanup_ready(&db_config).await?;
+    let config = create_runtime_config();
+    let (job_id, recovered_runtime) = restart_after_cleanup_ready(&config).await?;
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
@@ -213,6 +195,19 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
     Ok(())
 }
 
+/// # Returns
+///
+/// A runtime configuration created for testing, with DB config given by [`create_mariadb_config`]
+/// while other configurations set to default.
+fn create_runtime_config() -> RuntimeConfig {
+    RuntimeConfig {
+        db_config: create_mariadb_config(),
+        ready_queue_config: ReadyQueueConfig::default(),
+        task_instance_pool_config: TaskInstancePoolConfig::default(),
+        job_cache_gc_config: JobCacheGcConfig::default(),
+    }
+}
+
 /// Starts a job, stops the runtime, and creates a replacement runtime over the same database.
 ///
 /// # Returns
@@ -230,7 +225,7 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
 /// * Forwards [`register_and_start_job`]'s return values on failure.
 /// * Forwards [`Runtime::stop`]'s return values on failure.
 async fn restart_after_starting_job(
-    db_config: &spider_storage::DatabaseConfig,
+    config: &RuntimeConfig,
     with_commit: bool,
     with_cleanup: bool,
 ) -> anyhow::Result<(
@@ -241,22 +236,12 @@ async fn restart_after_starting_job(
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
 )> {
-    let (runtime, _) = create_runtime(
-        db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (runtime, _) = create_runtime(config).await?;
     let service = runtime.get_service_state();
     let job_id = register_and_start_job(&service, with_commit, with_cleanup).await?;
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(
-        db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(config).await?;
     Ok((job_id, recovered_runtime))
 }
 
@@ -281,7 +266,7 @@ async fn restart_after_starting_job(
 /// * Forwards [`Runtime::stop`]'s return values on failure.
 /// * Forwards [`create_runtime`]'s return values on failure.
 async fn restart_after_commit_ready(
-    db_config: &spider_storage::DatabaseConfig,
+    config: &RuntimeConfig,
 ) -> anyhow::Result<(
     JobId,
     Runtime<
@@ -290,7 +275,7 @@ async fn restart_after_commit_ready(
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
 )> {
-    let (job_id, runtime) = restart_after_starting_job(db_config, true, false).await?;
+    let (job_id, runtime) = restart_after_starting_job(config, true, false).await?;
     let service = runtime.get_service_state();
 
     service.resend_ready_tasks().await?;
@@ -313,12 +298,7 @@ async fn restart_after_commit_ready(
     assert_eq!(state, JobState::CommitReady);
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(
-        db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(config).await?;
     Ok((job_id, recovered_runtime))
 }
 
@@ -341,7 +321,7 @@ async fn restart_after_commit_ready(
 /// * Forwards [`ServiceState::cancel_job`]'s return values on failure.
 /// * Forwards [`Runtime::stop`]'s return values on failure.
 async fn restart_after_cleanup_ready(
-    db_config: &spider_storage::DatabaseConfig,
+    config: &RuntimeConfig,
 ) -> anyhow::Result<(
     JobId,
     Runtime<
@@ -350,24 +330,14 @@ async fn restart_after_cleanup_ready(
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
 )> {
-    let (runtime, _) = create_runtime(
-        db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (runtime, _) = create_runtime(config).await?;
     let service = runtime.get_service_state();
     let job_id = register_and_start_job(&service, false, true).await?;
     let state = service.cancel_job(job_id).await?;
     assert_eq!(state, JobState::CleanupReady);
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(
-        db_config,
-        &ReadyQueueConfig::default(),
-        &TaskInstancePoolConfig::default(),
-    )
-    .await?;
+    let (recovered_runtime, _) = create_runtime(config).await?;
     Ok((job_id, recovered_runtime))
 }
 
