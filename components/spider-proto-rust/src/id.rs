@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn common_task_id_to_core_converts_index_task() {
+    fn protocol_task_id_to_core_converts_index_task() {
         let task_id = TaskId::try_from(common::TaskId {
             kind: Some(common::task_id::Kind::Index(7)),
         })
@@ -77,7 +77,17 @@ mod tests {
     }
 
     #[test]
-    fn common_task_id_to_core_rejects_missing_kind() {
+    fn protocol_task_id_to_core_converts_cleanup_task() {
+        let task_id = TaskId::try_from(common::TaskId {
+            kind: Some(common::task_id::Kind::Cleanup(common::Void {})),
+        })
+        .expect("protocol task id conversion should succeed");
+
+        assert_eq!(task_id, TaskId::Cleanup);
+    }
+
+    #[test]
+    fn protocol_task_id_to_core_rejects_missing_kind() {
         let error = TaskId::try_from(common::TaskId { kind: None })
             .expect_err("missing task id kind should fail");
 
