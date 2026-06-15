@@ -186,6 +186,7 @@ fn make_config(
         cleanup_ready_task_capacity: 16,
         storage_poll_timeout_ms: 10,
         tick_interval_ms: 1,
+        finalizing_job_expiration_timeout_sec: 6 * 60 * 60,
     }
 }
 

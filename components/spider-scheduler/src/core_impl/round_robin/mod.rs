@@ -44,6 +44,8 @@
 //!   on the storage-service side.
 //! * `tick_interval_ms`: Interval, in milliseconds, between scheduler ticks (tick execution time
 //!   included).
+//! * `finalizing_job_expiration_timeout_sec`: Time, in seconds, that a job may remain in the
+//!   finalizing state before the scheduler retires it.
 //!
 //! # Limitations
 //!

@@ -57,6 +57,10 @@ pub struct RoundRobinConfig {
 
     /// The time (in milliseconds) that the scheduler will spend on each tick.
     pub tick_interval_ms: u64,
+
+    /// The time (in seconds) that a job may remain in the finalizing state before the scheduler
+    /// retires it.
+    pub finalizing_job_expiration_timeout_sec: u64,
 }
 
 impl RoundRobinConfig {
@@ -458,13 +462,13 @@ impl<
 
     /// Retires expired finalizing jobs.
     ///
-    /// A finalizing job is considered expired once it has remained in the finalizing state for more
-    /// than 6 hours. This timeout is currently hard-coded but may be made configurable through
-    /// [`RoundRobinConfig`] in the future.
+    /// A finalizing job is considered expired once it has remained in the finalizing state for
+    /// longer than [`RoundRobinConfig::finalizing_job_expiration_timeout_sec`].
     fn retire_expired_finalizing_jobs(&mut self) {
-        const EXPIRATION_TIME: Duration = Duration::from_hours(6);
+        let expiration_time =
+            Duration::from_secs(self.config.finalizing_job_expiration_timeout_sec);
         while let Some((job_id, insertion_time)) = self.finalizing_job_queue.front() {
-            if insertion_time.elapsed() > EXPIRATION_TIME {
+            if insertion_time.elapsed() > expiration_time {
                 tracing::info!(job_id = ? job_id, "Finalizing job retired.");
                 self.finalizing_jobs.remove(job_id);
                 self.finalizing_job_queue.pop_front();
