@@ -1,4 +1,7 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    sync::Arc,
+};
 
 use spider_core::types::id::JobId;
 use tokio::sync::RwLock;
@@ -21,21 +24,13 @@ use crate::{
 /// * `ReadyQueueSenderType` - The type of the ready queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
+#[derive(Clone)]
 pub struct JobCache<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    jobs: RwLock<
-        HashMap<
-            JobId,
-            SharedJobControlBlock<
-                ReadyQueueSenderType,
-                DbConnectorType,
-                TaskInstancePoolConnectorType,
-            >,
-        >,
-    >,
+    jobs: SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
 }
 
 impl<
@@ -48,7 +43,7 @@ impl<
     #[must_use]
     pub fn new() -> Self {
         Self {
-            jobs: RwLock::new(HashMap::new()),
+            jobs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -106,6 +101,19 @@ impl<
         self.jobs.write().await.remove(&job_id)
     }
 
+    /// Removes multiple job control blocks from the cache.
+    ///
+    /// # Returns
+    ///
+    /// The number of job control blocks that existed and were removed.
+    pub async fn remove_batch(&self, job_ids: &[JobId]) -> usize {
+        let mut jobs = self.jobs.write().await;
+        job_ids
+            .iter()
+            .filter(|job_id| jobs.remove(job_id).is_some())
+            .count()
+    }
+
     /// Resends all ready tasks for every job in the cache to the ready queue.
     ///
     /// # Errors
@@ -131,6 +139,14 @@ impl<
         Self::new()
     }
 }
+
+type JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> = HashMap<
+    JobId,
+    SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+>;
+
+type SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> =
+    Arc<RwLock<JobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>>;
 
 #[cfg(test)]
 mod tests {
@@ -222,6 +238,36 @@ mod tests {
 
         let result = cache.get(job_id).await;
         assert!(result.is_none(), "JCB should no longer exist after removal");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn job_cache_remove_batch_removes_existing_jobs_once() -> anyhow::Result<()> {
+        let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
+            JobCache::new();
+        let first_job_id = JobId::random();
+        let second_job_id = JobId::random();
+        let missing_job_id = JobId::random();
+
+        cache.insert(create_test_jcb(first_job_id).await).await?;
+        cache.insert(create_test_jcb(second_job_id).await).await?;
+
+        let num_removed_jobs = cache
+            .remove_batch(&[first_job_id, missing_job_id, second_job_id, second_job_id])
+            .await;
+
+        assert_eq!(
+            num_removed_jobs, 2,
+            "remove_batch should count only existing jobs"
+        );
+        assert!(
+            cache.get(first_job_id).await.is_none(),
+            "first job should be removed"
+        );
+        assert!(
+            cache.get(second_job_id).await.is_none(),
+            "second job should be removed"
+        );
         Ok(())
     }
 

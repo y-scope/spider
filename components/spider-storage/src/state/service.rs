@@ -27,7 +27,7 @@ use crate::{
         ReadyQueueReceiverHandle,
         ReadyQueueSender,
     },
-    state::{JobCache, StorageServerError},
+    state::{JobCache, JobCacheGcHandle, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
 };
 
@@ -62,7 +62,8 @@ impl<
     ///
     /// # Returns
     ///
-    /// A newly created [`ServiceState`] from its constituent parts.
+    /// A newly created [`ServiceState`] that notifies the GC actor when cached jobs terminate.
+    #[must_use]
     pub fn new(
         db: DbConnectorType,
         session_id: SessionId,
@@ -70,6 +71,7 @@ impl<
         ready_queue_sender: ReadyQueueSenderType,
         ready_queue_receiver: ReadyQueueReceiverHandle,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
+        job_cache_gc_handle: JobCacheGcHandle,
     ) -> Self {
         Self {
             inner: Arc::new(ServiceStateInner {
@@ -79,6 +81,7 @@ impl<
                 ready_queue_sender,
                 ready_queue_receiver,
                 task_instance_pool_connector,
+                job_cache_gc_handle,
             }),
         }
     }
@@ -195,6 +198,7 @@ impl<
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, StorageServerError> {
         if let Some(jcb) = self.inner.job_cache.get(job_id).await {
             let state = jcb.cancel().await?;
+            self.enqueue_for_gc_if_terminal(job_id, state);
             tracing::info!(
                 job_id = ? job_id,
                 "Job cancelled.",
@@ -357,6 +361,7 @@ impl<
         let state = jcb
             .succeed_task_instance(task_instance_id, task_index, task_outputs)
             .await?;
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? TaskId::Index(task_index),
@@ -395,6 +400,7 @@ impl<
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb.succeed_commit_task_instance(task_instance_id).await?;
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? TaskId::Commit,
@@ -433,6 +439,7 @@ impl<
             .await
             .ok_or(StorageServerError::JobNotFound(job_id))?;
         let state = jcb.succeed_cleanup_task_instance(task_instance_id).await?;
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? TaskId::Cleanup,
@@ -474,6 +481,7 @@ impl<
         let state = jcb
             .fail_task_instance(task_instance_id, task_id, error)
             .await?;
+        self.enqueue_for_gc_if_terminal(job_id, state);
         tracing::info!(
             job_id = ? job_id,
             task_id = ? task_id,
@@ -657,6 +665,15 @@ impl<
         }
         Ok(())
     }
+
+    /// Enqueues a job for delayed cache GC if it has reached a terminal state.
+    fn enqueue_for_gc_if_terminal(&self, job_id: JobId, state: JobState) {
+        if state.is_terminal() {
+            self.inner
+                .job_cache_gc_handle
+                .enqueue_terminated_job(job_id);
+        }
+    }
 }
 
 /// Inner data for [`ServiceState`], holding all storage services.
@@ -677,6 +694,7 @@ struct ServiceStateInner<
     ready_queue_sender: ReadyQueueSenderType,
     ready_queue_receiver: ReadyQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
+    job_cache_gc_handle: JobCacheGcHandle,
 }
 
 #[cfg(test)]
@@ -703,6 +721,7 @@ mod tests {
         db::DbError,
         ready_queue::ReadyQueueSenderHandle,
         state::{
+            JobCacheGcHandle,
             StorageServerError,
             test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
         },
@@ -728,17 +747,22 @@ mod tests {
         db: MockDbConnector,
         session_id: SessionId,
     ) -> TestServiceState {
-        use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
-        let (_sender, receiver) =
-            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
         TestServiceState::new(
             db,
             session_id,
             JobCache::new(),
             MockReadyQueueSender,
-            receiver,
+            create_ready_queue_receiver(),
             MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
         )
+    }
+
+    fn create_ready_queue_receiver() -> ReadyQueueReceiverHandle {
+        use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
+        let (_sender, receiver) =
+            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
+        receiver
     }
 
     /// Creates a [`ServiceState`] backed by [`ReadyQueueReceiverHandle`].
@@ -759,6 +783,7 @@ mod tests {
             sender.clone(),
             receiver,
             MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
         );
         (service, sender)
     }
@@ -1276,6 +1301,128 @@ mod tests {
         assert!(
             matches!(result, Err(StorageServerError::JobNotFound(_))),
             "fail_task_instance should return JobNotFound when job is not in cache"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancel_job_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let service = TestServiceState::new(
+            MockDbConnector::default(),
+            TEST_SESSION_ID,
+            JobCache::new(),
+            MockReadyQueueSender,
+            create_ready_queue_receiver(),
+            MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(sender),
+        );
+        let job_id = JobId::random();
+        let jcb = create_test_jcb(job_id).await;
+        service.inner.job_cache.insert(jcb).await?;
+
+        service.cancel_job(job_id).await?;
+
+        assert_eq!(
+            receiver.try_recv(),
+            Ok(job_id),
+            "cancelled job should be enqueued for cache GC"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn succeed_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let service = TestServiceState::new(
+            MockDbConnector::default(),
+            TEST_SESSION_ID,
+            JobCache::new(),
+            MockReadyQueueSender,
+            create_ready_queue_receiver(),
+            MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(sender),
+        );
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
+            .await?;
+        service.start_job(job_id).await?;
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+
+        service
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                create_test_serialized_outputs(),
+            )
+            .await?;
+
+        assert_eq!(
+            receiver.try_recv(),
+            Ok(job_id),
+            "succeeded job should be enqueued for cache GC"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fail_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let service = TestServiceState::new(
+            MockDbConnector::default(),
+            TEST_SESSION_ID,
+            JobCache::new(),
+            MockReadyQueueSender,
+            create_ready_queue_receiver(),
+            MockTaskInstancePoolConnector,
+            JobCacheGcHandle::new(sender),
+        );
+        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                serialized_task_graph,
+                serialized_inputs,
+            )
+            .await?;
+        service.start_job(job_id).await?;
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+
+        service
+            .fail_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                TaskId::Index(0),
+                "test failure".to_owned(),
+            )
+            .await?;
+
+        assert_eq!(
+            receiver.recv().await,
+            Some(job_id),
+            "failed job should be enqueued for cache GC"
         );
         Ok(())
     }

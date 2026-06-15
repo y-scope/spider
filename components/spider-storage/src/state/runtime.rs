@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use sqlx::__rt::timeout;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -11,7 +12,7 @@ use crate::{
     config::DatabaseConfig,
     db::{DbStorage, MariaDbStorageConnector, SessionManagement},
     ready_queue::{ReadyQueueConfig, ReadyQueueSender, ReadyQueueSenderHandle, create_ready_queue},
-    state::{JobCache, ServiceState, StorageServerError},
+    state::{JobCache, JobCacheGcConfig, ServiceState, StorageServerError, create_job_cache_gc},
     task_instance_pool::{
         TaskInstancePoolConfig,
         TaskInstancePoolConnector,
@@ -19,6 +20,14 @@ use crate::{
         create_task_instance_pool,
     },
 };
+
+/// Runtime configuration for the storage service.
+pub struct RuntimeConfig {
+    pub db_config: DatabaseConfig,
+    pub ready_queue_config: ReadyQueueConfig,
+    pub task_instance_pool_config: TaskInstancePoolConfig,
+    pub job_cache_gc_config: JobCacheGcConfig,
+}
 
 /// Runtime state for the storage service.
 ///
@@ -36,6 +45,7 @@ pub struct Runtime<
         ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     cancellation_token: CancellationToken,
     task_instance_pool_join_handle: JoinHandle<Result<(), InternalError>>,
+    job_cache_gc_join_handle: JoinHandle<Result<(), InternalError>>,
     stop_timeout: Duration,
 }
 
@@ -47,30 +57,53 @@ impl<
 {
     /// Stops the runtime.
     ///
+    /// The background tasks will be cancelled and joined. The errors of the background tasks are
+    /// logged and will not be returned through this method.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::Stopping`] if the task instance pool does not stop before timeout.
-    /// * [`StorageServerError::Cache`] if the task instance pool task terminated on error or panic.
-    pub async fn stop(mut self) -> Result<(), StorageServerError> {
+    /// * [`StorageServerError::Stopping`] if any of the background tasks does not stop before
+    ///   timeout.
+    pub async fn stop(self) -> Result<(), StorageServerError> {
         self.cancellation_token.cancel();
-        tokio::select! {
-            result = &mut self.task_instance_pool_join_handle => {
-                result
-                    .map_err(|e| {
-                        let msg = format!("task instance pool panic: {e}");
-                        CacheError::Internal(InternalError::TaskInstancePoolCorrupted(msg))
-                    })?
-                    .map_err(|e| StorageServerError::Cache(CacheError::Internal(e)))
+
+        let join_task_instance_pool = async {
+            match self.task_instance_pool_join_handle.await {
+                Ok(Ok(())) => {
+                    tracing::info!("Task instance pool stopped.");
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(error = ? e, "Task instance pool exited on error.");
+                }
+                Err(e) => {
+                    tracing::error!(error = ? e, "Task instance pool exited on panic.");
+                }
             }
-            () = tokio::time::sleep(self.stop_timeout) => {
-                self.task_instance_pool_join_handle.abort();
-                Err(StorageServerError::Stopping(
-                    "task instance pool stop timed out".to_owned(),
-                ))
+        };
+
+        let join_job_cache_gc = async {
+            match self.job_cache_gc_join_handle.await {
+                Ok(Ok(())) => {
+                    tracing::info!("Job cache GC stopped.");
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(error = ? e, "Job cache GC exited on error.");
+                }
+                Err(e) => {
+                    tracing::error!(error = ? e, "Job cache GC exited on panic.");
+                }
             }
-        }
+        };
+
+        let _ = timeout(self.stop_timeout, async {
+            tokio::join!(join_task_instance_pool, join_job_cache_gc,)
+        })
+        .await
+        .map_err(|_| StorageServerError::Stopping("background task stop timed out".to_owned()))?;
+
+        Ok(())
     }
 
     /// # Returns
@@ -100,10 +133,9 @@ impl<
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
 /// * Forwards [`create_task_instance_pool`]'s return values on failure.
 /// * Forwards [`create_ready_queue`]'s return values on failure.
+/// * Forwards [`create_job_cache_gc`]'s return values on failure.
 pub async fn create_runtime(
-    db_config: &DatabaseConfig,
-    ready_queue_config: &ReadyQueueConfig,
-    task_instance_pool_config: &TaskInstancePoolConfig,
+    config: &RuntimeConfig,
 ) -> Result<
     (
         Runtime<ReadyQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
@@ -112,15 +144,15 @@ pub async fn create_runtime(
     StorageServerError,
 > {
     let cancellation_token = CancellationToken::new();
-    let db = MariaDbStorageConnector::connect(db_config).await?;
+    let db = MariaDbStorageConnector::connect(&config.db_config).await?;
     let session_id = db.session_id();
     let (ready_queue_sender, ready_queue_receiver) =
-        create_ready_queue(ready_queue_config).map_err(CacheError::from)?;
+        create_ready_queue(&config.ready_queue_config).map_err(CacheError::from)?;
     let (task_instance_pool_connector, task_instance_pool_join_handle) = create_task_instance_pool(
         ready_queue_sender.clone(),
         db.clone(),
         cancellation_token.clone(),
-        task_instance_pool_config,
+        &config.task_instance_pool_config,
     )
     .map_err(CacheError::from)?;
 
@@ -130,6 +162,12 @@ pub async fn create_runtime(
         task_instance_pool_connector.clone(),
     )
     .await?;
+    let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
+        job_cache.clone(),
+        cancellation_token.clone(),
+        &config.job_cache_gc_config,
+    )
+    .map_err(CacheError::from)?;
     let service_state = ServiceState::new(
         db,
         session_id,
@@ -137,6 +175,7 @@ pub async fn create_runtime(
         ready_queue_sender,
         ready_queue_receiver,
         task_instance_pool_connector,
+        job_cache_gc_handle,
     );
 
     Ok((
@@ -144,6 +183,7 @@ pub async fn create_runtime(
             service_state,
             cancellation_token: cancellation_token.clone(),
             task_instance_pool_join_handle,
+            job_cache_gc_join_handle,
             stop_timeout: Duration::from_secs(STOP_BACKGROUND_TASKS_TIMEOUT_SEC),
         },
         cancellation_token,
@@ -230,19 +270,29 @@ mod tests {
         let session_id = db.session_id();
         let (sender, receiver) =
             create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
+        let job_cache = JobCache::new();
+        let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
+            job_cache.clone(),
+            cancellation_token.clone(),
+            &JobCacheGcConfig::default(),
+        )
+        .expect("job cache GC creation");
         let service_state = ServiceState::new(
             db,
             session_id,
-            JobCache::new(),
+            job_cache,
             sender,
             receiver,
             MockTaskInstancePoolConnector,
+            job_cache_gc_handle,
         );
 
+        // Wired with a real job cache GC task, which should always be terminated without errors.
         Runtime {
             service_state,
             cancellation_token,
             task_instance_pool_join_handle: mock_task_instance_pool_handle,
+            job_cache_gc_join_handle,
             stop_timeout: Duration::from_secs(stop_timeout_sec),
         }
     }
@@ -306,8 +356,8 @@ mod tests {
         let result = runtime.stop().await;
 
         assert!(
-            matches!(result, Err(StorageServerError::Cache(_))),
-            "pool task failure should return Cache error"
+            matches!(result, Ok(())),
+            "pool task failure should not be forwarded as an error"
         );
         Ok(())
     }
