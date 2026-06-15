@@ -11,7 +11,7 @@ pub mod liveness;
 pub mod scheduler;
 pub mod storage;
 
-pub use grpc::GrpcStorageClient;
+pub use grpc::{GrpcLivenessClient, GrpcStorageClient};
 pub use liveness::{LivenessClient, LivenessResponseError, RegistrationResponse};
 pub use scheduler::{SchedulerClient, SchedulerError, SchedulerResponse};
 pub use storage::{StorageClient, StorageResponseError};

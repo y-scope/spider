@@ -1860,8 +1860,25 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "spider-core",
+ "thiserror",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "spider-scheduler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "async-trait",
+ "dashmap",
+ "spider-core",
+ "spider-proto-rust",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tonic",
 ]
 
 [[package]]
