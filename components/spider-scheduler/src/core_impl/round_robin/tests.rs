@@ -194,7 +194,7 @@ fn make_config(
 /// `n` jobs with freshly generated job and resource-group IDs.
 fn make_jobs(n: usize) -> Vec<(JobId, ResourceGroupId)> {
     (0..n)
-        .map(|_| (JobId::new(), ResourceGroupId::new()))
+        .map(|_| (JobId::random(), ResourceGroupId::random()))
         .collect()
 }
 

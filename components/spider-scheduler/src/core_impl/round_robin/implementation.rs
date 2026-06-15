@@ -228,8 +228,8 @@ pub(super) struct RoundRobin<
     pub(super) buffered_tasks: HashSet<(JobId, TaskId)>,
 
     pub(super) active_jobs: HashMap<JobId, JobTaskQueue>,
-    pub(super) active_job_queue: Vec<RoundRobinSlot>,
-    pub(super) active_job_queue_round_robin_cursor: usize,
+    pub(super) round_robin_queue: Vec<RoundRobinSlot>,
+    pub(super) round_robin_cursor: usize,
 
     pub(super) pending_jobs: HashMap<JobId, JobTaskQueue>,
     pub(super) pending_job_queue: VecDeque<JobId>,
@@ -265,7 +265,7 @@ impl<
     ) -> Self {
         let buffered_tasks = HashSet::with_capacity(config.ready_task_capacity);
         let active_jobs = HashMap::with_capacity(config.active_job_queue_capacity);
-        let active_job_queue = Self::new_active_job_queue(config.active_job_queue_capacity);
+        let round_robin_queue = Self::new_round_robin_queue(config.active_job_queue_capacity);
         let round_robin_cursor = 0;
         let pending_jobs = HashMap::with_capacity(config.active_job_queue_capacity);
         let pending_job_queue = VecDeque::with_capacity(config.active_job_queue_capacity);
@@ -283,8 +283,8 @@ impl<
             storage_session_id,
             buffered_tasks,
             active_jobs,
-            active_job_queue,
-            active_job_queue_round_robin_cursor: round_robin_cursor,
+            round_robin_queue,
+            round_robin_cursor,
             pending_jobs,
             pending_job_queue,
             commit_ready_jobs,
@@ -315,12 +315,12 @@ impl<
 
     /// # Returns
     ///
-    /// A new active job queue containing only the commit-ready and cleanup-ready slots.
-    fn new_active_job_queue(active_job_pool_capacity: usize) -> Vec<RoundRobinSlot> {
-        let mut active_job_queue = Vec::with_capacity(active_job_pool_capacity + 2);
-        active_job_queue.push(RoundRobinSlot::CommitReady);
-        active_job_queue.push(RoundRobinSlot::CleanupReady);
-        active_job_queue
+    /// A new round-robin queue containing only the commit-ready and cleanup-ready slots.
+    fn new_round_robin_queue(active_job_pool_capacity: usize) -> Vec<RoundRobinSlot> {
+        let mut round_robin_queue = Vec::with_capacity(active_job_pool_capacity + 2);
+        round_robin_queue.push(RoundRobinSlot::CommitReady);
+        round_robin_queue.push(RoundRobinSlot::CleanupReady);
+        round_robin_queue
     }
 
     /// Runs the scheduling loop until the cancellation token is triggered.
@@ -376,8 +376,8 @@ impl<
         self.finalizing_jobs.clear();
         self.finalizing_job_queue.clear();
 
-        self.active_job_queue = Self::new_active_job_queue(self.config.active_job_queue_capacity);
-        self.active_job_queue_round_robin_cursor = 0;
+        self.round_robin_queue = Self::new_round_robin_queue(self.config.active_job_queue_capacity);
+        self.round_robin_cursor = 0;
     }
 
     /// Removes the given job from the active set, discards its buffered tasks, and backfills the
@@ -390,11 +390,11 @@ impl<
     /// * [`SchedulerError::Internal`] if the given job is not currently active.
     fn retire_active_job(&mut self, job_id: JobId) -> Result<(), SchedulerError> {
         tracing::info!(job_id = ? job_id, "Retiring active job.");
-        if let Some(index) = self.active_job_queue.iter().position(|entry| match entry {
+        if let Some(index) = self.round_robin_queue.iter().position(|entry| match entry {
             RoundRobinSlot::Job(id) => *id == job_id,
             _ => false,
         }) {
-            self.active_job_queue.swap_remove(index);
+            self.round_robin_queue.swap_remove(index);
         } else {
             return Err(SchedulerError::Internal(format!(
                 "attempt to remove a non-existing active job: {job_id:?}"
@@ -414,7 +414,7 @@ impl<
                 job_id = ? next_pending_job.job_id,
                 "Pending job promoted to active job."
             );
-            self.active_job_queue
+            self.round_robin_queue
                 .push(RoundRobinSlot::Job(next_pending_job.job_id));
             self.active_jobs
                 .insert(next_pending_job.job_id, next_pending_job);
@@ -669,7 +669,7 @@ impl<
                         inbound_entry.task_id,
                     ),
                 );
-                self.active_job_queue
+                self.round_robin_queue
                     .push(RoundRobinSlot::Job(inbound_entry.job_id));
                 continue;
             }
@@ -751,12 +751,12 @@ impl<
             .saturating_sub(self.sink.size());
         let mut remaining_dispatch_slots = dispatch_slots;
         while remaining_dispatch_slots > 0 && !self.buffered_tasks.is_empty() {
-            if self.active_job_queue_round_robin_cursor >= self.active_job_queue.len() {
-                self.active_job_queue_round_robin_cursor = 0;
+            if self.round_robin_cursor >= self.round_robin_queue.len() {
+                self.round_robin_cursor = 0;
             }
-            let active_job_queue_entry = match self
-                .active_job_queue
-                .get(self.active_job_queue_round_robin_cursor)
+            let round_robin_queue_entry = match self
+                .round_robin_queue
+                .get(self.round_robin_cursor)
             {
                 Some(entry) => entry.clone(),
                 None => {
@@ -765,9 +765,9 @@ impl<
                     ));
                 }
             };
-            self.active_job_queue_round_robin_cursor += 1;
+            self.round_robin_cursor += 1;
 
-            match active_job_queue_entry {
+            match round_robin_queue_entry {
                 RoundRobinSlot::CleanupReady => {
                     let Some((job_id, resource_group_id)) = self.cleanup_ready_jobs.pop_front()
                     else {
