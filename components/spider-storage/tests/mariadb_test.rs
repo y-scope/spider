@@ -269,7 +269,7 @@ async fn test_get_error_wrong_state() {
 async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
+    let (graph, inputs) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, true);
     let job_submission =
         ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 
@@ -403,7 +403,7 @@ async fn test_commit_outputs_without_commit_task() {
 async fn test_commit_outputs_with_commit_task() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
+    let (graph, inputs) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, true, false);
     let job_submission =
         ValidatedJobSubmission::create(graph, inputs).expect("job submission should be valid");
 

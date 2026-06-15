@@ -11,6 +11,7 @@ use spider_core::{
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
+use spider_tdl::wire::TaskInputsSerializer;
 use tokio::sync::RwLock;
 
 use crate::cache::{
@@ -118,6 +119,49 @@ impl TaskGraph {
         })
     }
 
+    /// Recovers a task graph from the commit-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with task outputs and the commit task recovered, while the underlying task
+    /// graph is initialized to empty.
+    pub(super) fn recover_from_commit_ready(
+        commit_task_descriptor: &TerminationTaskDescriptor,
+        outputs: Vec<TaskOutput>,
+    ) -> Self {
+        let outputs = outputs
+            .into_iter()
+            .map(|output_payload| Reader::new(SharedRw::new(RwLock::new(Some(output_payload)))))
+            .collect();
+        Self {
+            tasks: vec![],
+            outputs,
+            commit_task: Some(SharedTerminationTaskControlBlock::create(
+                commit_task_descriptor,
+            )),
+            cleanup_task: None,
+        }
+    }
+
+    /// Recovers a task graph from the cleanup-ready state.
+    ///
+    /// # Returns
+    ///
+    /// The task graph with the cleanup task recovered, while the underlying task graph and the
+    /// outputs are initialized to empty.
+    pub(super) fn recover_from_cleanup_ready(
+        cleanup_task_descriptor: &TerminationTaskDescriptor,
+    ) -> Self {
+        Self {
+            tasks: vec![],
+            outputs: vec![],
+            commit_task: None,
+            cleanup_task: Some(SharedTerminationTaskControlBlock::create(
+                cleanup_task_descriptor,
+            )),
+        }
+    }
+
     /// Marks all TCBs and commit TCB as cancelled, if not terminated.
     pub async fn cancel_non_terminal(&mut self) {
         for tcb in &self.tasks {
@@ -216,7 +260,7 @@ impl SharedTaskControlBlock {
                 task_instance_id: instance_id,
                 tdl_context: tcb.base.tdl_context.clone(),
                 timeout_policy: tcb.base.timeout_policy.clone(),
-                inputs: tcb.fetch_inputs().await?,
+                serialized_inputs: tcb.fetch_inputs().await?,
             })
         };
         result.map_err(CacheError::from)
@@ -894,12 +938,15 @@ impl TaskControlBlock {
     /// Returns an error if:
     ///
     /// * Forwards [`InputReader::read_as_task_input`]'s return values on failure.
-    async fn fetch_inputs(&self) -> Result<Vec<TaskInput>, CacheError> {
-        let mut inputs = Vec::with_capacity(self.inputs.len());
+    /// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
+    async fn fetch_inputs(&self) -> Result<Vec<u8>, CacheError> {
+        let mut serializer = TaskInputsSerializer::new();
         for input_reader in &self.inputs {
-            inputs.push(input_reader.read_as_task_input().await?);
+            serializer
+                .append(input_reader.read_as_task_input().await?)
+                .map_err(InternalError::from)?;
         }
-        Ok(inputs)
+        Ok(serializer.release())
     }
 }
 
@@ -930,6 +977,7 @@ mod tests {
         TerminationTaskDescriptor,
         ValueTypeDescriptor,
     };
+    use spider_tdl::wire::unframe;
 
     use super::*;
     use crate::cache::job_submission::ValidatedJobSubmission;
@@ -1268,8 +1316,9 @@ mod tests {
             .iter()
             .map(|v| TaskInput::ValuePayload(v.clone()))
             .collect();
-        assert_eq!(ctx.inputs, expected, "task {task_index} inputs mismatch");
-        let outputs = compute_outputs(&ctx.inputs);
+        let actual_inputs = deserialize_task_inputs(&ctx.serialized_inputs);
+        assert_eq!(actual_inputs, expected, "task {task_index} inputs mismatch");
+        let outputs = compute_outputs(&actual_inputs);
         tcb.succeed_task_instance(id, outputs)
             .await
             .expect("succeed should work")
@@ -1298,9 +1347,10 @@ mod tests {
                 .iter()
                 .map(|v| TaskInput::ValuePayload(v.clone()))
                 .collect();
-            assert_eq!(ctx.inputs, expected, "task inputs mismatch");
+            let actual_inputs = deserialize_task_inputs(&ctx.serialized_inputs);
+            assert_eq!(actual_inputs, expected, "task inputs mismatch");
             barrier.wait().await;
-            let outputs = compute_outputs(&ctx.inputs);
+            let outputs = compute_outputs(&actual_inputs);
             tcb.succeed_task_instance(id, outputs)
                 .await
                 .expect("succeed should work")
@@ -1314,6 +1364,17 @@ mod tests {
         match input {
             TaskInput::ValuePayload(v) => v,
         }
+    }
+
+    /// # Returns
+    ///
+    /// The task inputs deserialized from the wire-format serialized buffer.
+    fn deserialize_task_inputs(serialized_inputs: &[u8]) -> Vec<TaskInput> {
+        unframe(serialized_inputs)
+            .expect("inputs should be unframeable")
+            .into_iter()
+            .map(TaskInput::ValuePayload)
+            .collect()
     }
 
     /// Asserts that the task graph outputs match the expected byte payloads.
