@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use sqlx::__rt::timeout;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -97,7 +96,7 @@ impl<
             }
         };
 
-        let _ = timeout(self.stop_timeout, async {
+        let _ = tokio::time::timeout(self.stop_timeout, async {
             tokio::join!(join_task_instance_pool, join_job_cache_gc,)
         })
         .await
