@@ -5,9 +5,10 @@ use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
     job::JobState,
+    task::TaskGraph,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
-        io::TaskOutput,
+        io::{TaskInput, TaskOutput},
     },
 };
 use spider_derive::MySqlEnum;
@@ -22,6 +23,7 @@ use crate::{
         ExecutionManagerLivenessManagement,
         ExternalJobOrchestration,
         InternalJobOrchestration,
+        RecoverableJobContext,
         ResourceGroupManagement,
         SessionManagement,
         error::ExpectedStates,
@@ -380,6 +382,26 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         tx.commit().await?;
         Ok(deleted_job_ids)
     }
+
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT `id`, `resource_group_id`, `state`, `serialized_task_graph`, \
+             `serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE `state` IN \
+             ('{ready_state}','{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
+            table = JOBS_TABLE_NAME,
+            ready_state = JobState::Ready.as_str(),
+            running_state = JobState::Running.as_str(),
+            commit_ready_state = JobState::CommitReady.as_str(),
+            cleanup_ready_state = JobState::CleanupReady.as_str(),
+        );
+
+        sqlx::query_as::<_, RecoverableJobRowProjection>(SELECT_QUERY)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(RecoverableJobRowProjection::into_recoverable_job_context)
+            .collect()
+    }
 }
 
 #[async_trait]
@@ -623,6 +645,7 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
   `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
+  INDEX `job_state` (`state`),
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT
@@ -660,6 +683,53 @@ CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
   PRIMARY KEY (`session_id`)
 );"
     )
+}
+
+/// A raw row selected from the job table representing a recoverable job.
+#[derive(sqlx::FromRow)]
+struct RecoverableJobRowProjection {
+    id: JobId,
+    resource_group_id: ResourceGroupId,
+    state: JobState,
+    serialized_task_graph: String,
+    serialized_job_inputs: Vec<u8>,
+    serialized_job_outputs: Option<Vec<u8>>,
+}
+
+impl RecoverableJobRowProjection {
+    /// Converts the row projection into [`RecoverableJobContext`].
+    ///
+    /// # Returns
+    ///
+    /// The context of the recoverable job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
+    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
+    /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
+    ///   [`DbError::CorruptedDbState`] on failure.
+    fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
+        let task_graph =
+            TaskGraph::from_json(&self.serialized_task_graph).map_err(DbError::task_graph_de)?;
+        let inputs: Vec<TaskInput> =
+            rmp_serde::from_slice(&self.serialized_job_inputs).map_err(DbError::value_de)?;
+        let submission = ValidatedJobSubmission::create(task_graph, inputs)
+            .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
+        let outputs = self
+            .serialized_job_outputs
+            .map(|outputs| rmp_serde::from_slice(&outputs).map_err(DbError::value_de))
+            .transpose()?;
+        Ok(RecoverableJobContext {
+            id: self.id,
+            resource_group_id: self.resource_group_id,
+            state: self.state,
+            submission,
+            outputs,
+        })
+    }
 }
 
 /// Gets the job state with exclusive lock on the row.

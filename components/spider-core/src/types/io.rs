@@ -20,5 +20,5 @@ pub struct ExecutionContext {
     pub task_instance_id: TaskInstanceId,
     pub tdl_context: TdlContext,
     pub timeout_policy: TimeoutPolicy,
-    pub inputs: Vec<TaskInput>,
+    pub serialized_inputs: Vec<u8>,
 }

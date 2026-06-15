@@ -4,3 +4,4 @@ mod task_graph_builder;
 
 mod jcb_test;
 mod mariadb_test;
+mod runtime_recovery_test;

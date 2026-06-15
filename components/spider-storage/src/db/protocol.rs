@@ -11,6 +11,17 @@ use spider_core::{
 
 use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
 
+/// A job persisted in the database that should be rebuilt in the storage cache on startup.
+///
+/// All non-terminal jobs are recoverable.
+pub struct RecoverableJobContext {
+    pub id: JobId,
+    pub resource_group_id: ResourceGroupId,
+    pub state: JobState,
+    pub submission: ValidatedJobSubmission,
+    pub outputs: Option<Vec<TaskOutput>>,
+}
+
 /// The database storage interface. A database storage must implement the following traits:
 ///
 /// * [`ExternalJobOrchestration`]
@@ -244,6 +255,22 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
         &self,
         expire_after_sec: u64,
     ) -> Result<Vec<JobId>, DbError>;
+
+    /// Gets all jobs that should be recovered and cached in the storage service startup.
+    ///
+    /// # Returns
+    ///
+    /// All persisted jobs in [`JobState::Ready`], [`JobState::Running`],
+    /// [`JobState::CommitReady`], or [`JobState::CleanupReady`] on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::TaskGraphDeserializationFailure`] if a persisted task graph is invalid.
+    /// * [`DbError::ValueDeserializationFailure`] if persisted inputs or outputs are invalid.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError>;
 }
 
 /// Defines the storage interface for resource group management in the database.
