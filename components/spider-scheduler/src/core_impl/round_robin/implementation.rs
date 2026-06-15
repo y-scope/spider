@@ -750,13 +750,12 @@ impl<
             .dispatch_queue_capacity
             .saturating_sub(self.sink.size());
         let mut remaining_dispatch_slots = dispatch_slots;
-        while remaining_dispatch_slots > 0 && !self.buffered_tasks.is_empty() {
+        'fill_dispatch_queue: while remaining_dispatch_slots > 0 && !self.buffered_tasks.is_empty()
+        {
             if self.round_robin_cursor >= self.round_robin_queue.len() {
                 self.round_robin_cursor = 0;
             }
-            let round_robin_queue_entry = match self
-                .round_robin_queue
-                .get(self.round_robin_cursor)
+            let round_robin_queue_entry = match self.round_robin_queue.get(self.round_robin_cursor)
             {
                 Some(entry) => entry.clone(),
                 None => {
@@ -784,19 +783,24 @@ impl<
                     remaining_dispatch_slots -= 1;
                 }
                 RoundRobinSlot::CommitReady => {
-                    let Some((job_id, resource_group_id)) = self.commit_ready_jobs.pop_front()
-                    else {
-                        continue;
-                    };
-                    self.sink
-                        .enqueue(TaskAssignment {
-                            job_id,
-                            resource_group_id,
-                            task_id: TaskId::Commit,
-                        })
-                        .await?;
-                    self.buffered_tasks.remove(&(job_id, TaskId::Commit));
-                    remaining_dispatch_slots -= 1;
+                    for _ in 0..self.config.active_job_queue_capacity {
+                        if remaining_dispatch_slots == 0 {
+                            break 'fill_dispatch_queue;
+                        }
+                        let Some((job_id, resource_group_id)) = self.commit_ready_jobs.pop_front()
+                        else {
+                            break;
+                        };
+                        self.sink
+                            .enqueue(TaskAssignment {
+                                job_id,
+                                resource_group_id,
+                                task_id: TaskId::Commit,
+                            })
+                            .await?;
+                        self.buffered_tasks.remove(&(job_id, TaskId::Commit));
+                        remaining_dispatch_slots -= 1;
+                    }
                 }
                 RoundRobinSlot::Job(job_id) => {
                     let Some(job_entry) = self.active_jobs.get_mut(&job_id) else {

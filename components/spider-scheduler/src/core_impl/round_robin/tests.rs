@@ -891,15 +891,16 @@ async fn pending_jobs_promote_and_schedule_round_robin() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn commit_and_cleanup_dispatch_once_per_cycle() -> anyhow::Result<()> {
+async fn commit_drains_each_cycle_cleanup_dispatches_once() -> anyhow::Result<()> {
     const NUM_ACTIVE_JOBS: usize = 4;
     const TASKS_PER_JOB: usize = 3;
-    const NUM_FINALIZING_JOBS_PER_LANE: usize = 3;
+    const NUM_COMMIT_READY_JOBS: usize = NUM_ACTIVE_JOBS * TASKS_PER_JOB - 1;
+    const NUM_CLEANUP_READY_JOBS: usize = TASKS_PER_JOB;
     const DISPATCH_QUEUE_CAPACITY: usize = 1024;
 
     let active_jobs = make_jobs(NUM_ACTIVE_JOBS);
-    let commit_ready_jobs = make_jobs(NUM_FINALIZING_JOBS_PER_LANE);
-    let cleanup_ready_jobs = make_jobs(NUM_FINALIZING_JOBS_PER_LANE);
+    let commit_ready_jobs = make_jobs(NUM_COMMIT_READY_JOBS);
+    let cleanup_ready_jobs = make_jobs(NUM_CLEANUP_READY_JOBS);
 
     let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
     storage_client.push_ready_batch(
@@ -919,18 +920,23 @@ async fn commit_and_cleanup_dispatch_once_per_cycle() -> anyhow::Result<()> {
     let config = make_config(NUM_ACTIVE_JOBS, DISPATCH_QUEUE_CAPACITY);
     let (scheduler_handle, cancellation_token) = spawn_scheduler(config, storage_client, writer);
 
-    let num_assignments = NUM_ACTIVE_JOBS * TASKS_PER_JOB + 2 * NUM_FINALIZING_JOBS_PER_LANE;
+    let num_assignments =
+        NUM_ACTIVE_JOBS * TASKS_PER_JOB + NUM_COMMIT_READY_JOBS + NUM_CLEANUP_READY_JOBS;
     let assignments = drain_n(&reader, num_assignments).await?;
     assert_no_more_assignments(&reader).await?;
 
-    // The rotation is [commit lane, cleanup lane, active jobs...], so every cycle dispatches
-    // exactly one commit task and one cleanup task (while their queues are non-empty), each lane
-    // drained FIFO, followed by one task of every active job.
-    let expected: Vec<(JobId, ResourceGroupId, TaskId)> = (0..TASKS_PER_JOB)
-        .flat_map(|round| {
-            let (commit_job_id, commit_resource_group_id) = commit_ready_jobs[round];
+    // The rotation is [commit lane, cleanup lane, active jobs...]. The commit lane drains up to
+    // `active_job_queue_capacity` (== NUM_ACTIVE_JOBS) jobs per visit, so each cycle dispatches a
+    // full chunk of NUM_ACTIVE_JOBS commit tasks (the final cycle dispatches the short remainder),
+    // one cleanup task, and one task of every active job. All lanes are drained FIFO.
+    let expected: Vec<(JobId, ResourceGroupId, TaskId)> = commit_ready_jobs
+        .chunks(NUM_ACTIVE_JOBS)
+        .enumerate()
+        .flat_map(|(round, commit_chunk)| {
             let (cleanup_job_id, cleanup_resource_group_id) = cleanup_ready_jobs[round];
-            std::iter::once((commit_job_id, commit_resource_group_id, TaskId::Commit))
+            commit_chunk
+                .iter()
+                .map(|&(job_id, resource_group_id)| (job_id, resource_group_id, TaskId::Commit))
                 .chain(std::iter::once((
                     cleanup_job_id,
                     cleanup_resource_group_id,
@@ -939,6 +945,7 @@ async fn commit_and_cleanup_dispatch_once_per_cycle() -> anyhow::Result<()> {
                 .chain(active_jobs.iter().map(move |&(job_id, resource_group_id)| {
                     (job_id, resource_group_id, TaskId::Index(round))
                 }))
+                .collect::<Vec<_>>()
         })
         .collect();
     assert_eq!(make_assignment_tuple(&assignments), expected);
