@@ -52,14 +52,14 @@
 //!   that belong to the terminated job, and those tasks may eventually be dispatched. This does not
 //!   affect system correctness, because storage will reject stale task assignments for terminated
 //!   jobs. However, it may waste dispatch capacity and execution-manager cycles.
-//!   * Related issue: https://github.com/y-scope/spider/issues/345
+//!   * Related issue: <https://github.com/y-scope/spider/issues/345>
 //! * The scheduler does not have job-level metadata for determining when an active job can be
 //!   safely retired. As a result, an active job may be retired from the active-job queue even
 //!   though additional tasks for that job are still buffered in the inbound queue. This is usually
 //!   not an issue for flattened task graphs, where most ready tasks are exposed to the scheduler at
 //!   once. However, it may occur frequently for task graphs with complex dependencies, especially
 //!   when a large set of upstream tasks is followed by a small number of downstream tasks.
-//!   * Related issue: https://github.com/y-scope/spider/issues/344
+//!   * Related issue: <https://github.com/y-scope/spider/issues/344>
 
 mod implementation;
 

@@ -3,7 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -238,7 +238,7 @@ pub(super) struct RoundRobin<
     pub(super) cleanup_ready_jobs: VecDeque<(JobId, ResourceGroupId)>,
 
     pub(super) finalizing_jobs: HashSet<JobId>,
-    pub(super) finalizing_job_queue: VecDeque<(JobId, SystemTime)>,
+    pub(super) finalizing_job_queue: VecDeque<(JobId, Instant)>,
 
     pub(super) inbound_queue_reader: AsyncInboundQueueReader<SchedulerStorageClientType>,
 }
@@ -304,12 +304,11 @@ impl<
     ///
     /// * Forwards [`Self::consume_inbound_poll_result`]'s return values on failure.
     /// * Forwards [`Self::make_schedule_decisions`]'s return values on failure.
-    /// * Forwards [`Self::retire_expired_finalizing_jobs`]'s return values on failure.
     pub(super) async fn tick(&mut self) -> Result<(), SchedulerError> {
         tracing::info!("Starting scheduling tick.");
         self.consume_inbound_poll_result().await?;
         self.make_schedule_decisions().await?;
-        self.retire_expired_finalizing_jobs()?;
+        self.retire_expired_finalizing_jobs();
         Ok(())
     }
 
@@ -453,7 +452,7 @@ impl<
     fn mark_job_finalizing(&mut self, job_id: JobId) {
         if self.finalizing_jobs.insert(job_id) {
             self.finalizing_job_queue
-                .push_back((job_id, SystemTime::now()));
+                .push_back((job_id, Instant::now()));
         }
     }
 
@@ -462,16 +461,10 @@ impl<
     /// A finalizing job is considered expired once it has remained in the finalizing state for more
     /// than 6 hours. This timeout is currently hard-coded but may be made configurable through
     /// [`RoundRobinConfig`] in the future.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`SystemTime::elapsed`]'s return values on failure.
-    fn retire_expired_finalizing_jobs(&mut self) -> Result<(), SchedulerError> {
+    fn retire_expired_finalizing_jobs(&mut self) {
         const EXPIRATION_TIME: Duration = Duration::from_hours(6);
         while let Some((job_id, insertion_time)) = self.finalizing_job_queue.front() {
-            if insertion_time.elapsed()? > EXPIRATION_TIME {
+            if insertion_time.elapsed() > EXPIRATION_TIME {
                 tracing::info!(job_id = ? job_id, "Finalizing job retired.");
                 self.finalizing_jobs.remove(job_id);
                 self.finalizing_job_queue.pop_front();
@@ -479,7 +472,6 @@ impl<
                 break;
             }
         }
-        Ok(())
     }
 
     /// Loads polled inbound entries into the scheduler's internal buffers.
