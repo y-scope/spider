@@ -16,11 +16,11 @@ use crate::{
 /// share the same runtime entry point.
 #[async_trait]
 pub trait SchedulerCore: Send {
-    /// The storage client used by the core to poll and read for placement decisions.
-    type StorageClient: SchedulerStorageClient;
-
     /// The dispatch sink the core writes assignments to.
     type Sink: DispatchQueueSink;
+
+    /// The storage client used by the core to poll and read for placement decisions.
+    type StorageClient: SchedulerStorageClient;
 
     /// Runs the scheduling loop until `cancellation_token` is triggered.
     ///
@@ -39,7 +39,7 @@ pub trait SchedulerCore: Send {
     ///
     /// Returns a [`SchedulerError`] instance indicating an irrecoverable error.
     async fn run(
-        &mut self,
+        self,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
         cancellation_token: tokio_util::sync::CancellationToken,

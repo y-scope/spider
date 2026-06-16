@@ -10,12 +10,14 @@ path = "src/lib.rs"
 [dependencies]
 async-channel = "2.3.1"
 async-trait = "0.1.89"
+serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
 spider-proto-rust = { path = "../spider-proto-rust" }
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["sync", "time"] }
+tokio = { version = "1.52.3", features = ["macros", "rt", "sync", "time"] }
 tokio-util = "0.7.18"
 tonic = "0.12.3"
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 anyhow = "1.0.102"

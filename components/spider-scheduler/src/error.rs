@@ -47,4 +47,16 @@ pub enum SchedulerError {
     /// The session ID is invalid.
     #[error("invalid session ID: {0:?}")]
     InvalidSessionId(SessionId),
+
+    #[error("internal error: {0}")]
+    Internal(String),
+
+    #[error("invalid config: {0}")]
+    InvalidConfig(String),
+
+    #[error("async result not ready")]
+    ResultNotReady,
+
+    #[error(transparent)]
+    SystemTime(#[from] std::time::SystemTimeError),
 }
