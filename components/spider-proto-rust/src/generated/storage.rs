@@ -190,6 +190,8 @@ pub struct ReportTaskSuccessRequest {
     pub session_id: u64,
     #[prost(bytes = "vec", tag = "5")]
     pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag = "6")]
+    pub task_instance_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReportTaskFailureRequest {
@@ -203,6 +205,8 @@ pub struct ReportTaskFailureRequest {
     pub session_id: u64,
     #[prost(string, tag = "5")]
     pub error_message: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "6")]
+    pub task_instance_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddResourceGroupRequest {

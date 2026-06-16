@@ -150,6 +150,7 @@ message ReportTaskSuccessRequest {
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
   bytes serialized_outputs = 5;
+  uint64 task_instance_id = 6;
 }
 
 message ReportTaskFailureRequest {
@@ -158,6 +159,7 @@ message ReportTaskFailureRequest {
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
   string error_message = 5;
+  uint64 task_instance_id = 6;
 }
 
 message AddResourceGroupRequest {
