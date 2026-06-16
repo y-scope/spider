@@ -1873,12 +1873,14 @@ dependencies = [
  "async-channel",
  "async-trait",
  "dashmap",
+ "serde",
  "spider-core",
  "spider-proto-rust",
  "thiserror",
  "tokio",
  "tokio-util",
  "tonic",
+ "tracing",
 ]
 
 [[package]]
