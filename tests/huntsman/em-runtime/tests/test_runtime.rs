@@ -465,6 +465,7 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
     let report = &reports[0];
     assert_eq!(report.job_id, assignment.job_id);
     assert_eq!(report.task_id, assignment.task_id);
+    assert_eq!(report.task_instance_id, 1);
     assert_eq!(report.em_id, em_id);
     assert_eq!(report.session_id, SESSION_ID);
     let outputs = report

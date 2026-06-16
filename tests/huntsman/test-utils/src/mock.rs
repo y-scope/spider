@@ -19,7 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use spider_core::types::{
-    id::{ExecutionManagerId, JobId, SessionId, TaskId},
+    id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
     io::ExecutionContext,
 };
 use spider_execution_manager::client::{
@@ -112,6 +112,7 @@ pub struct RegisterCall {
 pub struct SuccessReport {
     pub job_id: JobId,
     pub task_id: TaskId,
+    pub task_instance_id: TaskInstanceId,
     pub em_id: ExecutionManagerId,
     pub session_id: SessionId,
     pub serialized_outputs: Option<Vec<u8>>,
@@ -122,6 +123,7 @@ pub struct SuccessReport {
 pub struct FailureReport {
     pub job_id: JobId,
     pub task_id: TaskId,
+    pub task_instance_id: TaskInstanceId,
     pub em_id: ExecutionManagerId,
     pub session_id: SessionId,
     pub error_message: String,
@@ -247,6 +249,7 @@ impl StorageClient for MockStorage {
         &self,
         job_id: JobId,
         task_id: TaskId,
+        task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
         serialized_outputs: Option<Vec<u8>>,
@@ -254,6 +257,7 @@ impl StorageClient for MockStorage {
         lock(&self.inner.success_reports).push(SuccessReport {
             job_id,
             task_id,
+            task_instance_id,
             em_id,
             session_id,
             serialized_outputs,
@@ -268,6 +272,7 @@ impl StorageClient for MockStorage {
         &self,
         job_id: JobId,
         task_id: TaskId,
+        task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
         error_message: String,
@@ -275,6 +280,7 @@ impl StorageClient for MockStorage {
         lock(&self.inner.failure_reports).push(FailureReport {
             job_id,
             task_id,
+            task_instance_id,
             em_id,
             session_id,
             error_message,
