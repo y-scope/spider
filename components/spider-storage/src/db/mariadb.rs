@@ -767,41 +767,6 @@ struct RecoverableJobRowProjection {
     serialized_job_outputs: Option<Vec<u8>>,
 }
 
-/// A raw row selected from the schedulers table.
-#[derive(sqlx::FromRow)]
-struct SchedulerRowProjection {
-    id: SchedulerId,
-    ip_address: String,
-    port: u16,
-}
-
-impl SchedulerRowProjection {
-    /// Converts the row projection into [`RegisteredScheduler`].
-    ///
-    /// # Returns
-    ///
-    /// The registered scheduler on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::CorruptedDbState`] if the scheduler IP address is invalid.
-    fn into_registered_scheduler(self) -> Result<RegisteredScheduler, DbError> {
-        let ip_address = self.ip_address.parse().map_err(|error| {
-            DbError::CorruptedDbState(format!(
-                "scheduler `{}` has invalid IP address `{}`: {error}",
-                self.id, self.ip_address
-            ))
-        })?;
-        Ok(RegisteredScheduler {
-            id: self.id,
-            ip_address,
-            port: self.port,
-        })
-    }
-}
-
 impl RecoverableJobRowProjection {
     /// Converts the row projection into [`RecoverableJobContext`].
     ///
@@ -834,6 +799,41 @@ impl RecoverableJobRowProjection {
             state: self.state,
             submission,
             outputs,
+        })
+    }
+}
+
+/// A raw row selected from the schedulers table.
+#[derive(sqlx::FromRow)]
+struct SchedulerRowProjection {
+    id: SchedulerId,
+    ip_address: String,
+    port: u16,
+}
+
+impl SchedulerRowProjection {
+    /// Converts the row projection into [`RegisteredScheduler`].
+    ///
+    /// # Returns
+    ///
+    /// The registered scheduler on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::CorruptedDbState`] if the scheduler IP address is invalid.
+    fn into_registered_scheduler(self) -> Result<RegisteredScheduler, DbError> {
+        let ip_address = self.ip_address.parse().map_err(|error| {
+            DbError::CorruptedDbState(format!(
+                "scheduler `{}` has invalid IP address `{}`: {error}",
+                self.id, self.ip_address
+            ))
+        })?;
+        Ok(RegisteredScheduler {
+            id: self.id,
+            ip_address,
+            port: self.port,
         })
     }
 }
