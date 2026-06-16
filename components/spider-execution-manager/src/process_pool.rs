@@ -15,10 +15,7 @@ use spider_core::types::{
     io::ExecutionContext,
 };
 use spider_task_executor::protocol::{ExecutorOutcome, Request, Response};
-use spider_tdl::{
-    TaskContext,
-    wire::{TaskInputsSerializer, WireError},
-};
+use spider_tdl::{TaskContext, wire::WireError};
 use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
     sync::Mutex,
@@ -346,14 +343,13 @@ impl ExecutorHandle {
 /// # Returns
 ///
 /// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContext`] and
-/// `raw_inputs` set to the wire-format [`TaskInputsSerializer`] buffer on success.
+/// `raw_inputs` set to the serialized execution inputs on success.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
-/// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
 fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
     let ExecuteRequest {
         job_id,
@@ -365,7 +361,7 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         task_instance_id,
         tdl_context,
         timeout_policy: _,
-        inputs,
+        serialized_inputs,
     } = ctx;
     let raw_ctx = rmp_serde::to_vec(&TaskContext {
         job_id,
@@ -373,13 +369,9 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         task_instance_id,
         resource_group_id,
     })?;
-    let mut inputs_ser = TaskInputsSerializer::new();
-    for input in inputs {
-        inputs_ser.append(input)?;
-    }
     Ok(Request::Execute {
         tdl_context,
         raw_ctx,
-        raw_inputs: inputs_ser.release(),
+        raw_inputs: serialized_inputs,
     })
 }

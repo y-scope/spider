@@ -1,4 +1,5 @@
-use spider_core::{job::JobState, task::TaskState};
+use spider_core::{job::JobState, task::TaskState, types::id::JobId};
+use spider_tdl::wire::WireError;
 
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
@@ -50,6 +51,9 @@ pub enum InternalError {
     #[error("job not started")]
     JobNotStarted,
 
+    #[error("job not found: {0:?}")]
+    JobNotFound(JobId),
+
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
         current: JobState,
@@ -71,11 +75,26 @@ pub enum InternalError {
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),
 
-    #[error("invalid config: {0}")]
+    #[error("invalid ready-queue config: {0}")]
     ReadyQueueInvalidConfig(&'static str),
+
+    #[error("invalid task instance pool config: {0}")]
+    TaskInstancePoolInvalidConfig(&'static str),
+
+    #[error("invalid job cache GC config: {0}")]
+    JobCacheGcInvalidConfig(&'static str),
 
     #[error("ready queue channel is closed")]
     ReadyQueueChannelClosed,
+
+    #[error("invalid recoverable job context: {0}")]
+    InvalidRecoverableJobContext(String),
+
+    #[error(transparent)]
+    WireError(#[from] WireError),
+
+    #[error(transparent)]
+    Db(#[from] crate::db::DbError),
 }
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.

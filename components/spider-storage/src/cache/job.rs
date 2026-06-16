@@ -18,11 +18,11 @@ use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     cache::{
-        error::{CacheError, InternalError, InternalError::UnexpectedJobState, StaleStateError},
+        error::{CacheError, InternalError, StaleStateError},
         job_submission::ValidatedJobSubmission,
         task::TaskGraph,
     },
-    db::InternalJobOrchestration,
+    db::{InternalJobOrchestration, RecoverableJobContext},
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };
@@ -93,10 +93,147 @@ impl<
         })
     }
 
+    /// Recovers a job control block from the given recoverable job context (assumed to be returned
+    /// from persistent storage).
+    ///
+    /// # NOTE
+    ///
+    /// * This constructor does not mutate the storage states.
+    /// * This constructor does not send recovered tasks to the ready-queue.
+    ///
+    /// # Returns
+    ///
+    /// The recovered [`SharedJobControlBlock`] on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UnexpectedJobState`] if `state` is not recoverable.
+    /// * [`InternalError::InvalidRecoverableJobContext`] if:
+    ///   * A commit-ready job doesn't have a commit task specified.
+    ///   * A commit-ready job doesn't have outputs ready.
+    ///   * A cleanup-ready job doesn't have a cleanup task specified.
+    /// * Forwards [`TaskGraph::create`]'s return values on failure.
+    pub async fn recover(
+        recoverable_job_context: RecoverableJobContext,
+        ready_queue_sender: ReadyQueueSenderType,
+        db_connector: DbConnectorType,
+        task_instance_pool_connector: TaskInstancePoolConnectorType,
+    ) -> Result<Self, CacheError> {
+        let RecoverableJobContext {
+            id,
+            resource_group_id,
+            state,
+            submission,
+            outputs,
+        } = recoverable_job_context;
+
+        let (num_incomplete_tasks, task_graph) = match state {
+            JobState::Ready | JobState::Running => {
+                let num_tasks = submission.task_graph().get_num_tasks();
+                let task_graph = TaskGraph::create(submission).await?;
+                (num_tasks, task_graph)
+            }
+            JobState::CommitReady => {
+                let Some(commit_task_descriptor) =
+                    submission.task_graph().get_commit_task_descriptor()
+                else {
+                    return Err(InternalError::InvalidRecoverableJobContext(String::from(
+                        "commit-ready job doesn't have a commit task specified",
+                    ))
+                    .into());
+                };
+                let Some(outputs) = outputs else {
+                    return Err(InternalError::InvalidRecoverableJobContext(String::from(
+                        "commit-ready job doesn't have outputs ready",
+                    ))
+                    .into());
+                };
+                let task_graph =
+                    TaskGraph::recover_from_commit_ready(commit_task_descriptor, outputs);
+                (0, task_graph)
+            }
+            JobState::CleanupReady => {
+                let Some(cleanup_task_descriptor) =
+                    submission.task_graph().get_cleanup_task_descriptor()
+                else {
+                    return Err(InternalError::InvalidRecoverableJobContext(String::from(
+                        "cleanup-ready job doesn't have a cleanup task specified",
+                    ))
+                    .into());
+                };
+                let task_graph = TaskGraph::recover_from_cleanup_ready(cleanup_task_descriptor);
+                (0, task_graph)
+            }
+            other => {
+                return Err(InternalError::UnexpectedJobState {
+                    current: other,
+                    expected: JobState::Running,
+                }
+                .into());
+            }
+        };
+
+        let job_execution_state = JobExecutionState {
+            state,
+            task_graph,
+            num_incomplete_tasks: AtomicUsize::new(num_incomplete_tasks),
+            ready_queue_sender,
+            db_connector,
+            task_instance_pool_connector,
+        };
+        Ok(Self {
+            inner: Arc::new(JobControlBlock {
+                id,
+                owner_id: resource_group_id,
+                job_execution_state: JobExecutionStateHandle {
+                    inner: tokio::sync::RwLock::new(job_execution_state),
+                },
+            }),
+        })
+    }
+
     /// Returns the job ID.
     #[must_use]
     pub fn id(&self) -> JobId {
         self.inner.id
+    }
+
+    /// # Returns
+    ///
+    /// The current job state.
+    pub async fn state(&self) -> JobState {
+        self.inner.job_execution_state.read_state().await
+    }
+
+    /// Gets the outputs of the job from the in-memory task graph.
+    ///
+    /// # Returns
+    ///
+    /// The outputs of the job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`].
+    /// * [`InternalError::TaskInputNotReady`] if any output has no value.
+    pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, CacheError> {
+        let jcb = &self.inner;
+        let job = jcb.job_execution_state.read_succeeded().await?;
+        let mut outputs = Vec::new();
+        for output_reader in job.task_graph.get_outputs() {
+            let payload = output_reader
+                .read()
+                .await
+                .as_ref()
+                .ok_or(InternalError::TaskInputNotReady)?
+                .clone();
+            outputs.push(payload);
+        }
+        drop(job);
+        Ok(outputs)
     }
 
     /// Starts the job.
@@ -614,7 +751,7 @@ impl<
             task_instance_id,
             tdl_context,
             timeout_policy,
-            inputs: Vec::new(),
+            serialized_inputs: Vec::new(),
         })
     }
 
@@ -666,7 +803,7 @@ impl<
             task_instance_id,
             tdl_context,
             timeout_policy,
-            inputs: Vec::new(),
+            serialized_inputs: Vec::new(),
         })
     }
 }
@@ -721,6 +858,13 @@ struct JobExecutionStateHandle<
 impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
     JobExecutionStateHandle<R, D, T>
 {
+    /// # Returns
+    ///
+    /// The current job state.
+    async fn read_state(&self) -> JobState {
+        self.inner.read().await.state
+    }
+
     /// # Returns
     ///
     /// A reader guard of the underlying job execution state on success.
@@ -798,6 +942,22 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
         &self,
     ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
         self.validate_and_read(JobExecutionState::ensure_cleanup_ready)
+            .await
+    }
+
+    /// # Returns
+    ///
+    /// A reader guard of the underlying job execution state on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`JobExecutionState::ensure_succeeded`]'s return values on failure.
+    async fn read_succeeded(
+        &self,
+    ) -> Result<RwLockReadGuard<'_, JobExecutionState<R, D, T>>, CacheError> {
+        self.validate_and_read(JobExecutionState::ensure_succeeded)
             .await
     }
 
@@ -962,7 +1122,7 @@ impl<
             if self.state.is_terminal() || matches!(self.state, JobState::CleanupReady) {
                 return Err(StaleStateError::JobNoLongerCommitReady.into());
             }
-            return Err(UnexpectedJobState {
+            return Err(InternalError::UnexpectedJobState {
                 current: self.state,
                 expected: JobState::CommitReady,
             }
@@ -978,15 +1138,33 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
-    /// * [`StaleStateError::JobNoLongerCommitReady`] if the job is no longer cleanup-ready.
+    /// * [`StaleStateError::JobNoLongerCleanupReady`] if the job is no longer cleanup-ready.
     fn ensure_cleanup_ready(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::CleanupReady) {
             if self.state.is_terminal() {
                 return Err(StaleStateError::JobNoLongerCleanupReady.into());
             }
-            return Err(UnexpectedJobState {
+            return Err(InternalError::UnexpectedJobState {
                 current: self.state,
                 expected: JobState::CleanupReady,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    /// Ensures that the job is currently in the [`JobState::Succeeded`] state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
+    fn ensure_succeeded(&self) -> Result<(), CacheError> {
+        if !matches!(self.state, JobState::Succeeded) {
+            return Err(InternalError::UnexpectedJobState {
+                current: self.state,
+                expected: JobState::Succeeded,
             }
             .into());
         }
@@ -1001,7 +1179,7 @@ impl<
     ///
     /// * [`StaleStateError::JobCancellationAlreadyRequested`] if job cancellation has already been
     ///   requested.
-    /// * [`StaleStateError::JobAlreadyCancelled`] if the job is already been cancelled.
+    /// * [`StaleStateError::JobAlreadyCancelled`] if the job has already been cancelled.
     /// * [`StaleStateError::JobAlreadyTerminated`] if the job has already terminated.
     fn ensure_cancellable(&self) -> Result<(), CacheError> {
         if matches!(self.state, JobState::CleanupReady) {

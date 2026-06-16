@@ -331,6 +331,7 @@ use super::mariadb_infra::{create_mariadb_connector, create_test_resource_group}
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn test_flat_success_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -354,6 +355,7 @@ async fn test_flat_success_with_mariadb() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn test_flat_cancel_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -372,6 +374,7 @@ async fn test_flat_cancel_with_mariadb() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn test_always_fail_terminates_job_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -396,6 +399,7 @@ async fn test_always_fail_terminates_job_with_mariadb() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn test_concurrent_success_and_cancel_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -415,6 +419,7 @@ async fn test_concurrent_success_and_cancel_with_mariadb() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn test_neural_net_success_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -433,6 +438,7 @@ async fn test_neural_net_success_with_mariadb() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn test_neural_net_cancel_with_mariadb() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;

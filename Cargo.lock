@@ -371,6 +371,7 @@ dependencies = [
  "anyhow",
  "spider-core",
  "spider-execution-manager",
+ "spider-tdl",
  "test-utils",
  "tokio",
 ]
@@ -1872,12 +1873,14 @@ dependencies = [
  "async-channel",
  "async-trait",
  "dashmap",
+ "serde",
  "spider-core",
  "spider-proto-rust",
  "thiserror",
  "tokio",
  "tokio-util",
  "tonic",
+ "tracing",
 ]
 
 [[package]]
@@ -1896,12 +1899,14 @@ dependencies = [
  "serial_test",
  "spider-core",
  "spider-derive",
+ "spider-tdl",
  "sqlx",
  "subtle",
  "tabled",
  "thiserror",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]

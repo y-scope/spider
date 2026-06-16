@@ -21,6 +21,7 @@ use spider_execution_manager::{
     client::{SchedulerError, SchedulerResponse, StorageResponseError},
     runtime::{Runtime, RuntimeConfig, RuntimeError},
 };
+use spider_tdl::wire::TaskInputsSerializer;
 use test_utils::{
     MockLiveness,
     MockScheduler,
@@ -61,6 +62,13 @@ fn assignment_with_session(session_id: u64) -> SchedulerResponse {
 /// A populated [`ExecutionContext`] suitable for handing to the runtime via
 /// [`MockStorage::push_register_response`].
 fn execution_context(task_func: &str, inputs: Vec<TaskInput>) -> ExecutionContext {
+    let mut serializer = TaskInputsSerializer::new();
+    for input in inputs {
+        serializer
+            .append(input)
+            .expect("input serialization should succeed");
+    }
+
     ExecutionContext {
         task_instance_id: 1,
         tdl_context: TdlContext {
@@ -71,7 +79,7 @@ fn execution_context(task_func: &str, inputs: Vec<TaskInput>) -> ExecutionContex
             soft_timeout_ms: 1_000,
             hard_timeout_ms: 5_000,
         },
-        inputs,
+        serialized_inputs: serializer.release(),
     }
 }
 

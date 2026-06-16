@@ -27,7 +27,7 @@ use spider_execution_manager::process_pool::{
     ProcessPoolConfig,
 };
 use spider_task_executor::ExecutorError;
-use spider_tdl::TdlError;
+use spider_tdl::{TdlError, wire::TaskInputsSerializer};
 use test_utils::{
     PACKAGE_NAME,
     decode_single_output,
@@ -76,6 +76,13 @@ fn build_pool() -> ProcessPool {
 /// A request with fresh IDs, a placeholder [`TimeoutPolicy`] (which the pool ignores — the caller
 /// supplies `hard_timeout` directly to [`ProcessPool::execute`]), and the supplied `inputs`.
 fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
+    let mut serializer = TaskInputsSerializer::new();
+    for input in inputs {
+        serializer
+            .append(input)
+            .expect("input serialization should succeed");
+    }
+
     ExecuteRequest {
         job_id: JobId::random(),
         task_id: TaskId::Index(0),
@@ -90,7 +97,7 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
                 soft_timeout_ms: 100,
                 hard_timeout_ms: 1000,
             },
-            inputs,
+            serialized_inputs: serializer.release(),
         },
     }
 }
