@@ -36,27 +36,27 @@ struct Cli {
     )]
     listen_addr: SocketAddr,
 
-    /// MariaDB host.
+    /// `MariaDB` host.
     #[arg(long, env = "MARIADB_HOST", default_value = "localhost")]
     db_host: String,
 
-    /// MariaDB port.
+    /// `MariaDB` port.
     #[arg(long, env = "MARIADB_PORT", default_value_t = 3306)]
     db_port: u16,
 
-    /// MariaDB database name.
+    /// `MariaDB` database name.
     #[arg(long, env = "MARIADB_DATABASE", default_value = "spider")]
     db_name: String,
 
-    /// MariaDB username.
+    /// `MariaDB` username.
     #[arg(long, env = "MARIADB_USERNAME", default_value = "spider")]
     db_username: String,
 
-    /// MariaDB password.
+    /// `MariaDB` password.
     #[arg(long, env = "MARIADB_PASSWORD")]
     db_password: String,
 
-    /// Maximum MariaDB connections.
+    /// Maximum `MariaDB` connections.
     #[arg(long, env = "MARIADB_MAX_CONNECTIONS", default_value_t = 5)]
     db_max_connections: u32,
 

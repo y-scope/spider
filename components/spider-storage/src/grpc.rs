@@ -104,6 +104,13 @@ impl<
         request: Request<storage::SubmitJobRequest>,
     ) -> Result<Response<storage::SubmitJobResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            resource_group_id = request.resource_group_id,
+            task_graph_size = request.serialized_task_graph.len(),
+            input_count = request.serialized_inputs.len(),
+            "Received SubmitJob request."
+        );
         let result = self.validate_session(request.session_id).and_then(|()| {
             String::from_utf8(request.serialized_task_graph)
                 .map_err(|e| StorageServerError::BadRequest(e.to_string()))
@@ -134,7 +141,9 @@ impl<
         &self,
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobStateResponse>, Status> {
-        let job_id = JobId::from(request.into_inner().job_id);
+        let request = request.into_inner();
+        tracing::debug!(job_id = request.job_id, "Received StartJob request.");
+        let job_id = JobId::from(request.job_id);
         let result = self
             .service_state
             .start_job(job_id)
@@ -147,9 +156,11 @@ impl<
         &self,
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobStateResponse>, Status> {
+        let request = request.into_inner();
+        tracing::debug!(job_id = request.job_id, "Received CancelJob request.");
         let result = self
             .service_state
-            .cancel_job(JobId::from(request.into_inner().job_id))
+            .cancel_job(JobId::from(request.job_id))
             .await;
         Ok(Response::new(job_state_response_from_result(result, self)))
     }
@@ -158,9 +169,11 @@ impl<
         &self,
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobStateResponse>, Status> {
+        let request = request.into_inner();
+        tracing::debug!(job_id = request.job_id, "Received GetJobState request.");
         let result = self
             .service_state
-            .get_job_state(JobId::from(request.into_inner().job_id))
+            .get_job_state(JobId::from(request.job_id))
             .await;
         Ok(Response::new(job_state_response_from_result(result, self)))
     }
@@ -169,9 +182,11 @@ impl<
         &self,
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobOutputsResponse>, Status> {
+        let request = request.into_inner();
+        tracing::debug!(job_id = request.job_id, "Received GetJobOutputs request.");
         let result = self
             .service_state
-            .get_job_outputs(JobId::from(request.into_inner().job_id))
+            .get_job_outputs(JobId::from(request.job_id))
             .await;
         Ok(Response::new(storage::JobOutputsResponse {
             result: Some(match result {
@@ -189,9 +204,11 @@ impl<
         &self,
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobErrorResponse>, Status> {
+        let request = request.into_inner();
+        tracing::debug!(job_id = request.job_id, "Received GetJobError request.");
         let result = self
             .service_state
-            .get_job_error(JobId::from(request.into_inner().job_id))
+            .get_job_error(JobId::from(request.job_id))
             .await;
         Ok(Response::new(storage::JobErrorResponse {
             result: Some(match result {
@@ -217,6 +234,12 @@ impl<
         request: Request<storage::RegisterTaskInstanceRequest>,
     ) -> Result<Response<storage::RegisterTaskInstanceResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            job_id = request.job_id,
+            execution_manager_id = request.execution_manager_id,
+            "Received RegisterTaskInstance request."
+        );
         let result = request_task_id(request.task_id).map(|task_id| {
             (
                 request.session_id,
@@ -256,6 +279,13 @@ impl<
         request: Request<storage::ReportTaskSuccessRequest>,
     ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            job_id = request.job_id,
+            task_instance_id = request.task_instance_id,
+            output_size = request.serialized_outputs.len(),
+            "Received ReportTaskSuccess request."
+        );
         let result = request_task_id(request.task_id).and_then(|task_id| {
             validate_report_outputs(&task_id, &request.serialized_outputs)?;
             Ok(task_id)
@@ -303,6 +333,12 @@ impl<
         request: Request<storage::ReportTaskFailureRequest>,
     ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            job_id = request.job_id,
+            task_instance_id = request.task_instance_id,
+            "Received ReportTaskFailure request."
+        );
         let result = request_task_id(request.task_id);
         let result = match result {
             Ok(task_id) => {
@@ -337,7 +373,13 @@ impl<
         &self,
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
-        let result = poll_request(request.into_inner());
+        let request = request.into_inner();
+        tracing::debug!(
+            max_items = request.max_items,
+            wait_ms = request.wait_ms,
+            "Received PollReadyTasks request."
+        );
+        let result = poll_request(request);
         let result = match result {
             Ok((max_tasks, wait)) => self.service_state.poll_ready_tasks(max_tasks, wait).await,
             Err(error) => Err(error),
@@ -351,7 +393,13 @@ impl<
         &self,
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
-        let result = poll_request(request.into_inner());
+        let request = request.into_inner();
+        tracing::debug!(
+            max_items = request.max_items,
+            wait_ms = request.wait_ms,
+            "Received PollReadyCommitTasks request."
+        );
+        let result = poll_request(request);
         let result = match result {
             Ok((max_tasks, wait)) => {
                 self.service_state
@@ -369,7 +417,13 @@ impl<
         &self,
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
-        let result = poll_request(request.into_inner());
+        let request = request.into_inner();
+        tracing::debug!(
+            max_items = request.max_items,
+            wait_ms = request.wait_ms,
+            "Received PollReadyCleanupTasks request."
+        );
+        let result = poll_request(request);
         let result = match result {
             Ok((max_tasks, wait)) => {
                 self.service_state
@@ -397,6 +451,11 @@ impl<
         request: Request<storage::AddResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupIdResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            external_resource_group_id = %request.external_resource_group_id,
+            "Received AddResourceGroup request."
+        );
         let result = match self.validate_session(request.session_id) {
             Ok(()) => {
                 self.service_state
@@ -420,6 +479,11 @@ impl<
         request: Request<storage::VerifyResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            resource_group_id = request.resource_group_id,
+            "Received VerifyResourceGroup request."
+        );
         let result = match self.validate_session(request.session_id) {
             Ok(()) => {
                 self.service_state
@@ -441,6 +505,11 @@ impl<
         request: Request<storage::ResourceGroupIdRequest>,
     ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
         let request = request.into_inner();
+        tracing::debug!(
+            session_id = request.session_id,
+            resource_group_id = request.resource_group_id,
+            "Received DeleteResourceGroup request."
+        );
         let result = match self.validate_session(request.session_id) {
             Ok(()) => {
                 self.service_state
@@ -467,7 +536,12 @@ impl<
         &self,
         request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
-        let ip = request.into_inner().ip_address.parse::<IpAddr>();
+        let request = request.into_inner();
+        tracing::debug!(
+            ip_address = %request.ip_address,
+            "Received RegisterExecutionManager request."
+        );
+        let ip = request.ip_address.parse::<IpAddr>();
         let result = match ip {
             Ok(ip) => self.service_state.register_execution_manager(ip).await,
             Err(error) => Err(StorageServerError::BadRequest(error.to_string())),
@@ -491,10 +565,15 @@ impl<
         &self,
         request: Request<storage::ExecutionManagerIdRequest>,
     ) -> Result<Response<storage::UpdateExecutionManagerHeartbeatResponse>, Status> {
+        let request = request.into_inner();
+        tracing::debug!(
+            execution_manager_id = request.execution_manager_id,
+            "Received UpdateExecutionManagerHeartbeat request."
+        );
         let result = self
             .service_state
             .update_execution_manager_heartbeat(ExecutionManagerId::from(
-                request.into_inner().execution_manager_id,
+                request.execution_manager_id,
             ))
             .await;
         Ok(Response::new(
@@ -524,6 +603,7 @@ impl<
         &self,
         _request: Request<storage::Void>,
     ) -> Result<Response<storage::GetSessionResponse>, Status> {
+        tracing::debug!("Received GetSession request.");
         Ok(Response::new(storage::GetSessionResponse {
             session_id: self.service_state.session_id(),
         }))
