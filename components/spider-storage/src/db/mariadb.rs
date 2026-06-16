@@ -7,7 +7,7 @@ use spider_core::{
     job::JobState,
     task::TaskGraph,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
         io::{TaskInput, TaskOutput},
     },
 };
@@ -25,6 +25,7 @@ use crate::{
         InternalJobOrchestration,
         RecoverableJobContext,
         ResourceGroupManagement,
+        SchedulerRegistrationManagement,
         SessionManagement,
         error::ExpectedStates,
     },
@@ -84,6 +85,9 @@ impl MariaDbStorageConnector {
             .execute(&pool)
             .await?;
         sqlx::query(execution_managers_creation_query())
+            .execute(&pool)
+            .await?;
+        sqlx::query(schedulers_creation_query())
             .execute(&pool)
             .await?;
 
@@ -589,6 +593,37 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     }
 }
 
+#[async_trait]
+impl SchedulerRegistrationManagement for MariaDbStorageConnector {
+    async fn register_scheduler(&self) -> Result<SchedulerId, DbError> {
+        const DELETE_QUERY: &str =
+            formatcp!("DELETE FROM `{table}`;", table = SCHEDULERS_TABLE_NAME,);
+        const INSERT_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` () VALUES () RETURNING `id`;",
+            table = SCHEDULERS_TABLE_NAME,
+        );
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(DELETE_QUERY).execute(&mut *tx).await?;
+        let scheduler_id = sqlx::query_scalar(INSERT_QUERY).fetch_one(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(scheduler_id)
+    }
+
+    async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError> {
+        const QUERY: &str = formatcp!(
+            "SELECT `id` FROM `{table}` WHERE `id` = ?;",
+            table = SCHEDULERS_TABLE_NAME,
+        );
+
+        let registered_scheduler_id: Option<SchedulerId> = sqlx::query_scalar(QUERY)
+            .bind(scheduler_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(registered_scheduler_id.is_some())
+    }
+}
+
 impl SessionManagement for MariaDbStorageConnector {
     fn session_id(&self) -> SessionId {
         self.session_id
@@ -606,6 +641,7 @@ const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 const RESOURCE_GROUPS_TABLE_NAME: &str = "resource_groups";
 const JOBS_TABLE_NAME: &str = "jobs";
 const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
+const SCHEDULERS_TABLE_NAME: &str = "schedulers";
 const SESSIONS_TABLE_NAME: &str = "sessions";
 
 const UPDATE_JOB_STATE: &str = formatcp!(
@@ -671,6 +707,18 @@ CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
 );",
         state_enum = ExecutionManagerState::as_mysql_enum_decl(),
         default_state = ExecutionManagerState::Alive.as_quoted_str(),
+    )
+}
+
+#[must_use]
+const fn schedulers_creation_query() -> &'static str {
+    formatcp!(
+        r"
+CREATE TABLE IF NOT EXISTS `{SCHEDULERS_TABLE_NAME}` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+);"
     )
 }
 

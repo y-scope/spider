@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId, TaskInstanceId},
         io::TaskOutput,
     },
 };
@@ -29,6 +29,7 @@ use crate::{
         InternalJobOrchestration,
         RecoverableJobContext,
         ResourceGroupManagement,
+        SchedulerRegistrationManagement,
         SessionManagement,
     },
     ready_queue::ReadyQueueSender,
@@ -77,6 +78,8 @@ pub struct MockDbConnector {
     pub next_resource_group_id: Arc<AtomicUsize>,
     pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
     pub next_execution_manager_id: Arc<AtomicUsize>,
+    pub schedulers: Arc<DashMap<SchedulerId, ()>>,
+    pub next_scheduler_id: Arc<AtomicUsize>,
     pub session_id: SessionId,
 }
 
@@ -90,6 +93,8 @@ impl Default for MockDbConnector {
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
             execution_managers: Arc::new(DashMap::new()),
             next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
+            schedulers: Arc::new(DashMap::new()),
+            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
             session_id: 0,
         }
     }
@@ -248,6 +253,21 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
         _stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError> {
         Ok(Vec::new())
+    }
+}
+
+#[async_trait::async_trait]
+impl SchedulerRegistrationManagement for MockDbConnector {
+    async fn register_scheduler(&self) -> Result<SchedulerId, DbError> {
+        self.schedulers.clear();
+        let counter = self.next_scheduler_id.fetch_add(1, Ordering::Relaxed);
+        let scheduler_id = SchedulerId::from(counter as u64);
+        self.schedulers.insert(scheduler_id, ());
+        Ok(scheduler_id)
+    }
+
+    async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError> {
+        Ok(self.schedulers.contains_key(&scheduler_id))
     }
 }
 

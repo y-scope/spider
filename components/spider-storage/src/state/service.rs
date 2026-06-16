@@ -4,7 +4,15 @@ use spider_core::{
     job::JobState,
     task::{TaskGraph, TaskIndex},
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId, TaskInstanceId},
+        id::{
+            ExecutionManagerId,
+            JobId,
+            ResourceGroupId,
+            SchedulerId,
+            SessionId,
+            TaskId,
+            TaskInstanceId,
+        },
         io::{ExecutionContext, TaskInput, TaskOutput},
     },
 };
@@ -653,6 +661,29 @@ impl<
         Ok(())
     }
 
+    /// Registers the scheduler.
+    ///
+    /// Registering a scheduler invalidates any previously registered scheduler.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered scheduler on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SchedulerRegistrationManagement::register_scheduler`]'s return values on
+    ///   failure.
+    pub async fn register_scheduler(&self) -> Result<SchedulerId, StorageServerError> {
+        let scheduler_id = self.inner.db.register_scheduler().await?;
+        tracing::info!(
+            scheduler_id = ? scheduler_id,
+            "Scheduler registered.",
+        );
+        Ok(scheduler_id)
+    }
+
     /// Validates that the given `session_id` matches the session ID captured at service creation
     /// time.
     ///
@@ -710,7 +741,7 @@ mod tests {
             ValueTypeDescriptor,
         },
         types::{
-            id::{ExecutionManagerId, JobId, ResourceGroupId},
+            id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId},
             io::{TaskInput, TaskOutput},
         },
     };
@@ -718,7 +749,7 @@ mod tests {
     use super::*;
     use crate::{
         cache::{job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
-        db::DbError,
+        db::{DbError, SchedulerRegistrationManagement},
         ready_queue::ReadyQueueSenderHandle,
         state::{
             JobCacheGcHandle,
@@ -1643,6 +1674,38 @@ mod tests {
                 )))
             ),
             "update heartbeat should fail for unregistered execution manager"
+        );
+        Ok(())
+    }
+
+    /// # Returns
+    ///
+    /// Whether the scheduler is registered.
+    async fn is_scheduler_registered(db: &MockDbConnector, scheduler_id: SchedulerId) -> bool {
+        db.is_scheduler_registered(scheduler_id)
+            .await
+            .expect("is_scheduler_registered should succeed")
+    }
+
+    #[tokio::test]
+    async fn register_scheduler_replaces_previous_scheduler() -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
+
+        let first_scheduler_id = service.register_scheduler().await?;
+        let second_scheduler_id = service.register_scheduler().await?;
+
+        assert_ne!(
+            first_scheduler_id, second_scheduler_id,
+            "new registration should allocate a fresh scheduler ID"
+        );
+        assert!(
+            !is_scheduler_registered(&db, first_scheduler_id).await,
+            "old scheduler should be removed after a new registration"
+        );
+        assert!(
+            is_scheduler_registered(&db, second_scheduler_id).await,
+            "new scheduler should remain registered"
         );
         Ok(())
     }

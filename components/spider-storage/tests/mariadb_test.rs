@@ -6,7 +6,7 @@ use std::{
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId},
         io::TaskInput,
     },
 };
@@ -19,6 +19,7 @@ use spider_storage::{
         InternalJobOrchestration,
         MariaDbStorageConnector,
         ResourceGroupManagement,
+        SchedulerRegistrationManagement,
         SessionManagement,
     },
 };
@@ -53,6 +54,19 @@ async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManager
         .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
         .await
         .expect("register_execution_manager should succeed")
+}
+
+/// # Returns
+///
+/// Whether the scheduler is registered.
+async fn is_scheduler_registered(
+    storage: &MariaDbStorageConnector,
+    scheduler_id: SchedulerId,
+) -> bool {
+    storage
+        .is_scheduler_registered(scheduler_id)
+        .await
+        .expect("is_scheduler_registered should succeed")
 }
 
 #[tokio::test]
@@ -1003,6 +1017,35 @@ async fn test_get_dead_execution_managers_multiple() {
             "expected em_id {em_id:?} in dead list, got {dead:?}"
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_register_scheduler_replaces_previous_scheduler() {
+    let storage = create_mariadb_connector().await;
+
+    let first_scheduler_id = storage
+        .register_scheduler()
+        .await
+        .expect("first register_scheduler should succeed");
+    let second_scheduler_id = storage
+        .register_scheduler()
+        .await
+        .expect("second register_scheduler should succeed");
+
+    assert_ne!(
+        first_scheduler_id, second_scheduler_id,
+        "new registration should allocate a fresh scheduler ID"
+    );
+    assert!(
+        !is_scheduler_registered(&storage, first_scheduler_id).await,
+        "old scheduler should be removed after a new registration"
+    );
+    assert!(
+        is_scheduler_registered(&storage, second_scheduler_id).await,
+        "new scheduler should remain registered"
+    );
 }
 
 #[tokio::test]

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
         io::TaskOutput,
     },
 };
@@ -28,6 +28,7 @@ pub struct RecoverableJobContext {
 /// * [`InternalJobOrchestration`]
 /// * [`ResourceGroupManagement`]
 /// * [`ExecutionManagerLivenessManagement`]
+/// * [`SchedulerRegistrationManagement`]
 /// * [`SessionManagement`]
 #[async_trait]
 pub trait DbStorage:
@@ -35,6 +36,7 @@ pub trait DbStorage:
     + InternalJobOrchestration
     + ResourceGroupManagement
     + ExecutionManagerLivenessManagement
+    + SchedulerRegistrationManagement
     + SessionManagement {
 }
 
@@ -424,6 +426,43 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
         &self,
         stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError>;
+}
+
+/// Defines the storage interface for scheduler registration in the database.
+#[async_trait]
+pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
+    /// Registers the scheduler in the database.
+    ///
+    /// For now, only one scheduler can be registered at a time. Registering a new scheduler removes
+    /// any previously registered scheduler before allocating the new scheduler ID.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered scheduler on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn register_scheduler(&self) -> Result<SchedulerId, DbError>;
+
+    /// Checks whether the scheduler with the given ID is registered.
+    ///
+    /// # Parameters
+    ///
+    /// * `scheduler_id` - The scheduler ID to check.
+    ///
+    /// # Returns
+    ///
+    /// Whether the scheduler is registered on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError>;
 }
 
 /// Defines the storage interface for session management.
