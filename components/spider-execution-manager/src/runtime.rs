@@ -5,7 +5,7 @@ use std::{net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 use spider_core::{
     session::SessionTracker,
     types::{
-        id::{ExecutionManagerId, JobId, SessionId, TaskId},
+        id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
         io::ExecutionContext,
     },
 };
@@ -241,6 +241,7 @@ impl<
             let Some(execution_context) = self.register_task_instance(assignment).await? else {
                 continue;
             };
+            let task_instance_id = execution_context.task_instance_id;
 
             let hard_timeout =
                 Duration::from_millis(execution_context.timeout_policy.hard_timeout_ms);
@@ -283,6 +284,7 @@ impl<
                     em: self.em_id,
                     job: assignment.job_id,
                     task: assignment.task_id,
+                    task_instance_id,
                     session: assignment.session_id,
                 },
                 outcome,
@@ -364,6 +366,7 @@ struct ReportTarget {
     em: ExecutionManagerId,
     job: JobId,
     task: TaskId,
+    task_instance_id: TaskInstanceId,
     session: SessionId,
 }
 
@@ -449,17 +452,18 @@ impl Report {
             em,
             job,
             task,
+            task_instance_id,
             session,
         } = target;
         match self {
             Self::Success(outputs) => {
                 storage_client
-                    .report_task_success(job, task, em, session, outputs)
+                    .report_task_success(job, task, task_instance_id, em, session, outputs)
                     .await
             }
             Self::Failure(message) => {
                 storage_client
-                    .report_task_failure(job, task, em, session, message)
+                    .report_task_failure(job, task, task_instance_id, em, session, message)
                     .await
             }
         }
