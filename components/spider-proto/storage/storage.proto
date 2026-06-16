@@ -40,7 +40,8 @@ service ExecutionManagerLivenessService {
 }
 
 service SchedulerRegistrationService {
-  rpc RegisterScheduler(Void) returns (RegisterSchedulerResponse);
+  rpc RegisterScheduler(RegisterSchedulerRequest) returns (RegisterSchedulerResponse);
+  rpc GetSchedulers(Void) returns (GetSchedulersResponse);
 }
 
 service SessionManagementService {
@@ -215,6 +216,11 @@ message UpdateExecutionManagerHeartbeatResponse {
   }
 }
 
+message RegisterSchedulerRequest {
+  string ip_address = 1;
+  uint32 port = 2;
+}
+
 message SchedulerRegistration {
   uint64 scheduler_id = 1;
   uint64 session_id = 2;
@@ -223,6 +229,24 @@ message SchedulerRegistration {
 message RegisterSchedulerResponse {
   oneof result {
     SchedulerRegistration registration = 1;
+    SchedulerRegistrationError error = 2;
+  }
+}
+
+message Scheduler {
+  uint64 scheduler_id = 1;
+  string ip_address = 2;
+  uint32 port = 3;
+}
+
+message SchedulerRegistrations {
+  uint64 session_id = 1;
+  repeated Scheduler schedulers = 2;
+}
+
+message GetSchedulersResponse {
+  oneof result {
+    SchedulerRegistrations schedulers = 1;
     SchedulerRegistrationError error = 2;
   }
 }

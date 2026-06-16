@@ -296,6 +296,13 @@ pub mod update_execution_manager_heartbeat_response {
         Error(super::ExecutionManagerLivenessError),
     }
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RegisterSchedulerRequest {
+    #[prost(string, tag = "1")]
+    pub ip_address: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub port: u32,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SchedulerRegistration {
     #[prost(uint64, tag = "1")]
@@ -314,6 +321,37 @@ pub mod register_scheduler_response {
     pub enum Result {
         #[prost(message, tag = "1")]
         Registration(super::SchedulerRegistration),
+        #[prost(message, tag = "2")]
+        Error(super::SchedulerRegistrationError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Scheduler {
+    #[prost(uint64, tag = "1")]
+    pub scheduler_id: u64,
+    #[prost(string, tag = "2")]
+    pub ip_address: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub port: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SchedulerRegistrations {
+    #[prost(uint64, tag = "1")]
+    pub session_id: u64,
+    #[prost(message, repeated, tag = "2")]
+    pub schedulers: ::prost::alloc::vec::Vec<Scheduler>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSchedulersResponse {
+    #[prost(oneof = "get_schedulers_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<get_schedulers_response::Result>,
+}
+/// Nested message and enum types in `GetSchedulersResponse`.
+pub mod get_schedulers_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Schedulers(super::SchedulerRegistrations),
         #[prost(message, tag = "2")]
         Error(super::SchedulerRegistrationError),
     }
@@ -1841,7 +1879,7 @@ pub mod scheduler_registration_service_client {
         }
         pub async fn register_scheduler(
             &mut self,
-            request: impl tonic::IntoRequest<super::Void>,
+            request: impl tonic::IntoRequest<super::RegisterSchedulerRequest>,
         ) -> std::result::Result<
             tonic::Response<super::RegisterSchedulerResponse>,
             tonic::Status,
@@ -1864,6 +1902,35 @@ pub mod scheduler_registration_service_client {
                     GrpcMethod::new(
                         "storage.SchedulerRegistrationService",
                         "RegisterScheduler",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_schedulers(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Void>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetSchedulersResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.SchedulerRegistrationService/GetSchedulers",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.SchedulerRegistrationService",
+                        "GetSchedulers",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -3732,9 +3799,16 @@ pub mod scheduler_registration_service_server {
     pub trait SchedulerRegistrationService: std::marker::Send + std::marker::Sync + 'static {
         async fn register_scheduler(
             &self,
-            request: tonic::Request<super::Void>,
+            request: tonic::Request<super::RegisterSchedulerRequest>,
         ) -> std::result::Result<
             tonic::Response<super::RegisterSchedulerResponse>,
+            tonic::Status,
+        >;
+        async fn get_schedulers(
+            &self,
+            request: tonic::Request<super::Void>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetSchedulersResponse>,
             tonic::Status,
         >;
     }
@@ -3822,7 +3896,7 @@ pub mod scheduler_registration_service_server {
                     );
                     impl<
                         T: SchedulerRegistrationService,
-                    > tonic::server::UnaryService<super::Void>
+                    > tonic::server::UnaryService<super::RegisterSchedulerRequest>
                     for RegisterSchedulerSvc<T> {
                         type Response = super::RegisterSchedulerResponse;
                         type Future = BoxFuture<
@@ -3831,7 +3905,7 @@ pub mod scheduler_registration_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Void>,
+                            request: tonic::Request<super::RegisterSchedulerRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -3851,6 +3925,54 @@ pub mod scheduler_registration_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = RegisterSchedulerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.SchedulerRegistrationService/GetSchedulers" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSchedulersSvc<T: SchedulerRegistrationService>(pub Arc<T>);
+                    impl<
+                        T: SchedulerRegistrationService,
+                    > tonic::server::UnaryService<super::Void> for GetSchedulersSvc<T> {
+                        type Response = super::GetSchedulersResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Void>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerRegistrationService>::get_schedulers(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetSchedulersSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
