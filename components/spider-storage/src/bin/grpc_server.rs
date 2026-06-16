@@ -103,7 +103,7 @@ impl Cli {
     /// # Returns
     ///
     /// A [`RuntimeConfig`] built from CLI inputs.
-    fn to_runtime_config(self) -> RuntimeConfig {
+    fn into_runtime_config(self) -> RuntimeConfig {
         RuntimeConfig {
             db_config: DatabaseConfig {
                 host: self.db_host,
@@ -137,7 +137,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
     let cli = Cli::parse();
     let listen_addr = cli.listen_addr;
-    let (runtime, cancellation_token) = create_runtime(&cli.to_runtime_config()).await?;
+    let runtime_config = cli.into_runtime_config();
+    let (runtime, cancellation_token) = create_runtime(&runtime_config).await?;
     let grpc_service = StorageGrpcService::new(runtime.get_service_state());
     tracing::info!(listen_addr = % listen_addr, "Starting storage gRPC server.");
 

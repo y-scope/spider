@@ -342,10 +342,9 @@ impl<
             Ok((max_tasks, wait)) => self.service_state.poll_ready_tasks(max_tasks, wait).await,
             Err(error) => Err(error),
         };
-        Ok(Response::new(poll_response(
-            result.map(|entries| task_entries_to_ready_tasks(self, entries)),
-            self,
-        )))
+        Ok(Response::new(poll_response(result.map(|entries| {
+            task_entries_to_ready_tasks(self, entries)
+        }))))
     }
 
     async fn poll_ready_commit_tasks(
@@ -361,10 +360,9 @@ impl<
             }
             Err(error) => Err(error),
         };
-        Ok(Response::new(poll_response(
-            result.map(|entries| commit_entries_to_ready_tasks(self, entries)),
-            self,
-        )))
+        Ok(Response::new(poll_response(result.map(|entries| {
+            commit_entries_to_ready_tasks(self, entries)
+        }))))
     }
 
     async fn poll_ready_cleanup_tasks(
@@ -380,10 +378,9 @@ impl<
             }
             Err(error) => Err(error),
         };
-        Ok(Response::new(poll_response(
-            result.map(|entries| cleanup_entries_to_ready_tasks(self, entries)),
-            self,
-        )))
+        Ok(Response::new(poll_response(result.map(|entries| {
+            cleanup_entries_to_ready_tasks(self, entries)
+        }))))
     }
 }
 
@@ -533,6 +530,15 @@ impl<
     }
 }
 
+/// Converts a runtime job-state result into a protobuf response.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
 /// # Returns
 ///
 /// A [`storage::JobStateResponse`] from the runtime result.
@@ -558,6 +564,15 @@ fn job_state_response_from_result<
     }
 }
 
+/// Converts a task-instance runtime result into a protobuf response.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
 /// # Returns
 ///
 /// A [`storage::TaskInstanceOperationResponse`] from the runtime result.
@@ -583,6 +598,15 @@ fn task_instance_operation_response_from_result<
     }
 }
 
+/// Converts a resource-group runtime result into a protobuf response.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
 /// # Returns
 ///
 /// A [`storage::ResourceGroupOperationResponse`] from the runtime result.
@@ -608,9 +632,16 @@ fn resource_group_operation_response_from_result<
     }
 }
 
+/// Converts a protobuf task ID into a core task ID.
+///
 /// # Returns
 ///
 /// A protobuf task ID converted into a core [`TaskId`] on success.
+///
+/// # Errors
+///
+/// Returns [`StorageServerError::BadRequest`] if the request does not carry a task ID or if the
+/// task ID is invalid.
 fn request_task_id(task_id: Option<storage::TaskId>) -> Result<TaskId, StorageServerError> {
     let task_id = task_id
         .ok_or_else(|| StorageServerError::BadRequest(ProtoError::TaskIdKindMissing.to_string()))?;
@@ -634,9 +665,15 @@ fn validate_report_outputs(
     Ok(())
 }
 
+/// Validates a poll-ready request.
+///
 /// # Returns
 ///
 /// A validated poll request.
+///
+/// # Errors
+///
+/// Returns [`StorageServerError::BadRequest`] if the requested item count is invalid.
 fn poll_request(
     request: storage::PollReadyTasksRequest,
 ) -> Result<(usize, Duration), StorageServerError> {
@@ -645,20 +682,13 @@ fn poll_request(
     Ok((max_items, Duration::from_millis(request.wait_ms)))
 }
 
+/// Converts a poll-ready runtime result into a protobuf response.
+///
 /// # Returns
 ///
 /// A [`storage::PollReadyTasksResponse`] from the runtime result.
-fn poll_response<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+fn poll_response(
     result: Result<storage::ReadyTasks, StorageServerError>,
-    _service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
 ) -> storage::PollReadyTasksResponse {
     storage::PollReadyTasksResponse {
         result: Some(match result {
@@ -668,6 +698,18 @@ fn poll_response<
     }
 }
 
+/// Converts index-task ready-queue entries into protobuf ready tasks.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
+/// # Returns
+///
+/// A [`storage::ReadyTasks`] response body carrying index tasks.
 fn task_entries_to_ready_tasks<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
@@ -695,6 +737,18 @@ fn task_entries_to_ready_tasks<
     }
 }
 
+/// Converts commit-task ready-queue entries into protobuf ready tasks.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
+/// # Returns
+///
+/// A [`storage::ReadyTasks`] response body carrying commit tasks.
 fn commit_entries_to_ready_tasks<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
@@ -716,6 +770,18 @@ fn commit_entries_to_ready_tasks<
     }
 }
 
+/// Converts cleanup-task ready-queue entries into protobuf ready tasks.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
+/// # Returns
+///
+/// A [`storage::ReadyTasks`] response body carrying cleanup tasks.
 fn cleanup_entries_to_ready_tasks<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
@@ -737,6 +803,11 @@ fn cleanup_entries_to_ready_tasks<
     }
 }
 
+/// Converts core task identifiers into a protobuf ready task.
+///
+/// # Returns
+///
+/// A [`storage::ReadyTask`] carrying the given identifiers.
 fn ready_task(
     resource_group_id: ResourceGroupId,
     job_id: JobId,
@@ -749,6 +820,18 @@ fn ready_task(
     }
 }
 
+/// Converts a runtime error into a job-orchestration protobuf error.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
+/// # Returns
+///
+/// A [`storage::JobOrchestrationError`] with the service session ID.
 fn job_orchestration_error<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
@@ -768,6 +851,11 @@ fn job_orchestration_error<
     }
 }
 
+/// Maps a runtime error to a job-orchestration protobuf error code.
+///
+/// # Returns
+///
+/// The protobuf error code matching the runtime error category.
 const fn job_orchestration_error_code(
     error: &StorageServerError,
 ) -> job_orchestration_error::ErrCode {
@@ -786,6 +874,18 @@ const fn job_orchestration_error_code(
     }
 }
 
+/// Converts a runtime error into a task-instance protobuf error.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
+/// # Returns
+///
+/// A [`storage::TaskInstanceManagementError`] with the service session ID.
 fn task_instance_management_error_response<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
@@ -805,6 +905,11 @@ fn task_instance_management_error_response<
     }
 }
 
+/// Maps a runtime error to a task-instance protobuf error code.
+///
+/// # Returns
+///
+/// The protobuf error code matching the runtime error category.
 const fn task_instance_error_code(
     error: &StorageServerError,
 ) -> task_instance_management_error::ErrCode {
@@ -822,6 +927,11 @@ const fn task_instance_error_code(
     }
 }
 
+/// Converts a runtime error into an inbound-queue protobuf error.
+///
+/// # Returns
+///
+/// A [`storage::InboundQueueResponseError`] for the runtime error.
 fn inbound_queue_error(error: &StorageServerError) -> storage::InboundQueueResponseError {
     storage::InboundQueueResponseError {
         err_code: inbound_queue_error_code(error) as i32,
@@ -829,6 +939,11 @@ fn inbound_queue_error(error: &StorageServerError) -> storage::InboundQueueRespo
     }
 }
 
+/// Maps a runtime error to an inbound-queue protobuf error code.
+///
+/// # Returns
+///
+/// The protobuf error code matching the runtime error category.
 const fn inbound_queue_error_code(
     error: &StorageServerError,
 ) -> inbound_queue_response_error::ErrCode {
@@ -841,6 +956,18 @@ const fn inbound_queue_error_code(
     }
 }
 
+/// Converts a runtime error into a resource-group protobuf error.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
+/// * `DbConnectorType` - The database connector implementation used by the service state.
+/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
+///   service state.
+///
+/// # Returns
+///
+/// A [`storage::ResourceGroupManagementError`] with the service session ID.
 fn resource_group_error<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
@@ -860,6 +987,11 @@ fn resource_group_error<
     }
 }
 
+/// Maps a runtime error to a resource-group protobuf error code.
+///
+/// # Returns
+///
+/// The protobuf error code matching the runtime error category.
 const fn resource_group_error_code(
     error: &StorageServerError,
 ) -> resource_group_management_error::ErrCode {
@@ -875,6 +1007,11 @@ const fn resource_group_error_code(
     }
 }
 
+/// Converts a runtime error into an execution-manager liveness protobuf error.
+///
+/// # Returns
+///
+/// A [`storage::ExecutionManagerLivenessError`] for the runtime error.
 fn liveness_error(error: &StorageServerError) -> storage::ExecutionManagerLivenessError {
     storage::ExecutionManagerLivenessError {
         err_code: liveness_error_code(error) as i32,
@@ -882,6 +1019,11 @@ fn liveness_error(error: &StorageServerError) -> storage::ExecutionManagerLivene
     }
 }
 
+/// Maps a runtime error to an execution-manager liveness protobuf error code.
+///
+/// # Returns
+///
+/// The protobuf error code matching the runtime error category.
 const fn liveness_error_code(
     error: &StorageServerError,
 ) -> execution_manager_liveness_error::ErrCode {
