@@ -28,6 +28,7 @@ use crate::{
         ExternalJobOrchestration,
         InternalJobOrchestration,
         RecoverableJobContext,
+        RegisteredScheduler,
         ResourceGroupManagement,
         SchedulerRegistrationManagement,
         SessionManagement,
@@ -78,7 +79,7 @@ pub struct MockDbConnector {
     pub next_resource_group_id: Arc<AtomicUsize>,
     pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
     pub next_execution_manager_id: Arc<AtomicUsize>,
-    pub schedulers: Arc<DashMap<SchedulerId, ()>>,
+    pub schedulers: Arc<DashMap<SchedulerId, RegisteredScheduler>>,
     pub next_scheduler_id: Arc<AtomicUsize>,
     pub session_id: SessionId,
 }
@@ -258,12 +259,31 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
 
 #[async_trait::async_trait]
 impl SchedulerRegistrationManagement for MockDbConnector {
-    async fn register_scheduler(&self) -> Result<SchedulerId, DbError> {
+    async fn register_scheduler(
+        &self,
+        ip_address: IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, DbError> {
         self.schedulers.clear();
         let counter = self.next_scheduler_id.fetch_add(1, Ordering::Relaxed);
         let scheduler_id = SchedulerId::from(counter as u64);
-        self.schedulers.insert(scheduler_id, ());
+        self.schedulers.insert(
+            scheduler_id,
+            RegisteredScheduler {
+                id: scheduler_id,
+                ip_address,
+                port,
+            },
+        );
         Ok(scheduler_id)
+    }
+
+    async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {
+        Ok(self
+            .schedulers
+            .iter()
+            .map(|scheduler| *scheduler.value())
+            .collect())
     }
 
     async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError> {

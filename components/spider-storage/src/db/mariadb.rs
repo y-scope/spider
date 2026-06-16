@@ -24,6 +24,7 @@ use crate::{
         ExternalJobOrchestration,
         InternalJobOrchestration,
         RecoverableJobContext,
+        RegisteredScheduler,
         ResourceGroupManagement,
         SchedulerRegistrationManagement,
         SessionManagement,
@@ -595,19 +596,39 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
 
 #[async_trait]
 impl SchedulerRegistrationManagement for MariaDbStorageConnector {
-    async fn register_scheduler(&self) -> Result<SchedulerId, DbError> {
+    async fn register_scheduler(
+        &self,
+        ip_address: IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, DbError> {
         const DELETE_QUERY: &str =
             formatcp!("DELETE FROM `{table}`;", table = SCHEDULERS_TABLE_NAME,);
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` () VALUES () RETURNING `id`;",
+            "INSERT INTO `{table}` (`ip_address`, `port`) VALUES (?, ?) RETURNING `id`;",
             table = SCHEDULERS_TABLE_NAME,
         );
 
         let mut tx = self.pool.begin().await?;
         sqlx::query(DELETE_QUERY).execute(&mut *tx).await?;
-        let scheduler_id = sqlx::query_scalar(INSERT_QUERY).fetch_one(&mut *tx).await?;
+        let scheduler_id = sqlx::query_scalar(INSERT_QUERY)
+            .bind(ip_address.to_string())
+            .bind(port)
+            .fetch_one(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(scheduler_id)
+    }
+
+    async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {
+        const QUERY: &str = formatcp!(
+            "SELECT `id`, `ip_address`, `port` FROM `{table}` ORDER BY `id` ASC;",
+            table = SCHEDULERS_TABLE_NAME,
+        );
+
+        let rows: Vec<SchedulerRowProjection> = sqlx::query_as(QUERY).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(SchedulerRowProjection::into_registered_scheduler)
+            .collect()
     }
 
     async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError> {
@@ -716,6 +737,8 @@ const fn schedulers_creation_query() -> &'static str {
         r"
 CREATE TABLE IF NOT EXISTS `{SCHEDULERS_TABLE_NAME}` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `port` SMALLINT UNSIGNED NOT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
 );"
@@ -742,6 +765,41 @@ struct RecoverableJobRowProjection {
     serialized_task_graph: String,
     serialized_job_inputs: Vec<u8>,
     serialized_job_outputs: Option<Vec<u8>>,
+}
+
+/// A raw row selected from the schedulers table.
+#[derive(sqlx::FromRow)]
+struct SchedulerRowProjection {
+    id: SchedulerId,
+    ip_address: String,
+    port: u16,
+}
+
+impl SchedulerRowProjection {
+    /// Converts the row projection into [`RegisteredScheduler`].
+    ///
+    /// # Returns
+    ///
+    /// The registered scheduler on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::CorruptedDbState`] if the scheduler IP address is invalid.
+    fn into_registered_scheduler(self) -> Result<RegisteredScheduler, DbError> {
+        let ip_address = self.ip_address.parse().map_err(|error| {
+            DbError::CorruptedDbState(format!(
+                "scheduler `{}` has invalid IP address `{}`: {error}",
+                self.id, self.ip_address
+            ))
+        })?;
+        Ok(RegisteredScheduler {
+            id: self.id,
+            ip_address,
+            port: self.port,
+        })
+    }
 }
 
 impl RecoverableJobRowProjection {

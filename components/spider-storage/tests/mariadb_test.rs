@@ -34,6 +34,8 @@ const TEST_INPUT_PAYLOAD_SIZE: usize = 128;
 
 /// Number of execution managers to register in multi-EM tests.
 const TEST_NUM_EMS: usize = 3;
+const TEST_SCHEDULER_PORT: u16 = 5678;
+const TEST_UPDATED_SCHEDULER_PORT: u16 = 6789;
 
 /// Builds a task graph with a single task for DB-layer tests.
 ///
@@ -1024,15 +1026,21 @@ async fn test_get_dead_execution_managers_multiple() {
 #[serial_test::file_serial]
 async fn test_register_scheduler_replaces_previous_scheduler() {
     let storage = create_mariadb_connector().await;
+    let scheduler_ip_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    let updated_scheduler_ip_address = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
 
     let first_scheduler_id = storage
-        .register_scheduler()
+        .register_scheduler(scheduler_ip_address, TEST_SCHEDULER_PORT)
         .await
         .expect("first register_scheduler should succeed");
     let second_scheduler_id = storage
-        .register_scheduler()
+        .register_scheduler(updated_scheduler_ip_address, TEST_UPDATED_SCHEDULER_PORT)
         .await
         .expect("second register_scheduler should succeed");
+    let schedulers = storage
+        .get_schedulers()
+        .await
+        .expect("get_schedulers should succeed");
 
     assert_ne!(
         first_scheduler_id, second_scheduler_id,
@@ -1046,6 +1054,14 @@ async fn test_register_scheduler_replaces_previous_scheduler() {
         is_scheduler_registered(&storage, second_scheduler_id).await,
         "new scheduler should remain registered"
     );
+    assert_eq!(
+        schedulers.len(),
+        1,
+        "only the latest scheduler should remain"
+    );
+    assert_eq!(schedulers[0].id, second_scheduler_id);
+    assert_eq!(schedulers[0].ip_address, updated_scheduler_ip_address);
+    assert_eq!(schedulers[0].port, TEST_UPDATED_SCHEDULER_PORT);
 }
 
 #[tokio::test]

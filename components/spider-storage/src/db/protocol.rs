@@ -22,6 +22,14 @@ pub struct RecoverableJobContext {
     pub outputs: Option<Vec<TaskOutput>>,
 }
 
+/// The currently registered scheduler endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegisteredScheduler {
+    pub id: SchedulerId,
+    pub ip_address: IpAddr,
+    pub port: u16,
+}
+
 /// The database storage interface. A database storage must implement the following traits:
 ///
 /// * [`ExternalJobOrchestration`]
@@ -436,6 +444,11 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     /// For now, only one scheduler can be registered at a time. Registering a new scheduler removes
     /// any previously registered scheduler before allocating the new scheduler ID.
     ///
+    /// # Parameters
+    ///
+    /// * `ip_address` - The scheduler IP address.
+    /// * `port` - The scheduler port.
+    ///
     /// # Returns
     ///
     /// The ID of the registered scheduler on success.
@@ -445,7 +458,24 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     /// Returns an error if:
     ///
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn register_scheduler(&self) -> Result<SchedulerId, DbError>;
+    async fn register_scheduler(
+        &self,
+        ip_address: IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, DbError>;
+
+    /// Gets registered schedulers.
+    ///
+    /// # Returns
+    ///
+    /// The registered schedulers on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError>;
 
     /// Checks whether the scheduler with the given ID is registered.
     ///

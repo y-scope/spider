@@ -27,7 +27,7 @@ use crate::{
         job::SharedJobControlBlock,
         job_submission::ValidatedJobSubmission,
     },
-    db::DbStorage,
+    db::{DbStorage, RegisteredScheduler},
     ready_queue::{
         CleanupTaskMarker,
         CommitTaskMarker,
@@ -675,13 +675,38 @@ impl<
     ///
     /// * Forwards [`SchedulerRegistrationManagement::register_scheduler`]'s return values on
     ///   failure.
-    pub async fn register_scheduler(&self) -> Result<SchedulerId, StorageServerError> {
-        let scheduler_id = self.inner.db.register_scheduler().await?;
+    pub async fn register_scheduler(
+        &self,
+        ip_address: IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, StorageServerError> {
+        let scheduler_id = self.inner.db.register_scheduler(ip_address, port).await?;
         tracing::info!(
             scheduler_id = ? scheduler_id,
+            ip = ? ip_address,
+            port,
             "Scheduler registered.",
         );
         Ok(scheduler_id)
+    }
+
+    /// Gets registered schedulers.
+    ///
+    /// # Returns
+    ///
+    /// The registered schedulers on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SchedulerRegistrationManagement::get_schedulers`]'s return values on failure.
+    pub async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, StorageServerError> {
+        self.inner
+            .db
+            .get_schedulers()
+            .await
+            .map_err(StorageServerError::from)
     }
 
     /// Validates that the given `session_id` matches the session ID captured at service creation
@@ -730,6 +755,8 @@ struct ServiceStateInner<
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
     use spider_core::{
         job::JobState,
         task::{
@@ -765,6 +792,8 @@ mod tests {
         ServiceState<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
 
     const TEST_SESSION_ID: SessionId = 0;
+    const TEST_SCHEDULER_PORT: u16 = 5678;
+    const TEST_UPDATED_SCHEDULER_PORT: u16 = 6789;
 
     fn create_test_service() -> TestServiceState {
         create_test_service_with_db(MockDbConnector::default())
@@ -1691,9 +1720,16 @@ mod tests {
     async fn register_scheduler_replaces_previous_scheduler() -> anyhow::Result<()> {
         let db = MockDbConnector::default();
         let service = create_test_service_with_db(db.clone());
+        let scheduler_ip_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let updated_scheduler_ip_address = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
 
-        let first_scheduler_id = service.register_scheduler().await?;
-        let second_scheduler_id = service.register_scheduler().await?;
+        let first_scheduler_id = service
+            .register_scheduler(scheduler_ip_address, TEST_SCHEDULER_PORT)
+            .await?;
+        let second_scheduler_id = service
+            .register_scheduler(updated_scheduler_ip_address, TEST_UPDATED_SCHEDULER_PORT)
+            .await?;
+        let schedulers = service.get_schedulers().await?;
 
         assert_ne!(
             first_scheduler_id, second_scheduler_id,
@@ -1707,6 +1743,14 @@ mod tests {
             is_scheduler_registered(&db, second_scheduler_id).await,
             "new scheduler should remain registered"
         );
+        assert_eq!(
+            schedulers.len(),
+            1,
+            "only the latest scheduler should remain"
+        );
+        assert_eq!(schedulers[0].id, second_scheduler_id);
+        assert_eq!(schedulers[0].ip_address, updated_scheduler_ip_address);
+        assert_eq!(schedulers[0].port, TEST_UPDATED_SCHEDULER_PORT);
         Ok(())
     }
 }
