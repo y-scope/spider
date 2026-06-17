@@ -23,12 +23,46 @@ pub enum ExecutionManagerRegistryError {
 
     #[error("execution manager not found: {0}")]
     EmNotFound(ExecutionManagerId),
+
+    #[error("invalid config: {0}")]
+    InvalidConfig(String),
 }
 
 #[derive(Clone, Deserialize)]
 pub struct ExecutionManagerRegistryConfig {
+    /// The time, in seconds, that an execution manager is considered dead without receiving any
+    /// heartbeat.
     pub dead_em_cutoff_sec: u64,
+
+    /// The time interval, in milliseconds, between liveness checks.
     pub liveness_tracking_interval_ms: u64,
+}
+
+impl Default for ExecutionManagerRegistryConfig {
+    fn default() -> Self {
+        Self {
+            dead_em_cutoff_sec: 30,
+            liveness_tracking_interval_ms: 1000,
+        }
+    }
+}
+
+impl ExecutionManagerRegistryConfig {
+    /// Validates the configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ExecutionManagerRegistryError::InvalidConfig`] if `dead_em_cutoff_sec` is 0.
+    fn validate(&self) -> Result<(), ExecutionManagerRegistryError> {
+        if self.dead_em_cutoff_sec == 0 {
+            return Err(ExecutionManagerRegistryError::InvalidConfig(
+                "dead_em_cutoff_sec must be greater than 0".to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Execution manager registry service.
@@ -42,17 +76,23 @@ impl ExecutionManagerRegistry {
     ///
     /// # Returns
     ///
-    /// The newly created execution manager registry.
-    #[must_use]
+    /// The newly created execution manager registry on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ExecutionManagerRegistryConfig::validate`]'s return values on failure.
     pub fn new(
         config: &ExecutionManagerRegistryConfig,
         cancellation_token: CancellationToken,
         reschedule_queue_sender: UnboundedSender<TaskAssignment>,
-    ) -> Self {
+    ) -> Result<Self, ExecutionManagerRegistryError> {
+        config.validate()?;
         let dead_em_cutoff = Duration::from_secs(config.dead_em_cutoff_sec);
         let liveness_tracking_interval =
             Duration::from_millis(config.liveness_tracking_interval_ms);
-        Self {
+        Ok(Self {
             inner: Arc::new(ExecutionManagerRegistryInner {
                 em_table: RwLock::new(HashMap::new()),
                 cancellation_token,
@@ -60,7 +100,7 @@ impl ExecutionManagerRegistry {
                 liveness_tracking_interval,
                 reschedule_queue_sender,
             }),
-        }
+        })
     }
 
     /// Assigns a task to an execution manager.
@@ -387,7 +427,8 @@ mod tests {
             &config,
             cancellation_token.clone(),
             reschedule_queue_sender,
-        );
+        )
+        .expect("the registry should be constructed successfully");
         (registry, reschedule_queue_receiver, cancellation_token)
     }
 
