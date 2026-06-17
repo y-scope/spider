@@ -240,8 +240,7 @@ message Scheduler {
 }
 
 message SchedulerRegistrations {
-  uint64 session_id = 1;
-  repeated Scheduler schedulers = 2;
+  repeated Scheduler schedulers = 1;
 }
 
 message GetSchedulersResponse {

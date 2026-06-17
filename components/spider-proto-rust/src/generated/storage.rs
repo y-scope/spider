@@ -336,9 +336,7 @@ pub struct Scheduler {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchedulerRegistrations {
-    #[prost(uint64, tag = "1")]
-    pub session_id: u64,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(message, repeated, tag = "1")]
     pub schedulers: ::prost::alloc::vec::Vec<Scheduler>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
