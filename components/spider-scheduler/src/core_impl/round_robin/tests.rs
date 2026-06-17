@@ -27,6 +27,7 @@ use crate::{
     SchedulerStorageClient,
     StorageClientError,
     TaskAssignment,
+    core::TaskAssignmentIdIssuer,
     dispatch_queue::{DispatchQueueReader, DispatchQueueWriter, create_dispatch_queue},
 };
 
@@ -271,7 +272,15 @@ fn spawn_scheduler(
     let core = config.make_core().expect("config validation failed");
     let cancellation_token = CancellationToken::new();
     let scheduler_token = cancellation_token.clone();
-    let handle = tokio::spawn(async move { core.run(storage_client, sink, scheduler_token).await });
+    let handle = tokio::spawn(async move {
+        core.run(
+            storage_client,
+            sink,
+            TaskAssignmentIdIssuer::new(),
+            scheduler_token,
+        )
+        .await
+    });
     (handle, cancellation_token)
 }
 
@@ -468,6 +477,7 @@ fn make_scheduler(
         DEFAULT_SESSION_ID,
         storage_client,
         sink,
+        TaskAssignmentIdIssuer::new(),
         CancellationToken::new(),
         config,
     )

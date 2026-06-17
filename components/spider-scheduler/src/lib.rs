@@ -35,6 +35,7 @@ pub mod core;
 pub mod core_impl;
 pub mod dispatch_queue;
 pub mod error;
+pub mod execution_manager_registry;
 pub mod storage_client;
 pub mod types;
 
