@@ -9,6 +9,7 @@ use spider_core::{
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
         io::{TaskInput, TaskOutput},
+        scheduler::RegisteredScheduler,
     },
 };
 use spider_derive::MySqlEnum;
@@ -24,7 +25,6 @@ use crate::{
         ExternalJobOrchestration,
         InternalJobOrchestration,
         RecoverableJobContext,
-        RegisteredScheduler,
         ResourceGroupManagement,
         SchedulerRegistrationManagement,
         SessionManagement,

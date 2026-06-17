@@ -6,6 +6,7 @@ use spider_core::{
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
         io::TaskOutput,
+        scheduler::RegisteredScheduler,
     },
 };
 
@@ -20,14 +21,6 @@ pub struct RecoverableJobContext {
     pub state: JobState,
     pub submission: ValidatedJobSubmission,
     pub outputs: Option<Vec<TaskOutput>>,
-}
-
-/// The currently registered scheduler endpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RegisteredScheduler {
-    pub id: SchedulerId,
-    pub ip_address: IpAddr,
-    pub port: u16,
 }
 
 /// The database storage interface. A database storage must implement the following traits:

@@ -10,7 +10,6 @@ pub use protocol::{
     ExternalJobOrchestration,
     InternalJobOrchestration,
     RecoverableJobContext,
-    RegisteredScheduler,
     ResourceGroupManagement,
     SchedulerRegistrationManagement,
     SessionManagement,
