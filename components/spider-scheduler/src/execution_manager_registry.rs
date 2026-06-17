@@ -201,7 +201,7 @@ impl ExecutionManagerRegistry {
     /// stopping once the manager is found dead or `cancellation_token` is cancelled. On stopping,
     /// it removes the manager from the registry and reschedules its outstanding task assignments.
     ///
-    /// This brackground task guarantees the following:
+    /// This background task guarantees the following:
     ///
     /// * The execution manager is inserted into the registry before this coroutine is spawned.
     /// * This coroutine is the single source of the manager's removal from the registry.
@@ -330,5 +330,373 @@ impl ExecutionManagerStateInner {
     /// Refreshes the last update time.
     fn refresh_liveness(&mut self) {
         self.last_update = Instant::now();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
+    use tokio::{
+        sync::mpsc::{self, UnboundedReceiver},
+        time::timeout,
+    };
+    use tokio_util::task::TaskTracker;
+
+    use super::*;
+
+    /// The maximum time to wait for rescheduled assignments before failing a test.
+    const RESCHEDULE_TIMEOUT: Duration = Duration::from_secs(2);
+
+    /// The cutoff used by timeout-driven tests. One second is the smallest the seconds-granularity
+    /// config supports, so these tests run in real time on the order of a second.
+    const LIVENESS_CUTOFF_SEC: u64 = 1;
+
+    /// The tracking interval used by timeout-driven tests; short so that death is detected promptly
+    /// after the cutoff elapses.
+    const LIVENESS_INTERVAL_MS: u64 = 50;
+
+    /// A generous upper bound for waiting on a timeout-driven reschedule or removal.
+    const LIVENESS_TEST_TIMEOUT: Duration = Duration::from_secs(LIVENESS_CUTOFF_SEC * 4);
+
+    /// Builds a registry with the given liveness configuration.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    ///
+    /// * The registry.
+    /// * The receiver end of the re-schedule queue.
+    /// * The registry-level cancellation token.
+    fn build_registry(
+        dead_em_cutoff_sec: u64,
+        liveness_tracking_interval_ms: u64,
+    ) -> (
+        ExecutionManagerRegistry,
+        UnboundedReceiver<TaskAssignment>,
+        CancellationToken,
+    ) {
+        let config = ExecutionManagerRegistryConfig {
+            dead_em_cutoff_sec,
+            liveness_tracking_interval_ms,
+        };
+        let cancellation_token = CancellationToken::new();
+        let (reschedule_queue_sender, reschedule_queue_receiver) = mpsc::unbounded_channel();
+        let registry = ExecutionManagerRegistry::new(
+            &config,
+            cancellation_token.clone(),
+            reschedule_queue_sender,
+        );
+        (registry, reschedule_queue_receiver, cancellation_token)
+    }
+
+    /// Builds a registry whose background liveness tracker never fires during a test (a one-hour
+    /// cutoff with a one-minute interval), so that registration, completion, and teardown can be
+    /// driven explicitly rather than by timeouts.
+    ///
+    /// # Returns
+    ///
+    /// The same tuple as [`build_registry`].
+    fn build_test_registry() -> (
+        ExecutionManagerRegistry,
+        UnboundedReceiver<TaskAssignment>,
+        CancellationToken,
+    ) {
+        build_registry(3600, 60_000)
+    }
+
+    /// Builds a task assignment whose ID is derived from `id`; the remaining fields are irrelevant
+    /// to the registry and are randomized.
+    ///
+    /// # Returns
+    ///
+    /// The task assignment.
+    fn build_assignment(id: u64) -> TaskAssignment {
+        TaskAssignment {
+            id: TaskAssignmentId::from(id),
+            resource_group_id: ResourceGroupId::random(),
+            job_id: JobId::random(),
+            task_id: TaskId::Index(0),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the given execution manager is currently registered.
+    async fn is_registered(registry: &ExecutionManagerRegistry, em_id: ExecutionManagerId) -> bool {
+        registry.inner.em_table.read().await.contains_key(&em_id)
+    }
+
+    /// # Returns
+    ///
+    /// The set of task assignment IDs recorded for the given execution manager, or `None` if it is
+    /// not registered.
+    async fn assignment_ids(
+        registry: &ExecutionManagerRegistry,
+        em_id: ExecutionManagerId,
+    ) -> Option<HashSet<TaskAssignmentId>> {
+        let ids = registry
+            .inner
+            .em_table
+            .read()
+            .await
+            .get(&em_id)?
+            .inner
+            .lock()
+            .await
+            .task_assignments
+            .keys()
+            .copied()
+            .collect();
+        Some(ids)
+    }
+
+    /// Polls until the given execution manager is no longer registered, panicking if it is still
+    /// registered after `deadline`. Used to observe a timeout-driven removal that produces no
+    /// rescheduling signal (an execution manager with no outstanding assignments).
+    async fn wait_until_unregistered(
+        registry: &ExecutionManagerRegistry,
+        em_id: ExecutionManagerId,
+        deadline: Duration,
+    ) {
+        timeout(deadline, async {
+            while is_registered(registry, em_id).await {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the execution manager should be unregistered before the deadline");
+    }
+
+    #[tokio::test]
+    async fn assign_registers_new_execution_manager() -> anyhow::Result<()> {
+        let (registry, _reschedule_queue_receiver, _cancellation_token) = build_test_registry();
+        let em_id = ExecutionManagerId::from(1);
+        let task_assignment = build_assignment(1);
+
+        registry.assign(em_id, task_assignment).await;
+
+        assert!(is_registered(&registry, em_id).await);
+        assert_eq!(
+            assignment_ids(&registry, em_id).await,
+            Some(HashSet::from([task_assignment.id]))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_heartbeat_registers_new_execution_manager() -> anyhow::Result<()> {
+        let (registry, _reschedule_queue_receiver, _cancellation_token) = build_test_registry();
+        let em_id = ExecutionManagerId::from(1);
+
+        registry.update_heartbeat(em_id).await;
+
+        assert!(is_registered(&registry, em_id).await);
+        assert_eq!(assignment_ids(&registry, em_id).await, Some(HashSet::new()));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn assign_records_multiple_assignments() -> anyhow::Result<()> {
+        const NUM_ASSIGNMENTS: u64 = 100;
+
+        let (registry, _reschedule_queue_receiver, _cancellation_token) = build_test_registry();
+        let em_id = ExecutionManagerId::from(1);
+        let task_assignments: Vec<TaskAssignment> =
+            (0..NUM_ASSIGNMENTS).map(build_assignment).collect();
+
+        let task_tracker = TaskTracker::new();
+        for &task_assignment in &task_assignments {
+            let registry = registry.clone();
+            task_tracker.spawn(async move { registry.assign(em_id, task_assignment).await });
+        }
+        task_tracker.close();
+        task_tracker.wait().await;
+
+        let expected_ids: HashSet<TaskAssignmentId> = task_assignments
+            .iter()
+            .map(|task_assignment| task_assignment.id)
+            .collect();
+        assert_eq!(assignment_ids(&registry, em_id).await, Some(expected_ids));
+
+        for task_assignment in &task_assignments {
+            registry
+                .complete(em_id, task_assignment.id)
+                .await
+                .expect("completing a recorded assignment should succeed");
+        }
+        assert_eq!(assignment_ids(&registry, em_id).await, Some(HashSet::new()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mark_as_dead_reschedules_outstanding_assignments() -> anyhow::Result<()> {
+        const NUM_ASSIGNMENTS: u64 = 10;
+
+        let (registry, mut reschedule_queue_receiver, _cancellation_token) = build_test_registry();
+        let em_id = ExecutionManagerId::from(1);
+        let task_assignments: Vec<TaskAssignment> =
+            (0..NUM_ASSIGNMENTS).map(build_assignment).collect();
+
+        for &task_assignment in &task_assignments {
+            registry.assign(em_id, task_assignment).await;
+        }
+
+        registry
+            .mark_as_dead(em_id)
+            .await
+            .expect("marking a registered execution manager as dead should succeed");
+
+        // Teardown runs asynchronously after the cancellation; collect every rescheduled
+        // assignment.
+        let mut rescheduled = HashSet::new();
+        for _ in 0..NUM_ASSIGNMENTS {
+            let task_assignment = timeout(RESCHEDULE_TIMEOUT, reschedule_queue_receiver.recv())
+                .await
+                .expect("a reschedule should arrive before the timeout")
+                .expect("the reschedule queue should remain open");
+            rescheduled.insert(task_assignment.id);
+        }
+
+        let expected_ids: HashSet<TaskAssignmentId> = task_assignments
+            .iter()
+            .map(|task_assignment| task_assignment.id)
+            .collect();
+        assert_eq!(rescheduled, expected_ids);
+        assert!(!is_registered(&registry, em_id).await);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_assigns_racing_mark_as_dead_reschedule_every_assignment()
+    -> anyhow::Result<()> {
+        const NUM_ASSIGNMENTS: u64 = 100;
+
+        // The rescheduling timeout (`LIVENESS_TEST_TIMEOUT`) must comfortably exceed the cutoff,
+        // since the assignments that re-register the execution manager after teardown are only
+        // reclaimed once it times out.
+        let (registry, mut reschedule_queue_receiver, _cancellation_token) =
+            build_registry(LIVENESS_CUTOFF_SEC, LIVENESS_INTERVAL_MS);
+        let em_id = ExecutionManagerId::from(1);
+        let task_assignments: Vec<TaskAssignment> =
+            (0..NUM_ASSIGNMENTS).map(build_assignment).collect();
+
+        // Assign all tasks to the same execution manager concurrently, marking it dead in between.
+        // An assign that races ahead of the teardown re-registers the execution manager under a
+        // fresh tracker; that incarnation is later removed by the liveness timeout rather than by
+        // the cancellation.
+        let task_tracker = TaskTracker::new();
+        for &task_assignment in &task_assignments {
+            let registry = registry.clone();
+            task_tracker.spawn(async move { registry.assign(em_id, task_assignment).await });
+        }
+        // The mark may no-op if it observes the execution manager before the first assign registers
+        // it; either way every incarnation eventually tears down.
+        registry.mark_as_dead(em_id).await.ok();
+        task_tracker.close();
+        task_tracker.wait().await;
+
+        // Every assignment lands in exactly one incarnation, and each incarnation reschedules its
+        // assignments exactly once, so the queue ends up holding each assignment exactly once --
+        // none lost to the teardown race, none duplicated.
+        let mut rescheduled = HashSet::new();
+        for _ in 0..NUM_ASSIGNMENTS {
+            let task_assignment = timeout(LIVENESS_TEST_TIMEOUT, reschedule_queue_receiver.recv())
+                .await
+                .expect("a reschedule should arrive before the timeout")
+                .expect("the reschedule queue should remain open");
+            rescheduled.insert(task_assignment.id);
+        }
+
+        let expected_ids: HashSet<TaskAssignmentId> = task_assignments
+            .iter()
+            .map(|task_assignment| task_assignment.id)
+            .collect();
+        assert_eq!(rescheduled, expected_ids);
+
+        // Exactly `NUM_ASSIGNMENTS` were rescheduled: nothing remains once all are drained.
+        assert!(reschedule_queue_receiver.try_recv().is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn idle_execution_manager_is_removed_after_cutoff() -> anyhow::Result<()> {
+        let (registry, mut reschedule_queue_receiver, _cancellation_token) =
+            build_registry(LIVENESS_CUTOFF_SEC, LIVENESS_INTERVAL_MS);
+        let em_id = ExecutionManagerId::from(1);
+        let task_assignment = build_assignment(1);
+
+        registry.assign(em_id, task_assignment).await;
+
+        // With no further heartbeats, the tracker removes the execution manager after the cutoff
+        // and reschedules its outstanding assignment.
+        let rescheduled = timeout(LIVENESS_TEST_TIMEOUT, reschedule_queue_receiver.recv())
+            .await
+            .expect("a reschedule should arrive before the timeout")
+            .expect("the reschedule queue should remain open");
+        assert_eq!(rescheduled.id, task_assignment.id);
+        assert!(!is_registered(&registry, em_id).await);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn idle_heartbeat_only_execution_manager_is_removed_after_cutoff() -> anyhow::Result<()> {
+        let (registry, mut reschedule_queue_receiver, _cancellation_token) =
+            build_registry(LIVENESS_CUTOFF_SEC, LIVENESS_INTERVAL_MS);
+        let em_id = ExecutionManagerId::from(1);
+
+        registry.update_heartbeat(em_id).await;
+        assert!(is_registered(&registry, em_id).await);
+        wait_until_unregistered(&registry, em_id, LIVENESS_TEST_TIMEOUT).await;
+        assert!(reschedule_queue_receiver.try_recv().is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn heartbeats_keep_execution_manager_alive() -> anyhow::Result<()> {
+        const REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+        const NUM_REFRESHES: u32 = 6;
+
+        let (registry, mut reschedule_queue_receiver, _cancellation_token) =
+            build_registry(LIVENESS_CUTOFF_SEC, LIVENESS_INTERVAL_MS);
+        let em_id = ExecutionManagerId::from(1);
+
+        for _ in 0..NUM_REFRESHES {
+            registry.update_heartbeat(em_id).await;
+            tokio::time::sleep(REFRESH_INTERVAL).await;
+            assert!(is_registered(&registry, em_id).await);
+        }
+        wait_until_unregistered(&registry, em_id, LIVENESS_TEST_TIMEOUT).await;
+        assert!(reschedule_queue_receiver.try_recv().is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn assign_and_complete_keep_execution_manager_alive() -> anyhow::Result<()> {
+        const REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+        const NUM_TASK_ASSIGNMENTS: u64 = 3;
+
+        let (registry, mut reschedule_queue_receiver, _cancellation_token) =
+            build_registry(LIVENESS_CUTOFF_SEC, LIVENESS_INTERVAL_MS);
+        let em_id = ExecutionManagerId::from(1);
+
+        for i in 0..NUM_TASK_ASSIGNMENTS {
+            let task_assignment = build_assignment(i);
+            registry.assign(em_id, task_assignment).await;
+            tokio::time::sleep(REFRESH_INTERVAL).await;
+            assert!(is_registered(&registry, em_id).await);
+
+            registry
+                .complete(em_id, task_assignment.id)
+                .await
+                .expect("complete should succeed");
+            tokio::time::sleep(REFRESH_INTERVAL).await;
+            assert!(is_registered(&registry, em_id).await);
+        }
+        assert!(reschedule_queue_receiver.try_recv().is_err());
+        wait_until_unregistered(&registry, em_id, LIVENESS_TEST_TIMEOUT).await;
+        assert!(reschedule_queue_receiver.try_recv().is_err());
+        Ok(())
     }
 }
