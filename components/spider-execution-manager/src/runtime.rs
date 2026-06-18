@@ -1,6 +1,6 @@
 //! Runtime — the execution manager's main loop.
 
-use std::{net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use spider_core::{
     session::SessionTracker,
@@ -59,10 +59,9 @@ pub enum RuntimeError {
     #[error("failed to create the process pool: {0}")]
     ProcessPool(#[from] process_pool::InternalError),
 
-    /// Storage rejected a request as malformed. Indicates a contract bug in the runtime, not a
-    /// transient condition, so the runtime treats it as fatal.
-    #[error("storage rejected request as invalid: {0}")]
-    StorageInvalidInput(String),
+    /// Storage response error.
+    #[error(transparent)]
+    StorageResponse(#[from] StorageResponseError),
 }
 
 /// The execution manager runtime: the main loop plus all the state it owns.
@@ -85,7 +84,7 @@ pub struct Runtime<
     liveness_handle: LivenessHandle,
     liveness_join: JoinHandle<()>,
     scheduler_heartbeat_join: JoinHandle<()>,
-    last_assignment: Option<TaskAssignmentRecord>,
+    prev_assignments: VecDeque<TaskAssignmentRecord>,
     cancellation_token: CancellationToken,
     _cancel_guard: DropGuard,
 }
@@ -187,7 +186,7 @@ impl<
             liveness_handle,
             liveness_join,
             scheduler_heartbeat_join,
-            last_assignment: None,
+            prev_assignments: VecDeque::new(),
             cancellation_token: cancellation_token.clone(),
             _cancel_guard: cancel_guard,
         };
@@ -237,10 +236,8 @@ impl<
         tokio::join!(
             join_liveness_actor,
             join_scheduler_heartbeat,
-            self.scheduler_client.shutdown(
-                self.em_id,
-                self.last_assignment.into_iter().collect::<Vec<_>>()
-            )
+            self.scheduler_client
+                .shutdown(self.em_id, self.prev_assignments.into())
         );
 
         result
@@ -267,13 +264,10 @@ impl<
                 () = self.cancellation_token.cancelled() => return Ok(()),
                 result = self.scheduler_client.next_task(
                     self.em_id,
-                    self.last_assignment.clone()
+                    self.prev_assignments.pop_front()
                 ) => {
                     match result {
-                        Ok(response) => {
-                            self.last_assignment = None;
-                            response
-                        }
+                        Ok(response) => response,
                         Err(e) => {
                             tracing::warn!(err = ? e, "Scheduler returned an error. Retrying.");
                             continue;
@@ -298,10 +292,7 @@ impl<
                     task_id = ? response.task_assignment.task_id,
                     "Dropping stale task assignment from the scheduler."
                 );
-                self.last_assignment = Some(TaskAssignmentRecord::new(
-                    response.task_assignment.id,
-                    response.scheduler_id,
-                ));
+                self.mark_consume(&response);
                 continue;
             }
             if response.session_id > current_session {
@@ -312,13 +303,7 @@ impl<
                 self.liveness_handle.refresh().await;
             }
 
-            let storage_response = self.register_task_instance(response).await?;
-            self.last_assignment = Some(TaskAssignmentRecord::new(
-                response.task_assignment.id,
-                response.scheduler_id,
-            ));
-
-            let Some(execution_context) = storage_response else {
+            let Some(execution_context) = self.register_task_instance(response).await? else {
                 continue;
             };
 
@@ -379,17 +364,19 @@ impl<
     /// # Returns
     ///
     /// * `Ok(Some(execution_context))` if storage accepted the registration.
-    /// * `Ok(None)` if the assignment should be skipped (stale session, transport failure, any
-    ///   other recoverable storage error, or cancellation mid-call).
+    /// * `Ok(None)` if:
+    ///   * The assignment is stale: either from a stale cache session or the task has already in a
+    ///     terminal state.
+    ///   * The runtime is cancelled.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`RuntimeError::StorageInvalidInput`] if storage rejects the request as malformed, which
-    ///   the runtime treats as fatal.
+    /// * [`RuntimeError::StorageResponse`] if storage client returns an error that cannot be
+    ///   handled by the runtime.
     async fn register_task_instance(
-        &self,
+        &mut self,
         response: SchedulerResponse,
     ) -> Result<Option<ExecutionContext>, RuntimeError> {
         let register_result = tokio::select! {
@@ -404,37 +391,53 @@ impl<
         };
 
         match register_result {
-            Ok(execution_context) => Ok(Some(execution_context)),
-            Err(StorageResponseError::StaleSession { storage_session }) => {
-                tracing::warn!(
-                    bundle_session = response.session_id,
-                    storage_session = storage_session,
-                    job_id = ? response.task_assignment.job_id,
-                    task_id = ? response.task_assignment.task_id,
-                    "Storage rejected task registration as stale. Dropping the assignment."
-                );
-                self.liveness_handle.refresh().await;
-                Ok(None)
+            Ok(execution_context) => {
+                self.mark_consume(&response);
+                Ok(Some(execution_context))
             }
-            Err(StorageResponseError::InvalidInput(err)) => {
-                tracing::error!(
-                    err = % err,
-                    job_id = ? response.task_assignment.job_id,
-                    task_id = ? response.task_assignment.task_id,
-                    "Storage rejected task registration as malformed. Bailing out."
-                );
-                Err(RuntimeError::StorageInvalidInput(err))
-            }
-            Err(err) => {
-                tracing::warn!(
-                    err = ? err,
-                    job_id = ? response.task_assignment.job_id,
-                    task_id = ? response.task_assignment.task_id,
-                    "Storage rejected task registration. Dropping the assignment."
-                );
-                Ok(None)
-            }
+            Err(err) => match &err {
+                StorageResponseError::StaleSession { storage_session } => {
+                    tracing::warn!(
+                        bundle_session = response.session_id,
+                        storage_session = storage_session,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage rejected task registration as stale. Dropping the assignment."
+                    );
+                    self.liveness_handle.refresh().await;
+                    self.mark_consume(&response);
+                    Ok(None)
+                }
+                StorageResponseError::CacheStale(_) => {
+                    tracing::warn!(
+                        err = % err,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage rejected task registration. Dropping the assignment."
+                    );
+                    self.mark_consume(&response);
+                    Ok(None)
+                }
+                _ => {
+                    tracing::error!(
+                        err = % err,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage client returns an error. Bailing out."
+                    );
+                    Err(RuntimeError::StorageResponse(err))
+                }
+            },
         }
+    }
+
+    /// Records `response`'s assignment as consumed, queueing it to be acknowledged to the scheduler
+    /// on the next [`SchedulerClient::next_task`] poll, or at shutdown if the loop exits first.
+    fn mark_consume(&mut self, response: &SchedulerResponse) {
+        self.prev_assignments.push_back(TaskAssignmentRecord::new(
+            response.task_assignment.id,
+            response.scheduler_id,
+        ));
     }
 }
 
