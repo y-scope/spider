@@ -13,8 +13,17 @@ use anyhow::Context;
 use spider_core::{
     task::{TdlContext, TimeoutPolicy},
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId},
+        id::{
+            ExecutionManagerId,
+            JobId,
+            ResourceGroupId,
+            SchedulerId,
+            SessionId,
+            TaskAssignmentId,
+            TaskId,
+        },
         io::{ExecutionContext, TaskInput},
+        scheduler::TaskAssignment,
     },
 };
 use spider_execution_manager::{
@@ -46,9 +55,13 @@ const TIGHT_WAIT: Duration = Duration::from_millis(500);
 /// alongside the requested `session_id`.
 fn assignment_with_session(session_id: u64) -> SchedulerResponse {
     SchedulerResponse {
-        job_id: JobId::random(),
-        task_id: TaskId::Index(0),
-        resource_group_id: ResourceGroupId::random(),
+        task_assignment: TaskAssignment {
+            id: TaskAssignmentId::random(),
+            resource_group_id: ResourceGroupId::random(),
+            job_id: JobId::random(),
+            task_id: TaskId::Index(0),
+        },
+        scheduler_id: SchedulerId::random(),
         session_id,
     }
 }
@@ -115,6 +128,7 @@ fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
     RuntimeConfig {
         em_ip: "127.0.0.1".parse().expect("parse loopback"),
         heartbeat_interval,
+        scheduler_heartbeat_interval: heartbeat_interval,
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,
@@ -454,8 +468,8 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
     .await?;
     let em_id = liveness.em_id();
 
-    let assignment = assignment_with_session(SESSION_ID);
-    scheduler.push(Ok(assignment));
+    let response = assignment_with_session(SESSION_ID);
+    scheduler.push(Ok(response));
     storage.push_register_response(Ok(execution_context("fibonacci", single_input(&10_u64))));
     let join = tokio::spawn(runtime.run());
 
@@ -463,8 +477,8 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
     let reports = storage.success_reports();
     assert_eq!(reports.len(), 1);
     let report = &reports[0];
-    assert_eq!(report.job_id, assignment.job_id);
-    assert_eq!(report.task_id, assignment.task_id);
+    assert_eq!(report.job_id, response.task_assignment.job_id);
+    assert_eq!(report.task_id, response.task_assignment.task_id);
     assert_eq!(report.em_id, em_id);
     assert_eq!(report.session_id, SESSION_ID);
     let outputs = report

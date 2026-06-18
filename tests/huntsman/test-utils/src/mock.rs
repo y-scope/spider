@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use spider_core::types::{
     id::{ExecutionManagerId, JobId, SessionId, TaskId},
     io::ExecutionContext,
+    scheduler::TaskAssignmentRecord,
 };
 use spider_execution_manager::client::{
     LivenessClient,
@@ -85,6 +86,7 @@ impl SchedulerClient for MockScheduler {
     async fn next_task(
         &self,
         _em_id: ExecutionManagerId,
+        _prev_assignment: Option<TaskAssignmentRecord>,
     ) -> Result<SchedulerResponse, SchedulerError> {
         self.inner.call_count.fetch_add(1, Ordering::Relaxed);
         loop {
@@ -95,6 +97,18 @@ impl SchedulerClient for MockScheduler {
             }
             notified.await;
         }
+    }
+
+    async fn heartbeat(&self, _em_id: ExecutionManagerId) -> Result<(), SchedulerError> {
+        todo!("Implement me!");
+    }
+
+    async fn shutdown(
+        &self,
+        _em_id: ExecutionManagerId,
+        _prev_assignments: Vec<TaskAssignmentRecord>,
+    ) {
+        todo!("Implement me!");
     }
 }
 
