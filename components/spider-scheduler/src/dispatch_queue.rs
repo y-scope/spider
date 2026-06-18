@@ -208,7 +208,7 @@ mod tests {
 
     use anyhow::Result;
     use dashmap::{DashMap, DashSet};
-    use spider_core::types::id::{JobId, ResourceGroupId, SessionId, TaskId};
+    use spider_core::types::id::{JobId, ResourceGroupId, SessionId, TaskAssignmentId, TaskId};
     use tokio_util::task::TaskTracker;
 
     use super::*;
@@ -237,6 +237,7 @@ mod tests {
     /// A new [`TaskAssignment`] with the given `task_id` and other ID fields are auto-generated.
     fn make_assignment_with_task_id(task_id: TaskId) -> TaskAssignment {
         TaskAssignment {
+            id: TaskAssignmentId::random(),
             resource_group_id: ResourceGroupId::random(),
             job_id: JobId::random(),
             task_id,

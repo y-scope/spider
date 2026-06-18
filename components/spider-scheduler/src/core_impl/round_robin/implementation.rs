@@ -20,6 +20,7 @@ use crate::{
     SchedulerStorageClient,
     StorageClientError,
     TaskAssignment,
+    core::TaskAssignmentIdIssuer,
 };
 
 /// The configuration of the round-robin scheduler core.
@@ -160,12 +161,14 @@ impl<
         self,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
+        id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
     ) -> Result<(), SchedulerError> {
         RoundRobin::new(
             SessionId::default(),
             storage_client,
             sink,
+            id_issuer,
             cancellation_token,
             self.config,
         )
@@ -226,6 +229,7 @@ pub(super) struct RoundRobin<
 > {
     pub(super) sink: DispatchQueueSinkType,
     pub(super) cancellation_token: CancellationToken,
+    pub(super) id_issuer: TaskAssignmentIdIssuer,
     pub(super) config: RoundRobinConfig,
     pub(super) storage_session_id: SessionId,
 
@@ -264,6 +268,7 @@ impl<
         storage_session_id: SessionId,
         storage_client: SchedulerStorageClientType,
         sink: DispatchQueueSinkType,
+        id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
         config: RoundRobinConfig,
     ) -> Self {
@@ -283,6 +288,7 @@ impl<
         Self {
             sink,
             cancellation_token,
+            id_issuer,
             config,
             storage_session_id,
             buffered_tasks,
@@ -769,6 +775,7 @@ impl<
                     };
                     self.sink
                         .enqueue(TaskAssignment {
+                            id: self.id_issuer.next(),
                             job_id,
                             resource_group_id,
                             task_id: TaskId::Cleanup,
@@ -788,6 +795,7 @@ impl<
                         };
                         self.sink
                             .enqueue(TaskAssignment {
+                                id: self.id_issuer.next(),
                                 job_id,
                                 resource_group_id,
                                 task_id: TaskId::Commit,
@@ -806,6 +814,7 @@ impl<
                     if let Some(task_id) = job_entry.dequeue() {
                         self.sink
                             .enqueue(TaskAssignment {
+                                id: self.id_issuer.next(),
                                 job_id,
                                 resource_group_id: job_entry.resource_group_id,
                                 task_id,
