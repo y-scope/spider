@@ -5,7 +5,10 @@ use std::{net::IpAddr, time::Duration};
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId},
+    types::{
+        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId},
+        scheduler::RegisteredScheduler,
+    },
 };
 use spider_proto_rust::{
     error::Error as ProtoError,
@@ -13,6 +16,7 @@ use spider_proto_rust::{
         self,
         execution_manager_liveness_error,
         execution_manager_liveness_service_server::ExecutionManagerLivenessService,
+        get_schedulers_response,
         inbound_queue_response_error,
         inbound_queue_service_server::InboundQueueService,
         job_error_response,
@@ -22,11 +26,14 @@ use spider_proto_rust::{
         job_state_response,
         poll_ready_tasks_response,
         register_execution_manager_response,
+        register_scheduler_response,
         register_task_instance_response,
         resource_group_id_response,
         resource_group_management_error,
         resource_group_management_service_server::ResourceGroupManagementService,
         resource_group_operation_response,
+        scheduler_registration_error,
+        scheduler_registration_service_server::SchedulerRegistrationService,
         session_management_service_server::SessionManagementService,
         submit_job_response,
         task_instance_management_error,
@@ -596,6 +603,80 @@ impl<
     ReadyQueueSenderType: ReadyQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
+> SchedulerRegistrationService
+    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+{
+    async fn register_scheduler(
+        &self,
+        request: Request<storage::RegisterSchedulerRequest>,
+    ) -> Result<Response<storage::RegisterSchedulerResponse>, Status> {
+        let request = request.into_inner();
+        tracing::debug!(
+            ip_address = %request.ip_address,
+            port = request.port,
+            "Received RegisterScheduler request."
+        );
+        let result = request
+            .ip_address
+            .parse::<IpAddr>()
+            .map_err(|error| StorageServerError::BadRequest(error.to_string()))
+            .and_then(|ip_address| {
+                u16::try_from(request.port)
+                    .map(|port| (ip_address, port))
+                    .map_err(|error| StorageServerError::BadRequest(error.to_string()))
+            });
+        let result = match result {
+            Ok((ip_address, port)) => {
+                self.service_state
+                    .register_scheduler(ip_address, port)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        Ok(Response::new(storage::RegisterSchedulerResponse {
+            result: Some(match result {
+                Ok(scheduler_id) => register_scheduler_response::Result::Registration(
+                    storage::SchedulerRegistration {
+                        scheduler_id: scheduler_id.get(),
+                        session_id: self.service_state.session_id(),
+                    },
+                ),
+                Err(error) => register_scheduler_response::Result::Error(
+                    scheduler_registration_error_response(&error),
+                ),
+            }),
+        }))
+    }
+
+    async fn get_schedulers(
+        &self,
+        _request: Request<storage::Void>,
+    ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
+        tracing::debug!("Received GetSchedulers request.");
+        let result = self.service_state.get_schedulers().await.map(|schedulers| {
+            storage::SchedulerRegistrations {
+                schedulers: schedulers
+                    .into_iter()
+                    .map(registered_scheduler)
+                    .collect::<Vec<_>>(),
+            }
+        });
+        Ok(Response::new(storage::GetSchedulersResponse {
+            result: Some(match result {
+                Ok(schedulers) => get_schedulers_response::Result::Schedulers(schedulers),
+                Err(error) => get_schedulers_response::Result::Error(
+                    scheduler_registration_error_response(&error),
+                ),
+            }),
+        }))
+    }
+}
+
+#[async_trait]
+impl<
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > SessionManagementService
     for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
@@ -1116,5 +1197,32 @@ const fn liveness_error_code(
             execution_manager_liveness_error::ErrCode::InvalidInput
         }
         _ => execution_manager_liveness_error::ErrCode::Server,
+    }
+}
+
+/// Converts a runtime error into a scheduler-registration protobuf error.
+///
+/// # Returns
+///
+/// A [`storage::SchedulerRegistrationError`] for the runtime error.
+fn scheduler_registration_error_response(
+    error: &StorageServerError,
+) -> storage::SchedulerRegistrationError {
+    storage::SchedulerRegistrationError {
+        err_code: scheduler_registration_error::ErrCode::Server as i32,
+        message: error.to_string(),
+    }
+}
+
+/// Converts a registered scheduler into the protobuf representation.
+///
+/// # Returns
+///
+/// The protobuf scheduler endpoint.
+fn registered_scheduler(scheduler: RegisteredScheduler) -> storage::Scheduler {
+    storage::Scheduler {
+        scheduler_id: scheduler.id.get(),
+        ip_address: scheduler.ip_address.to_string(),
+        port: u32::from(scheduler.port),
     }
 }

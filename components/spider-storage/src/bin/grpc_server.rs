@@ -9,6 +9,7 @@ use spider_proto_rust::storage::{
     inbound_queue_service_server::InboundQueueServiceServer,
     job_orchestration_service_server::JobOrchestrationServiceServer,
     resource_group_management_service_server::ResourceGroupManagementServiceServer,
+    scheduler_registration_service_server::SchedulerRegistrationServiceServer,
     session_management_service_server::SessionManagementServiceServer,
     task_instance_management_service_server::TaskInstanceManagementServiceServer,
 };
@@ -152,6 +153,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             grpc_service.clone(),
         ))
         .add_service(ExecutionManagerLivenessServiceServer::new(
+            grpc_service.clone(),
+        ))
+        .add_service(SchedulerRegistrationServiceServer::new(
             grpc_service.clone(),
         ))
         .add_service(SessionManagementServiceServer::new(grpc_service))
