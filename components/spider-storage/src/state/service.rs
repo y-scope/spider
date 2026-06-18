@@ -4,8 +4,17 @@ use spider_core::{
     job::JobState,
     task::{TaskGraph, TaskIndex},
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId, TaskInstanceId},
+        id::{
+            ExecutionManagerId,
+            JobId,
+            ResourceGroupId,
+            SchedulerId,
+            SessionId,
+            TaskId,
+            TaskInstanceId,
+        },
         io::{ExecutionContext, TaskInput, TaskOutput},
+        scheduler::RegisteredScheduler,
     },
 };
 use spider_tdl::{
@@ -653,6 +662,54 @@ impl<
         Ok(())
     }
 
+    /// Registers the scheduler.
+    ///
+    /// Registering a scheduler invalidates any previously registered scheduler.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the registered scheduler on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SchedulerRegistrationManagement::register_scheduler`]'s return values on
+    ///   failure.
+    pub async fn register_scheduler(
+        &self,
+        ip_address: IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, StorageServerError> {
+        let scheduler_id = self.inner.db.register_scheduler(ip_address, port).await?;
+        tracing::info!(
+            scheduler_id = ? scheduler_id,
+            ip = ? ip_address,
+            port,
+            "Scheduler registered.",
+        );
+        Ok(scheduler_id)
+    }
+
+    /// Gets registered schedulers.
+    ///
+    /// # Returns
+    ///
+    /// The registered schedulers on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`SchedulerRegistrationManagement::get_schedulers`]'s return values on failure.
+    pub async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, StorageServerError> {
+        self.inner
+            .db
+            .get_schedulers()
+            .await
+            .map_err(StorageServerError::from)
+    }
+
     /// Validates that the given `session_id` matches the session ID captured at service creation
     /// time.
     ///
@@ -699,6 +756,7 @@ struct ServiceStateInner<
 
 #[cfg(test)]
 mod tests {
+
     use spider_core::{
         job::JobState,
         task::{

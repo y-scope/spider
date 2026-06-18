@@ -39,6 +39,11 @@ service ExecutionManagerLivenessService {
       returns (UpdateExecutionManagerHeartbeatResponse);
 }
 
+service SchedulerRegistrationService {
+  rpc RegisterScheduler(RegisterSchedulerRequest) returns (RegisterSchedulerResponse);
+  rpc GetSchedulers(Void) returns (GetSchedulersResponse);
+}
+
 service SessionManagementService {
   rpc GetSession(Void) returns (GetSessionResponse);
 }
@@ -211,6 +216,40 @@ message UpdateExecutionManagerHeartbeatResponse {
   }
 }
 
+message RegisterSchedulerRequest {
+  string ip_address = 1;
+  uint32 port = 2;
+}
+
+message SchedulerRegistration {
+  uint64 scheduler_id = 1;
+  uint64 session_id = 2;
+}
+
+message RegisterSchedulerResponse {
+  oneof result {
+    SchedulerRegistration registration = 1;
+    SchedulerRegistrationError error = 2;
+  }
+}
+
+message Scheduler {
+  uint64 scheduler_id = 1;
+  string ip_address = 2;
+  uint32 port = 3;
+}
+
+message SchedulerRegistrations {
+  repeated Scheduler schedulers = 1;
+}
+
+message GetSchedulersResponse {
+  oneof result {
+    SchedulerRegistrations schedulers = 1;
+    SchedulerRegistrationError error = 2;
+  }
+}
+
 message GetSessionResponse {
   uint64 session_id = 1;
 }
@@ -316,6 +355,16 @@ message ExecutionManagerLivenessError {
     MARKED_DEAD = 1;
     INVALID_INPUT = 2;
     SERVER = 3;
+  }
+
+  ErrCode err_code = 1;
+  string message = 2;
+}
+
+message SchedulerRegistrationError {
+  enum ErrCode {
+    ERR_CODE_UNSPECIFIED = 0;
+    SERVER = 1;
   }
 
   ErrCode err_code = 1;
