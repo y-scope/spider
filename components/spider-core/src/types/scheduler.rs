@@ -27,8 +27,12 @@ pub struct TaskAssignment {
 }
 
 /// A record of a task assignment previously produced by the scheduler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TaskAssignmentRecord {
+    /// The unique ID of the task assignment.
     pub id: TaskAssignmentId,
+
+    /// The scheduler where the record was issued from.
     pub from: SchedulerId,
 }
 

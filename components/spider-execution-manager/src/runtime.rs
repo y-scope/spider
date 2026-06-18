@@ -10,7 +10,7 @@ use spider_core::{
         scheduler::TaskAssignmentRecord,
     },
 };
-use tokio::{select, task::JoinHandle};
+use tokio::task::JoinHandle;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::{
@@ -157,7 +157,7 @@ impl<
         let scheduler_heartbeat_join = tokio::spawn(async move {
             let mut interval = tokio::time::interval(scheduler_heartbeat_interval);
             loop {
-                select! {
+                tokio::select! {
                     () = scheduler_heartbeat_cancellation_token.cancelled() => {
                         tracing::info!(em_id = ? em_id, "Scheduler heartbeat task cancelled.");
                         break;
@@ -262,15 +262,18 @@ impl<
     /// * Forwards [`ProcessPool::execute`]'s return values on failure.
     async fn main_loop(&mut self) -> Result<(), RuntimeError> {
         loop {
-            let response = select! {
+            let response = tokio::select! {
                 biased;
                 () = self.cancellation_token.cancelled() => return Ok(()),
                 result = self.scheduler_client.next_task(
                     self.em_id,
-                    self.last_assignment.take()
+                    self.last_assignment.clone()
                 ) => {
                     match result {
-                        Ok(response) => response,
+                        Ok(response) => {
+                            self.last_assignment = None;
+                            response
+                        }
                         Err(e) => {
                             tracing::warn!(err = ? e, "Scheduler returned an error. Retrying.");
                             continue;
