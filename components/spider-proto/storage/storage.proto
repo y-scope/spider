@@ -43,7 +43,7 @@ service ExecutionManagerLivenessService {
 
 service SchedulerRegistrationService {
   rpc RegisterScheduler(RegisterSchedulerRequest) returns (RegisterSchedulerResponse);
-  rpc GetSchedulers(Void) returns (GetSchedulersResponse);
+  rpc GetSchedulers(common.Void) returns (GetSchedulersResponse);
 }
 
 service SessionManagementService {

@@ -1887,7 +1887,7 @@ pub mod scheduler_registration_service_client {
         }
         pub async fn get_schedulers(
             &mut self,
-            request: impl tonic::IntoRequest<super::Void>,
+            request: impl tonic::IntoRequest<super::super::common::Void>,
         ) -> std::result::Result<
             tonic::Response<super::GetSchedulersResponse>,
             tonic::Status,
@@ -3785,7 +3785,7 @@ pub mod scheduler_registration_service_server {
         >;
         async fn get_schedulers(
             &self,
-            request: tonic::Request<super::Void>,
+            request: tonic::Request<super::super::common::Void>,
         ) -> std::result::Result<
             tonic::Response<super::GetSchedulersResponse>,
             tonic::Status,
@@ -3924,7 +3924,8 @@ pub mod scheduler_registration_service_server {
                     struct GetSchedulersSvc<T: SchedulerRegistrationService>(pub Arc<T>);
                     impl<
                         T: SchedulerRegistrationService,
-                    > tonic::server::UnaryService<super::Void> for GetSchedulersSvc<T> {
+                    > tonic::server::UnaryService<super::super::common::Void>
+                    for GetSchedulersSvc<T> {
                         type Response = super::GetSchedulersResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3932,7 +3933,7 @@ pub mod scheduler_registration_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Void>,
+                            request: tonic::Request<super::super::common::Void>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
