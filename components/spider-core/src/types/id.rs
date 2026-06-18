@@ -154,6 +154,10 @@ pub type ExecutionManagerId = Id<ExecutionManagerIdMarker>;
 pub enum SchedulerIdMarker {}
 pub type SchedulerId = Id<SchedulerIdMarker>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TaskAssignmentIdMarker {}
+pub type TaskAssignmentId = Id<TaskAssignmentIdMarker>;
+
 pub type SessionId = u64;
 
 pub type TaskInstanceId = u64;

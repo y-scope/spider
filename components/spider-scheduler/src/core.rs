@@ -1,12 +1,40 @@
 //! The abstract core of a Spider scheduler.
 
+use std::sync::{Arc, atomic::AtomicU64};
+
 use async_trait::async_trait;
+use spider_core::types::id::TaskAssignmentId;
 
 use crate::{
     dispatch_queue::DispatchQueueSink,
     error::SchedulerError,
     storage_client::SchedulerStorageClient,
 };
+
+/// Single-source ID issuer for creating globally unique IDs for task assignments.
+pub struct TaskAssignmentIdIssuer {
+    id: Arc<AtomicU64>,
+}
+
+impl Default for TaskAssignmentIdIssuer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TaskAssignmentIdIssuer {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            id: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    #[must_use]
+    pub fn next(&self) -> TaskAssignmentId {
+        TaskAssignmentId::from(self.id.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
 
 /// An abstracted core for a scheduling algorithm.
 ///
@@ -33,6 +61,8 @@ pub trait SchedulerCore: Send {
     /// * `storage_client` - The storage client used to poll the inbound queue and read state for
     ///   placement.
     /// * `sink` - The dispatch sink that assignments are written to.
+    /// * `id_issuer` - The single-source ID issuer for creating globally unique IDs for task
+    ///   assignments.
     /// * `cancellation_token` - The token to signal the scheduling loop to stop.
     ///
     /// # Errors
@@ -42,6 +72,7 @@ pub trait SchedulerCore: Send {
         self,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
+        id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> Result<(), SchedulerError>;
 }

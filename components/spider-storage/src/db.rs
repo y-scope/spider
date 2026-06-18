@@ -11,5 +11,6 @@ pub use protocol::{
     InternalJobOrchestration,
     RecoverableJobContext,
     ResourceGroupManagement,
+    SchedulerRegistrationManagement,
     SessionManagement,
 };

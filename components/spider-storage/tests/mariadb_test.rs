@@ -6,7 +6,7 @@ use std::{
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId},
         io::TaskInput,
     },
 };
@@ -19,6 +19,7 @@ use spider_storage::{
         InternalJobOrchestration,
         MariaDbStorageConnector,
         ResourceGroupManagement,
+        SchedulerRegistrationManagement,
         SessionManagement,
     },
 };
@@ -33,6 +34,8 @@ const TEST_INPUT_PAYLOAD_SIZE: usize = 128;
 
 /// Number of execution managers to register in multi-EM tests.
 const TEST_NUM_EMS: usize = 3;
+const TEST_SCHEDULER_PORT: u16 = 5678;
+const TEST_UPDATED_SCHEDULER_PORT: u16 = 6789;
 
 /// Builds a task graph with a single task for DB-layer tests.
 ///
@@ -53,6 +56,19 @@ async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManager
         .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
         .await
         .expect("register_execution_manager should succeed")
+}
+
+/// # Returns
+///
+/// Whether the scheduler is registered.
+async fn is_scheduler_registered(
+    storage: &MariaDbStorageConnector,
+    scheduler_id: SchedulerId,
+) -> bool {
+    storage
+        .is_scheduler_registered(scheduler_id)
+        .await
+        .expect("is_scheduler_registered should succeed")
 }
 
 #[tokio::test]
@@ -1003,6 +1019,49 @@ async fn test_get_dead_execution_managers_multiple() {
             "expected em_id {em_id:?} in dead list, got {dead:?}"
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_register_scheduler_replaces_previous_scheduler() {
+    let storage = create_mariadb_connector().await;
+    let scheduler_ip_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    let updated_scheduler_ip_address = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+
+    let first_scheduler_id = storage
+        .register_scheduler(scheduler_ip_address, TEST_SCHEDULER_PORT)
+        .await
+        .expect("first register_scheduler should succeed");
+    let second_scheduler_id = storage
+        .register_scheduler(updated_scheduler_ip_address, TEST_UPDATED_SCHEDULER_PORT)
+        .await
+        .expect("second register_scheduler should succeed");
+    let schedulers = storage
+        .get_schedulers()
+        .await
+        .expect("get_schedulers should succeed");
+
+    assert_ne!(
+        first_scheduler_id, second_scheduler_id,
+        "new registration should allocate a fresh scheduler ID"
+    );
+    assert!(
+        !is_scheduler_registered(&storage, first_scheduler_id).await,
+        "old scheduler should be removed after a new registration"
+    );
+    assert!(
+        is_scheduler_registered(&storage, second_scheduler_id).await,
+        "new scheduler should remain registered"
+    );
+    assert_eq!(
+        schedulers.len(),
+        1,
+        "only the latest scheduler should remain"
+    );
+    assert_eq!(schedulers[0].id, second_scheduler_id);
+    assert_eq!(schedulers[0].ip_address, updated_scheduler_ip_address);
+    assert_eq!(schedulers[0].port, TEST_UPDATED_SCHEDULER_PORT);
 }
 
 #[tokio::test]
