@@ -10,8 +10,9 @@ use dashmap::DashMap;
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskInstanceId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId, TaskInstanceId},
         io::TaskOutput,
+        scheduler::RegisteredScheduler,
     },
 };
 
@@ -29,6 +30,7 @@ use crate::{
         InternalJobOrchestration,
         RecoverableJobContext,
         ResourceGroupManagement,
+        SchedulerRegistrationManagement,
         SessionManagement,
     },
     ready_queue::ReadyQueueSender,
@@ -248,6 +250,25 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
         _stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError> {
         Ok(Vec::new())
+    }
+}
+
+#[async_trait::async_trait]
+impl SchedulerRegistrationManagement for MockDbConnector {
+    async fn register_scheduler(
+        &self,
+        _ip_address: IpAddr,
+        _port: u16,
+    ) -> Result<SchedulerId, DbError> {
+        unreachable!("not implemented for mock connector")
+    }
+
+    async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {
+        unreachable!("not implemented for mock connector")
+    }
+
+    async fn is_scheduler_registered(&self, _scheduler_id: SchedulerId) -> Result<bool, DbError> {
+        unreachable!("not implemented for mock connector")
     }
 }
 

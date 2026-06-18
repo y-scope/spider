@@ -296,6 +296,64 @@ pub mod update_execution_manager_heartbeat_response {
         Error(super::ExecutionManagerLivenessError),
     }
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RegisterSchedulerRequest {
+    #[prost(string, tag = "1")]
+    pub ip_address: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub port: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SchedulerRegistration {
+    #[prost(uint64, tag = "1")]
+    pub scheduler_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub session_id: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RegisterSchedulerResponse {
+    #[prost(oneof = "register_scheduler_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<register_scheduler_response::Result>,
+}
+/// Nested message and enum types in `RegisterSchedulerResponse`.
+pub mod register_scheduler_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Registration(super::SchedulerRegistration),
+        #[prost(message, tag = "2")]
+        Error(super::SchedulerRegistrationError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Scheduler {
+    #[prost(uint64, tag = "1")]
+    pub scheduler_id: u64,
+    #[prost(string, tag = "2")]
+    pub ip_address: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub port: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SchedulerRegistrations {
+    #[prost(message, repeated, tag = "1")]
+    pub schedulers: ::prost::alloc::vec::Vec<Scheduler>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSchedulersResponse {
+    #[prost(oneof = "get_schedulers_response::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<get_schedulers_response::Result>,
+}
+/// Nested message and enum types in `GetSchedulersResponse`.
+pub mod get_schedulers_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Schedulers(super::SchedulerRegistrations),
+        #[prost(message, tag = "2")]
+        Error(super::SchedulerRegistrationError),
+    }
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetSessionResponse {
     #[prost(uint64, tag = "1")]
@@ -631,6 +689,52 @@ pub mod execution_manager_liveness_error {
                 "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
                 "MARKED_DEAD" => Some(Self::MarkedDead),
                 "INVALID_INPUT" => Some(Self::InvalidInput),
+                "SERVER" => Some(Self::Server),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SchedulerRegistrationError {
+    #[prost(enumeration = "scheduler_registration_error::ErrCode", tag = "1")]
+    pub err_code: i32,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `SchedulerRegistrationError`.
+pub mod scheduler_registration_error {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ErrCode {
+        Unspecified = 0,
+        Server = 1,
+    }
+    impl ErrCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
+                Self::Server => "SERVER",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
                 "SERVER" => Some(Self::Server),
                 _ => None,
             }
@@ -1672,6 +1776,159 @@ pub mod execution_manager_liveness_service_client {
                     GrpcMethod::new(
                         "storage.ExecutionManagerLivenessService",
                         "UpdateExecutionManagerHeartbeat",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+    }
+}
+/// Generated client implementations.
+pub mod scheduler_registration_service_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
+    #[derive(Debug, Clone)]
+    pub struct SchedulerRegistrationServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl SchedulerRegistrationServiceClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> SchedulerRegistrationServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> SchedulerRegistrationServiceClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            SchedulerRegistrationServiceClient::new(
+                InterceptedService::new(inner, interceptor),
+            )
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn register_scheduler(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RegisterSchedulerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RegisterSchedulerResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.SchedulerRegistrationService/RegisterScheduler",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.SchedulerRegistrationService",
+                        "RegisterScheduler",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_schedulers(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Void>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetSchedulersResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.SchedulerRegistrationService/GetSchedulers",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.SchedulerRegistrationService",
+                        "GetSchedulers",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -3522,6 +3779,248 @@ pub mod execution_manager_liveness_service_server {
     /// Generated gRPC service name
     pub const SERVICE_NAME: &str = "storage.ExecutionManagerLivenessService";
     impl<T> tonic::server::NamedService for ExecutionManagerLivenessServiceServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+/// Generated server implementations.
+pub mod scheduler_registration_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with SchedulerRegistrationServiceServer.
+    #[async_trait]
+    pub trait SchedulerRegistrationService: std::marker::Send + std::marker::Sync + 'static {
+        async fn register_scheduler(
+            &self,
+            request: tonic::Request<super::RegisterSchedulerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RegisterSchedulerResponse>,
+            tonic::Status,
+        >;
+        async fn get_schedulers(
+            &self,
+            request: tonic::Request<super::Void>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetSchedulersResponse>,
+            tonic::Status,
+        >;
+    }
+    #[derive(Debug)]
+    pub struct SchedulerRegistrationServiceServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> SchedulerRegistrationServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>>
+    for SchedulerRegistrationServiceServer<T>
+    where
+        T: SchedulerRegistrationService,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/storage.SchedulerRegistrationService/RegisterScheduler" => {
+                    #[allow(non_camel_case_types)]
+                    struct RegisterSchedulerSvc<T: SchedulerRegistrationService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: SchedulerRegistrationService,
+                    > tonic::server::UnaryService<super::RegisterSchedulerRequest>
+                    for RegisterSchedulerSvc<T> {
+                        type Response = super::RegisterSchedulerResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RegisterSchedulerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerRegistrationService>::register_scheduler(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RegisterSchedulerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.SchedulerRegistrationService/GetSchedulers" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSchedulersSvc<T: SchedulerRegistrationService>(pub Arc<T>);
+                    impl<
+                        T: SchedulerRegistrationService,
+                    > tonic::server::UnaryService<super::Void> for GetSchedulersSvc<T> {
+                        type Response = super::GetSchedulersResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Void>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerRegistrationService>::get_schedulers(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetSchedulersSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for SchedulerRegistrationServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "storage.SchedulerRegistrationService";
+    impl<T> tonic::server::NamedService for SchedulerRegistrationServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
