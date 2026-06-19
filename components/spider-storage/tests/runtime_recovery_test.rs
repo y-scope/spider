@@ -8,6 +8,7 @@ use spider_core::{
         io::{TaskInput, TaskOutput},
     },
 };
+use spider_proto_rust::payload::encode_zstd_bytes;
 use spider_storage::{
     cache::error::{CacheError, StaleStateError},
     db::ExternalJobOrchestration,
@@ -379,7 +380,7 @@ async fn register_and_start_job<
 ///
 /// * Forwards [`ServiceState::add_resource_group`]'s return values on failure.
 /// * Forwards [`spider_core::task::TaskGraph::to_json`]'s return values on failure.
-/// * Forwards [`serialize_inputs`]'s return values on failure.
+/// * Forwards [`serialize_compressed_inputs`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<
     ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
@@ -398,7 +399,11 @@ async fn register_job<
         .await?;
     let (task_graph, inputs) = build_flat_task_graph(1, 4, with_commit, with_cleanup);
     Ok(service
-        .register_job(rg_id, task_graph.to_json()?, serialize_inputs(inputs)?)
+        .register_job(
+            rg_id,
+            encode_zstd_bytes(task_graph.to_json()?.into_bytes())?,
+            serialize_compressed_inputs(inputs)?,
+        )
         .await?)
 }
 
@@ -568,12 +573,12 @@ fn find_entry_for_job<TaskKind>(
 /// Returns an error if:
 ///
 /// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
-fn serialize_inputs(inputs: Vec<TaskInput>) -> anyhow::Result<Vec<u8>> {
+fn serialize_compressed_inputs(inputs: Vec<TaskInput>) -> anyhow::Result<Vec<u8>> {
     let mut serializer = TaskInputsSerializer::new();
     for input in inputs {
         serializer.append(input)?;
     }
-    Ok(serializer.release())
+    Ok(encode_zstd_bytes(serializer.release())?)
 }
 
 /// Serializes the single output payload used by recovery tests.

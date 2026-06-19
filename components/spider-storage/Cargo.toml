@@ -17,11 +17,13 @@ async-channel = "2.3.1"
 async-trait = "0.1.89"
 const_format = "0.2.35"
 dashmap = "6.1.0"
+prost = "0.13.5"
 rmp-serde = "1.3.1"
 secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
 spider-derive = { path = "../spider-derive" }
+spider-proto-rust = { path = "../spider-proto-rust" }
 spider-tdl = { path = "../spider-tdl" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 subtle = "2.6.1"

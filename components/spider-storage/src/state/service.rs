@@ -17,6 +17,7 @@ use spider_core::{
         scheduler::RegisteredScheduler,
     },
 };
+use spider_proto_rust::payload::decode_zstd_bytes;
 use spider_tdl::{
     error::TdlError,
     wire::{TaskOutputsSerializer, unframe},
@@ -122,9 +123,15 @@ impl<
     pub async fn register_job(
         &self,
         resource_group_id: ResourceGroupId,
-        serialized_task_graph: String,
-        serialized_inputs: Vec<u8>,
+        compressed_serialized_task_graph: Vec<u8>,
+        compressed_serialized_inputs: Vec<u8>,
     ) -> Result<JobId, StorageServerError> {
+        let serialized_task_graph = decode_zstd_bytes(compressed_serialized_task_graph)
+            .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
+        let serialized_task_graph = String::from_utf8(serialized_task_graph)
+            .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
+        let serialized_inputs = decode_zstd_bytes(compressed_serialized_inputs)
+            .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
         let task_graph =
             TaskGraph::from_json(&serialized_task_graph).map_err(StorageServerError::Task)?;
         let inputs = unframe(&serialized_inputs)
@@ -772,6 +779,7 @@ mod tests {
             io::{TaskInput, TaskOutput},
         },
     };
+    use spider_proto_rust::payload::encode_zstd_bytes;
 
     use super::*;
     use crate::{
@@ -865,7 +873,7 @@ mod tests {
         task_graph
     }
 
-    fn create_test_job_submission() -> (String, Vec<u8>) {
+    fn create_test_job_submission() -> (Vec<u8>, Vec<u8>) {
         let task_graph = create_test_task_graph()
             .to_json()
             .expect("task graph serialization should succeed");
@@ -873,7 +881,11 @@ mod tests {
         serializer
             .append(TaskInput::ValuePayload(vec![0u8; 4]))
             .expect("input serialization should succeed");
-        (task_graph, serializer.release())
+        (
+            encode_zstd_bytes(task_graph.into_bytes())
+                .expect("task graph compression should succeed"),
+            encode_zstd_bytes(serializer.release()).expect("input compression should succeed"),
+        )
     }
 
     fn create_test_serialized_outputs() -> Vec<u8> {
@@ -882,8 +894,9 @@ mod tests {
             .expect("output serialization should succeed")
     }
 
-    fn create_empty_serialized_inputs() -> Vec<u8> {
-        spider_tdl::wire::TaskInputsSerializer::new().release()
+    fn create_empty_compressed_serialized_inputs() -> Vec<u8> {
+        encode_zstd_bytes(spider_tdl::wire::TaskInputsSerializer::new().release())
+            .expect("empty input compression should succeed")
     }
 
     async fn create_test_jcb(
@@ -910,12 +923,13 @@ mod tests {
     #[tokio::test]
     async fn register_job_returns_job_id_and_inserts_into_cache() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         assert!(
@@ -931,8 +945,9 @@ mod tests {
         let result = service
             .register_job(
                 ResourceGroupId::random(),
-                "invalid json".to_owned(),
-                create_empty_serialized_inputs(),
+                encode_zstd_bytes(b"invalid json".to_vec())
+                    .expect("invalid task graph compression should succeed"),
+                create_empty_compressed_serialized_inputs(),
             )
             .await;
         assert!(
@@ -951,8 +966,9 @@ mod tests {
         let result = service
             .register_job(
                 ResourceGroupId::random(),
-                task_graph,
-                create_empty_serialized_inputs(),
+                encode_zstd_bytes(task_graph.into_bytes())
+                    .expect("task graph compression should succeed"),
+                create_empty_compressed_serialized_inputs(),
             )
             .await;
         assert!(
@@ -972,8 +988,9 @@ mod tests {
         let result = service
             .register_job(
                 ResourceGroupId::random(),
-                task_graph,
-                create_empty_serialized_inputs(),
+                encode_zstd_bytes(task_graph.into_bytes())
+                    .expect("task graph compression should succeed"),
+                create_empty_compressed_serialized_inputs(),
             )
             .await;
         assert!(
@@ -986,12 +1003,13 @@ mod tests {
     #[tokio::test]
     async fn start_job_starts_cached_job() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
 
@@ -1062,12 +1080,13 @@ mod tests {
     #[tokio::test]
     async fn get_job_state_serves_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
 
@@ -1112,12 +1131,13 @@ mod tests {
     #[tokio::test]
     async fn get_job_outputs_returns_outputs_from_cache_when_jcb_present() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         service.start_job(job_id).await?;
@@ -1162,12 +1182,13 @@ mod tests {
     #[tokio::test]
     async fn get_job_outputs_returns_error_when_job_not_succeeded() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         // JCB is in cache but job is still Ready (not Succeeded).
@@ -1206,12 +1227,13 @@ mod tests {
     #[tokio::test]
     async fn create_task_instance_returns_execution_context() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         service.start_job(job_id).await?;
@@ -1252,12 +1274,13 @@ mod tests {
     #[tokio::test]
     async fn succeed_task_instance_transitions_job_to_succeeded() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         service.start_job(job_id).await?;
@@ -1288,6 +1311,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn succeed_task_instance_accepts_raw_serialized_outputs() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
+        let job_id = service
+            .register_job(
+                ResourceGroupId::random(),
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
+            )
+            .await?;
+        service.start_job(job_id).await?;
+
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+        let serialized_outputs = create_test_serialized_outputs();
+        let state = service
+            .succeed_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                context.task_instance_id,
+                0,
+                serialized_outputs.clone(),
+            )
+            .await?;
+
+        assert_eq!(state, JobState::Succeeded);
+        assert_eq!(
+            service.get_job_outputs(job_id).await?,
+            TaskOutputsSerializer::deserialize(&serialized_outputs)
+                .expect("test serialized outputs should deserialize successfully")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service
@@ -1309,12 +1374,13 @@ mod tests {
     #[tokio::test]
     async fn fail_task_instance_transitions_job_to_failed() -> anyhow::Result<()> {
         let service = create_test_service();
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         service.start_job(job_id).await?;
@@ -1401,12 +1467,13 @@ mod tests {
             MockTaskInstancePoolConnector,
             JobCacheGcHandle::new(sender),
         );
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         service.start_job(job_id).await?;
@@ -1449,12 +1516,13 @@ mod tests {
             MockTaskInstancePoolConnector,
             JobCacheGcHandle::new(sender),
         );
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
         service.start_job(job_id).await?;
@@ -1497,12 +1565,13 @@ mod tests {
         let service = create_test_service_with_db_and_session(db, CURRENT_SESSION_ID);
 
         // Register a job so the JCB is in cache.
-        let (serialized_task_graph, serialized_inputs) = create_test_job_submission();
+        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
+            create_test_job_submission();
         let job_id = service
             .register_job(
                 ResourceGroupId::random(),
-                serialized_task_graph,
-                serialized_inputs,
+                compressed_serialized_task_graph,
+                compressed_serialized_inputs,
             )
             .await?;
 

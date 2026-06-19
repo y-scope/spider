@@ -2,6 +2,7 @@ use std::net::IpAddr;
 
 use async_trait::async_trait;
 use const_format::formatcp;
+use prost::Message;
 use secrecy::ExposeSecret;
 use spider_core::{
     job::JobState,
@@ -13,6 +14,10 @@ use spider_core::{
     },
 };
 use spider_derive::MySqlEnum;
+use spider_proto_rust::{
+    payload::{decode_payload, decode_zstd_bytes, encode_zstd_bytes},
+    storage::{BinaryPayload, BinaryPayloadEncoding},
+};
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
@@ -108,22 +113,28 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
+            "INSERT INTO `{table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
+             `compressed_serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
             table = JOBS_TABLE_NAME,
         );
 
         let task_graph = job_submission.task_graph();
         let job_inputs = job_submission.inputs();
-        let serialized_task_graph = task_graph
+        let compressed_serialized_task_graph = task_graph
             .to_json()
-            .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;
+            .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))
+            .and_then(|json| {
+                encode_zstd_bytes(json.into_bytes())
+                    .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))
+            })?;
         let serialized_job_inputs = rmp_serde::to_vec(&job_inputs).map_err(DbError::value_ser)?;
+        let compressed_serialized_job_inputs = encode_zstd_bytes(serialized_job_inputs)
+            .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?;
 
         let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
             .bind(resource_group_id)
-            .bind(serialized_task_graph)
-            .bind(serialized_job_inputs)
+            .bind(compressed_serialized_task_graph)
+            .bind(compressed_serialized_job_inputs)
             .fetch_one(&self.pool)
             .await
             .map_err(|e| match e {
@@ -180,6 +191,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                 "job `{job_id}` succeeded but has no serialized outputs"
             ))
         })?;
+        let outputs_bytes =
+            decode_payload_blob(&outputs_bytes).map_err(DbError::ValueDeserializationFailure)?;
         let outputs: Vec<TaskOutput> =
             rmp_serde::from_slice(&outputs_bytes).map_err(DbError::value_de)?;
         Ok(outputs)
@@ -280,6 +293,8 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         }
 
         let serialized_outputs = rmp_serde::to_vec(&job_outputs).map_err(DbError::value_ser)?;
+        let serialized_outputs = encode_job_output_payload_blob(serialized_outputs)
+            .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?;
 
         sqlx::query(if new_state.is_terminal() {
             UPDATE_SUCCEEDED_QUERY
@@ -390,8 +405,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
     async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `id`, `resource_group_id`, `state`, `serialized_task_graph`, \
-             `serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE `state` IN \
+            "SELECT `id`, `resource_group_id`, `state`, `compressed_serialized_task_graph`, \
+             `compressed_serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE \
+             `state` IN \
              ('{ready_state}','{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
             table = JOBS_TABLE_NAME,
             ready_state = JobState::Ready.as_str(),
@@ -664,6 +680,7 @@ const JOBS_TABLE_NAME: &str = "jobs";
 const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
 const SCHEDULERS_TABLE_NAME: &str = "schedulers";
 const SESSIONS_TABLE_NAME: &str = "sessions";
+const JOB_OUTPUT_RAW_PAYLOAD_MAX_SIZE: usize = 1024;
 
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
@@ -692,8 +709,8 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `resource_group_id` BIGINT UNSIGNED NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
-  `serialized_task_graph` LONGTEXT NOT NULL,
-  `serialized_job_inputs` LONGBLOB NOT NULL,
+  `compressed_serialized_task_graph` LONGBLOB NOT NULL,
+  `compressed_serialized_job_inputs` LONGBLOB NOT NULL,
   `serialized_job_outputs` LONGBLOB,
   `error_message` LONGTEXT,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -756,14 +773,57 @@ CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
     )
 }
 
+/// Encodes raw job-output bytes into a [`BinaryPayload`] storage blob.
+///
+/// # Returns
+///
+/// A protobuf-encoded [`BinaryPayload`] blob using raw encoding for small job outputs on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`encode_zstd_bytes`]'s return values on failure.
+fn encode_job_output_payload_blob(
+    raw: Vec<u8>,
+) -> Result<Vec<u8>, spider_proto_rust::error::Error> {
+    let (encoding, data) = if raw.len() <= JOB_OUTPUT_RAW_PAYLOAD_MAX_SIZE {
+        (BinaryPayloadEncoding::Raw, raw)
+    } else {
+        (BinaryPayloadEncoding::Zstd, encode_zstd_bytes(raw)?)
+    };
+    Ok(BinaryPayload {
+        encoding: encoding as i32,
+        data,
+    }
+    .encode_to_vec())
+}
+
+/// Decodes a [`BinaryPayload`] storage blob into raw bytes.
+///
+/// # Returns
+///
+/// The decoded raw bytes on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`BinaryPayload::decode`]'s return values on failure.
+/// * Forwards [`decode_payload`]'s return values on failure.
+fn decode_payload_blob(blob: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let payload = BinaryPayload::decode(blob)?;
+    Ok(decode_payload(payload)?)
+}
+
 /// A raw row selected from the job table representing a recoverable job.
 #[derive(sqlx::FromRow)]
 struct RecoverableJobRowProjection {
     id: JobId,
     resource_group_id: ResourceGroupId,
     state: JobState,
-    serialized_task_graph: String,
-    serialized_job_inputs: Vec<u8>,
+    compressed_serialized_task_graph: Vec<u8>,
+    compressed_serialized_job_inputs: Vec<u8>,
     serialized_job_outputs: Option<Vec<u8>>,
 }
 
@@ -783,15 +843,25 @@ impl RecoverableJobRowProjection {
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
     ///   [`DbError::CorruptedDbState`] on failure.
     fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
+        let serialized_task_graph = decode_zstd_bytes(self.compressed_serialized_task_graph)
+            .map_err(|e| DbError::TaskGraphDeserializationFailure(Box::new(e)))?;
+        let serialized_task_graph =
+            String::from_utf8(serialized_task_graph).map_err(DbError::task_graph_de)?;
         let task_graph =
-            TaskGraph::from_json(&self.serialized_task_graph).map_err(DbError::task_graph_de)?;
+            TaskGraph::from_json(&serialized_task_graph).map_err(DbError::task_graph_de)?;
+        let serialized_job_inputs = decode_zstd_bytes(self.compressed_serialized_job_inputs)
+            .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
         let inputs: Vec<TaskInput> =
-            rmp_serde::from_slice(&self.serialized_job_inputs).map_err(DbError::value_de)?;
+            rmp_serde::from_slice(&serialized_job_inputs).map_err(DbError::value_de)?;
         let submission = ValidatedJobSubmission::create(task_graph, inputs)
             .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
         let outputs = self
             .serialized_job_outputs
-            .map(|outputs| rmp_serde::from_slice(&outputs).map_err(DbError::value_de))
+            .map(|outputs| {
+                let outputs =
+                    decode_payload_blob(&outputs).map_err(DbError::ValueDeserializationFailure)?;
+                rmp_serde::from_slice(&outputs).map_err(DbError::value_de)
+            })
             .transpose()?;
         Ok(RecoverableJobContext {
             id: self.id,
