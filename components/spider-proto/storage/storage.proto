@@ -50,8 +50,8 @@ service SessionManagementService {
 
 message SubmitJobRequest {
   uint64 resource_group_id = 1;
-  bytes serialized_task_graph = 2;
-  bytes serialized_inputs = 3;
+  bytes compressed_serialized_task_graph = 2;
+  bytes compressed_serialized_inputs = 3;
   uint64 session_id = 4;
 }
 
@@ -81,7 +81,18 @@ message JobOutputsResponse {
 }
 
 message JobOutputs {
-  repeated bytes outputs = 1;
+  repeated BinaryPayload outputs = 1;
+}
+
+enum BinaryPayloadEncoding {
+  BINARY_PAYLOAD_ENCODING_UNSPECIFIED = 0;
+  BINARY_PAYLOAD_ENCODING_RAW = 1;
+  BINARY_PAYLOAD_ENCODING_ZSTD = 2;
+}
+
+message BinaryPayload {
+  BinaryPayloadEncoding encoding = 1;
+  bytes data = 2;
 }
 
 message JobErrorResponse {
@@ -154,7 +165,7 @@ message ReportTaskSuccessRequest {
   TaskId task_id = 2;
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
-  bytes serialized_outputs = 5;
+  BinaryPayload serialized_outputs = 5;
 }
 
 message ReportTaskFailureRequest {

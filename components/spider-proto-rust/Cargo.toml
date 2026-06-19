@@ -12,6 +12,7 @@ prost = "0.13.5"
 spider-core = { path = "../spider-core" }
 thiserror = "2.0.18"
 tonic = "0.12.3"
+zstd = "0.13.3"
 
 [build-dependencies]
 tonic-build = "0.12.3"
