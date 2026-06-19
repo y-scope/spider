@@ -165,7 +165,7 @@ message ReportTaskSuccessRequest {
   TaskId task_id = 2;
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
-  BinaryPayload serialized_outputs = 5;
+  bytes serialized_outputs = 5;
 }
 
 message ReportTaskFailureRequest {

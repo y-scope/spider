@@ -9,38 +9,6 @@ use crate::{
 
 const ZSTD_LEVEL: i32 = 0;
 
-/// Encodes bytes as a raw binary payload.
-///
-/// # Returns
-///
-/// A [`BinaryPayload`] carrying `raw` without compression.
-#[must_use]
-pub const fn encode_payload_raw(raw: Vec<u8>) -> BinaryPayload {
-    BinaryPayload {
-        encoding: BinaryPayloadEncoding::Raw as i32,
-        data: raw,
-    }
-}
-
-/// Encodes bytes as a zstd-compressed binary payload.
-///
-/// # Returns
-///
-/// A [`BinaryPayload`] carrying zstd-compressed data on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`Error::BinaryPayloadCompression`] if zstd compression fails.
-pub fn encode_payload_zstd(raw: Vec<u8>) -> Result<BinaryPayload, Error> {
-    let data = encode_zstd_bytes(raw)?;
-    Ok(BinaryPayload {
-        encoding: BinaryPayloadEncoding::Zstd as i32,
-        data,
-    })
-}
-
 /// Encodes bytes with zstd.
 ///
 /// # Returns
@@ -73,26 +41,6 @@ pub fn decode_zstd_bytes(compressed: Vec<u8>) -> Result<Vec<u8>, Error> {
         .map_err(|e| Error::BinaryPayloadDecompression(e.to_string()))
 }
 
-/// Encodes bytes as zstd only when compression reduces the payload size.
-///
-/// # Returns
-///
-/// A [`BinaryPayload`] carrying the smaller of raw bytes and zstd-compressed bytes on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`encode_payload_zstd`]'s return values on failure.
-pub fn encode_payload_adaptively(raw: Vec<u8>) -> Result<BinaryPayload, Error> {
-    let compressed = encode_payload_zstd(raw.clone())?;
-    if compressed.data.len() < raw.len() {
-        Ok(compressed)
-    } else {
-        Ok(encode_payload_raw(raw))
-    }
-}
-
 /// Decodes a binary payload into raw bytes.
 ///
 /// # Returns
@@ -119,13 +67,7 @@ pub fn decode_payload(payload: BinaryPayload) -> Result<Vec<u8>, Error> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        payload::{
-            decode_payload,
-            decode_zstd_bytes,
-            encode_payload_adaptively,
-            encode_payload_zstd,
-            encode_zstd_bytes,
-        },
+        payload::{decode_payload, decode_zstd_bytes, encode_zstd_bytes},
         storage::{BinaryPayload, BinaryPayloadEncoding},
     };
 
@@ -133,7 +75,10 @@ mod tests {
     fn zstd_payload_round_trips() {
         let raw = vec![42u8; 4096];
 
-        let payload = encode_payload_zstd(raw.clone()).expect("zstd encoding should succeed");
+        let payload = BinaryPayload {
+            encoding: BinaryPayloadEncoding::Zstd as i32,
+            data: encode_zstd_bytes(raw.clone()).expect("zstd encoding should succeed"),
+        };
         assert_eq!(payload.encoding, BinaryPayloadEncoding::Zstd as i32);
         assert!(
             payload.data.len() < raw.len(),
@@ -156,17 +101,6 @@ mod tests {
 
         let decoded = decode_zstd_bytes(compressed).expect("zstd decoding should succeed");
         assert_eq!(decoded, raw);
-    }
-
-    #[test]
-    fn adaptive_payload_keeps_raw_when_zstd_is_larger() {
-        let raw = vec![1, 2, 3, 4];
-
-        let payload =
-            encode_payload_adaptively(raw.clone()).expect("adaptive encoding should succeed");
-
-        assert_eq!(payload.encoding, BinaryPayloadEncoding::Raw as i32);
-        assert_eq!(payload.data, raw);
     }
 
     #[test]

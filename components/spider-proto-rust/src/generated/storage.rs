@@ -195,8 +195,8 @@ pub struct ReportTaskSuccessRequest {
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "4")]
     pub session_id: u64,
-    #[prost(message, optional, tag = "5")]
-    pub serialized_outputs: ::core::option::Option<BinaryPayload>,
+    #[prost(bytes = "vec", tag = "5")]
+    pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReportTaskFailureRequest {
