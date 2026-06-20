@@ -2349,6 +2349,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "bytes",
+ "dashmap",
  "futures-util",
  "rmp-serde",
  "serde",

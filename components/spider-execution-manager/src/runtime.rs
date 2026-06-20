@@ -1,12 +1,13 @@
 //! Runtime — the execution manager's main loop.
 
-use std::{net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use spider_core::{
     session::SessionTracker,
     types::{
         id::{ExecutionManagerId, JobId, SessionId, TaskId},
         io::ExecutionContext,
+        scheduler::TaskAssignmentRecord,
     },
 };
 use tokio::task::JoinHandle;
@@ -34,6 +35,9 @@ pub struct RuntimeConfig {
     /// Interval between liveness heartbeats. Handed verbatim to the liveness actor.
     pub heartbeat_interval: Duration,
 
+    /// Interval between scheduler heartbeats. Handed verbatim to the scheduler heartbeat task.
+    pub scheduler_heartbeat_interval: Duration,
+
     /// Absolute path to the `spider-task-executor` binary the process pool spawns.
     pub executor_binary_path: PathBuf,
 
@@ -55,10 +59,9 @@ pub enum RuntimeError {
     #[error("failed to create the process pool: {0}")]
     ProcessPool(#[from] process_pool::InternalError),
 
-    /// Storage rejected a request as malformed. Indicates a contract bug in the runtime, not a
-    /// transient condition, so the runtime treats it as fatal.
-    #[error("storage rejected request as invalid: {0}")]
-    StorageInvalidInput(String),
+    /// Storage response error.
+    #[error(transparent)]
+    StorageResponse(#[from] StorageResponseError),
 }
 
 /// The execution manager runtime: the main loop plus all the state it owns.
@@ -70,7 +73,7 @@ pub enum RuntimeError {
 /// * `StorageClientType` - Concrete [`StorageClient`] used to register task instances and report
 ///   their outcome.
 pub struct Runtime<
-    SchedulerClientType: SchedulerClient + Clone,
+    SchedulerClientType: SchedulerClient + Clone + 'static,
     StorageClientType: StorageClient + Clone + 'static,
 > {
     em_id: ExecutionManagerId,
@@ -80,12 +83,14 @@ pub struct Runtime<
     session_tracker: SessionTracker,
     liveness_handle: LivenessHandle,
     liveness_join: JoinHandle<()>,
+    scheduler_heartbeat_join: JoinHandle<()>,
+    prev_assignments: VecDeque<TaskAssignmentRecord>,
     cancellation_token: CancellationToken,
     _cancel_guard: DropGuard,
 }
 
 impl<
-    SchedulerClientType: SchedulerClient + Clone,
+    SchedulerClientType: SchedulerClient + Clone + 'static,
     StorageClientType: StorageClient + Clone + 'static,
 > Runtime<SchedulerClientType, StorageClientType>
 {
@@ -145,6 +150,32 @@ impl<
             config.heartbeat_interval,
         );
 
+        let scheduler_heartbeat_client = scheduler_client.clone();
+        let scheduler_heartbeat_interval = config.scheduler_heartbeat_interval;
+        let scheduler_heartbeat_cancellation_token = cancellation_token.child_token();
+        let scheduler_heartbeat_join = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(scheduler_heartbeat_interval);
+            loop {
+                tokio::select! {
+                    () = scheduler_heartbeat_cancellation_token.cancelled() => {
+                        tracing::info!(em_id = ? em_id, "Scheduler heartbeat task cancelled.");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if let Err(e) = scheduler_heartbeat_client.heartbeat(em_id).await {
+                            tracing::warn!(
+                                em_id = ? em_id,
+                                error = ? e,
+                                "Failed to heartbeat to scheduler."
+                            );
+                            // Will continue to try on the next tick (if the runtime is not
+                            // cancelled).
+                        }
+                    }
+                }
+            }
+        });
+
         let cancel_guard = cancellation_token.clone().drop_guard();
         let runtime = Self {
             em_id,
@@ -154,6 +185,8 @@ impl<
             session_tracker,
             liveness_handle,
             liveness_join,
+            scheduler_heartbeat_join,
+            prev_assignments: VecDeque::new(),
             cancellation_token: cancellation_token.clone(),
             _cancel_guard: cancel_guard,
         };
@@ -171,14 +204,42 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`Self::main_loop`]'s return values on failure.
-    pub async fn run(self) -> Result<(), RuntimeError> {
+    pub async fn run(mut self) -> Result<(), RuntimeError> {
         tracing::info!(em_id = ? self.em_id, "Runtime main loop starting.");
         let result = self.main_loop().await;
+
         tracing::info!(em_id = ? self.em_id, "Runtime main loop exited. Shutting down.");
         self.cancellation_token.cancel();
-        if let Err(err) = self.liveness_join.await {
-            tracing::warn!(err = ? err, "Liveness actor task did not exit cleanly.");
-        }
+
+        let join_liveness_actor = async {
+            match self.liveness_join.await {
+                Ok(()) => {
+                    tracing::info!("Liveness actor stopped.");
+                }
+                Err(e) => {
+                    tracing::error!(error = ? e, "Liveness actor exited on panic.");
+                }
+            }
+        };
+
+        let join_scheduler_heartbeat = async {
+            match self.scheduler_heartbeat_join.await {
+                Ok(()) => {
+                    tracing::info!("Scheduler heartbeat task stopped.");
+                }
+                Err(e) => {
+                    tracing::error!(error = ? e, "Scheduler heartbeat task exited on panic.");
+                }
+            }
+        };
+
+        tokio::join!(
+            join_liveness_actor,
+            join_scheduler_heartbeat,
+            self.scheduler_client
+                .shutdown(self.em_id, self.prev_assignments.into())
+        );
+
         result
     }
 
@@ -196,14 +257,17 @@ impl<
     ///
     /// * Forwards [`Self::register_task_instance`]'s return values on failure.
     /// * Forwards [`ProcessPool::execute`]'s return values on failure.
-    async fn main_loop(&self) -> Result<(), RuntimeError> {
+    async fn main_loop(&mut self) -> Result<(), RuntimeError> {
         loop {
-            let assignment = tokio::select! {
+            let response = tokio::select! {
                 biased;
                 () = self.cancellation_token.cancelled() => return Ok(()),
-                result = self.scheduler_client.next_task(self.em_id) => {
+                result = self.scheduler_client.next_task(
+                    self.em_id,
+                    self.prev_assignments.pop_front()
+                ) => {
                     match result {
-                        Ok(assignment) => assignment,
+                        Ok(response) => response,
                         Err(e) => {
                             tracing::warn!(err = ? e, "Scheduler returned an error. Retrying.");
                             continue;
@@ -213,41 +277,42 @@ impl<
             };
 
             tracing::info!(
-                bundle_session = assignment.session_id,
-                job_id = ? assignment.job_id,
-                task_id = ? assignment.task_id,
+                bundle_session = response.session_id,
+                job_id = ? response.task_assignment.job_id,
+                task_id = ? response.task_assignment.task_id,
                 "Received a new task assignment from the scheduler."
             );
 
             let current_session = self.session_tracker.current();
-            if assignment.session_id < current_session {
+            if response.session_id < current_session {
                 tracing::warn!(
-                    bundle_session = assignment.session_id,
+                    bundle_session = response.session_id,
                     current_session,
-                    job_id = ? assignment.job_id,
-                    task_id = ? assignment.task_id,
+                    job_id = ? response.task_assignment.job_id,
+                    task_id = ? response.task_assignment.task_id,
                     "Dropping stale task assignment from the scheduler."
                 );
+                self.mark_consume(&response);
                 continue;
             }
-            if assignment.session_id > current_session {
+            if response.session_id > current_session {
                 tracing::info!(
-                    new_session = assignment.session_id,
+                    new_session = response.session_id,
                     "Observed a newer session via the scheduler. Refreshing liveness."
                 );
                 self.liveness_handle.refresh().await;
             }
 
-            let Some(execution_context) = self.register_task_instance(assignment).await? else {
+            let Some(execution_context) = self.register_task_instance(response).await? else {
                 continue;
             };
 
             let hard_timeout =
                 Duration::from_millis(execution_context.timeout_policy.hard_timeout_ms);
             let request = ExecuteRequest {
-                job_id: assignment.job_id,
-                task_id: assignment.task_id,
-                resource_group_id: assignment.resource_group_id,
+                job_id: response.task_assignment.job_id,
+                task_id: response.task_assignment.task_id,
+                resource_group_id: response.task_assignment.resource_group_id,
                 ctx: execution_context,
             };
             let outcome = self
@@ -257,19 +322,19 @@ impl<
                 .inspect_err(|err| {
                     tracing::error!(
                         err = ? err,
-                        job_id = ? assignment.job_id,
-                        task_id = ? assignment.task_id,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
                         "Process pool failed to dispatch task. Bailing out."
                     );
                 })?;
 
             let current_session = self.session_tracker.current();
-            if assignment.session_id < current_session {
+            if response.session_id < current_session {
                 tracing::warn!(
-                    bundle_session = assignment.session_id,
+                    bundle_session = response.session_id,
                     current_session,
-                    job_id = ? assignment.job_id,
-                    task_id = ? assignment.task_id,
+                    job_id = ? response.task_assignment.job_id,
+                    task_id = ? response.task_assignment.task_id,
                     "Dropping stale task assignment's outcome."
                 );
                 continue;
@@ -281,9 +346,9 @@ impl<
                 self.storage_client.clone(),
                 ReportTarget {
                     em: self.em_id,
-                    job: assignment.job_id,
-                    task: assignment.task_id,
-                    session: assignment.session_id,
+                    job: response.task_assignment.job_id,
+                    task: response.task_assignment.task_id,
+                    session: response.session_id,
                 },
                 outcome,
             ));
@@ -299,62 +364,80 @@ impl<
     /// # Returns
     ///
     /// * `Ok(Some(execution_context))` if storage accepted the registration.
-    /// * `Ok(None)` if the assignment should be skipped (stale session, transport failure, any
-    ///   other recoverable storage error, or cancellation mid-call).
+    /// * `Ok(None)` if:
+    ///   * The assignment is stale: either from a stale cache session or the task has already in a
+    ///     terminal state.
+    ///   * The runtime is cancelled.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`RuntimeError::StorageInvalidInput`] if storage rejects the request as malformed, which
-    ///   the runtime treats as fatal.
+    /// * [`RuntimeError::StorageResponse`] if storage client returns an error that cannot be
+    ///   handled by the runtime.
     async fn register_task_instance(
-        &self,
-        assignment: SchedulerResponse,
+        &mut self,
+        response: SchedulerResponse,
     ) -> Result<Option<ExecutionContext>, RuntimeError> {
         let register_result = tokio::select! {
             biased;
             () = self.cancellation_token.cancelled() => return Ok(None),
             result = self.storage_client.register_task_instance(
-                assignment.job_id,
-                assignment.task_id,
+                response.task_assignment.job_id,
+                response.task_assignment.task_id,
                 self.em_id,
-                assignment.session_id,
+                response.session_id,
             ) => result,
         };
 
         match register_result {
-            Ok(execution_context) => Ok(Some(execution_context)),
-            Err(StorageResponseError::StaleSession { storage_session }) => {
-                tracing::warn!(
-                    bundle_session = assignment.session_id,
-                    storage_session = storage_session,
-                    job_id = ? assignment.job_id,
-                    task_id = ? assignment.task_id,
-                    "Storage rejected task registration as stale. Dropping the assignment."
-                );
-                self.liveness_handle.refresh().await;
-                Ok(None)
+            Ok(execution_context) => {
+                self.mark_consume(&response);
+                Ok(Some(execution_context))
             }
-            Err(StorageResponseError::InvalidInput(err)) => {
-                tracing::error!(
-                    err = % err,
-                    job_id = ? assignment.job_id,
-                    task_id = ? assignment.task_id,
-                    "Storage rejected task registration as malformed. Bailing out."
-                );
-                Err(RuntimeError::StorageInvalidInput(err))
-            }
-            Err(err) => {
-                tracing::warn!(
-                    err = ? err,
-                    job_id = ? assignment.job_id,
-                    task_id = ? assignment.task_id,
-                    "Storage rejected task registration. Dropping the assignment."
-                );
-                Ok(None)
-            }
+            Err(err) => match &err {
+                StorageResponseError::StaleSession { storage_session } => {
+                    tracing::warn!(
+                        bundle_session = response.session_id,
+                        storage_session = storage_session,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage rejected task registration as stale. Dropping the assignment."
+                    );
+                    self.liveness_handle.refresh().await;
+                    self.mark_consume(&response);
+                    Ok(None)
+                }
+                StorageResponseError::CacheStale(_) => {
+                    tracing::warn!(
+                        err = % err,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage rejected task registration. Dropping the assignment."
+                    );
+                    self.mark_consume(&response);
+                    Ok(None)
+                }
+                _ => {
+                    tracing::error!(
+                        err = % err,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage client returns an error. Bailing out."
+                    );
+                    Err(RuntimeError::StorageResponse(err))
+                }
+            },
         }
+    }
+
+    /// Records `response`'s assignment as consumed, queueing it to be acknowledged to the scheduler
+    /// on the next [`SchedulerClient::next_task`] poll, or at shutdown if the loop exits first.
+    fn mark_consume(&mut self, response: &SchedulerResponse) {
+        self.prev_assignments.push_back(TaskAssignmentRecord::new(
+            response.task_assignment.id,
+            response.scheduler_id,
+        ));
     }
 }
 

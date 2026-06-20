@@ -1,6 +1,7 @@
 //! The data types the scheduler exchanges with the storage layer and execution managers.
 
-use spider_core::types::id::{JobId, ResourceGroupId, TaskAssignmentId, TaskId};
+use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
+pub use spider_core::types::scheduler::TaskAssignment;
 
 /// A ready task drained from the storage-owned inbound queue.
 ///
@@ -16,21 +17,5 @@ pub struct InboundEntry {
     pub job_id: JobId,
 
     /// The ready task.
-    pub task_id: TaskId,
-}
-
-/// A task placement decision written by the scheduler core to the dispatching queue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TaskAssignment {
-    /// The unique ID of the task assignment.
-    pub id: TaskAssignmentId,
-
-    /// The resource group that owns the job.
-    pub resource_group_id: ResourceGroupId,
-
-    /// The job the task belongs to.
-    pub job_id: JobId,
-
-    /// The task to dispatch.
     pub task_id: TaskId,
 }
