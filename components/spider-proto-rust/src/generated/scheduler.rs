@@ -3,6 +3,8 @@
 pub struct NextTaskRequest {
     #[prost(uint64, tag = "1")]
     pub execution_manager_id: u64,
+    #[prost(message, optional, tag = "2")]
+    pub prev_assignment: ::core::option::Option<TaskAssignmentRecord>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NextTaskResponse {
@@ -20,14 +22,37 @@ pub mod next_task_response {
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TaskAssignmentRecord {
+    #[prost(uint64, tag = "1")]
+    pub id: u64,
+    #[prost(uint64, tag = "2")]
+    pub from: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct HeartbeatRequest {
+    #[prost(uint64, tag = "1")]
+    pub execution_manager_id: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShutdownRequest {
+    #[prost(uint64, tag = "1")]
+    pub execution_manager_id: u64,
+    #[prost(message, repeated, tag = "2")]
+    pub prev_assignments: ::prost::alloc::vec::Vec<TaskAssignmentRecord>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SchedulerAssignment {
     #[prost(uint64, tag = "1")]
-    pub resource_group_id: u64,
+    pub id: u64,
     #[prost(uint64, tag = "2")]
+    pub resource_group_id: u64,
+    #[prost(uint64, tag = "3")]
     pub job_id: u64,
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "4")]
     pub task_id: ::core::option::Option<super::common::TaskId>,
-    #[prost(uint64, tag = "4")]
+    #[prost(uint64, tag = "5")]
+    pub scheduler_id: u64,
+    #[prost(uint64, tag = "6")]
     pub session_id: u64,
 }
 /// Generated client implementations.
@@ -145,6 +170,54 @@ pub mod scheduler_service_client {
                 .insert(GrpcMethod::new("scheduler.SchedulerService", "NextTask"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn heartbeat(
+            &mut self,
+            request: impl tonic::IntoRequest<super::HeartbeatRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/scheduler.SchedulerService/Heartbeat",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("scheduler.SchedulerService", "Heartbeat"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn shutdown(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ShutdownRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/scheduler.SchedulerService/Shutdown",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("scheduler.SchedulerService", "Shutdown"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -165,6 +238,20 @@ pub mod scheduler_service_server {
             request: tonic::Request<super::NextTaskRequest>,
         ) -> std::result::Result<
             tonic::Response<super::NextTaskResponse>,
+            tonic::Status,
+        >;
+        async fn heartbeat(
+            &self,
+            request: tonic::Request<super::HeartbeatRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
+            tonic::Status,
+        >;
+        async fn shutdown(
+            &self,
+            request: tonic::Request<super::ShutdownRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -274,6 +361,96 @@ pub mod scheduler_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NextTaskSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/scheduler.SchedulerService/Heartbeat" => {
+                    #[allow(non_camel_case_types)]
+                    struct HeartbeatSvc<T: SchedulerService>(pub Arc<T>);
+                    impl<
+                        T: SchedulerService,
+                    > tonic::server::UnaryService<super::HeartbeatRequest>
+                    for HeartbeatSvc<T> {
+                        type Response = super::super::common::Void;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::HeartbeatRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerService>::heartbeat(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = HeartbeatSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/scheduler.SchedulerService/Shutdown" => {
+                    #[allow(non_camel_case_types)]
+                    struct ShutdownSvc<T: SchedulerService>(pub Arc<T>);
+                    impl<
+                        T: SchedulerService,
+                    > tonic::server::UnaryService<super::ShutdownRequest>
+                    for ShutdownSvc<T> {
+                        type Response = super::super::common::Void;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ShutdownRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SchedulerService>::shutdown(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ShutdownSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

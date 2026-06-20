@@ -1,7 +1,10 @@
 //! gRPC-backed [`SchedulerClient`] implementation.
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId};
+use spider_core::types::{
+    id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, TaskAssignmentId, TaskId},
+    scheduler::{TaskAssignment, TaskAssignmentRecord},
+};
 use spider_proto_rust::{
     common,
     scheduler::{
@@ -46,6 +49,7 @@ impl SchedulerClient for GrpcSchedulerClient {
     async fn next_task(
         &self,
         em_id: ExecutionManagerId,
+        prev_assignment: Option<TaskAssignmentRecord>,
     ) -> Result<SchedulerResponse, SchedulerError> {
         loop {
             let response = self
@@ -53,6 +57,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                 .clone()
                 .next_task(scheduler::NextTaskRequest {
                     execution_manager_id: em_id.get(),
+                    prev_assignment: prev_assignment.map(task_assignment_record_to_protocol),
                 })
                 .await
                 .map_err(to_transport_error)?
@@ -61,6 +66,42 @@ impl SchedulerClient for GrpcSchedulerClient {
             if let Some(assignment) = scheduler_response_to_result(response)? {
                 return Ok(assignment);
             }
+        }
+    }
+
+    async fn heartbeat(&self, em_id: ExecutionManagerId) -> Result<(), SchedulerError> {
+        self.client
+            .clone()
+            .heartbeat(scheduler::HeartbeatRequest {
+                execution_manager_id: em_id.get(),
+            })
+            .await
+            .map_err(to_transport_error)?;
+        Ok(())
+    }
+
+    async fn shutdown(
+        &self,
+        em_id: ExecutionManagerId,
+        prev_assignments: Vec<TaskAssignmentRecord>,
+    ) {
+        if let Err(error) = self
+            .client
+            .clone()
+            .shutdown(scheduler::ShutdownRequest {
+                execution_manager_id: em_id.get(),
+                prev_assignments: prev_assignments
+                    .into_iter()
+                    .map(task_assignment_record_to_protocol)
+                    .collect(),
+            })
+            .await
+        {
+            tracing::warn!(
+                em_id = ? em_id,
+                error = ? error,
+                "Failed to notify scheduler shutdown."
+            );
         }
     }
 }
@@ -96,9 +137,13 @@ fn scheduler_response_to_result(
                 })?;
 
             Ok(Some(SchedulerResponse {
-                job_id: JobId::from(assignment.job_id),
-                task_id,
-                resource_group_id: ResourceGroupId::from(assignment.resource_group_id),
+                task_assignment: TaskAssignment {
+                    id: TaskAssignmentId::from(assignment.id),
+                    resource_group_id: ResourceGroupId::from(assignment.resource_group_id),
+                    job_id: JobId::from(assignment.job_id),
+                    task_id,
+                },
+                scheduler_id: SchedulerId::from(assignment.scheduler_id),
                 session_id: assignment.session_id,
             }))
         }
@@ -106,6 +151,20 @@ fn scheduler_response_to_result(
         None => Err(SchedulerError::Protocol(
             "next task response missing result".to_owned(),
         )),
+    }
+}
+
+/// Converts an assignment record into its protobuf representation.
+///
+/// # Returns
+///
+/// The protobuf representation of `record`.
+const fn task_assignment_record_to_protocol(
+    record: TaskAssignmentRecord,
+) -> scheduler::TaskAssignmentRecord {
+    scheduler::TaskAssignmentRecord {
+        id: record.id.get(),
+        from: record.from.get(),
     }
 }
 
@@ -120,7 +179,10 @@ fn to_transport_error(error: impl std::fmt::Display) -> SchedulerError {
 
 #[cfg(test)]
 mod tests {
-    use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
+    use spider_core::types::{
+        id::{JobId, ResourceGroupId, SchedulerId, TaskAssignmentId, TaskId},
+        scheduler::TaskAssignment,
+    };
     use spider_proto_rust::{
         common,
         scheduler::{NextTaskResponse, SchedulerAssignment, next_task_response},
@@ -134,10 +196,12 @@ mod tests {
         let response = NextTaskResponse {
             result: Some(next_task_response::Result::Assignment(
                 SchedulerAssignment {
-                    job_id: 11,
+                    id: 7,
+                    resource_group_id: 11,
+                    job_id: 13,
                     task_id: Some(common::TaskId::from(TaskId::Commit)),
-                    resource_group_id: 13,
-                    session_id: 17,
+                    scheduler_id: 17,
+                    session_id: 19,
                 },
             )),
         };
@@ -149,12 +213,28 @@ mod tests {
         assert_eq!(
             assignment,
             SchedulerResponse {
-                job_id: JobId::from(11),
-                task_id: TaskId::Commit,
-                resource_group_id: ResourceGroupId::from(13),
-                session_id: 17,
+                task_assignment: TaskAssignment {
+                    id: TaskAssignmentId::from(7),
+                    resource_group_id: ResourceGroupId::from(11),
+                    job_id: JobId::from(13),
+                    task_id: TaskId::Commit,
+                },
+                scheduler_id: SchedulerId::from(17),
+                session_id: 19,
             }
         );
+    }
+
+    #[test]
+    fn scheduler_response_to_result_returns_none_for_no_task() {
+        let response = NextTaskResponse {
+            result: Some(next_task_response::Result::NoTask(common::Void {})),
+        };
+
+        let result = scheduler_response_to_result(response)
+            .expect("scheduler response conversion should succeed");
+
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -169,10 +249,32 @@ mod tests {
         let response = NextTaskResponse {
             result: Some(next_task_response::Result::Assignment(
                 SchedulerAssignment {
+                    id: 7,
+                    resource_group_id: 11,
                     job_id: 11,
                     task_id: None,
-                    resource_group_id: 13,
+                    scheduler_id: 17,
                     session_id: 17,
+                },
+            )),
+        };
+
+        let result = scheduler_response_to_result(response);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn scheduler_response_to_result_rejects_malformed_task_id() {
+        let response = NextTaskResponse {
+            result: Some(next_task_response::Result::Assignment(
+                SchedulerAssignment {
+                    id: 7,
+                    resource_group_id: 11,
+                    job_id: 13,
+                    task_id: Some(common::TaskId { kind: None }),
+                    scheduler_id: 17,
+                    session_id: 19,
                 },
             )),
         };
