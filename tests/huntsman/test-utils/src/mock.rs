@@ -12,15 +12,17 @@ use std::{
         Mutex,
         MutexGuard,
         PoisonError,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use async_trait::async_trait;
+use dashmap::DashSet;
 use spider_core::types::{
     id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
     io::ExecutionContext,
+    scheduler::TaskAssignmentRecord,
 };
 use spider_execution_manager::client::{
     LivenessClient,
@@ -54,6 +56,8 @@ impl MockScheduler {
                 responses: Mutex::new(VecDeque::new()),
                 notify: Notify::new(),
                 call_count: AtomicU64::new(0),
+                outstanding: DashSet::new(),
+                heartbeat_count: AtomicU64::new(0),
             }),
         }
     }
@@ -72,6 +76,24 @@ impl MockScheduler {
     pub fn call_count(&self) -> u64 {
         self.inner.call_count.load(Ordering::Relaxed)
     }
+
+    /// # Returns
+    ///
+    /// A snapshot of the assignment records that have been handed out but not yet checked off by a
+    /// `prev_assignment` acknowledgement. An empty snapshot means the runtime has reported every
+    /// assignment it was given as consumed.
+    #[must_use]
+    pub fn outstanding(&self) -> Vec<TaskAssignmentRecord> {
+        self.inner.outstanding.iter().map(|r| *r).collect()
+    }
+
+    /// # Returns
+    ///
+    /// The number of `heartbeat` calls observed.
+    #[must_use]
+    pub fn heartbeat_count(&self) -> u64 {
+        self.inner.heartbeat_count.load(Ordering::Relaxed)
+    }
 }
 
 impl Default for MockScheduler {
@@ -85,15 +107,42 @@ impl SchedulerClient for MockScheduler {
     async fn next_task(
         &self,
         _em_id: ExecutionManagerId,
+        prev_assignment: Option<TaskAssignmentRecord>,
     ) -> Result<SchedulerResponse, SchedulerError> {
+        if let Some(record) = prev_assignment {
+            self.inner.outstanding.remove(&record);
+        }
         self.inner.call_count.fetch_add(1, Ordering::Relaxed);
         loop {
             let notified = self.inner.notify.notified();
             let popped = lock(&self.inner.responses).pop_front();
             if let Some(response) = popped {
+                // Track every assignment handed out so the test can confirm the runtime later
+                // reports it as consumed.
+                if let Ok(assignment) = &response {
+                    self.inner.outstanding.insert(TaskAssignmentRecord::new(
+                        assignment.task_assignment.id,
+                        assignment.scheduler_id,
+                    ));
+                }
                 return response;
             }
             notified.await;
+        }
+    }
+
+    async fn heartbeat(&self, _em_id: ExecutionManagerId) -> Result<(), SchedulerError> {
+        self.inner.heartbeat_count.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    async fn shutdown(
+        &self,
+        _em_id: ExecutionManagerId,
+        prev_assignments: Vec<TaskAssignmentRecord>,
+    ) {
+        for record in prev_assignments {
+            self.inner.outstanding.remove(&record);
         }
     }
 }
@@ -153,6 +202,7 @@ impl MockStorage {
                 success_reports: Mutex::new(Vec::new()),
                 failure_reports: Mutex::new(Vec::new()),
                 notify: Notify::new(),
+                block_register: AtomicBool::new(false),
             }),
         }
     }
@@ -160,6 +210,13 @@ impl MockStorage {
     /// Queues `response` for the next `register_task_instance` call.
     pub fn push_register_response(&self, response: Result<ExecutionContext, StorageResponseError>) {
         lock(&self.inner.register_responses).push_back(response);
+    }
+
+    /// Makes every subsequent `register_task_instance` call record its arguments and then park
+    /// indefinitely instead of returning. A test can use this to cancel the runtime while a
+    /// registration is in flight.
+    pub fn block_register(&self) {
+        self.inner.block_register.store(true, Ordering::Relaxed);
     }
 
     /// Queues `response` for the next `report_task_success` call.
@@ -241,6 +298,10 @@ impl StorageClient for MockStorage {
             em_id,
             session_id,
         });
+        if self.inner.block_register.load(Ordering::Relaxed) {
+            // Park until this future is dropped (e.g. the runtime observes cancellation).
+            std::future::pending::<()>().await;
+        }
         let response = lock(&self.inner.register_responses).pop_front();
         response.expect("mock storage exhausted register responses")
     }
@@ -439,6 +500,11 @@ struct SchedulerInner {
     responses: Mutex<VecDeque<Result<SchedulerResponse, SchedulerError>>>,
     notify: Notify,
     call_count: AtomicU64,
+    /// Records of the assignments handed out by `next_task` that have not yet been checked off by
+    /// a `prev_assignment` acknowledgement. An empty set on exit means the runtime reported every
+    /// assignment it was given as consumed.
+    outstanding: DashSet<TaskAssignmentRecord>,
+    heartbeat_count: AtomicU64,
 }
 
 /// Shared state behind [`MockStorage`].
@@ -450,6 +516,9 @@ struct StorageInner {
     success_reports: Mutex<Vec<SuccessReport>>,
     failure_reports: Mutex<Vec<FailureReport>>,
     notify: Notify,
+    /// When set, `register_task_instance` parks forever (after recording the call) instead of
+    /// returning. Lets a test cancel the runtime while a registration is in flight.
+    block_register: AtomicBool,
 }
 
 /// Shared state behind [`MockLiveness`].

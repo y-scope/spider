@@ -3,7 +3,10 @@
 //! The execution manager acquires tasks from the scheduler through [`SchedulerClient`].
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId};
+use spider_core::types::{
+    id::{ExecutionManagerId, SchedulerId, SessionId},
+    scheduler::{TaskAssignment, TaskAssignmentRecord},
+};
 
 /// A task assignment handed to the execution manager by the scheduler.
 ///
@@ -12,9 +15,13 @@ use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, Session
 /// attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SchedulerResponse {
-    pub job_id: JobId,
-    pub task_id: TaskId,
-    pub resource_group_id: ResourceGroupId,
+    /// The task placement decision produced by the scheduler.
+    pub task_assignment: TaskAssignment,
+
+    /// The scheduler that produced the assignment.
+    pub scheduler_id: SchedulerId,
+
+    /// The scheduler's view of storage's session when the assignment was produced.
     pub session_id: SessionId,
 }
 
@@ -42,6 +49,8 @@ pub trait SchedulerClient: Send + Sync {
     /// # Parameters
     ///
     /// * `em_id` - The identity of the calling execution manager.
+    /// * `prev_assignment` - The last task assignment produced by the scheduler that is
+    ///   successfully consumed by the execution manager.
     ///
     /// # Returns
     ///
@@ -56,5 +65,34 @@ pub trait SchedulerClient: Send + Sync {
     async fn next_task(
         &self,
         em_id: ExecutionManagerId,
+        prev_assignment: Option<TaskAssignmentRecord>,
     ) -> Result<SchedulerResponse, SchedulerError>;
+
+    /// Sends a heartbeat to the scheduler to refresh the liveness of the current execution manager.
+    ///
+    /// # Parameters
+    ///
+    /// * `em_id` - The identity of the calling execution manager.
+    ///
+    /// # Errors
+    ///
+    /// * [`SchedulerError::Transport`] if the connection was lost or the request timed out.
+    async fn heartbeat(&self, em_id: ExecutionManagerId) -> Result<(), SchedulerError>;
+
+    /// Signals the scheduler that the current execution manager is shutting down.
+    ///
+    /// This method is intended to be called during runtime shutdown. It does not return an error,
+    /// since shutdown handling should proceed on a best-effort basis. The implementation may return
+    /// immediately in a fire-and-forget manner.
+    ///
+    /// # Parameters
+    ///
+    /// * `em_id` - The identity of the calling execution manager.
+    /// * `prev_assignments` - The task assignments produced by the scheduler that are successfully
+    ///   consumed by the execution manager.`
+    async fn shutdown(
+        &self,
+        em_id: ExecutionManagerId,
+        prev_assignments: Vec<TaskAssignmentRecord>,
+    );
 }
