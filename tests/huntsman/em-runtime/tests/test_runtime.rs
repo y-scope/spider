@@ -13,8 +13,17 @@ use anyhow::Context;
 use spider_core::{
     task::{TdlContext, TimeoutPolicy},
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId},
+        id::{
+            ExecutionManagerId,
+            JobId,
+            ResourceGroupId,
+            SchedulerId,
+            SessionId,
+            TaskAssignmentId,
+            TaskId,
+        },
         io::{ExecutionContext, TaskInput},
+        scheduler::{TaskAssignment, TaskAssignmentRecord},
     },
 };
 use spider_execution_manager::{
@@ -46,9 +55,13 @@ const TIGHT_WAIT: Duration = Duration::from_millis(500);
 /// alongside the requested `session_id`.
 fn assignment_with_session(session_id: u64) -> SchedulerResponse {
     SchedulerResponse {
-        job_id: JobId::random(),
-        task_id: TaskId::Index(0),
-        resource_group_id: ResourceGroupId::random(),
+        task_assignment: TaskAssignment {
+            id: TaskAssignmentId::random(),
+            resource_group_id: ResourceGroupId::random(),
+            job_id: JobId::random(),
+            task_id: TaskId::Index(0),
+        },
+        scheduler_id: SchedulerId::random(),
         session_id,
     }
 }
@@ -115,6 +128,7 @@ fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
     RuntimeConfig {
         em_ip: "127.0.0.1".parse().expect("parse loopback"),
         heartbeat_interval,
+        scheduler_heartbeat_interval: heartbeat_interval,
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,
@@ -208,10 +222,12 @@ async fn scheduler_error_is_retried() -> anyhow::Result<()> {
     // poll returns a real assignment, which we drop on the storage side to keep the test focused.
     scheduler.push(Err(SchedulerError::Transport("boom".to_owned())));
     scheduler.push(Ok(assignment_with_session(SESSION_ID)));
-    storage.push_register_response(Err(StorageResponseError::Server("test drop".to_owned())));
+    storage.push_register_response(Err(StorageResponseError::CacheStale(
+        "test drop".to_owned(),
+    )));
 
     let (runtime, token) = Runtime::create(
-        scheduler,
+        scheduler.clone(),
         storage.clone(),
         Arc::new(liveness),
         runtime_config(HEARTBEAT_INTERVAL),
@@ -228,6 +244,7 @@ async fn scheduler_error_is_retried() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -265,6 +282,7 @@ async fn stale_bundle_is_dropped_without_register() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -295,7 +313,9 @@ async fn newer_bundle_triggers_liveness_refresh() -> anyhow::Result<()> {
     // The newer-session bundle: the runtime should call `LivenessHandle::refresh` before
     // registering. Drop the bundle on the storage side to keep the test focused on the refresh.
     scheduler.push(Ok(assignment_with_session(LATEST_SESSION)));
-    storage.push_register_response(Err(StorageResponseError::Server("test drop".to_owned())));
+    storage.push_register_response(Err(StorageResponseError::CacheStale(
+        "test drop".to_owned(),
+    )));
     let join = tokio::spawn(runtime.run());
 
     assert!(
@@ -306,6 +326,7 @@ async fn newer_bundle_triggers_liveness_refresh() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -329,7 +350,9 @@ async fn equal_session_passes_through_to_register() -> anyhow::Result<()> {
     // Bundle session matches the tracker exactly — runtime should skip triage and call register.
     // Drop on the storage side so we don't need a real execution.
     scheduler.push(Ok(assignment_with_session(SESSION_ID)));
-    storage.push_register_response(Err(StorageResponseError::Server("test drop".to_owned())));
+    storage.push_register_response(Err(StorageResponseError::CacheStale(
+        "test drop".to_owned(),
+    )));
     let join = tokio::spawn(runtime.run());
 
     assert!(
@@ -342,6 +365,7 @@ async fn equal_session_passes_through_to_register() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -388,6 +412,7 @@ async fn stale_session_drops_assignment_and_refreshes() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -408,31 +433,34 @@ async fn recoverable_storage_errors_drop_assignment() -> anyhow::Result<()> {
     )
     .await?;
 
-    // Three bundles, three recoverable register failures. Each one should cause the loop to drop
-    // the assignment and poll the scheduler again.
+    // Two bundles, two recoverable register failures. Each one should cause the loop to drop the
+    // assignment and poll the scheduler again.
     let recoverable_errors = [
-        StorageResponseError::Transport("net blip".to_owned()),
         StorageResponseError::CacheStale("stale cache".to_owned()),
-        StorageResponseError::Server("server boom".to_owned()),
+        StorageResponseError::StaleSession {
+            storage_session: SESSION_ID + 1,
+        },
     ];
+    let num_errors = recoverable_errors.len() as u64;
     for err in recoverable_errors {
         scheduler.push(Ok(assignment_with_session(SESSION_ID)));
         storage.push_register_response(Err(err));
     }
     let join = tokio::spawn(runtime.run());
 
-    // After all three are drained, the next scheduler call blocks because the queue is empty.
     assert!(
-        wait_until(|| scheduler.call_count() >= 4, BOUNDED_WAIT).await,
-        "expected 3 drops + 1 idle poll; call_count = {}",
+        wait_until(|| scheduler.call_count() >= (num_errors + 1), BOUNDED_WAIT).await,
+        "expected {} drops + 1 idle poll; call_count = {}",
+        num_errors,
         scheduler.call_count()
     );
-    assert_eq!(storage.register_calls().len(), 3);
+    assert_eq!(storage.register_calls().len(), usize::try_from(num_errors)?);
     assert!(storage.success_reports().is_empty());
     assert!(storage.failure_reports().is_empty());
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -454,8 +482,8 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
     .await?;
     let em_id = liveness.em_id();
 
-    let assignment = assignment_with_session(SESSION_ID);
-    scheduler.push(Ok(assignment));
+    let response = assignment_with_session(SESSION_ID);
+    scheduler.push(Ok(response));
     storage.push_register_response(Ok(execution_context("fibonacci", single_input(&10_u64))));
     let join = tokio::spawn(runtime.run());
 
@@ -463,8 +491,8 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
     let reports = storage.success_reports();
     assert_eq!(reports.len(), 1);
     let report = &reports[0];
-    assert_eq!(report.job_id, assignment.job_id);
-    assert_eq!(report.task_id, assignment.task_id);
+    assert_eq!(report.job_id, response.task_assignment.job_id);
+    assert_eq!(report.task_id, response.task_assignment.task_id);
     assert_eq!(report.em_id, em_id);
     assert_eq!(report.session_id, SESSION_ID);
     let outputs = report
@@ -476,6 +504,7 @@ async fn success_outcome_reports_outputs() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -518,6 +547,7 @@ async fn non_success_outcome_keeps_loop_serving() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -555,6 +585,7 @@ async fn storage_report_error_does_not_kill_runtime() -> anyhow::Result<()> {
 
     token.cancel();
     join.await??;
+    assert_eq!(scheduler.outstanding(), &[]);
     Ok(())
 }
 
@@ -595,5 +626,100 @@ async fn drop_guard_cancels_token_when_run_future_dropped() -> anyhow::Result<()
         current, snapshot,
         "liveness actor kept heartbeating after Runtime drop; was {snapshot}, now {current}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn liveness_and_scheduler_heartbeats_advance_in_lockstep() -> anyhow::Result<()> {
+    const SESSION_ID: SessionId = 5;
+    // Run for 3.5 intervals so the runtime is dropped mid-interval — comfortably clear of a tick
+    // edge — leaving both heartbeat loops with the same count instead of racing one extra tick at
+    // the boundary.
+    const RUN_WINDOW: Duration = Duration::from_millis(350);
+    const { assert!(RUN_WINDOW.as_millis() == 3 * HEARTBEAT_INTERVAL.as_millis() + 50) };
+
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::with_initial_session(SESSION_ID);
+
+    let (runtime, _token) = Runtime::create(
+        scheduler.clone(),
+        storage.clone(),
+        Arc::new(liveness.clone()),
+        runtime_config(HEARTBEAT_INTERVAL),
+    )
+    .await?;
+
+    // A single assignment that storage skips without execution via a recoverable error that does
+    // not refresh liveness, so the loop keeps serving (no real task is run) while both heartbeat
+    // tasks tick off the same interval.
+    scheduler.push(Ok(assignment_with_session(SESSION_ID)));
+    storage.push_register_response(Err(StorageResponseError::CacheStale("skip".to_owned())));
+
+    // Drop the runtime after the window: dropping the `run` future fires the `DropGuard`, which
+    // cancels the liveness actor and the scheduler heartbeat task at the same point.
+    let timeout_result = tokio::time::timeout(RUN_WINDOW, runtime.run()).await;
+    assert!(
+        timeout_result.is_err(),
+        "run unexpectedly returned within the window: {timeout_result:?}"
+    );
+
+    // Let both tasks observe cancellation and stop before sampling their counters.
+    tokio::time::sleep(2 * HEARTBEAT_INTERVAL).await;
+
+    let liveness_beats = liveness.heartbeat_count();
+    let scheduler_beats = scheduler.heartbeat_count();
+    assert!(
+        liveness_beats >= 2 && scheduler_beats >= 2,
+        "expected both heartbeat loops to have ticked several times; liveness = {liveness_beats}, \
+         scheduler = {scheduler_beats}"
+    );
+    assert_eq!(
+        liveness_beats, scheduler_beats,
+        "liveness and scheduler heartbeats should advance in lockstep off the same interval"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn cancellation_during_register_leaves_assignment_unacked() -> anyhow::Result<()> {
+    const SESSION_ID: SessionId = 5;
+
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::with_initial_session(SESSION_ID);
+
+    let (runtime, token) = Runtime::create(
+        scheduler.clone(),
+        storage.clone(),
+        Arc::new(liveness),
+        runtime_config(HEARTBEAT_INTERVAL),
+    )
+    .await?;
+
+    // Storage parks the registration so we can cancel the runtime while it is in flight. The
+    // assignment is therefore never "truly returned from storage", so it must not be acknowledged.
+    storage.block_register();
+    let response = assignment_with_session(SESSION_ID);
+    scheduler.push(Ok(response));
+    let join = tokio::spawn(runtime.run());
+
+    // Wait until the registration is in flight (recorded, then parked) before cancelling, so the
+    // cancellation lands inside `register_task_instance`.
+    assert!(
+        wait_until(|| !storage.register_calls().is_empty(), BOUNDED_WAIT).await,
+        "expected the runtime to enter register_task_instance before cancelling"
+    );
+
+    token.cancel();
+    join.await??;
+
+    // Cancellation mid-register pushes nothing into `prev_assignments`, so the runtime never
+    // acknowledges the assignment: the scheduler still holds it as outstanding after the runtime
+    // exits.
+    let expected = TaskAssignmentRecord::new(response.task_assignment.id, response.scheduler_id);
+    assert_eq!(scheduler.outstanding(), &[expected]);
     Ok(())
 }
