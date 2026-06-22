@@ -23,6 +23,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId, TaskInstanceId};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -39,7 +40,8 @@ use crate::{
 /// Configuration for a task instance pool actor.
 ///
 /// Controls GC timing, channel buffering, and execution manager staleness detection.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
 pub struct TaskInstancePoolConfig {
     /// Seconds without a heartbeat after which an execution manager is considered stale.
     pub execution_manager_stale_cutoff_sec: u64,

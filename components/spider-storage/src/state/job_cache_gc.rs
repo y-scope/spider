@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use serde::Deserialize;
 use spider_core::types::id::JobId;
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -21,7 +22,8 @@ use crate::{
 };
 
 /// Configuration for the job-cache GC actor.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
 pub struct JobCacheGcConfig {
     /// Seconds to keep a terminated job in the in-memory cache before GC can remove it.
     pub terminated_job_retention_sec: u64,
