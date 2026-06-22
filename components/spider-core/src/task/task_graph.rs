@@ -7,7 +7,10 @@ use serde::{
 };
 use strum::{AsRefStr, EnumCount, EnumIter, IntoEnumIterator};
 
-use crate::task::{DataTypeDescriptor, Error};
+use crate::{
+    compression::{decode_zstd_bytes, encode_zstd_bytes},
+    task::{DataTypeDescriptor, Error},
+};
 
 /// A unique identifier for a task within a task graph, assigned based on insertion order.
 ///
@@ -415,6 +418,25 @@ impl TaskGraph {
         serde_json::from_str(json_str).map_err(Into::into)
     }
 
+    /// Loads a task graph from a zstd-compressed serialized task graph in JSON format.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized task graph on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
+    /// * Forwards [`String::from_utf8`]'s return values on failure.
+    /// * Forwards [`Self::from_json`]'s return values on failure.
+    pub fn from_zstd_compressed_json(bytes: &[u8]) -> Result<Self, Error> {
+        let json = decode_zstd_bytes(bytes)?;
+        let json = String::from_utf8(json)?;
+        Self::from_json(&json)
+    }
+
     /// Loads a task graph from a serialized task graph in `MessagePack` format.
     ///
     /// # Returns
@@ -476,6 +498,22 @@ impl TaskGraph {
     /// * Forwards [`serde_json::to_string`]'s return values on failure.
     pub fn to_json(&self) -> Result<String, Error> {
         serde_json::to_string(&self).map_err(Into::into)
+    }
+
+    /// Serializes the task graph into zstd-compressed JSON format.
+    ///
+    /// # Returns
+    ///
+    /// The zstd-compressed serialized task graph as bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::to_json`]'s return values on failure.
+    /// * Forwards [`encode_zstd_bytes`]'s return values on failure.
+    pub fn to_zstd_compressed_json(&self) -> Result<Vec<u8>, Error> {
+        encode_zstd_bytes(self.to_json()?.as_bytes()).map_err(Into::into)
     }
 
     /// Serializes the task graph into `MessagePack` format.

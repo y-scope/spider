@@ -23,10 +23,6 @@ pub enum Error {
     #[error("binary payload encoding is unknown: {0}")]
     BinaryPayloadEncodingUnknown(i32),
 
-    /// A protobuf [`crate::storage::BinaryPayload`] could not be compressed.
-    #[error("failed to compress binary payload: {0}")]
-    BinaryPayloadCompression(String),
-
     /// A protobuf [`crate::storage::BinaryPayload`] could not be decompressed.
     #[error("failed to decompress binary payload: {0}")]
     BinaryPayloadDecompression(String),

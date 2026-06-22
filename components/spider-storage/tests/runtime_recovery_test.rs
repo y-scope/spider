@@ -1,6 +1,7 @@
 use std::{net::IpAddr, time::Duration};
 
 use spider_core::{
+    compression::encode_zstd_bytes,
     job::JobState,
     task::TaskIndex,
     types::{
@@ -8,7 +9,6 @@ use spider_core::{
         io::{TaskInput, TaskOutput},
     },
 };
-use spider_proto_rust::payload::encode_zstd_bytes;
 use spider_storage::{
     cache::error::{CacheError, StaleStateError},
     db::ExternalJobOrchestration,
@@ -401,7 +401,7 @@ async fn register_job<
     Ok(service
         .register_job(
             rg_id,
-            encode_zstd_bytes(task_graph.to_json()?.into_bytes())?,
+            task_graph.to_zstd_compressed_json()?,
             serialize_compressed_inputs(inputs)?,
         )
         .await?)
@@ -578,7 +578,7 @@ fn serialize_compressed_inputs(inputs: Vec<TaskInput>) -> anyhow::Result<Vec<u8>
     for input in inputs {
         serializer.append(input)?;
     }
-    Ok(encode_zstd_bytes(serializer.release())?)
+    Ok(encode_zstd_bytes(&serializer.release())?)
 }
 
 /// Serializes the single output payload used by recovery tests.

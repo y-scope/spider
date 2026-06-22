@@ -5,6 +5,7 @@ use const_format::formatcp;
 use prost::Message;
 use secrecy::ExposeSecret;
 use spider_core::{
+    compression::{decode_zstd_bytes, encode_zstd_bytes},
     job::JobState,
     task::TaskGraph,
     types::{
@@ -15,7 +16,7 @@ use spider_core::{
 };
 use spider_derive::MySqlEnum;
 use spider_proto_rust::{
-    payload::{decode_payload, decode_zstd_bytes, encode_zstd_bytes},
+    payload::decode_payload,
     storage::{BinaryPayload, BinaryPayloadEncoding},
 };
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
@@ -121,14 +122,10 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         let task_graph = job_submission.task_graph();
         let job_inputs = job_submission.inputs();
         let compressed_serialized_task_graph = task_graph
-            .to_json()
-            .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))
-            .and_then(|json| {
-                encode_zstd_bytes(json.into_bytes())
-                    .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))
-            })?;
+            .to_zstd_compressed_json()
+            .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;
         let serialized_job_inputs = rmp_serde::to_vec(&job_inputs).map_err(DbError::value_ser)?;
-        let compressed_serialized_job_inputs = encode_zstd_bytes(serialized_job_inputs)
+        let compressed_serialized_job_inputs = encode_zstd_bytes(&serialized_job_inputs)
             .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?;
 
         let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
@@ -786,11 +783,11 @@ CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
 /// * Forwards [`encode_zstd_bytes`]'s return values on failure.
 fn encode_job_output_payload_blob(
     raw: Vec<u8>,
-) -> Result<Vec<u8>, spider_proto_rust::error::Error> {
+) -> Result<Vec<u8>, spider_core::compression::Error> {
     let (encoding, data) = if raw.len() <= JOB_OUTPUT_RAW_PAYLOAD_MAX_SIZE {
         (BinaryPayloadEncoding::Raw, raw)
     } else {
-        (BinaryPayloadEncoding::Zstd, encode_zstd_bytes(raw)?)
+        (BinaryPayloadEncoding::Zstd, encode_zstd_bytes(&raw)?)
     };
     Ok(BinaryPayload {
         encoding: encoding as i32,
@@ -838,18 +835,16 @@ impl RecoverableJobRowProjection {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
+    /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
     /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
     ///   [`DbError::CorruptedDbState`] on failure.
     fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
-        let serialized_task_graph = decode_zstd_bytes(self.compressed_serialized_task_graph)
-            .map_err(|e| DbError::TaskGraphDeserializationFailure(Box::new(e)))?;
-        let serialized_task_graph =
-            String::from_utf8(serialized_task_graph).map_err(DbError::task_graph_de)?;
         let task_graph =
-            TaskGraph::from_json(&serialized_task_graph).map_err(DbError::task_graph_de)?;
-        let serialized_job_inputs = decode_zstd_bytes(self.compressed_serialized_job_inputs)
+            TaskGraph::from_zstd_compressed_json(&self.compressed_serialized_task_graph)
+                .map_err(|e| DbError::TaskGraphDeserializationFailure(Box::new(e)))?;
+        let serialized_job_inputs = decode_zstd_bytes(&self.compressed_serialized_job_inputs)
             .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
         let inputs: Vec<TaskInput> =
             rmp_serde::from_slice(&serialized_job_inputs).map_err(DbError::value_de)?;

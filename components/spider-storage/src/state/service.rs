@@ -1,8 +1,9 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use spider_core::{
+    compression::decode_zstd_bytes,
     job::JobState,
-    task::{TaskGraph, TaskIndex},
+    task::{Error as TaskError, TaskGraph, TaskIndex},
     types::{
         id::{
             ExecutionManagerId,
@@ -17,7 +18,6 @@ use spider_core::{
         scheduler::RegisteredScheduler,
     },
 };
-use spider_proto_rust::payload::decode_zstd_bytes;
 use spider_tdl::{
     error::TdlError,
     wire::{TaskOutputsSerializer, unframe},
@@ -114,7 +114,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
+    /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
     /// * Forwards [`spider_tdl::wire::unframe`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
@@ -126,14 +127,15 @@ impl<
         compressed_serialized_task_graph: Vec<u8>,
         compressed_serialized_inputs: Vec<u8>,
     ) -> Result<JobId, StorageServerError> {
-        let serialized_task_graph = decode_zstd_bytes(compressed_serialized_task_graph)
+        let task_graph = TaskGraph::from_zstd_compressed_json(&compressed_serialized_task_graph)
+            .map_err(|e| match e {
+                TaskError::CompressionError(_) | TaskError::FromUtf8Error(_) => {
+                    StorageServerError::BadRequest(e.to_string())
+                }
+                e => StorageServerError::Task(e),
+            })?;
+        let serialized_inputs = decode_zstd_bytes(&compressed_serialized_inputs)
             .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
-        let serialized_task_graph = String::from_utf8(serialized_task_graph)
-            .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
-        let serialized_inputs = decode_zstd_bytes(compressed_serialized_inputs)
-            .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
-        let task_graph =
-            TaskGraph::from_json(&serialized_task_graph).map_err(StorageServerError::Task)?;
         let inputs = unframe(&serialized_inputs)
             .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?
             .into_iter()
@@ -763,8 +765,8 @@ struct ServiceStateInner<
 
 #[cfg(test)]
 mod tests {
-
     use spider_core::{
+        compression::encode_zstd_bytes,
         job::JobState,
         task::{
             DataTypeDescriptor,
@@ -779,7 +781,6 @@ mod tests {
             io::{TaskInput, TaskOutput},
         },
     };
-    use spider_proto_rust::payload::encode_zstd_bytes;
 
     use super::*;
     use crate::{
@@ -875,16 +876,16 @@ mod tests {
 
     fn create_test_job_submission() -> (Vec<u8>, Vec<u8>) {
         let task_graph = create_test_task_graph()
-            .to_json()
-            .expect("task graph serialization should succeed");
+            .to_zstd_compressed_json()
+            .expect("task graph serialization and compression should succeed");
         let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
         serializer
             .append(TaskInput::ValuePayload(vec![0u8; 4]))
             .expect("input serialization should succeed");
+        let serialized_inputs = serializer.release();
         (
-            encode_zstd_bytes(task_graph.into_bytes())
-                .expect("task graph compression should succeed"),
-            encode_zstd_bytes(serializer.release()).expect("input compression should succeed"),
+            task_graph,
+            encode_zstd_bytes(&serialized_inputs).expect("input compression should succeed"),
         )
     }
 
@@ -895,7 +896,7 @@ mod tests {
     }
 
     fn create_empty_compressed_serialized_inputs() -> Vec<u8> {
-        encode_zstd_bytes(spider_tdl::wire::TaskInputsSerializer::new().release())
+        encode_zstd_bytes(&spider_tdl::wire::TaskInputsSerializer::new().release())
             .expect("empty input compression should succeed")
     }
 
@@ -945,7 +946,7 @@ mod tests {
         let result = service
             .register_job(
                 ResourceGroupId::random(),
-                encode_zstd_bytes(b"invalid json".to_vec())
+                encode_zstd_bytes(b"invalid json")
                     .expect("invalid task graph compression should succeed"),
                 create_empty_compressed_serialized_inputs(),
             )
@@ -966,7 +967,7 @@ mod tests {
         let result = service
             .register_job(
                 ResourceGroupId::random(),
-                encode_zstd_bytes(task_graph.into_bytes())
+                encode_zstd_bytes(task_graph.as_bytes())
                     .expect("task graph compression should succeed"),
                 create_empty_compressed_serialized_inputs(),
             )
@@ -988,7 +989,7 @@ mod tests {
         let result = service
             .register_job(
                 ResourceGroupId::random(),
-                encode_zstd_bytes(task_graph.into_bytes())
+                encode_zstd_bytes(task_graph.as_bytes())
                     .expect("task graph compression should succeed"),
                 create_empty_compressed_serialized_inputs(),
             )

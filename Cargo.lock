@@ -1856,6 +1856,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "zstd",
 ]
 
 [[package]]
@@ -1897,7 +1898,6 @@ dependencies = [
  "thiserror",
  "tonic",
  "tonic-build",
- "zstd",
 ]
 
 [[package]]
