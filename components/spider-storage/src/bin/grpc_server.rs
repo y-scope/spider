@@ -14,7 +14,7 @@ use spider_proto_rust::storage::{
 };
 use spider_storage::{
     ServerConfig,
-    grpc::StorageGrpcService,
+    grpc::GrpcServiceState,
     logging::set_up_logging,
     state::runtime::create_runtime,
 };
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server_config = ServerConfig::from_yaml_file(&cli.config)?;
     let listen_addr = SocketAddr::new(server_config.host, server_config.port);
     let (runtime, cancellation_token) = create_runtime(&server_config.runtime).await?;
-    let grpc_service = StorageGrpcService::new(runtime.get_service_state());
+    let grpc_service = GrpcServiceState::new(runtime.get_service_state());
     tracing::info!(listen_addr = % listen_addr, "Starting storage gRPC server.");
 
     let serve_result = Server::builder()
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .add_service(SessionManagementServiceServer::new(grpc_service))
         .serve_with_shutdown(listen_addr, async move {
             if let Err(error) = tokio::signal::ctrl_c().await {
-                tracing::error!(error = ? error, "Failed to listen for Ctrl-C.");
+                tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
             }
             cancellation_token.cancel();
         })

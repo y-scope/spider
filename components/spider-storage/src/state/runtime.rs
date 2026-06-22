@@ -79,10 +79,10 @@ impl<
                     tracing::info!("Task instance pool stopped.");
                 }
                 Ok(Err(e)) => {
-                    tracing::error!(error = ? e, "Task instance pool exited on error.");
+                    tracing::error!(error = % e, "Task instance pool exited on error.");
                 }
                 Err(e) => {
-                    tracing::error!(error = ? e, "Task instance pool exited on panic.");
+                    tracing::error!(error = % e, "Task instance pool exited on panic.");
                 }
             }
         };
@@ -93,10 +93,10 @@ impl<
                     tracing::info!("Job cache GC stopped.");
                 }
                 Ok(Err(e)) => {
-                    tracing::error!(error = ? e, "Job cache GC exited on error.");
+                    tracing::error!(error = % e, "Job cache GC exited on error.");
                 }
                 Err(e) => {
-                    tracing::error!(error = ? e, "Job cache GC exited on panic.");
+                    tracing::error!(error = % e, "Job cache GC exited on panic.");
                 }
             }
         };

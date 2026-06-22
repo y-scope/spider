@@ -48,7 +48,6 @@ message SubmitJobRequest {
   uint64 resource_group_id = 1;
   bytes serialized_task_graph = 2;
   bytes serialized_inputs = 3;
-  uint64 session_id = 4;
 }
 
 message SubmitJobResponse {

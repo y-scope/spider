@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use spider_core::{
     job::JobState,
     types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId},
+        id::{ExecutionManagerId, JobId, ResourceGroupId, SessionId, TaskId},
         scheduler::RegisteredScheduler,
     },
 };
@@ -53,36 +53,37 @@ use crate::{
 };
 
 /// gRPC adapter over a storage [`ServiceState`].
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The ready queue sender type.
+/// * `DbConnectorType` - The database connector type.
+/// * `TaskInstancePoolConnectorType` - The task instance pool connector type.
 #[derive(Clone)]
-pub struct StorageGrpcService<
+pub struct GrpcServiceState<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    service_state:
-        ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    inner: ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
 }
 
 impl<
     ReadyQueueSenderType: ReadyQueueSender,
     DbConnectorType: DbStorage,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// A new [`StorageGrpcService`] wrapping `service_state`.
+    /// A new [`GrpcServiceState`] wrapping [`ServiceState`].
     #[must_use]
     pub const fn new(
-        service_state: ServiceState<
-            ReadyQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
+        inner: ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     ) -> Self {
-        Self { service_state }
+        Self { inner }
     }
 
     /// Validates a request session against the current runtime session.
@@ -90,8 +91,8 @@ impl<
     /// # Errors
     ///
     /// Returns [`StorageServerError::StaleSession`] if the request session is stale.
-    fn validate_session(&self, session_id: u64) -> Result<(), StorageServerError> {
-        if session_id != self.service_state.session_id() {
+    fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
+        if session_id != self.inner.session_id() {
             return Err(StorageServerError::StaleSession);
         }
         Ok(())
@@ -104,27 +105,21 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > JobOrchestrationService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn submit_job(
         &self,
         request: Request<storage::SubmitJobRequest>,
     ) -> Result<Response<storage::SubmitJobResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
-            session_id = request.session_id,
-            resource_group_id = request.resource_group_id,
-            task_graph_size = request.serialized_task_graph.len(),
-            input_count = request.serialized_inputs.len(),
-            "Received SubmitJob request."
+        tracing::info!(
+            rg_id = request.resource_group_id,
+            "Job submission request received."
         );
-        let result = self.validate_session(request.session_id).and_then(|()| {
-            String::from_utf8(request.serialized_task_graph)
-                .map_err(|e| StorageServerError::BadRequest(e.to_string()))
-        });
-        let result = match result {
+
+        let result = match String::from_utf8(request.serialized_task_graph) {
             Ok(serialized_task_graph) => {
-                self.service_state
+                self.inner
                     .register_job(
                         ResourceGroupId::from(request.resource_group_id),
                         serialized_task_graph,
@@ -132,14 +127,25 @@ impl<
                     )
                     .await
             }
-            Err(error) => Err(error),
-        };
+            Err(_) => Err(StorageServerError::BadRequest(
+                "the serialized task graph is not a valid UTF-8 string".to_owned(),
+            )),
+        }
+        .inspect_err(|error| {
+            tracing::error!(
+                rg_id = request.resource_group_id,
+                error = % error,
+                "Job submission request failed."
+            );
+        });
+
         Ok(Response::new(storage::SubmitJobResponse {
             result: Some(match result {
                 Ok(job_id) => submit_job_response::Result::JobId(job_id.get()),
-                Err(error) => {
-                    submit_job_response::Result::Error(job_orchestration_error(&error, self))
-                }
+                Err(error) => submit_job_response::Result::Error(job_orchestration_error(
+                    &error,
+                    self.inner.session_id(),
+                )),
             }),
         }))
     }
@@ -149,14 +155,24 @@ impl<
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobStateResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(job_id = request.job_id, "Received StartJob request.");
+        tracing::info!(job_id = request.job_id, "Job start request received.");
         let job_id = JobId::from(request.job_id);
         let result = self
-            .service_state
+            .inner
             .start_job(job_id)
             .await
-            .map(|()| JobState::Running);
-        Ok(Response::new(job_state_response_from_result(result, self)))
+            .map(|()| JobState::Running)
+            .inspect_err(|error| {
+                tracing::error!(
+                    job_id = request.job_id,
+                    error = % error,
+                    "Job start request failed."
+                );
+            });
+        Ok(Response::new(job_state_response_from_result(
+            result,
+            self.inner.session_id(),
+        )))
     }
 
     async fn cancel_job(
@@ -164,12 +180,25 @@ impl<
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobStateResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(job_id = request.job_id, "Received CancelJob request.");
+        tracing::info!(
+            job_id = request.job_id,
+            "Job cancellation request received."
+        );
         let result = self
-            .service_state
+            .inner
             .cancel_job(JobId::from(request.job_id))
-            .await;
-        Ok(Response::new(job_state_response_from_result(result, self)))
+            .await
+            .inspect_err(|error| {
+                tracing::error!(
+                    job_id = request.job_id,
+                    error = % error,
+                    "Job cancellation request failed."
+                );
+            });
+        Ok(Response::new(job_state_response_from_result(
+            result,
+            self.inner.session_id(),
+        )))
     }
 
     async fn get_job_state(
@@ -177,12 +206,22 @@ impl<
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobStateResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(job_id = request.job_id, "Received GetJobState request.");
+        tracing::info!(job_id = request.job_id, "Job state request received.");
         let result = self
-            .service_state
+            .inner
             .get_job_state(JobId::from(request.job_id))
-            .await;
-        Ok(Response::new(job_state_response_from_result(result, self)))
+            .await
+            .inspect_err(|error| {
+                tracing::error!(
+                    job_id = request.job_id,
+                    error = % error,
+                    "Job state request failed."
+                );
+            });
+        Ok(Response::new(job_state_response_from_result(
+            result,
+            self.inner.session_id(),
+        )))
     }
 
     async fn get_job_outputs(
@@ -190,19 +229,27 @@ impl<
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobOutputsResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(job_id = request.job_id, "Received GetJobOutputs request.");
+        tracing::info!(job_id = request.job_id, "Job outputs request received.");
         let result = self
-            .service_state
+            .inner
             .get_job_outputs(JobId::from(request.job_id))
-            .await;
+            .await
+            .inspect_err(|error| {
+                tracing::error!(
+                    job_id = request.job_id,
+                    error = % error,
+                    "Job outputs request failed."
+                );
+            });
         Ok(Response::new(storage::JobOutputsResponse {
             result: Some(match result {
                 Ok(outputs) => {
                     job_outputs_response::Result::Outputs(storage::JobOutputs { outputs })
                 }
-                Err(error) => {
-                    job_outputs_response::Result::Error(job_orchestration_error(&error, self))
-                }
+                Err(error) => job_outputs_response::Result::Error(job_orchestration_error(
+                    &error,
+                    self.inner.session_id(),
+                )),
             }),
         }))
     }
@@ -212,17 +259,25 @@ impl<
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobErrorResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(job_id = request.job_id, "Received GetJobError request.");
+        tracing::info!(job_id = request.job_id, "Job error request received.");
         let result = self
-            .service_state
+            .inner
             .get_job_error(JobId::from(request.job_id))
-            .await;
+            .await
+            .inspect_err(|error| {
+                tracing::error!(
+                    job_id = request.job_id,
+                    error = % error,
+                    "Job error request failed."
+                );
+            });
         Ok(Response::new(storage::JobErrorResponse {
             result: Some(match result {
                 Ok(error_message) => job_error_response::Result::ErrorMessage(error_message),
-                Err(error) => {
-                    job_error_response::Result::Error(job_orchestration_error(&error, self))
-                }
+                Err(error) => job_error_response::Result::Error(job_orchestration_error(
+                    &error,
+                    self.inner.session_id(),
+                )),
             }),
         }))
     }
@@ -234,18 +289,18 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > TaskInstanceManagementService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_task_instance(
         &self,
         request: Request<storage::RegisterTaskInstanceRequest>,
     ) -> Result<Response<storage::RegisterTaskInstanceResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             session_id = request.session_id,
             job_id = request.job_id,
-            execution_manager_id = request.execution_manager_id,
-            "Received RegisterTaskInstance request."
+            em_id = request.execution_manager_id,
+            "Task instance registration request received."
         );
         let result = request_task_id(request.task_id).map(|task_id| {
             (
@@ -257,25 +312,30 @@ impl<
         });
         let result = match result {
             Ok((session_id, job_id, task_id, execution_manager_id)) => {
-                self.service_state
+                self.inner
                     .create_task_instance(session_id, job_id, task_id, execution_manager_id)
                     .await
             }
             Err(error) => Err(error),
         };
+        let result = result
+            .and_then(|execution_context| {
+                bincode::serialize(&execution_context)
+                    .map_err(|error| StorageServerError::BadRequest(error.to_string()))
+            })
+            .inspect_err(|error| {
+                tracing::error!(
+                    job_id = request.job_id,
+                    em_id = request.execution_manager_id,
+                    error = % error,
+                    "Task instance registration request failed."
+                );
+            });
         Ok(Response::new(storage::RegisterTaskInstanceResponse {
             result: Some(match result {
-                Ok(execution_context) => match bincode::serialize(&execution_context) {
-                    Ok(bytes) => register_task_instance_response::Result::ExecutionContext(bytes),
-                    Err(error) => register_task_instance_response::Result::Error(
-                        task_instance_management_error_response(
-                            &StorageServerError::BadRequest(error.to_string()),
-                            self,
-                        ),
-                    ),
-                },
+                Ok(bytes) => register_task_instance_response::Result::ExecutionContext(bytes),
                 Err(error) => register_task_instance_response::Result::Error(
-                    task_instance_management_error_response(&error, self),
+                    task_instance_management_error_response(&error, self.inner.session_id()),
                 ),
             }),
         }))
@@ -286,12 +346,12 @@ impl<
         request: Request<storage::ReportTaskSuccessRequest>,
     ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             session_id = request.session_id,
             job_id = request.job_id,
             task_instance_id = request.task_instance_id,
             output_size = request.serialized_outputs.len(),
-            "Received ReportTaskSuccess request."
+            "Task success report received."
         );
         let result = request_task_id(request.task_id).and_then(|task_id| {
             validate_report_outputs(&task_id, &request.serialized_outputs)?;
@@ -299,7 +359,7 @@ impl<
         });
         let result = match result {
             Ok(TaskId::Index(task_index)) => {
-                self.service_state
+                self.inner
                     .succeed_task_instance(
                         request.session_id,
                         JobId::from(request.job_id),
@@ -310,7 +370,7 @@ impl<
                     .await
             }
             Ok(TaskId::Commit) => {
-                self.service_state
+                self.inner
                     .succeed_commit_task_instance(
                         request.session_id,
                         JobId::from(request.job_id),
@@ -319,7 +379,7 @@ impl<
                     .await
             }
             Ok(TaskId::Cleanup) => {
-                self.service_state
+                self.inner
                     .succeed_cleanup_task_instance(
                         request.session_id,
                         JobId::from(request.job_id),
@@ -328,10 +388,18 @@ impl<
                     .await
             }
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(
+                job_id = request.job_id,
+                task_instance_id = request.task_instance_id,
+                error = % error,
+                "Task success report failed."
+            );
+        });
         Ok(Response::new(task_instance_operation_response_from_result(
             result.map(|_| ()),
-            self,
+            self.inner.session_id(),
         )))
     }
 
@@ -340,16 +408,16 @@ impl<
         request: Request<storage::ReportTaskFailureRequest>,
     ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             session_id = request.session_id,
             job_id = request.job_id,
             task_instance_id = request.task_instance_id,
-            "Received ReportTaskFailure request."
+            "Task failure report received."
         );
         let result = request_task_id(request.task_id);
         let result = match result {
             Ok(task_id) => {
-                self.service_state
+                self.inner
                     .fail_task_instance(
                         request.session_id,
                         JobId::from(request.job_id),
@@ -360,10 +428,18 @@ impl<
                     .await
             }
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(
+                job_id = request.job_id,
+                task_instance_id = request.task_instance_id,
+                error = % error,
+                "Task failure report failed."
+            );
+        });
         Ok(Response::new(task_instance_operation_response_from_result(
             result.map(|_| ()),
-            self,
+            self.inner.session_id(),
         )))
     }
 }
@@ -374,25 +450,28 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > InboundQueueService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn poll_ready_tasks(
         &self,
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             max_items = request.max_items,
             wait_ms = request.wait_ms,
-            "Received PollReadyTasks request."
+            "Ready tasks poll request received."
         );
         let result = poll_request(request);
         let result = match result {
-            Ok((max_tasks, wait)) => self.service_state.poll_ready_tasks(max_tasks, wait).await,
+            Ok((max_tasks, wait)) => self.inner.poll_ready_tasks(max_tasks, wait).await,
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(error = % error, "Ready tasks poll request failed.");
+        });
         Ok(Response::new(poll_response(result.map(|entries| {
-            task_entries_to_ready_tasks(self, entries)
+            task_entries_to_ready_tasks(self.inner.session_id(), entries)
         }))))
     }
 
@@ -401,22 +480,21 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             max_items = request.max_items,
             wait_ms = request.wait_ms,
-            "Received PollReadyCommitTasks request."
+            "Ready commit tasks poll request received."
         );
         let result = poll_request(request);
         let result = match result {
-            Ok((max_tasks, wait)) => {
-                self.service_state
-                    .poll_commit_ready_tasks(max_tasks, wait)
-                    .await
-            }
+            Ok((max_tasks, wait)) => self.inner.poll_commit_ready_tasks(max_tasks, wait).await,
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(error = % error, "Ready commit tasks poll request failed.");
+        });
         Ok(Response::new(poll_response(result.map(|entries| {
-            commit_entries_to_ready_tasks(self, entries)
+            commit_entries_to_ready_tasks(self.inner.session_id(), entries)
         }))))
     }
 
@@ -425,22 +503,21 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             max_items = request.max_items,
             wait_ms = request.wait_ms,
-            "Received PollReadyCleanupTasks request."
+            "Ready cleanup tasks poll request received."
         );
         let result = poll_request(request);
         let result = match result {
-            Ok((max_tasks, wait)) => {
-                self.service_state
-                    .poll_cleanup_ready_tasks(max_tasks, wait)
-                    .await
-            }
+            Ok((max_tasks, wait)) => self.inner.poll_cleanup_ready_tasks(max_tasks, wait).await,
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(error = % error, "Ready cleanup tasks poll request failed.");
+        });
         Ok(Response::new(poll_response(result.map(|entries| {
-            cleanup_entries_to_ready_tasks(self, entries)
+            cleanup_entries_to_ready_tasks(self.inner.session_id(), entries)
         }))))
     }
 }
@@ -451,32 +528,36 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > ResourceGroupManagementService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn add_resource_group(
         &self,
         request: Request<storage::AddResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupIdResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             session_id = request.session_id,
-            external_resource_group_id = %request.external_resource_group_id,
-            "Received AddResourceGroup request."
+            external_rg_id = % request.external_resource_group_id,
+            "Resource group addition request received."
         );
         let result = match self.validate_session(request.session_id) {
             Ok(()) => {
-                self.service_state
+                self.inner
                     .add_resource_group(request.external_resource_group_id, request.password)
                     .await
             }
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(error = % error, "Resource group addition request failed.");
+        });
         Ok(Response::new(storage::ResourceGroupIdResponse {
             result: Some(match result {
                 Ok(rg_id) => resource_group_id_response::Result::ResourceGroupId(rg_id.get()),
-                Err(error) => {
-                    resource_group_id_response::Result::Error(resource_group_error(&error, self))
-                }
+                Err(error) => resource_group_id_response::Result::Error(resource_group_error(
+                    &error,
+                    self.inner.session_id(),
+                )),
             }),
         }))
     }
@@ -486,14 +567,14 @@ impl<
         request: Request<storage::VerifyResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
+        tracing::info!(
             session_id = request.session_id,
-            resource_group_id = request.resource_group_id,
-            "Received VerifyResourceGroup request."
+            rg_id = request.resource_group_id,
+            "Resource group verification request received."
         );
         let result = match self.validate_session(request.session_id) {
             Ok(()) => {
-                self.service_state
+                self.inner
                     .verify_resource_group(
                         ResourceGroupId::from(request.resource_group_id),
                         &request.password,
@@ -501,9 +582,16 @@ impl<
                     .await
             }
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(
+                rg_id = request.resource_group_id,
+                error = % error,
+                "Resource group verification request failed."
+            );
+        });
         Ok(Response::new(
-            resource_group_operation_response_from_result(result, self),
+            resource_group_operation_response_from_result(result, self.inner.session_id()),
         ))
     }
 }
@@ -514,28 +602,31 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > ExecutionManagerLivenessService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_execution_manager(
         &self,
         request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
-            ip_address = %request.ip_address,
-            "Received RegisterExecutionManager request."
+        tracing::info!(
+            ip_address = % request.ip_address,
+            "Execution manager registration request received."
         );
         let ip = request.ip_address.parse::<IpAddr>();
         let result = match ip {
-            Ok(ip) => self.service_state.register_execution_manager(ip).await,
+            Ok(ip) => self.inner.register_execution_manager(ip).await,
             Err(error) => Err(StorageServerError::BadRequest(error.to_string())),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(error = % error, "Execution manager registration request failed.");
+        });
         Ok(Response::new(storage::RegisterExecutionManagerResponse {
             result: Some(match result {
                 Ok(em_id) => register_execution_manager_response::Result::Registration(
                     storage::ExecutionManagerRegistration {
                         execution_manager_id: em_id.get(),
-                        session_id: self.service_state.session_id(),
+                        session_id: self.inner.session_id(),
                     },
                 ),
                 Err(error) => {
@@ -550,21 +641,28 @@ impl<
         request: Request<storage::ExecutionManagerIdRequest>,
     ) -> Result<Response<storage::UpdateExecutionManagerHeartbeatResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
-            execution_manager_id = request.execution_manager_id,
-            "Received UpdateExecutionManagerHeartbeat request."
+        tracing::info!(
+            em_id = request.execution_manager_id,
+            "Execution manager heartbeat received."
         );
         let result = self
-            .service_state
+            .inner
             .update_execution_manager_heartbeat(ExecutionManagerId::from(
                 request.execution_manager_id,
             ))
-            .await;
+            .await
+            .inspect_err(|error| {
+                tracing::error!(
+                    em_id = request.execution_manager_id,
+                    error = % error,
+                    "Execution manager heartbeat failed."
+                );
+            });
         Ok(Response::new(
             storage::UpdateExecutionManagerHeartbeatResponse {
                 result: Some(match result {
                     Ok(()) => update_execution_manager_heartbeat_response::Result::SessionId(
-                        self.service_state.session_id(),
+                        self.inner.session_id(),
                     ),
                     Err(error) => update_execution_manager_heartbeat_response::Result::Error(
                         liveness_error(&error),
@@ -581,17 +679,17 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > SchedulerRegistrationService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_scheduler(
         &self,
         request: Request<storage::RegisterSchedulerRequest>,
     ) -> Result<Response<storage::RegisterSchedulerResponse>, Status> {
         let request = request.into_inner();
-        tracing::debug!(
-            ip_address = %request.ip_address,
+        tracing::info!(
+            ip_address = % request.ip_address,
             port = request.port,
-            "Received RegisterScheduler request."
+            "Scheduler registration request received."
         );
         let result = request
             .ip_address
@@ -603,19 +701,18 @@ impl<
                     .map_err(|error| StorageServerError::BadRequest(error.to_string()))
             });
         let result = match result {
-            Ok((ip_address, port)) => {
-                self.service_state
-                    .register_scheduler(ip_address, port)
-                    .await
-            }
+            Ok((ip_address, port)) => self.inner.register_scheduler(ip_address, port).await,
             Err(error) => Err(error),
-        };
+        }
+        .inspect_err(|error| {
+            tracing::error!(error = % error, "Scheduler registration request failed.");
+        });
         Ok(Response::new(storage::RegisterSchedulerResponse {
             result: Some(match result {
                 Ok(scheduler_id) => register_scheduler_response::Result::Registration(
                     storage::SchedulerRegistration {
                         scheduler_id: scheduler_id.get(),
-                        session_id: self.service_state.session_id(),
+                        session_id: self.inner.session_id(),
                     },
                 ),
                 Err(error) => register_scheduler_response::Result::Error(
@@ -629,15 +726,20 @@ impl<
         &self,
         _request: Request<storage::Void>,
     ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
-        tracing::debug!("Received GetSchedulers request.");
-        let result = self.service_state.get_schedulers().await.map(|schedulers| {
-            storage::SchedulerRegistrations {
+        tracing::info!("Schedulers request received.");
+        let result = self
+            .inner
+            .get_schedulers()
+            .await
+            .map(|schedulers| storage::SchedulerRegistrations {
                 schedulers: schedulers
                     .into_iter()
                     .map(registered_scheduler)
                     .collect::<Vec<_>>(),
-            }
-        });
+            })
+            .inspect_err(|error| {
+                tracing::error!(error = % error, "Schedulers request failed.");
+            });
         Ok(Response::new(storage::GetSchedulersResponse {
             result: Some(match result {
                 Ok(schedulers) => get_schedulers_response::Result::Schedulers(schedulers),
@@ -655,48 +757,33 @@ impl<
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > SessionManagementService
-    for StorageGrpcService<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn get_session(
         &self,
         _request: Request<storage::Void>,
     ) -> Result<Response<storage::GetSessionResponse>, Status> {
-        tracing::debug!("Received GetSession request.");
+        tracing::info!("Session request received.");
         Ok(Response::new(storage::GetSessionResponse {
-            session_id: self.service_state.session_id(),
+            session_id: self.inner.session_id(),
         }))
     }
 }
 
 /// Converts a runtime job-state result into a protobuf response.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
 /// A [`storage::JobStateResponse`] from the runtime result.
-fn job_state_response_from_result<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+fn job_state_response_from_result(
     result: Result<JobState, StorageServerError>,
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    session_id: SessionId,
 ) -> storage::JobStateResponse {
     storage::JobStateResponse {
         result: Some(match result {
             Ok(state) => job_state_response::Result::State(storage::JobState::from(state) as i32),
             Err(error) => {
-                job_state_response::Result::Error(job_orchestration_error(&error, service))
+                job_state_response::Result::Error(job_orchestration_error(&error, session_id))
             }
         }),
     }
@@ -704,33 +791,18 @@ fn job_state_response_from_result<
 
 /// Converts a task-instance runtime result into a protobuf response.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
 /// A [`storage::TaskInstanceOperationResponse`] from the runtime result.
-fn task_instance_operation_response_from_result<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+fn task_instance_operation_response_from_result(
     result: Result<(), StorageServerError>,
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    session_id: SessionId,
 ) -> storage::TaskInstanceOperationResponse {
     storage::TaskInstanceOperationResponse {
         result: Some(match result {
             Ok(()) => task_instance_operation_response::Result::Ok(storage::Void {}),
             Err(error) => task_instance_operation_response::Result::Error(
-                task_instance_management_error_response(&error, service),
+                task_instance_management_error_response(&error, session_id),
             ),
         }),
     }
@@ -738,33 +810,18 @@ fn task_instance_operation_response_from_result<
 
 /// Converts a resource-group runtime result into a protobuf response.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
 /// A [`storage::ResourceGroupOperationResponse`] from the runtime result.
-fn resource_group_operation_response_from_result<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+fn resource_group_operation_response_from_result(
     result: Result<(), StorageServerError>,
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    session_id: SessionId,
 ) -> storage::ResourceGroupOperationResponse {
     storage::ResourceGroupOperationResponse {
         result: Some(match result {
             Ok(()) => resource_group_operation_response::Result::Ok(storage::Void {}),
             Err(error) => resource_group_operation_response::Result::Error(resource_group_error(
-                &error, service,
+                &error, session_id,
             )),
         }),
     }
@@ -838,30 +895,15 @@ fn poll_response(
 
 /// Converts index-task ready-queue entries into protobuf ready tasks.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
 /// A [`storage::ReadyTasks`] response body carrying index tasks.
-fn task_entries_to_ready_tasks<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+fn task_entries_to_ready_tasks(
+    session_id: SessionId,
     entries: Vec<ReadyQueueEntry<usize>>,
 ) -> storage::ReadyTasks {
     storage::ReadyTasks {
-        session_id: service.service_state.session_id(),
+        session_id,
         tasks: entries
             .into_iter()
             .map(|entry| {
@@ -877,30 +919,15 @@ fn task_entries_to_ready_tasks<
 
 /// Converts commit-task ready-queue entries into protobuf ready tasks.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
 /// A [`storage::ReadyTasks`] response body carrying commit tasks.
-fn commit_entries_to_ready_tasks<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+fn commit_entries_to_ready_tasks(
+    session_id: SessionId,
     entries: Vec<ReadyQueueEntry<CommitTaskMarker>>,
 ) -> storage::ReadyTasks {
     storage::ReadyTasks {
-        session_id: service.service_state.session_id(),
+        session_id,
         tasks: entries
             .into_iter()
             .map(|entry| ready_task(entry.resource_group_id, entry.job_id, TaskId::Commit))
@@ -910,30 +937,15 @@ fn commit_entries_to_ready_tasks<
 
 /// Converts cleanup-task ready-queue entries into protobuf ready tasks.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
 /// A [`storage::ReadyTasks`] response body carrying cleanup tasks.
-fn cleanup_entries_to_ready_tasks<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+fn cleanup_entries_to_ready_tasks(
+    session_id: SessionId,
     entries: Vec<ReadyQueueEntry<CleanupTaskMarker>>,
 ) -> storage::ReadyTasks {
     storage::ReadyTasks {
-        session_id: service.service_state.session_id(),
+        session_id,
         tasks: entries
             .into_iter()
             .map(|entry| ready_task(entry.resource_group_id, entry.job_id, TaskId::Cleanup))
@@ -960,32 +972,17 @@ fn ready_task(
 
 /// Converts a runtime error into a job-orchestration protobuf error.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
-/// A [`storage::JobOrchestrationError`] with the service session ID.
-fn job_orchestration_error<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+/// A [`storage::JobOrchestrationError`] with the given session ID.
+fn job_orchestration_error(
     error: &StorageServerError,
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    session_id: SessionId,
 ) -> storage::JobOrchestrationError {
     storage::JobOrchestrationError {
         err_code: job_orchestration_error_code(error) as i32,
         message: error.to_string(),
-        storage_session: service.service_state.session_id(),
+        storage_session: session_id,
     }
 }
 
@@ -1014,32 +1011,17 @@ const fn job_orchestration_error_code(
 
 /// Converts a runtime error into a task-instance protobuf error.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
-/// A [`storage::TaskInstanceManagementError`] with the service session ID.
-fn task_instance_management_error_response<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+/// A [`storage::TaskInstanceManagementError`] with the given session ID.
+fn task_instance_management_error_response(
     error: &StorageServerError,
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    session_id: SessionId,
 ) -> storage::TaskInstanceManagementError {
     storage::TaskInstanceManagementError {
         err_code: task_instance_error_code(error) as i32,
         message: error.to_string(),
-        storage_session: service.service_state.session_id(),
+        storage_session: session_id,
     }
 }
 
@@ -1096,32 +1078,17 @@ const fn inbound_queue_error_code(
 
 /// Converts a runtime error into a resource-group protobuf error.
 ///
-/// # Type Parameters
-///
-/// * `ReadyQueueSenderType` - The ready-queue sender implementation used by the service state.
-/// * `DbConnectorType` - The database connector implementation used by the service state.
-/// * `TaskInstancePoolConnectorType` - The task-instance pool connector implementation used by the
-///   service state.
-///
 /// # Returns
 ///
-/// A [`storage::ResourceGroupManagementError`] with the service session ID.
-fn resource_group_error<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
->(
+/// A [`storage::ResourceGroupManagementError`] with the given session ID.
+fn resource_group_error(
     error: &StorageServerError,
-    service: &StorageGrpcService<
-        ReadyQueueSenderType,
-        DbConnectorType,
-        TaskInstancePoolConnectorType,
-    >,
+    session_id: SessionId,
 ) -> storage::ResourceGroupManagementError {
     storage::ResourceGroupManagementError {
         err_code: resource_group_error_code(error) as i32,
         message: error.to_string(),
-        storage_session: service.service_state.session_id(),
+        storage_session: session_id,
     }
 }
 
