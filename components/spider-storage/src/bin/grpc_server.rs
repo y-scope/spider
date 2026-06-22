@@ -12,7 +12,12 @@ use spider_proto_rust::storage::{
     session_management_service_server::SessionManagementServiceServer,
     task_instance_management_service_server::TaskInstanceManagementServiceServer,
 };
-use spider_storage::{ServerConfig, grpc::StorageGrpcService, state::runtime::create_runtime};
+use spider_storage::{
+    ServerConfig,
+    grpc::StorageGrpcService,
+    logging::set_up_logging,
+    state::runtime::create_runtime,
+};
 use tonic::transport::Server;
 
 /// Command-line arguments for the storage gRPC server.
@@ -26,7 +31,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _log_guard = set_up_logging();
     let cli = Cli::parse();
     let server_config = ServerConfig::from_yaml_file(&cli.config)?;
     let listen_addr = SocketAddr::new(server_config.host, server_config.port);

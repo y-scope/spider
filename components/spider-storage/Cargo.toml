@@ -40,7 +40,12 @@ tokio = {
 tokio-util = { version = "0.7.18", features = ["rt"] }
 tonic = "0.12.3"
 tracing = { version = "0.1.44", features = ["attributes"] }
-tracing-subscriber = "0.3.23"
+tracing-appender = "0.2.5"
+tracing-subscriber = {
+  version = "0.3.23",
+  default-features = false,
+  features = ["env-filter", "fmt", "json"]
+}
 yaml_serde = "0.10.4"
 
 [dev-dependencies]
