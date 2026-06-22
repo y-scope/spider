@@ -544,24 +544,6 @@ impl<
             .map_err(StorageServerError::from)
     }
 
-    /// Deletes a resource group.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ResourceGroupManagement::delete`]'s return values on failure.
-    pub async fn delete_resource_group(
-        &self,
-        resource_group_id: ResourceGroupId,
-    ) -> Result<(), StorageServerError> {
-        self.inner
-            .db
-            .delete(resource_group_id)
-            .await
-            .map_err(StorageServerError::from)
-    }
-
     /// Polls the ready queue for task entries.
     ///
     /// # Returns
@@ -1605,44 +1587,6 @@ mod tests {
             .await?;
         let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
         assert!(result.is_err(), "verify should fail for wrong password");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn delete_resource_group_removes_group() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let password = vec![1, 2, 3];
-        let rg_id = service
-            .add_resource_group("external_123".to_owned(), password.clone())
-            .await?;
-
-        service.delete_resource_group(rg_id).await?;
-        let result = service.verify_resource_group(rg_id, &password).await;
-
-        assert!(
-            matches!(
-                result,
-                Err(StorageServerError::Db(DbError::ResourceGroupNotFound(id))) if id == rg_id
-            ),
-            "deleted resource group should not verify"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn delete_resource_group_returns_error_for_unknown_group() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let rg_id = ResourceGroupId::random();
-
-        let result = service.delete_resource_group(rg_id).await;
-
-        assert!(
-            matches!(
-                result,
-                Err(StorageServerError::Db(DbError::ResourceGroupNotFound(id))) if id == rg_id
-            ),
-            "deleting an unknown resource group should return ResourceGroupNotFound"
-        );
         Ok(())
     }
 

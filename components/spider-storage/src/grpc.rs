@@ -506,29 +506,6 @@ impl<
             resource_group_operation_response_from_result(result, self),
         ))
     }
-
-    async fn delete_resource_group(
-        &self,
-        request: Request<storage::ResourceGroupIdRequest>,
-    ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
-        let request = request.into_inner();
-        tracing::debug!(
-            session_id = request.session_id,
-            resource_group_id = request.resource_group_id,
-            "Received DeleteResourceGroup request."
-        );
-        let result = match self.validate_session(request.session_id) {
-            Ok(()) => {
-                self.service_state
-                    .delete_resource_group(ResourceGroupId::from(request.resource_group_id))
-                    .await
-            }
-            Err(error) => Err(error),
-        };
-        Ok(Response::new(
-            resource_group_operation_response_from_result(result, self),
-        ))
-    }
 }
 
 #[async_trait]
