@@ -151,13 +151,13 @@ pub struct ReportTaskSuccessRequest {
     #[prost(message, optional, tag = "2")]
     pub task_id: ::core::option::Option<TaskId>,
     #[prost(uint64, tag = "3")]
-    pub execution_manager_id: u64,
-    #[prost(uint64, tag = "4")]
-    pub session_id: u64,
-    #[prost(bytes = "vec", tag = "5")]
-    pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "6")]
     pub task_instance_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub execution_manager_id: u64,
+    #[prost(uint64, tag = "5")]
+    pub session_id: u64,
+    #[prost(bytes = "vec", tag = "6")]
+    pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReportTaskFailureRequest {
@@ -166,13 +166,13 @@ pub struct ReportTaskFailureRequest {
     #[prost(message, optional, tag = "2")]
     pub task_id: ::core::option::Option<TaskId>,
     #[prost(uint64, tag = "3")]
-    pub execution_manager_id: u64,
-    #[prost(uint64, tag = "4")]
-    pub session_id: u64,
-    #[prost(string, tag = "5")]
-    pub error_message: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "6")]
     pub task_instance_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub execution_manager_id: u64,
+    #[prost(uint64, tag = "5")]
+    pub session_id: u64,
+    #[prost(string, tag = "6")]
+    pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddResourceGroupRequest {
