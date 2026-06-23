@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
+use serde::Deserialize;
 use spider_core::{
     task::TaskIndex,
     types::id::{JobId, ResourceGroupId},
@@ -47,7 +48,8 @@ pub struct ReadyQueueEntry<TaskKind> {
 }
 
 /// Configuration of a ready queue.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
 pub struct ReadyQueueConfig {
     /// The capacity of the task lane. Must be greater than zero.
     pub task_capacity: usize,
