@@ -18,6 +18,7 @@ use spider_storage::{
     logging::set_up_logging,
     state::runtime::create_runtime,
 };
+use tokio::select;
 use tonic::transport::Server;
 
 /// Command-line arguments for the storage gRPC server.
@@ -56,10 +57,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ))
         .add_service(SessionManagementServiceServer::new(grpc_service))
         .serve_with_shutdown(listen_addr, async move {
-            if let Err(error) = tokio::signal::ctrl_c().await {
-                tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
+            select! {
+                () = cancellation_token.cancelled() => {
+                    tracing::info!("Shutting down storage gRPC server.");
+                }
+                result = tokio::signal::ctrl_c() => {
+                    if let Err(error) = result {
+                        tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
+                    }
+                    cancellation_token.cancel();
+                }
             }
-            cancellation_token.cancel();
         })
         .await;
 
