@@ -1,0 +1,16 @@
+[package]
+name = "spider-utils"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "spider_utils"
+path = "src/lib.rs"
+
+[dependencies]
+tracing-appender = "0.2.5"
+tracing-subscriber = {
+  version = "0.3.23",
+  default-features = false,
+  features = ["env-filter", "fmt", "json"]
+}

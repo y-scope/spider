@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -21,10 +22,14 @@ use crate::{
 };
 
 /// Runtime configuration for the storage service.
+#[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeConfig {
     pub db_config: DatabaseConfig,
+    #[serde(default)]
     pub ready_queue_config: ReadyQueueConfig,
+    #[serde(default)]
     pub task_instance_pool_config: TaskInstancePoolConfig,
+    #[serde(default)]
     pub job_cache_gc_config: JobCacheGcConfig,
 }
 
@@ -74,10 +79,10 @@ impl<
                     tracing::info!("Task instance pool stopped.");
                 }
                 Ok(Err(e)) => {
-                    tracing::error!(error = ? e, "Task instance pool exited on error.");
+                    tracing::error!(error = % e, "Task instance pool exited on error.");
                 }
                 Err(e) => {
-                    tracing::error!(error = ? e, "Task instance pool exited on panic.");
+                    tracing::error!(error = % e, "Task instance pool exited on panic.");
                 }
             }
         };
@@ -88,10 +93,10 @@ impl<
                     tracing::info!("Job cache GC stopped.");
                 }
                 Ok(Err(e)) => {
-                    tracing::error!(error = ? e, "Job cache GC exited on error.");
+                    tracing::error!(error = % e, "Job cache GC exited on error.");
                 }
                 Err(e) => {
-                    tracing::error!(error = ? e, "Job cache GC exited on panic.");
+                    tracing::error!(error = % e, "Job cache GC exited on panic.");
                 }
             }
         };

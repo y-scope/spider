@@ -9,9 +9,6 @@ service JobOrchestrationService {
   rpc GetJobState(JobIdRequest) returns (JobStateResponse);
   rpc GetJobOutputs(JobIdRequest) returns (JobOutputsResponse);
   rpc GetJobError(JobIdRequest) returns (JobErrorResponse);
-  rpc DeleteExpiredTerminatedJobs(DeleteExpiredTerminatedJobsRequest)
-      returns (DeleteExpiredTerminatedJobsResponse);
-  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (JobManagementOperationResponse);
 }
 
 service TaskInstanceManagementService {
@@ -29,7 +26,6 @@ service InboundQueueService {
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
   rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (ResourceGroupOperationResponse);
-  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (ResourceGroupOperationResponse);
 }
 
 service ExecutionManagerLivenessService {
@@ -102,27 +98,6 @@ message JobErrorResponse {
   }
 }
 
-message DeleteExpiredTerminatedJobsRequest {
-  uint64 expire_after_sec = 1;
-  uint64 session_id = 2;
-}
-
-message DeleteExpiredTerminatedJobsResponse {
-  oneof result {
-    DeletedJobs deleted_jobs = 1;
-    JobOrchestrationError error = 2;
-  }
-}
-
-message DeletedJobs {
-  repeated uint64 job_ids = 1;
-}
-
-message ResendReadyTasksRequest {
-  optional uint64 job_id = 1;
-  uint64 session_id = 2;
-}
-
 message PollReadyTasksRequest {
   uint64 max_items = 1;
   uint64 wait_ms = 2;
@@ -163,28 +138,25 @@ message RegisterTaskInstanceResponse {
 message ReportTaskSuccessRequest {
   uint64 job_id = 1;
   TaskId task_id = 2;
-  uint64 execution_manager_id = 3;
-  uint64 session_id = 4;
-  bytes serialized_outputs = 5;
+  uint64 task_instance_id = 3;
+  uint64 execution_manager_id = 4;
+  uint64 session_id = 5;
+  bytes serialized_outputs = 6;
 }
 
 message ReportTaskFailureRequest {
   uint64 job_id = 1;
   TaskId task_id = 2;
-  uint64 execution_manager_id = 3;
-  uint64 session_id = 4;
-  string error_message = 5;
+  uint64 task_instance_id = 3;
+  uint64 execution_manager_id = 4;
+  uint64 session_id = 5;
+  string error_message = 6;
 }
 
 message AddResourceGroupRequest {
   string external_resource_group_id = 1;
   bytes password = 2;
   uint64 session_id = 3;
-}
-
-message ResourceGroupIdRequest {
-  uint64 resource_group_id = 1;
-  uint64 session_id = 2;
 }
 
 message ResourceGroupIdResponse {
