@@ -16,8 +16,8 @@ use spider_core::{
 };
 use spider_derive::MySqlEnum;
 use spider_proto_rust::{
-    payload::decode_payload,
-    storage::{BinaryPayload, BinaryPayloadEncoding},
+    payload::{decode_payload, encode_payload},
+    storage::BinaryPayload,
 };
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
@@ -290,8 +290,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         }
 
         let serialized_outputs = rmp_serde::to_vec(&job_outputs).map_err(DbError::value_ser)?;
-        let serialized_outputs = encode_job_output_payload_blob(serialized_outputs)
-            .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?;
+        let serialized_outputs = encode_job_output_payload_blob(serialized_outputs);
 
         sqlx::query(if new_state.is_terminal() {
             UPDATE_SUCCEEDED_QUERY
@@ -677,7 +676,6 @@ const JOBS_TABLE_NAME: &str = "jobs";
 const EXECUTION_MANAGERS_TABLE_NAME: &str = "execution_managers";
 const SCHEDULERS_TABLE_NAME: &str = "schedulers";
 const SESSIONS_TABLE_NAME: &str = "sessions";
-const JOB_OUTPUT_RAW_PAYLOAD_MAX_SIZE: usize = 1024;
 
 const UPDATE_JOB_STATE: &str = formatcp!(
     "UPDATE `{table}` SET `state` = ? WHERE `id` = ?;",
@@ -774,26 +772,10 @@ CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
 ///
 /// # Returns
 ///
-/// A protobuf-encoded [`BinaryPayload`] blob using raw encoding for small job outputs on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`encode_zstd_bytes`]'s return values on failure.
-fn encode_job_output_payload_blob(
-    raw: Vec<u8>,
-) -> Result<Vec<u8>, spider_core::compression::Error> {
-    let (encoding, data) = if raw.len() <= JOB_OUTPUT_RAW_PAYLOAD_MAX_SIZE {
-        (BinaryPayloadEncoding::Raw, raw)
-    } else {
-        (BinaryPayloadEncoding::Zstd, encode_zstd_bytes(&raw)?)
-    };
-    Ok(BinaryPayload {
-        encoding: encoding as i32,
-        data,
-    }
-    .encode_to_vec())
+/// A protobuf-encoded [`BinaryPayload`] blob using raw encoding for small job
+/// outputs and zstd-compressed encoding for larger ones.
+fn encode_job_output_payload_blob(raw: Vec<u8>) -> Vec<u8> {
+    encode_payload(raw).encode_to_vec()
 }
 
 /// Decodes a [`BinaryPayload`] storage blob into raw bytes.

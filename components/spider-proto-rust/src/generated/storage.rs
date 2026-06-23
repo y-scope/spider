@@ -7,8 +7,6 @@ pub struct RegisterJobRequest {
     pub compressed_serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "3")]
     pub compressed_serialized_inputs: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "4")]
-    pub session_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RegisterJobResponse {
