@@ -51,13 +51,14 @@ impl SchedulerClient for GrpcSchedulerClient {
         em_id: ExecutionManagerId,
         prev_assignment: Option<TaskAssignmentRecord>,
     ) -> Result<SchedulerResponse, SchedulerError> {
+        let prev_assignment = prev_assignment.map(task_assignment_record_to_protocol);
         loop {
             let response = self
                 .client
                 .clone()
                 .next_task(scheduler::NextTaskRequest {
                     execution_manager_id: em_id.get(),
-                    prev_assignment: prev_assignment.map(task_assignment_record_to_protocol),
+                    prev_assignment,
                 })
                 .await
                 .map_err(to_transport_error)?
