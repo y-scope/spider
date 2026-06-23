@@ -129,9 +129,7 @@ impl<
     ) -> Result<JobId, StorageServerError> {
         let task_graph = TaskGraph::from_zstd_compressed_json(&compressed_serialized_task_graph)
             .map_err(|e| match e {
-                TaskError::CompressionError(_) | TaskError::FromUtf8Error(_) => {
-                    StorageServerError::BadRequest(e.to_string())
-                }
+                TaskError::CompressionError(_) => StorageServerError::BadRequest(e.to_string()),
                 e => StorageServerError::Task(e),
             })?;
         let serialized_inputs = decode_zstd_bytes(&compressed_serialized_inputs)

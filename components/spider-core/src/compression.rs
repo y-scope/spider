@@ -15,30 +15,18 @@ pub enum Error {
 
 /// Encodes bytes with zstd.
 ///
-/// # Returns
-///
-/// Zstd-compressed bytes on success.
-///
 /// # Errors
 ///
-/// Returns an error if:
-///
-/// * [`Error::ZstdCompression`] if zstd compression fails.
+/// Returns [`Error::ZstdCompression`] if zstd compression fails.
 pub fn encode_zstd_bytes(raw: &[u8]) -> Result<Vec<u8>, Error> {
     zstd::stream::encode_all(raw, ZSTD_LEVEL).map_err(Error::ZstdCompression)
 }
 
 /// Decodes zstd-compressed bytes.
 ///
-/// # Returns
-///
-/// Raw bytes on success.
-///
 /// # Errors
 ///
-/// Returns an error if:
-///
-/// * [`Error::ZstdDecompression`] if zstd decompression fails.
+/// Returns [`Error::ZstdDecompression`] if zstd decompression fails.
 pub fn decode_zstd_bytes(compressed: &[u8]) -> Result<Vec<u8>, Error> {
     zstd::stream::decode_all(compressed).map_err(Error::ZstdDecompression)
 }

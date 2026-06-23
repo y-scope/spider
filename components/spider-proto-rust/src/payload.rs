@@ -33,7 +33,7 @@ pub fn decode_payload(payload: BinaryPayload) -> Result<Vec<u8>, Error> {
 
 #[cfg(test)]
 mod tests {
-    use spider_core::compression::{decode_zstd_bytes, encode_zstd_bytes};
+    use spider_core::compression::encode_zstd_bytes;
 
     use crate::{
         payload::decode_payload,
@@ -55,20 +55,6 @@ mod tests {
         );
 
         let decoded = decode_payload(payload).expect("zstd decoding should succeed");
-        assert_eq!(decoded, raw);
-    }
-
-    #[test]
-    fn zstd_bytes_round_trip() {
-        let raw = vec![42u8; 4096];
-
-        let compressed = encode_zstd_bytes(&raw).expect("zstd encoding should succeed");
-        assert!(
-            compressed.len() < raw.len(),
-            "zstd bytes should be smaller for repeated bytes"
-        );
-
-        let decoded = decode_zstd_bytes(&compressed).expect("zstd decoding should succeed");
         assert_eq!(decoded, raw);
     }
 

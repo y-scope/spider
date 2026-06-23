@@ -843,7 +843,7 @@ impl RecoverableJobRowProjection {
     fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
         let task_graph =
             TaskGraph::from_zstd_compressed_json(&self.compressed_serialized_task_graph)
-                .map_err(|e| DbError::TaskGraphDeserializationFailure(Box::new(e)))?;
+                .map_err(DbError::task_graph_de)?;
         let serialized_job_inputs = decode_zstd_bytes(&self.compressed_serialized_job_inputs)
             .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
         let inputs: Vec<TaskInput> =
