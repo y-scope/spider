@@ -33,7 +33,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server_config = ServerConfig::from_yaml_file(&cli.config)?;
     let listen_addr = SocketAddr::new(server_config.host, server_config.port);
     let (runtime, cancellation_token) = create_runtime(&server_config.runtime).await?;
-    let grpc_service = GrpcServiceState::new(runtime.get_service_state());
+    let grpc_service =
+        GrpcServiceState::new(runtime.get_service_state(), cancellation_token.clone());
     tracing::info!(listen_addr = % listen_addr, "Starting storage gRPC server.");
 
     let serve_result = Server::builder()

@@ -11,12 +11,13 @@ use spider_proto_rust::storage::{
     self,
     inbound_queue_response_error,
     inbound_queue_service_client::InboundQueueServiceClient,
-    job_orchestration_error,
     job_orchestration_service_client::JobOrchestrationServiceClient,
-    job_state_response,
     poll_ready_tasks_response,
 };
-use tonic::transport::{Channel, Endpoint};
+use tonic::{
+    Code,
+    transport::{Channel, Endpoint},
+};
 
 use crate::{
     error::StorageClientError,
@@ -112,9 +113,12 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .get_job_state(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| match status.code() {
+                Code::NotFound => StorageClientError::JobNotFound(job_id),
+                _ => StorageClientError::Server(status.message().to_owned()),
+            })?
             .into_inner();
-        job_state_response_to_result(response, job_id)
+        job_state_response_to_result(response)
     }
 }
 
@@ -213,52 +217,20 @@ fn ready_task_to_inbound_entry(
 
 /// # Returns
 ///
-/// [`storage::JobStateResponse`] converted into [`Result<JobState, StorageClientError>`].
+/// [`storage::JobStateResponse`] converted into a [`JobState`] on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`StorageClientError::Transport`] if the response carries an unrecognized job state.
 fn job_state_response_to_result(
     response: storage::JobStateResponse,
-    job_id: JobId,
 ) -> Result<JobState, StorageClientError> {
-    match response.result {
-        Some(job_state_response::Result::State(state)) => storage::JobState::try_from(state)
-            .map_err(|error| StorageClientError::Transport(error.to_string()))
-            .and_then(|state| {
-                JobState::try_from(state)
-                    .map_err(|error| StorageClientError::Transport(error.to_string()))
-            }),
-        Some(job_state_response::Result::Error(error)) => {
-            Err(job_orchestration_error_to_client_error(error, job_id))
-        }
-        None => Err(StorageClientError::Transport(
-            "job state response missing `result` message".to_owned(),
-        )),
-    }
-}
-
-/// # Returns
-///
-/// [`storage::JobOrchestrationError`] converted into [`StorageClientError`].
-fn job_orchestration_error_to_client_error(
-    error: storage::JobOrchestrationError,
-    requested_job_id: JobId,
-) -> StorageClientError {
-    match job_orchestration_error::ErrCode::try_from(error.err_code) {
-        Ok(job_orchestration_error::ErrCode::JobNotFound) => {
-            StorageClientError::JobNotFound(requested_job_id)
-        }
-        Ok(job_orchestration_error::ErrCode::StaleSession) => StorageClientError::StaleSession {
-            storage_session: error.storage_session,
-        },
-        Ok(job_orchestration_error::ErrCode::InvalidInput) => {
-            StorageClientError::InvalidInput(error.message)
-        }
-        Ok(
-            job_orchestration_error::ErrCode::Server
-            | job_orchestration_error::ErrCode::Unspecified,
-        ) => StorageClientError::Server(error.message),
-        Err(error) => {
-            StorageClientError::Transport(format!("unknown job management error kind: {error}"))
-        }
-    }
+    let proto_state = storage::JobState::try_from(response.state)
+        .map_err(|error| StorageClientError::Transport(error.to_string()))?;
+    JobState::try_from(proto_state)
+        .map_err(|error| StorageClientError::Transport(error.to_string()))
 }
 
 /// Converts a displayable transport-layer error into [`StorageClientError::Transport`].

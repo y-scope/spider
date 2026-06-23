@@ -54,6 +54,9 @@ pub enum InternalError {
     #[error("job not found: {0:?}")]
     JobNotFound(JobId),
 
+    #[error("job already exists: {0:?}")]
+    JobAlreadyExists(JobId),
+
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
         current: JobState,
