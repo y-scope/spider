@@ -114,5 +114,7 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     /// Returns an error if:
     ///
     /// * [`StorageClientError::JobNotFound`] if no job with the given identifier exists.
+    /// * [`StorageClientError::Server`] if the storage server returns an error.
+    /// * [`StorageClientError::Transport`] if the storage server returns malformed data.
     async fn job_state(&self, job_id: JobId) -> Result<JobState, StorageClientError>;
 }

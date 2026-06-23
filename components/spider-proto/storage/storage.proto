@@ -3,7 +3,7 @@ syntax = "proto3";
 package storage;
 
 service JobOrchestrationService {
-  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc RegisterJob(RegisterJobRequest) returns (RegisterJobResponse);
   rpc StartJob(JobIdRequest) returns (JobStateResponse);
   rpc CancelJob(JobIdRequest) returns (JobStateResponse);
   rpc GetJobState(JobIdRequest) returns (JobStateResponse);
@@ -44,18 +44,15 @@ service SessionManagementService {
   rpc GetSession(Void) returns (GetSessionResponse);
 }
 
-message SubmitJobRequest {
+message RegisterJobRequest {
   uint64 resource_group_id = 1;
   bytes compressed_serialized_task_graph = 2;
   bytes compressed_serialized_inputs = 3;
   uint64 session_id = 4;
 }
 
-message SubmitJobResponse {
-  oneof result {
-    uint64 job_id = 1;
-    JobOrchestrationError error = 2;
-  }
+message RegisterJobResponse {
+  uint64 job_id = 1;
 }
 
 message JobIdRequest {
@@ -63,17 +60,11 @@ message JobIdRequest {
 }
 
 message JobStateResponse {
-  oneof result {
-    JobState state = 1;
-    JobOrchestrationError error = 2;
-  }
+  JobState state = 1;
 }
 
 message JobOutputsResponse {
-  oneof result {
-    JobOutputs outputs = 1;
-    JobOrchestrationError error = 2;
-  }
+  JobOutputs outputs = 1;
 }
 
 message JobOutputs {
@@ -92,10 +83,7 @@ message BinaryPayload {
 }
 
 message JobErrorResponse {
-  oneof result {
-    string error_message = 1;
-    JobOrchestrationError error = 2;
-  }
+  string error_message = 1;
 }
 
 message PollReadyTasksRequest {
@@ -256,13 +244,6 @@ enum JobState {
   CANCELLED = 7;
 }
 
-message JobManagementOperationResponse {
-  oneof result {
-    Void ok = 1;
-    JobOrchestrationError error = 2;
-  }
-}
-
 message TaskInstanceOperationResponse {
   oneof result {
     Void ok = 1;
@@ -278,20 +259,6 @@ message ResourceGroupOperationResponse {
 }
 
 message Void {}
-
-message JobOrchestrationError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    STALE_SESSION = 1;
-    SERVER = 2;
-    INVALID_INPUT = 3;
-    JOB_NOT_FOUND = 4;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-  uint64 storage_session = 3;
-}
 
 message TaskInstanceManagementError {
   enum ErrCode {

@@ -1,11 +1,15 @@
 //! Helpers for encoding and decoding binary protobuf payloads.
 
-use spider_core::compression::decode_zstd_bytes;
+use spider_core::compression::{decode_zstd_bytes, encode_zstd_bytes};
 
 use crate::{
     error::Error,
     storage::{BinaryPayload, BinaryPayloadEncoding},
 };
+
+/// Raw payloads at or below this size are sent uncompressed; larger payloads
+/// are zstd-compressed to reduce wire size.
+const RAW_PAYLOAD_MAX_SIZE: usize = 1024;
 
 /// Decodes a binary payload into raw bytes.
 ///
@@ -28,6 +32,33 @@ pub fn decode_payload(payload: BinaryPayload) -> Result<Vec<u8>, Error> {
         BinaryPayloadEncoding::Raw => Ok(payload.data),
         BinaryPayloadEncoding::Zstd => decode_zstd_bytes(&payload.data)
             .map_err(|e| Error::BinaryPayloadDecompression(e.to_string())),
+    }
+}
+
+/// Encodes raw bytes into a [`BinaryPayload`] for wire transmission.
+///
+/// Small payloads are sent raw via [`BinaryPayloadEncoding::Raw`]; larger
+/// payloads are zstd-compressed via [`BinaryPayloadEncoding::Zstd`] to reduce
+/// wire size. If compression fails, the raw payload is sent uncompressed so the
+/// request never fails solely due to encoding.
+pub fn encode_payload(raw: Vec<u8>) -> BinaryPayload {
+    if raw.len() > RAW_PAYLOAD_MAX_SIZE {
+        match encode_zstd_bytes(&raw) {
+            Ok(compressed) => {
+                return BinaryPayload {
+                    encoding: BinaryPayloadEncoding::Zstd as i32,
+                    data: compressed,
+                };
+            }
+            Err(error) => tracing::warn!(
+                error = %error,
+                "zstd payload compression failed; sending raw payload"
+            ),
+        }
+    }
+    BinaryPayload {
+        encoding: BinaryPayloadEncoding::Raw as i32,
+        data: raw,
     }
 }
 

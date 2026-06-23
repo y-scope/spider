@@ -7,7 +7,10 @@ use spider_core::types::id::JobId;
 use tokio::sync::RwLock;
 
 use crate::{
-    cache::job::SharedJobControlBlock,
+    cache::{
+        error::{CacheError, InternalError},
+        job::SharedJobControlBlock,
+    },
     db::InternalJobOrchestration,
     ready_queue::ReadyQueueSender,
     state::StorageServerError,
@@ -53,8 +56,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::JobAlreadyExists`] if a job control block with the same ID already
-    ///   exists.
+    /// * [`InternalError::JobAlreadyExists`] (wrapped in [`StorageServerError::Cache`]) if a job
+    ///   control block with the same ID already exists.
     pub async fn insert(
         &self,
         jcb: SharedJobControlBlock<
@@ -69,7 +72,9 @@ impl<
                 e.insert(jcb);
                 Ok(())
             }
-            Entry::Occupied(_) => Err(StorageServerError::JobAlreadyExists(job_id)),
+            Entry::Occupied(_) => Err(StorageServerError::Cache(CacheError::Internal(
+                InternalError::JobAlreadyExists(job_id),
+            ))),
         }
     }
 
@@ -297,10 +302,18 @@ mod tests {
         let jcb2 = create_test_jcb(job_id).await;
         let result = cache.insert(jcb2).await;
         assert!(
-            matches!(result, Err(StorageServerError::JobAlreadyExists(_))),
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::Internal(
+                    InternalError::JobAlreadyExists(_)
+                )))
+            ),
             "insert should return JobAlreadyExists error for duplicate key"
         );
-        if let Err(StorageServerError::JobAlreadyExists(id)) = result {
+        if let Err(StorageServerError::Cache(CacheError::Internal(
+            InternalError::JobAlreadyExists(id),
+        ))) = result
+        {
             assert_eq!(id, job_id, "error should contain the duplicate job ID");
         }
         Ok(())
