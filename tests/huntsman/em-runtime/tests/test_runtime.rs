@@ -391,9 +391,9 @@ async fn stale_session_drops_assignment_and_refreshes() -> anyhow::Result<()> {
     let baseline = liveness.heartbeat_count();
 
     scheduler.push(Ok(assignment_with_session(STALE_SESSION)));
-    storage.push_register_response(Err(StorageResponseError::StaleSession {
-        storage_session: CURRENT_SESSION,
-    }));
+    storage.push_register_response(Err(StorageResponseError::StaleSession(format!(
+        "storage now at {CURRENT_SESSION}"
+    ))));
     let join = tokio::spawn(runtime.run());
 
     // Stale-session response triggers liveness refresh and drops the assignment.
@@ -437,9 +437,7 @@ async fn recoverable_storage_errors_drop_assignment() -> anyhow::Result<()> {
     // assignment and poll the scheduler again.
     let recoverable_errors = [
         StorageResponseError::CacheStale("stale cache".to_owned()),
-        StorageResponseError::StaleSession {
-            storage_session: SESSION_ID + 1,
-        },
+        StorageResponseError::StaleSession(format!("storage now at {}", SESSION_ID + 1)),
     ];
     let num_errors = recoverable_errors.len() as u64;
     for err in recoverable_errors {

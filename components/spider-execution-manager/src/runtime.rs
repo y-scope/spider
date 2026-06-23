@@ -398,10 +398,10 @@ impl<
                 Ok(Some(execution_context))
             }
             Err(err) => match &err {
-                StorageResponseError::StaleSession { storage_session } => {
+                StorageResponseError::StaleSession(message) => {
                     tracing::warn!(
                         bundle_session = response.session_id,
-                        storage_session = storage_session,
+                        error = % message,
                         job_id = ? response.task_assignment.job_id,
                         task_id = ? response.task_assignment.task_id,
                         "Storage rejected task registration as stale. Dropping the assignment."

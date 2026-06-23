@@ -718,7 +718,7 @@ impl<
     /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
-            return Err(StorageServerError::StaleSession);
+            return Err(StorageServerError::StaleSession(self.inner.session_id));
         }
         Ok(())
     }
@@ -1516,7 +1516,7 @@ mod tests {
                 )
                 .await;
             assert!(
-                matches!(result, Err(StorageServerError::StaleSession)),
+                matches!(result, Err(StorageServerError::StaleSession(_))),
                 "create_task_instance should return StaleSession on session mismatch"
             );
         }
@@ -1532,7 +1532,7 @@ mod tests {
                 )
                 .await;
             assert!(
-                matches!(result, Err(StorageServerError::StaleSession)),
+                matches!(result, Err(StorageServerError::StaleSession(_))),
                 "succeed_task_instance should return StaleSession on session mismatch"
             );
         }
@@ -1548,7 +1548,7 @@ mod tests {
                 )
                 .await;
             assert!(
-                matches!(result, Err(StorageServerError::StaleSession)),
+                matches!(result, Err(StorageServerError::StaleSession(_))),
                 "fail_task_instance should return StaleSession on session mismatch"
             );
         }
