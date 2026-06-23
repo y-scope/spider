@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use spider_core::types::{
-    id::{ExecutionManagerId, JobId, SessionId, TaskId},
+    id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
     io::ExecutionContext,
 };
 use spider_proto_rust::{
@@ -90,6 +90,7 @@ impl StorageClient for GrpcStorageClient {
         &self,
         job_id: JobId,
         task_id: TaskId,
+        task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
         serialized_outputs: Option<Vec<u8>>,
@@ -100,6 +101,7 @@ impl StorageClient for GrpcStorageClient {
             execution_manager_id: em_id.get(),
             session_id,
             serialized_outputs: serialized_outputs.unwrap_or_default(),
+            task_instance_id,
         };
         let response = self
             .client
@@ -116,6 +118,7 @@ impl StorageClient for GrpcStorageClient {
         &self,
         job_id: JobId,
         task_id: TaskId,
+        task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
         error_message: String,
@@ -126,6 +129,7 @@ impl StorageClient for GrpcStorageClient {
             execution_manager_id: em_id.get(),
             session_id,
             error_message,
+            task_instance_id,
         };
         let response = self
             .client

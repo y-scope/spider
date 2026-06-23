@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use spider_core::types::{
-    id::{ExecutionManagerId, JobId, SessionId, TaskId},
+    id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
     io::ExecutionContext,
 };
 
@@ -79,6 +79,7 @@ pub trait StorageClient: Send + Sync {
     ///
     /// * `job_id` - The owning job.
     /// * `task_id` - The task that ran.
+    /// * `task_instance_id` - The task instance that produced the outcome.
     /// * `em_id` - The identity of the calling execution manager.
     /// * `session_id` - The session id captured from the scheduler assignment.
     /// * `serialized_outputs` - The wire-format encoded task outputs buffer, forwarded verbatim to
@@ -99,6 +100,7 @@ pub trait StorageClient: Send + Sync {
         &self,
         job_id: JobId,
         task_id: TaskId,
+        task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
         serialized_outputs: Option<Vec<u8>>,
@@ -110,6 +112,7 @@ pub trait StorageClient: Send + Sync {
     ///
     /// * `job_id` - The owning job.
     /// * `task_id` - The task that ran.
+    /// * `task_instance_id` - The task instance that produced the outcome.
     /// * `em_id` - The identity of the calling execution manager.
     /// * `session_id` - The session id captured from the scheduler assignment.
     /// * `error_message` - The formatted error message.
@@ -127,6 +130,7 @@ pub trait StorageClient: Send + Sync {
         &self,
         job_id: JobId,
         task_id: TaskId,
+        task_instance_id: TaskInstanceId,
         em_id: ExecutionManagerId,
         session_id: SessionId,
         error_message: String,

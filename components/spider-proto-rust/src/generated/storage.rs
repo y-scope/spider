@@ -7,8 +7,6 @@ pub struct SubmitJobRequest {
     pub serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "3")]
     pub serialized_inputs: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "4")]
-    pub session_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubmitJobResponse {
@@ -81,40 +79,6 @@ pub mod job_error_response {
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct DeleteExpiredTerminatedJobsRequest {
-    #[prost(uint64, tag = "1")]
-    pub expire_after_sec: u64,
-    #[prost(uint64, tag = "2")]
-    pub session_id: u64,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeleteExpiredTerminatedJobsResponse {
-    #[prost(oneof = "delete_expired_terminated_jobs_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<delete_expired_terminated_jobs_response::Result>,
-}
-/// Nested message and enum types in `DeleteExpiredTerminatedJobsResponse`.
-pub mod delete_expired_terminated_jobs_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        DeletedJobs(super::DeletedJobs),
-        #[prost(message, tag = "2")]
-        Error(super::JobOrchestrationError),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeletedJobs {
-    #[prost(uint64, repeated, tag = "1")]
-    pub job_ids: ::prost::alloc::vec::Vec<u64>,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ResendReadyTasksRequest {
-    #[prost(uint64, optional, tag = "1")]
-    pub job_id: ::core::option::Option<u64>,
-    #[prost(uint64, tag = "2")]
-    pub session_id: u64,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct PollReadyTasksRequest {
     #[prost(uint64, tag = "1")]
     pub max_items: u64,
@@ -185,10 +149,12 @@ pub struct ReportTaskSuccessRequest {
     #[prost(message, optional, tag = "2")]
     pub task_id: ::core::option::Option<super::common::TaskId>,
     #[prost(uint64, tag = "3")]
-    pub execution_manager_id: u64,
+    pub task_instance_id: u64,
     #[prost(uint64, tag = "4")]
+    pub execution_manager_id: u64,
+    #[prost(uint64, tag = "5")]
     pub session_id: u64,
-    #[prost(bytes = "vec", tag = "5")]
+    #[prost(bytes = "vec", tag = "6")]
     pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -198,10 +164,12 @@ pub struct ReportTaskFailureRequest {
     #[prost(message, optional, tag = "2")]
     pub task_id: ::core::option::Option<super::common::TaskId>,
     #[prost(uint64, tag = "3")]
-    pub execution_manager_id: u64,
+    pub task_instance_id: u64,
     #[prost(uint64, tag = "4")]
+    pub execution_manager_id: u64,
+    #[prost(uint64, tag = "5")]
     pub session_id: u64,
-    #[prost(string, tag = "5")]
+    #[prost(string, tag = "6")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -211,13 +179,6 @@ pub struct AddResourceGroupRequest {
     #[prost(bytes = "vec", tag = "2")]
     pub password: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint64, tag = "3")]
-    pub session_id: u64,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ResourceGroupIdRequest {
-    #[prost(uint64, tag = "1")]
-    pub resource_group_id: u64,
-    #[prost(uint64, tag = "2")]
     pub session_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1009,64 +970,6 @@ pub mod job_orchestration_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn delete_expired_terminated_jobs(
-            &mut self,
-            request: impl tonic::IntoRequest<super::DeleteExpiredTerminatedJobsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeleteExpiredTerminatedJobsResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobOrchestrationService/DeleteExpiredTerminatedJobs",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "storage.JobOrchestrationService",
-                        "DeleteExpiredTerminatedJobs",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn resend_ready_tasks(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ResendReadyTasksRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::JobManagementOperationResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/storage.JobOrchestrationService/ResendReadyTasks",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "storage.JobOrchestrationService",
-                        "ResendReadyTasks",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated client implementations.
@@ -1579,35 +1482,6 @@ pub mod resource_group_management_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn delete_resource_group(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ResourceGroupIdRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ResourceGroupOperationResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/storage.ResourceGroupManagementService/DeleteResourceGroup",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "storage.ResourceGroupManagementService",
-                        "DeleteResourceGroup",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated client implementations.
@@ -2092,20 +1966,6 @@ pub mod job_orchestration_service_server {
             tonic::Response<super::JobErrorResponse>,
             tonic::Status,
         >;
-        async fn delete_expired_terminated_jobs(
-            &self,
-            request: tonic::Request<super::DeleteExpiredTerminatedJobsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeleteExpiredTerminatedJobsResponse>,
-            tonic::Status,
-        >;
-        async fn resend_ready_tasks(
-            &self,
-            request: tonic::Request<super::ResendReadyTasksRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::JobManagementOperationResponse>,
-            tonic::Status,
-        >;
     }
     #[derive(Debug)]
     pub struct JobOrchestrationServiceServer<T> {
@@ -2454,109 +2314,6 @@ pub mod job_orchestration_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetJobErrorSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/storage.JobOrchestrationService/DeleteExpiredTerminatedJobs" => {
-                    #[allow(non_camel_case_types)]
-                    struct DeleteExpiredTerminatedJobsSvc<T: JobOrchestrationService>(
-                        pub Arc<T>,
-                    );
-                    impl<
-                        T: JobOrchestrationService,
-                    > tonic::server::UnaryService<
-                        super::DeleteExpiredTerminatedJobsRequest,
-                    > for DeleteExpiredTerminatedJobsSvc<T> {
-                        type Response = super::DeleteExpiredTerminatedJobsResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                super::DeleteExpiredTerminatedJobsRequest,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as JobOrchestrationService>::delete_expired_terminated_jobs(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = DeleteExpiredTerminatedJobsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/storage.JobOrchestrationService/ResendReadyTasks" => {
-                    #[allow(non_camel_case_types)]
-                    struct ResendReadyTasksSvc<T: JobOrchestrationService>(pub Arc<T>);
-                    impl<
-                        T: JobOrchestrationService,
-                    > tonic::server::UnaryService<super::ResendReadyTasksRequest>
-                    for ResendReadyTasksSvc<T> {
-                        type Response = super::JobManagementOperationResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ResendReadyTasksRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as JobOrchestrationService>::resend_ready_tasks(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = ResendReadyTasksSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -3236,13 +2993,6 @@ pub mod resource_group_management_service_server {
             tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
         >;
-        async fn delete_resource_group(
-            &self,
-            request: tonic::Request<super::ResourceGroupIdRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ResourceGroupOperationResponse>,
-            tonic::Status,
-        >;
     }
     #[derive(Debug)]
     pub struct ResourceGroupManagementServiceServer<T> {
@@ -3408,57 +3158,6 @@ pub mod resource_group_management_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = VerifyResourceGroupSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/storage.ResourceGroupManagementService/DeleteResourceGroup" => {
-                    #[allow(non_camel_case_types)]
-                    struct DeleteResourceGroupSvc<T: ResourceGroupManagementService>(
-                        pub Arc<T>,
-                    );
-                    impl<
-                        T: ResourceGroupManagementService,
-                    > tonic::server::UnaryService<super::ResourceGroupIdRequest>
-                    for DeleteResourceGroupSvc<T> {
-                        type Response = super::ResourceGroupOperationResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ResourceGroupIdRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ResourceGroupManagementService>::delete_resource_group(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = DeleteResourceGroupSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

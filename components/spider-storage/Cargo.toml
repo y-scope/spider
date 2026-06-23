@@ -8,6 +8,10 @@ autotests = false
 name = "spider_storage"
 path = "src/lib.rs"
 
+[[bin]]
+name = "spider_storage_grpc_server"
+path = "src/bin/grpc_server.rs"
+
 [[test]]
 name = "test_spider_storage"
 path = "tests/test_spider_storage.rs"
@@ -15,6 +19,8 @@ path = "tests/test_spider_storage.rs"
 [dependencies]
 async-channel = "2.3.1"
 async-trait = "0.1.89"
+bincode = "1.3.3"
+clap = { version = "4.6.1", features = ["derive"] }
 const_format = "0.2.35"
 dashmap = "6.1.0"
 rmp-serde = "1.3.1"
@@ -22,16 +28,20 @@ secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 spider-core = { path = "../spider-core" }
 spider-derive = { path = "../spider-derive" }
+spider-proto-rust = { path = "../spider-proto-rust" }
 spider-tdl = { path = "../spider-tdl" }
+spider-utils = { path = "../spider-utils" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
 tokio = {
   version = "1.50.0",
-  features = ["macros", "rt-multi-thread", "sync", "time"]
+  features = ["macros", "rt-multi-thread", "signal", "sync", "time"]
 }
 tokio-util = { version = "0.7.18", features = ["rt"] }
+tonic = "0.12.3"
 tracing = { version = "0.1.44", features = ["attributes"] }
+yaml_serde = "0.10.4"
 
 [dev-dependencies]
 anyhow = "1.0.98"
