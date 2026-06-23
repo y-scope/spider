@@ -379,7 +379,7 @@ async fn register_and_start_job<
 /// Returns an error if:
 ///
 /// * Forwards [`ServiceState::add_resource_group`]'s return values on failure.
-/// * Forwards [`spider_core::task::TaskGraph::to_json`]'s return values on failure.
+/// * Forwards [`spider_core::task::TaskGraph::to_zstd_compressed_json`]'s return values on failure.
 /// * Forwards [`serialize_compressed_inputs`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<

@@ -41,6 +41,10 @@ pub fn decode_payload(payload: BinaryPayload) -> Result<Vec<u8>, Error> {
 /// payloads are zstd-compressed via [`BinaryPayloadEncoding::Zstd`] to reduce
 /// wire size. If compression fails, the raw payload is sent uncompressed so the
 /// request never fails solely due to encoding.
+///
+/// # Returns
+///
+/// A [`BinaryPayload`] carrying the encoded bytes.
 pub fn encode_payload(raw: Vec<u8>) -> BinaryPayload {
     if raw.len() > RAW_PAYLOAD_MAX_SIZE {
         match encode_zstd_bytes(&raw) {

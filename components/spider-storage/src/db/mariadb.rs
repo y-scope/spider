@@ -188,8 +188,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                 "job `{job_id}` succeeded but has no serialized outputs"
             ))
         })?;
-        let outputs_bytes =
-            decode_payload_blob(&outputs_bytes).map_err(DbError::ValueDeserializationFailure)?;
+        let outputs_bytes = decode_payload_blob(&outputs_bytes)
+            .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
         let outputs: Vec<TaskOutput> =
             rmp_serde::from_slice(&outputs_bytes).map_err(DbError::value_de)?;
         Ok(outputs)
@@ -778,6 +778,18 @@ fn encode_job_output_payload_blob(raw: Vec<u8>) -> Vec<u8> {
     encode_payload(raw).encode_to_vec()
 }
 
+/// Errors from decoding a [`BinaryPayload`] storage blob.
+#[derive(Debug, thiserror::Error)]
+enum PayloadBlobDecodeError {
+    /// The stored blob was not a valid protobuf [`BinaryPayload`].
+    #[error("failed to decode protobuf binary payload: {0}")]
+    Protobuf(#[from] prost::DecodeError),
+
+    /// The decoded [`BinaryPayload`] used an invalid or unsupported encoding.
+    #[error(transparent)]
+    Payload(#[from] spider_proto_rust::error::Error),
+}
+
 /// Decodes a [`BinaryPayload`] storage blob into raw bytes.
 ///
 /// # Returns
@@ -790,7 +802,7 @@ fn encode_job_output_payload_blob(raw: Vec<u8>) -> Vec<u8> {
 ///
 /// * Forwards [`BinaryPayload::decode`]'s return values on failure.
 /// * Forwards [`decode_payload`]'s return values on failure.
-fn decode_payload_blob(blob: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+fn decode_payload_blob(blob: &[u8]) -> Result<Vec<u8>, PayloadBlobDecodeError> {
     let payload = BinaryPayload::decode(blob)?;
     Ok(decode_payload(payload)?)
 }
@@ -835,8 +847,8 @@ impl RecoverableJobRowProjection {
         let outputs = self
             .serialized_job_outputs
             .map(|outputs| {
-                let outputs =
-                    decode_payload_blob(&outputs).map_err(DbError::ValueDeserializationFailure)?;
+                let outputs = decode_payload_blob(&outputs)
+                    .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
                 rmp_serde::from_slice(&outputs).map_err(DbError::value_de)
             })
             .transpose()?;
