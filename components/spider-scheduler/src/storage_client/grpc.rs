@@ -115,9 +115,6 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .await
             .map_err(|status| match status.code() {
                 Code::NotFound => StorageClientError::JobNotFound(job_id),
-                Code::InvalidArgument => {
-                    StorageClientError::InvalidInput(status.message().to_owned())
-                }
                 _ => StorageClientError::Server(status.message().to_owned()),
             })?
             .into_inner();
