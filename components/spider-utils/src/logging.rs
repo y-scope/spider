@@ -1,4 +1,4 @@
-//! Logging setup for the storage server binaries.
+//! Logging setup for Spider binaries.
 
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::EnvFilter;

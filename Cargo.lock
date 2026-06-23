@@ -2044,6 +2044,7 @@ dependencies = [
  "spider-derive",
  "spider-proto-rust",
  "spider-tdl",
+ "spider-utils",
  "sqlx",
  "subtle",
  "tabled",
@@ -2052,8 +2053,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "yaml_serde",
 ]
 
@@ -2097,6 +2096,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "spider-utils"
+version = "0.1.0"
+dependencies = [
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

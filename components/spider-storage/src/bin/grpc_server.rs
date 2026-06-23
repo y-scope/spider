@@ -12,12 +12,8 @@ use spider_proto_rust::storage::{
     session_management_service_server::SessionManagementServiceServer,
     task_instance_management_service_server::TaskInstanceManagementServiceServer,
 };
-use spider_storage::{
-    ServerConfig,
-    grpc::GrpcServiceState,
-    logging::set_up_logging,
-    state::runtime::create_runtime,
-};
+use spider_storage::{ServerConfig, grpc::GrpcServiceState, state::runtime::create_runtime};
+use spider_utils::logging::set_up_logging;
 use tokio::select;
 use tonic::transport::Server;
 

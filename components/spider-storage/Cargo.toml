@@ -30,6 +30,7 @@ spider-core = { path = "../spider-core" }
 spider-derive = { path = "../spider-derive" }
 spider-proto-rust = { path = "../spider-proto-rust" }
 spider-tdl = { path = "../spider-tdl" }
+spider-utils = { path = "../spider-utils" }
 sqlx = { version = "0.8.6", features = ["mysql", "runtime-tokio"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
@@ -40,12 +41,6 @@ tokio = {
 tokio-util = { version = "0.7.18", features = ["rt"] }
 tonic = "0.12.3"
 tracing = { version = "0.1.44", features = ["attributes"] }
-tracing-appender = "0.2.5"
-tracing-subscriber = {
-  version = "0.3.23",
-  default-features = false,
-  features = ["env-filter", "fmt", "json"]
-}
 yaml_serde = "0.10.4"
 
 [dev-dependencies]
