@@ -12,10 +12,9 @@ use spider_core::{
         TerminationTaskDescriptor,
         ValueTypeDescriptor,
     },
-    types::io::TaskInput,
+    types::io::{TaskInput, TaskInputsSerializer},
 };
 use spider_storage::cache::job_submission::ValidatedJobSubmission;
-use spider_core::types::io::TaskInputsSerializer;
 
 /// The submitted task graph type from spider-core.
 pub type SubmittedTaskGraph = spider_core::task::TaskGraph;

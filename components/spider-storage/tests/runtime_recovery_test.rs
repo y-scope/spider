@@ -5,7 +5,7 @@ use spider_core::{
     task::TaskIndex,
     types::{
         id::{ExecutionManagerId, JobId, TaskInstanceId},
-        io::{TaskInput, TaskInputsSerializer, TaskOutput, TaskOutputsSerializer},
+        io::{TaskOutput, TaskOutputsSerializer},
     },
 };
 use spider_storage::{
@@ -378,7 +378,6 @@ async fn register_and_start_job<
 ///
 /// * Forwards [`ServiceState::add_resource_group`]'s return values on failure.
 /// * Forwards [`spider_core::task::TaskGraph::to_json`]'s return values on failure.
-/// * Forwards [`serialize_inputs`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<
     ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
@@ -556,25 +555,6 @@ fn find_entry_for_job<TaskKind>(
         .into_iter()
         .filter(|entry| entry.job_id == job_id)
         .collect()
-}
-
-/// Serializes task inputs into the storage service wire format.
-///
-/// # Returns
-///
-/// The serialized task inputs on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
-fn serialize_inputs(inputs: Vec<TaskInput>) -> anyhow::Result<Vec<u8>> {
-    let mut serializer = TaskInputsSerializer::new();
-    for input in inputs {
-        serializer.append(input)?;
-    }
-    Ok(serializer.release())
 }
 
 /// Serializes the single output payload used by recovery tests.
