@@ -5,7 +5,7 @@ use spider_core::{
     task::TaskIndex,
     types::{
         id::{ExecutionManagerId, JobId, TaskInstanceId},
-        io::{TaskInput, TaskOutput},
+        io::{TaskInput, TaskInputsSerializer, TaskOutput, TaskOutputsSerializer},
     },
 };
 use spider_storage::{
@@ -22,7 +22,6 @@ use spider_storage::{
     },
     task_instance_pool::TaskInstancePoolConfig,
 };
-use spider_tdl::wire::{TaskInputsSerializer, TaskOutputsSerializer};
 
 use crate::{
     mariadb_infra::{create_mariadb_config, create_mariadb_connector},

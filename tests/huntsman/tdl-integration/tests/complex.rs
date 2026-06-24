@@ -3,15 +3,10 @@
 use huntsman_complex_types::{Complex, ComplexVec};
 use spider_core::types::{
     id::{JobId, ResourceGroupId, TaskId},
-    io::TaskInput,
+    io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
 };
 use spider_task_executor::{ExecutorError, TdlPackageManager};
-use spider_tdl::{
-    TaskContext,
-    TdlError,
-    Version,
-    wire::{TaskInputsSerializer, TaskOutputsSerializer},
-};
+use spider_tdl::{TaskContext, TdlError, Version};
 
 const PACKAGE_NAME: &str = "complex";
 
