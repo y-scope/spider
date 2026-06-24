@@ -163,16 +163,11 @@ impl RequestUnpack for ReportTaskFailureRequest {
 ///
 /// * The external resource group ID.
 /// * The password.
-/// * The caller's storage session ID.
 impl RequestUnpack for AddResourceGroupRequest {
-    type Unpacked = (String, Vec<u8>, SessionId);
+    type Unpacked = (String, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        Ok((
-            self.external_resource_group_id,
-            self.password,
-            self.session_id,
-        ))
+        Ok((self.external_resource_group_id, self.password))
     }
 }
 
@@ -180,31 +175,20 @@ impl RequestUnpack for AddResourceGroupRequest {
 ///
 /// * The resource group ID.
 /// * The password.
-/// * The caller's storage session ID.
 impl RequestUnpack for VerifyResourceGroupRequest {
-    type Unpacked = (ResourceGroupId, Vec<u8>, SessionId);
+    type Unpacked = (ResourceGroupId, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        Ok((
-            ResourceGroupId::from(self.resource_group_id),
-            self.password,
-            self.session_id,
-        ))
+        Ok((ResourceGroupId::from(self.resource_group_id), self.password))
     }
 }
 
-/// Unpacks [`ResourceGroupIdRequest`] into a tuple containing:
-///
-/// * The resource group ID.
-/// * The caller's storage session ID.
+/// Unpacks [`ResourceGroupIdRequest`] into the resource group ID.
 impl RequestUnpack for ResourceGroupIdRequest {
-    type Unpacked = (ResourceGroupId, SessionId);
+    type Unpacked = ResourceGroupId;
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        Ok((
-            ResourceGroupId::from(self.resource_group_id),
-            self.session_id,
-        ))
+        Ok(ResourceGroupId::from(self.resource_group_id))
     }
 }
 
