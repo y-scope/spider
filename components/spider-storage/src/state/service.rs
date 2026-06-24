@@ -542,6 +542,25 @@ impl<
             .map_err(StorageServerError::from)
     }
 
+    /// Deletes a resource group and, transitively, all of its jobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagement::delete`]'s return values on failure.
+    pub async fn delete_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+    ) -> Result<(), StorageServerError> {
+        self.inner.db.delete(resource_group_id).await?;
+        tracing::info!(
+            rg_id = ? resource_group_id,
+            "Resource group deleted.",
+        );
+        Ok(())
+    }
+
     /// Polls the ready queue for task entries.
     ///
     /// # Returns
@@ -1585,6 +1604,37 @@ mod tests {
             .await?;
         let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
         assert!(result.is_err(), "verify should fail for wrong password");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_succeeds_for_existing() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .await?;
+        service.delete_resource_group(rg_id).await?;
+        let result = service.verify_resource_group(rg_id, &[1, 2, 3]).await;
+        assert!(
+            result.is_err(),
+            "verify should fail after the resource group is deleted"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_returns_error_for_unknown() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service
+            .delete_resource_group(ResourceGroupId::random())
+            .await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Db(DbError::ResourceGroupNotFound(_)))
+            ),
+            "delete_resource_group should return ResourceGroupNotFound for an unknown id"
+        );
         Ok(())
     }
 
