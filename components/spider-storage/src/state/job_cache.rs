@@ -331,12 +331,14 @@ mod tests {
             num_removed_jobs, 2,
             "only the resource group's jobs should be removed"
         );
-        assert!(
-            cache.get(first_job_id).await.is_none(),
+        assert_eq!(
+            cache.get(first_job_id).await.map(|_| ()),
+            None,
             "first owned job should be removed"
         );
-        assert!(
-            cache.get(second_job_id).await.is_none(),
+        assert_eq!(
+            cache.get(second_job_id).await.map(|_| ()),
+            None,
             "second owned job should be removed"
         );
         assert!(

@@ -75,8 +75,8 @@ impl<
     /// The [`Status`] to send to the client:
     ///
     /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
-    /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
-    /// * `NOT_FOUND` for a missing job.
+    /// * `UNAUTHENTICATED` for a wrong resource-group password.
+    /// * `NOT_FOUND` for an unknown resource group or a missing job.
     /// * `FAILED_PRECONDITION` for operations on an invalid job state.
     /// * `INVALID_ARGUMENT` for a malformed task graph, inputs, or request.
     /// * `INTERNAL` for any other (database or otherwise unexpected) error.
@@ -99,14 +99,23 @@ impl<
             }
 
             StorageServerError::Db(db_error) => match &db_error {
-                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_) => {
+                DbError::ResourceGroupNotFound(_) => {
                     tracing::warn!(
                         error = % db_error,
                         service = SERVICE_NAME,
                         tag,
-                        "Invalid resource group."
+                        "Resource group not found."
                     );
-                    Status::unauthenticated("invalid resource group")
+                    Status::not_found(db_error.to_string())
+                }
+                DbError::InvalidPassword(_) => {
+                    tracing::warn!(
+                        error = % db_error,
+                        service = SERVICE_NAME,
+                        tag,
+                        "Invalid resource group password."
+                    );
+                    Status::unauthenticated(db_error.to_string())
                 }
                 DbError::JobNotFound(_) => {
                     tracing::warn!(
@@ -270,7 +279,7 @@ impl<
     /// The [`Status`] to send to the client:
     ///
     /// * `UNAVAILABLE` when the ready-queue channel is closed (the inbound queue can no longer
-    ///   yield entries) or the request was issued from a stale session.
+    ///   yield entries).
     /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
     ///   unexpected failure.
     pub fn inbound_queue_service_error_handler(
@@ -302,18 +311,6 @@ impl<
                 Status::internal("storage service unavailable")
             }
 
-            StorageServerError::StaleSession(storage_session) => {
-                tracing::warn!(
-                    storage_session,
-                    service = SERVICE_NAME,
-                    tag,
-                    "The request was issued from a stale session."
-                );
-                Status::unavailable(format!(
-                    "stale session; current storage session is {storage_session}"
-                ))
-            }
-
             error => {
                 tracing::error!(
                     error = % error,
@@ -337,7 +334,7 @@ impl<
     /// The [`Status`] to send to the client:
     ///
     /// * `NOT_FOUND` for an unknown resource group.
-    /// * `INVALID_ARGUMENT` for a wrong password.
+    /// * `UNAUTHENTICATED` for a wrong password.
     /// * `ALREADY_EXISTS` for a duplicate external resource group ID.
     /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
     ///   unexpected failure.
@@ -365,7 +362,7 @@ impl<
                     tag,
                     "Invalid resource group password."
                 );
-                Status::invalid_argument(error.to_string())
+                Status::unauthenticated(error.to_string())
             }
 
             error @ StorageServerError::Db(DbError::ResourceGroupAlreadyExists(_)) => {
@@ -501,8 +498,9 @@ impl<
                     error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    "Unexpected internal error."
+                    "Unexpected internal error. Cancelling service to avoid cache corruption."
                 );
+                self.cancellation_token.cancel();
                 Status::internal("internal error")
             }
         }
@@ -1162,6 +1160,31 @@ mod tests {
             .await;
         let status = verify_after_delete.expect_err("verify should fail after delete");
         assert_eq!(status.code(), Code::NotFound);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn verify_resource_group_rejects_wrong_password_as_unauthenticated() -> anyhow::Result<()>
+    {
+        let service = create_grpc_service();
+        let password = b"secret".to_vec();
+        let rg_id = service
+            .add_resource_group(Request::new(storage::AddResourceGroupRequest {
+                external_resource_group_id: "external-rg".to_owned(),
+                password: password.clone(),
+            }))
+            .await?
+            .into_inner()
+            .resource_group_id;
+
+        let result = service
+            .verify_resource_group(Request::new(storage::VerifyResourceGroupRequest {
+                resource_group_id: rg_id,
+                password: b"wrong".to_vec(),
+            }))
+            .await;
+        let status = result.expect_err("a wrong password should be rejected");
+        assert_eq!(status.code(), Code::Unauthenticated);
         Ok(())
     }
 

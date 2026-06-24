@@ -133,8 +133,8 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
 ///
 /// # Returns
 ///
-/// * [`StorageClientError::InboundClosed`] when the inbound queue is closed (or the request was
-///   issued from a stale session), signalled by `UNAVAILABLE`.
+/// * [`StorageClientError::InboundClosed`] when the inbound queue is closed, signalled by
+///   `UNAVAILABLE`.
 /// * [`StorageClientError::InvalidInput`] for a malformed request, signalled by `INVALID_ARGUMENT`.
 /// * [`StorageClientError::Server`] for any other failure.
 fn map_inbound_status(status: &tonic::Status) -> StorageClientError {
