@@ -1,6 +1,8 @@
 use spider_core::{job::JobState, task::TaskState, types::id::JobId};
 use spider_tdl::wire::WireError;
 
+use crate::db::DbError;
+
 /// Enums for all possible errors that can occur in a cache operation.
 #[derive(thiserror::Error, Debug)]
 pub enum CacheError {
@@ -9,9 +11,12 @@ pub enum CacheError {
 
     #[error(transparent)]
     StaleState(#[from] StaleStateError),
+}
 
-    #[error(transparent)]
-    Db(#[from] crate::db::DbError),
+impl From<DbError> for CacheError {
+    fn from(err: DbError) -> Self {
+        Self::Internal(InternalError::Db(err))
+    }
 }
 
 /// Enums for all internal errors.
@@ -53,6 +58,9 @@ pub enum InternalError {
 
     #[error("job not found: {0:?}")]
     JobNotFound(JobId),
+
+    #[error("job already exists: {0:?}")]
+    JobAlreadyExists(JobId),
 
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
@@ -125,7 +133,7 @@ pub enum StaleStateError {
     #[error("job no longer in the cleanup-ready state")]
     JobNoLongerCleanupReady,
 
-    #[error("job already terminated")]
+    #[error("job already terminated in state {0:?}")]
     JobAlreadyTerminated(JobState),
 
     #[error("job already requested for cancellation")]

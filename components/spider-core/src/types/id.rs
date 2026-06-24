@@ -138,6 +138,16 @@ pub enum TaskId {
     Cleanup,
 }
 
+impl Display for TaskId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Index(index) => write!(formatter, "{index}"),
+            Self::Commit => write!(formatter, "commit"),
+            Self::Cleanup => write!(formatter, "cleanup"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobIdMarker {}
 pub type JobId = Id<JobIdMarker>;

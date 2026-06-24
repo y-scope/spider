@@ -1,4 +1,7 @@
-use spider_core::{task, types::id::JobId};
+use spider_core::{
+    task,
+    types::id::{JobId, SessionId},
+};
 use spider_tdl::error::TdlError;
 
 use crate::{cache::error::CacheError, db::DbError};
@@ -18,17 +21,14 @@ pub enum StorageServerError {
     #[error(transparent)]
     Tdl(#[from] TdlError),
 
-    #[error("stale session")]
-    StaleSession,
+    #[error("current storage session is {0}")]
+    StaleSession(SessionId),
 
     #[error("server is shutting down: {0}")]
     Stopping(String),
 
     #[error("job not found in cache: {0:?}")]
     JobNotFound(JobId),
-
-    #[error("job already exists: {0:?}")]
-    JobAlreadyExists(JobId),
 
     #[error("bad request: {0}")]
     BadRequest(String),

@@ -10,15 +10,13 @@ use spider_core::types::{
 };
 use spider_proto_rust::{
     common,
-    storage::{
-        self,
-        register_task_instance_response,
-        task_instance_management_error,
-        task_instance_management_service_client::TaskInstanceManagementServiceClient,
-        task_instance_operation_response,
-    },
+    storage::{self, task_instance_management_service_client::TaskInstanceManagementServiceClient},
 };
-use tonic::transport::{Channel, Endpoint};
+use tonic::{
+    Code,
+    Status,
+    transport::{Channel, Endpoint},
+};
 
 use crate::client::storage::{StorageClient, StorageResponseError};
 
@@ -68,22 +66,16 @@ impl StorageClient for GrpcStorageClient {
             .clone()
             .register_task_instance(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| status_to_error(&status))?
             .into_inner();
 
-        match response.result {
-            Some(register_task_instance_response::Result::ExecutionContext(bytes)) => {
-                bincode::deserialize(&bytes).map_err(|error| {
-                    StorageResponseError::Transport(format!(
-                        "failed to decode execution context: {error}"
-                    ))
-                })
-            }
-            Some(register_task_instance_response::Result::Error(error)) => Err(error.into()),
-            None => Err(StorageResponseError::Transport(
-                "register task instance response missing result".to_owned(),
-            )),
-        }
+        let execution_context = response.execution_context.ok_or_else(|| {
+            StorageResponseError::Transport(
+                "register task instance response missing execution context".to_owned(),
+            )
+        })?;
+        ExecutionContext::try_from(execution_context)
+            .map_err(|error| StorageResponseError::Transport(error.to_string()))
     }
 
     async fn report_task_success(
@@ -103,15 +95,12 @@ impl StorageClient for GrpcStorageClient {
             serialized_outputs: serialized_outputs.unwrap_or_default(),
             task_instance_id,
         };
-        let response = self
-            .client
+        self.client
             .clone()
             .report_task_success(request)
             .await
-            .map_err(to_transport_error)?
-            .into_inner();
-
-        storage_operation_response_to_result(response)
+            .map_err(|status| status_to_error(&status))?;
+        Ok(())
     }
 
     async fn report_task_failure(
@@ -131,52 +120,31 @@ impl StorageClient for GrpcStorageClient {
             error_message,
             task_instance_id,
         };
-        let response = self
-            .client
+        self.client
             .clone()
             .report_task_failure(request)
             .await
-            .map_err(to_transport_error)?
-            .into_inner();
-
-        storage_operation_response_to_result(response)
+            .map_err(|status| status_to_error(&status))?;
+        Ok(())
     }
 }
 
-impl From<storage::TaskInstanceManagementError> for StorageResponseError {
-    fn from(error: storage::TaskInstanceManagementError) -> Self {
-        match task_instance_management_error::ErrCode::try_from(error.err_code) {
-            Ok(task_instance_management_error::ErrCode::StaleSession) => Self::StaleSession {
-                storage_session: error.storage_session,
-            },
-            Ok(task_instance_management_error::ErrCode::CacheStale) => {
-                Self::CacheStale(error.message)
-            }
-            Ok(
-                task_instance_management_error::ErrCode::Server
-                | task_instance_management_error::ErrCode::Unspecified,
-            ) => Self::Server(error.message),
-            Ok(task_instance_management_error::ErrCode::InvalidInput) => {
-                Self::InvalidInput(error.message)
-            }
-            Err(error) => Self::Transport(format!("unknown task instance error kind: {error}")),
-        }
-    }
-}
-
+/// Maps a task-instance management gRPC [`Status`] to a [`StorageResponseError`].
+///
 /// # Returns
 ///
-/// [`storage::TaskInstanceOperationResponse`] converted into
-/// [`Result<(), StorageResponseError>`].
-fn storage_operation_response_to_result(
-    response: storage::TaskInstanceOperationResponse,
-) -> Result<(), StorageResponseError> {
-    match response.result {
-        Some(task_instance_operation_response::Result::Ok(_)) => Ok(()),
-        Some(task_instance_operation_response::Result::Error(error)) => Err(error.into()),
-        None => Err(StorageResponseError::Transport(
-            "storage operation response missing `result` message".to_owned(),
-        )),
+/// The [`StorageResponseError`] for `status`'s code:
+///
+/// * [`StorageResponseError::StaleSession`] for `UNAVAILABLE`.
+/// * [`StorageResponseError::CacheStale`] for `FAILED_PRECONDITION`.
+/// * [`StorageResponseError::InvalidInput`] for `INVALID_ARGUMENT`.
+/// * [`StorageResponseError::Server`] for any other code.
+fn status_to_error(status: &Status) -> StorageResponseError {
+    match status.code() {
+        Code::Unavailable => StorageResponseError::StaleSession(status.message().to_owned()),
+        Code::FailedPrecondition => StorageResponseError::CacheStale(status.message().to_owned()),
+        Code::InvalidArgument => StorageResponseError::InvalidInput(status.message().to_owned()),
+        _ => StorageResponseError::Server(status.message().to_owned()),
     }
 }
 
@@ -194,44 +162,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn storage_error_maps_stale_session() {
-        let error = storage::TaskInstanceManagementError {
-            err_code: task_instance_management_error::ErrCode::StaleSession.into(),
-            message: "stale".to_owned(),
-            storage_session: 7,
-        };
-
-        match StorageResponseError::from(error) {
-            StorageResponseError::StaleSession { storage_session } => {
-                assert_eq!(7, storage_session);
-            }
-            error => panic!("unexpected storage response error: {error:?}"),
+    fn status_maps_unavailable_to_stale_session() {
+        match status_to_error(&Status::unavailable("storage session is 9")) {
+            StorageResponseError::StaleSession(message) => assert!(message.contains('9')),
+            error => panic!("unexpected error: {error:?}"),
         }
     }
 
     #[test]
-    fn storage_error_maps_unknown_kind_to_transport_error() {
-        let error = storage::TaskInstanceManagementError {
-            err_code: 99,
-            message: "unknown".to_owned(),
-            storage_session: 0,
-        };
-
-        match StorageResponseError::from(error) {
-            StorageResponseError::Transport(message) => {
-                assert!(message.contains("unknown task instance error kind"));
-            }
-            error => panic!("unexpected storage response error: {error:?}"),
-        }
-    }
-
-    #[test]
-    fn missing_storage_operation_result_is_transport_error() {
-        match storage_operation_response_to_result(storage::TaskInstanceOperationResponse {
-            result: None,
-        }) {
-            Err(StorageResponseError::Transport(_)) => {}
-            result => panic!("unexpected storage operation result: {result:?}"),
+    fn status_maps_invalid_argument_to_invalid_input() {
+        match status_to_error(&Status::invalid_argument("bad task id")) {
+            StorageResponseError::InvalidInput(message) => assert!(message.contains("bad task id")),
+            error => panic!("unexpected error: {error:?}"),
         }
     }
 }

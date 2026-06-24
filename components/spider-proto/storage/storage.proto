@@ -5,7 +5,7 @@ package storage;
 import "common/common.proto";
 
 service JobOrchestrationService {
-  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc RegisterJob(RegisterJobRequest) returns (RegisterJobResponse);
   rpc StartJob(JobIdRequest) returns (JobStateResponse);
   rpc CancelJob(JobIdRequest) returns (JobStateResponse);
   rpc GetJobState(JobIdRequest) returns (JobStateResponse);
@@ -46,17 +46,14 @@ service SessionManagementService {
   rpc GetSession(common.Void) returns (GetSessionResponse);
 }
 
-message SubmitJobRequest {
+message RegisterJobRequest {
   uint64 resource_group_id = 1;
   bytes serialized_task_graph = 2;
   bytes serialized_inputs = 3;
 }
 
-message SubmitJobResponse {
-  oneof result {
-    uint64 job_id = 1;
-    JobOrchestrationError error = 2;
-  }
+message RegisterJobResponse {
+  uint64 job_id = 1;
 }
 
 message JobIdRequest {
@@ -64,17 +61,11 @@ message JobIdRequest {
 }
 
 message JobStateResponse {
-  oneof result {
-    JobState state = 1;
-    JobOrchestrationError error = 2;
-  }
+  JobState state = 1;
 }
 
 message JobOutputsResponse {
-  oneof result {
-    JobOutputs outputs = 1;
-    JobOrchestrationError error = 2;
-  }
+  JobOutputs outputs = 1;
 }
 
 message JobOutputs {
@@ -82,10 +73,7 @@ message JobOutputs {
 }
 
 message JobErrorResponse {
-  oneof result {
-    string error_message = 1;
-    JobOrchestrationError error = 2;
-  }
+  string error_message = 1;
 }
 
 message PollReadyTasksRequest {
@@ -119,10 +107,24 @@ message RegisterTaskInstanceRequest {
 }
 
 message RegisterTaskInstanceResponse {
-  oneof result {
-    bytes execution_context = 1;
-    TaskInstanceManagementError error = 2;
-  }
+  ExecutionContext execution_context = 1;
+}
+
+message ExecutionContext {
+  uint64 task_instance_id = 1;
+  TdlContext tdl_context = 2;
+  TimeoutPolicy timeout_policy = 3;
+  bytes serialized_inputs = 4;
+}
+
+message TdlContext {
+  string package = 1;
+  string task_func = 2;
+}
+
+message TimeoutPolicy {
+  uint64 soft_timeout_ms = 1;
+  uint64 hard_timeout_ms = 2;
 }
 
 message ReportTaskSuccessRequest {
@@ -238,53 +240,13 @@ enum JobState {
   CANCELLED = 7;
 }
 
-message JobManagementOperationResponse {
-  oneof result {
-    common.Void ok = 1;
-    JobOrchestrationError error = 2;
-  }
-}
-
-message TaskInstanceOperationResponse {
-  oneof result {
-    common.Void ok = 1;
-    TaskInstanceManagementError error = 2;
-  }
-}
+message TaskInstanceOperationResponse {}
 
 message ResourceGroupOperationResponse {
   oneof result {
     common.Void ok = 1;
     ResourceGroupManagementError error = 2;
   }
-}
-
-message JobOrchestrationError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    STALE_SESSION = 1;
-    SERVER = 2;
-    INVALID_INPUT = 3;
-    JOB_NOT_FOUND = 4;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-  uint64 storage_session = 3;
-}
-
-message TaskInstanceManagementError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    STALE_SESSION = 1;
-    CACHE_STALE = 2;
-    SERVER = 3;
-    INVALID_INPUT = 4;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-  uint64 storage_session = 3;
 }
 
 message InboundQueueResponseError {
