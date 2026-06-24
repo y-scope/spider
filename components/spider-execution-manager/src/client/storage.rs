@@ -17,8 +17,8 @@ use spider_core::types::{
 #[derive(Debug, thiserror::Error)]
 pub enum StorageResponseError {
     /// The `session_id` carried with the request does not match storage's current session.
-    #[error("stale session (storage now at {storage_session})")]
-    StaleSession { storage_session: SessionId },
+    #[error("stale session: {0}")]
+    StaleSession(String),
 
     /// Storage's job cache rejected the operation as stale (e.g. the task or its job has already
     /// terminated).

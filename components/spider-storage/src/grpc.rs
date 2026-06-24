@@ -1,6 +1,7 @@
 //! gRPC service adapters for the storage runtime.
 
 use async_trait::async_trait;
+use spider_core::types::id::TaskId;
 use spider_proto_rust::{
     storage::{
         self,
@@ -97,8 +98,7 @@ impl<
                 Status::unavailable("storage service unavailable")
             }
 
-            StorageServerError::Db(db_error)
-            | StorageServerError::Cache(CacheError::Db(db_error)) => match &db_error {
+            StorageServerError::Db(db_error) => match &db_error {
                 DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_) => {
                     tracing::warn!(
                         error = % db_error,
@@ -166,6 +166,95 @@ impl<
                     tag,
                     "Unexpected internal error."
                 );
+                Status::internal("internal error")
+            }
+        }
+    }
+
+    /// Error handler for task instance management service errors.
+    ///
+    /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
+    /// client. The errors are logged for observability.
+    ///
+    /// # Returns
+    ///
+    /// The [`Status`] to send to the client:
+    ///
+    /// * `INTERNAL` for:
+    ///   * A fatal cache-internal error (the service will restart).
+    ///   * Any other unexpected error (the service will restart).
+    /// * `UNAVAILABLE` for a request issued from a stale session.
+    /// * `FAILED_PRECONDITION` for a request issued against a stale cache state.
+    /// * `INVALID_ARGUMENT` for malformed inputs or a malformed request.
+    pub fn task_instance_management_service_error_handler(
+        &self,
+        error: StorageServerError,
+        tag: &'static str,
+    ) -> Status {
+        const SERVICE_NAME: &str = "TaskInstanceManagement";
+        match error {
+            StorageServerError::Cache(CacheError::Internal(e)) => {
+                tracing::error!(
+                    error = % e,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Internal error in the cache layer. Cancelling service."
+                );
+                self.cancellation_token.cancel();
+                Status::internal("storage service unavailable")
+            }
+
+            StorageServerError::StaleSession(storage_session) => {
+                tracing::warn!(
+                    storage_session,
+                    service = SERVICE_NAME,
+                    tag,
+                    "The request was issued from a stale session."
+                );
+                Status::unavailable(format!(
+                    "stale session; current storage session is {storage_session}"
+                ))
+            }
+
+            StorageServerError::Cache(CacheError::StaleState(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "The request was issued from a stale cache state."
+                );
+                Status::failed_precondition(format!("cache stale: {error}"))
+            }
+
+            StorageServerError::JobNotFound(job_id) => {
+                tracing::warn!(
+                    job_id = job_id.get(),
+                    service = SERVICE_NAME,
+                    tag,
+                    "The request attempts to access a job that does not exist in the cache."
+                );
+                // The absence of the job is considered a stale cache state.
+                Status::failed_precondition(format!("cache stale: {error}"))
+            }
+
+            error @ (StorageServerError::Tdl(_) | StorageServerError::BadRequest(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Invalid argument."
+                );
+                Status::invalid_argument(error.to_string())
+            }
+
+            _ => {
+                tracing::error!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Unexpected internal error. Cancelling service to avoid cache corruption."
+                );
+                self.cancellation_token.cancel();
                 Status::internal("internal error")
             }
         }
@@ -283,23 +372,107 @@ impl<
 {
     async fn register_task_instance(
         &self,
-        _request: Request<storage::RegisterTaskInstanceRequest>,
+        request: Request<storage::RegisterTaskInstanceRequest>,
     ) -> Result<Response<storage::RegisterTaskInstanceResponse>, Status> {
-        todo!("Not implemented")
+        let (session_id, job_id, task_id, em_id) = request.into_inner().unpack()?;
+        tracing::info!(
+            session_id = session_id,
+            job_id = job_id.get(),
+            task_id = % task_id,
+            em_id = em_id.get(),
+            "Task instance registration request received."
+        );
+
+        let execution_context = self
+            .inner
+            .create_task_instance(session_id, job_id, task_id, em_id)
+            .await
+            .map_err(|error| {
+                self.task_instance_management_service_error_handler(error, "register_task_instance")
+            })?;
+
+        Ok(Response::new(storage::RegisterTaskInstanceResponse {
+            execution_context: Some(storage::ExecutionContext {
+                task_instance_id: execution_context.task_instance_id,
+                tdl_context: Some(storage::TdlContext {
+                    package: execution_context.tdl_context.package,
+                    task_func: execution_context.tdl_context.task_func,
+                }),
+                timeout_policy: Some(storage::TimeoutPolicy {
+                    soft_timeout_ms: execution_context.timeout_policy.soft_timeout_ms,
+                    hard_timeout_ms: execution_context.timeout_policy.hard_timeout_ms,
+                }),
+                serialized_inputs: execution_context.serialized_inputs,
+            }),
+        }))
     }
 
     async fn report_task_success(
         &self,
-        _request: Request<storage::ReportTaskSuccessRequest>,
+        request: Request<storage::ReportTaskSuccessRequest>,
     ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
-        todo!("Not implemented")
+        let (session_id, job_id, task_id, task_instance_id, serialized_outputs) =
+            request.into_inner().unpack()?;
+        tracing::info!(
+            session_id = session_id,
+            job_id = job_id.get(),
+            task_id = % task_id,
+            task_instance_id,
+            "Task instance completion request (success) received."
+        );
+
+        let _job_state = match task_id {
+            TaskId::Index(task_index) => {
+                self.inner
+                    .succeed_task_instance(
+                        session_id,
+                        job_id,
+                        task_instance_id,
+                        task_index,
+                        serialized_outputs,
+                    )
+                    .await
+            }
+            TaskId::Commit => {
+                self.inner
+                    .succeed_commit_task_instance(session_id, job_id, task_instance_id)
+                    .await
+            }
+            TaskId::Cleanup => {
+                self.inner
+                    .succeed_cleanup_task_instance(session_id, job_id, task_instance_id)
+                    .await
+            }
+        }
+        .map_err(|error| {
+            self.task_instance_management_service_error_handler(error, "report_task_success")
+        })?;
+
+        Ok(Response::new(storage::TaskInstanceOperationResponse {}))
     }
 
     async fn report_task_failure(
         &self,
-        _request: Request<storage::ReportTaskFailureRequest>,
+        request: Request<storage::ReportTaskFailureRequest>,
     ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
-        todo!("Not implemented")
+        let (session_id, job_id, task_id, task_instance_id, error_message) =
+            request.into_inner().unpack()?;
+        tracing::info!(
+            session_id = session_id,
+            job_id = job_id.get(),
+            task_id = % task_id,
+            task_instance_id,
+            "Task instance completion request (failure) received."
+        );
+
+        let _job_state = self
+            .inner
+            .fail_task_instance(session_id, job_id, task_instance_id, task_id, error_message)
+            .await
+            .map_err(|error| {
+                self.task_instance_management_service_error_handler(error, "report_task_failure")
+            })?;
+        Ok(Response::new(storage::TaskInstanceOperationResponse {}))
     }
 }
 

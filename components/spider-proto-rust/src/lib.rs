@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod id;
+pub mod io;
 pub mod job;
 pub mod unpack;
 

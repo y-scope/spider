@@ -14,4 +14,12 @@ pub enum Error {
     /// A protobuf [`crate::storage::JobState`] was left unspecified.
     #[error("job state is unspecified")]
     JobStateUnspecified,
+
+    /// A protobuf [`crate::storage::TdlContext`] was missing.
+    #[error("TDL context is missing")]
+    TdlContextMissing,
+
+    /// A protobuf [`crate::storage::TimeoutPolicy`] was missing.
+    #[error("timeout policy is missing")]
+    TimeoutPolicyMissing,
 }

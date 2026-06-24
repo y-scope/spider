@@ -89,18 +89,33 @@ pub struct RegisterTaskInstanceRequest {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterTaskInstanceResponse {
-    #[prost(oneof = "register_task_instance_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<register_task_instance_response::Result>,
+    #[prost(message, optional, tag = "1")]
+    pub execution_context: ::core::option::Option<ExecutionContext>,
 }
-/// Nested message and enum types in `RegisterTaskInstanceResponse`.
-pub mod register_task_instance_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(bytes, tag = "1")]
-        ExecutionContext(::prost::alloc::vec::Vec<u8>),
-        #[prost(message, tag = "2")]
-        Error(super::TaskInstanceManagementError),
-    }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExecutionContext {
+    #[prost(uint64, tag = "1")]
+    pub task_instance_id: u64,
+    #[prost(message, optional, tag = "2")]
+    pub tdl_context: ::core::option::Option<TdlContext>,
+    #[prost(message, optional, tag = "3")]
+    pub timeout_policy: ::core::option::Option<TimeoutPolicy>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub serialized_inputs: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TdlContext {
+    #[prost(string, tag = "1")]
+    pub package: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub task_func: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TimeoutPolicy {
+    #[prost(uint64, tag = "1")]
+    pub soft_timeout_ms: u64,
+    #[prost(uint64, tag = "2")]
+    pub hard_timeout_ms: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReportTaskSuccessRequest {
@@ -297,21 +312,8 @@ pub mod task_id {
         Cleanup(super::Void),
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TaskInstanceOperationResponse {
-    #[prost(oneof = "task_instance_operation_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<task_instance_operation_response::Result>,
-}
-/// Nested message and enum types in `TaskInstanceOperationResponse`.
-pub mod task_instance_operation_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Ok(super::Void),
-        #[prost(message, tag = "2")]
-        Error(super::TaskInstanceManagementError),
-    }
-}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TaskInstanceOperationResponse {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResourceGroupOperationResponse {
     #[prost(oneof = "resource_group_operation_response::Result", tags = "1, 2")]
@@ -329,63 +331,6 @@ pub mod resource_group_operation_response {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Void {}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TaskInstanceManagementError {
-    #[prost(enumeration = "task_instance_management_error::ErrCode", tag = "1")]
-    pub err_code: i32,
-    #[prost(string, tag = "2")]
-    pub message: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "3")]
-    pub storage_session: u64,
-}
-/// Nested message and enum types in `TaskInstanceManagementError`.
-pub mod task_instance_management_error {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum ErrCode {
-        Unspecified = 0,
-        StaleSession = 1,
-        CacheStale = 2,
-        Server = 3,
-        InvalidInput = 4,
-    }
-    impl ErrCode {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
-                Self::StaleSession => "STALE_SESSION",
-                Self::CacheStale => "CACHE_STALE",
-                Self::Server => "SERVER",
-                Self::InvalidInput => "INVALID_INPUT",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
-                "STALE_SESSION" => Some(Self::StaleSession),
-                "CACHE_STALE" => Some(Self::CacheStale),
-                "SERVER" => Some(Self::Server),
-                "INVALID_INPUT" => Some(Self::InvalidInput),
-                _ => None,
-            }
-        }
-    }
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InboundQueueResponseError {
     #[prost(enumeration = "inbound_queue_response_error::ErrCode", tag = "1")]
