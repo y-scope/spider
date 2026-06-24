@@ -2,8 +2,6 @@
 
 use thiserror::Error;
 
-const ZSTD_LEVEL: i32 = 0;
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("failed to compress zstd bytes: {0}")]
@@ -19,6 +17,7 @@ pub enum Error {
 ///
 /// Returns [`Error::ZstdCompression`] if zstd compression fails.
 pub fn encode_zstd_bytes(raw: &[u8]) -> Result<Vec<u8>, Error> {
+    const ZSTD_LEVEL: i32 = 0;
     zstd::stream::encode_all(raw, ZSTD_LEVEL).map_err(Error::ZstdCompression)
 }
 
