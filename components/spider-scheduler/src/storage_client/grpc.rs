@@ -13,6 +13,7 @@ use spider_proto_rust::storage::{
     inbound_queue_service_client::InboundQueueServiceClient,
     job_orchestration_service_client::JobOrchestrationServiceClient,
     poll_ready_tasks_response,
+    resend_ready_tasks_response,
 };
 use tonic::{
     Code,
@@ -120,6 +121,17 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .into_inner();
         job_state_response_to_result(response)
     }
+
+    async fn resend_ready_tasks(&self) -> Result<(), StorageClientError> {
+        let response = self
+            .scheduler_client
+            .clone()
+            .resend_ready_tasks(storage::ResendReadyTasksRequest {})
+            .await
+            .map_err(to_transport_error)?
+            .into_inner();
+        resend_ready_tasks_response_to_result(response)
+    }
 }
 
 impl From<storage::InboundQueueResponseError> for StorageClientError {
@@ -169,6 +181,21 @@ fn poll_ready_tasks_response_to_result(
         Some(poll_ready_tasks_response::Result::Error(error)) => Err(error.into()),
         None => Err(StorageClientError::Transport(
             "poll ready tasks response missing `result` message".to_owned(),
+        )),
+    }
+}
+
+/// # Returns
+///
+/// [`storage::ResendReadyTasksResponse`] converted into [`Result<(), StorageClientError>`].
+fn resend_ready_tasks_response_to_result(
+    response: storage::ResendReadyTasksResponse,
+) -> Result<(), StorageClientError> {
+    match response.result {
+        Some(resend_ready_tasks_response::Result::Ok(_)) => Ok(()),
+        Some(resend_ready_tasks_response::Result::Error(error)) => Err(error.into()),
+        None => Err(StorageClientError::Transport(
+            "resend ready tasks response missing `result` message".to_owned(),
         )),
     }
 }
@@ -333,6 +360,42 @@ mod tests {
         assert!(matches!(
             StorageClientError::from(error),
             StorageClientError::InboundClosed
+        ));
+    }
+
+    #[test]
+    fn resend_ready_tasks_response_accepts_ok() {
+        let response = storage::ResendReadyTasksResponse {
+            result: Some(resend_ready_tasks_response::Result::Ok(storage::Void {})),
+        };
+
+        assert!(resend_ready_tasks_response_to_result(response).is_ok());
+    }
+
+    #[test]
+    fn resend_ready_tasks_response_maps_error() {
+        let response = storage::ResendReadyTasksResponse {
+            result: Some(resend_ready_tasks_response::Result::Error(
+                storage::InboundQueueResponseError {
+                    err_code: inbound_queue_response_error::ErrCode::InboundClosed.into(),
+                    message: "closed".to_owned(),
+                },
+            )),
+        };
+
+        assert!(matches!(
+            resend_ready_tasks_response_to_result(response),
+            Err(StorageClientError::InboundClosed)
+        ));
+    }
+
+    #[test]
+    fn resend_ready_tasks_response_rejects_missing_result() {
+        let response = storage::ResendReadyTasksResponse { result: None };
+
+        assert!(matches!(
+            resend_ready_tasks_response_to_result(response),
+            Err(StorageClientError::Transport(_))
         ));
     }
 }

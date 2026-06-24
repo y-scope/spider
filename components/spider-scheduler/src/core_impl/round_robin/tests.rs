@@ -169,6 +169,10 @@ impl SchedulerStorageClient for MockStorageClient {
     async fn job_state(&self, _job_id: JobId) -> Result<JobState, StorageClientError> {
         Ok(JobState::Running)
     }
+
+    async fn resend_ready_tasks(&self) -> Result<(), StorageClientError> {
+        Ok(())
+    }
 }
 
 /// # Returns
