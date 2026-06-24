@@ -74,7 +74,7 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
+    /// * `INTERNAL` for a fatal cache-internal error (the service will restart).
     /// * `UNAUTHENTICATED` for a wrong resource-group password.
     /// * `NOT_FOUND` for an unknown resource group or a missing job.
     /// * `FAILED_PRECONDITION` for operations on an invalid job state.
@@ -95,7 +95,7 @@ impl<
                     "Internal error in the cache layer. Cancelling service."
                 );
                 self.cancellation_token.cancel();
-                Status::unavailable("storage service unavailable")
+                Status::internal("storage service unavailable")
             }
 
             StorageServerError::Db(db_error) => match &db_error {
@@ -173,8 +173,9 @@ impl<
                     error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    "Unexpected internal error."
+                    "Unexpected internal error. Cancelling service to avoid cache corruption."
                 );
+                self.cancellation_token.cancel();
                 Status::internal("internal error")
             }
         }
@@ -1017,12 +1018,17 @@ impl ToProtoTaskId for CleanupTaskMarker {
 
 /// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
 ///
+/// # Type Parameters
+///
+/// * `TaskKindType` - The kind of ready-queue task (`ReadyTask`, `CommitTask`, or `CleanupTask`)
+///   carried by each entry; must be convertible to a protobuf task ID.
+///
 /// # Returns
 ///
 /// A [`storage::ReadyTasks`] carrying the storage session and the flattened ready tasks.
-fn ready_tasks<TaskKind: ToProtoTaskId>(
+fn ready_tasks<TaskKindType: ToProtoTaskId>(
     session_id: SessionId,
-    entries: Vec<ReadyQueueEntry<TaskKind>>,
+    entries: Vec<ReadyQueueEntry<TaskKindType>>,
 ) -> storage::ReadyTasks {
     let tasks = entries
         .into_iter()

@@ -482,13 +482,13 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 
         let mut tx = self.pool.begin().await?;
 
-        let existing_id: Option<ResourceGroupId> = sqlx::query_scalar(SELECT_FOR_UPDATE_QUERY)
+        let Some(_): Option<ResourceGroupId> = sqlx::query_scalar(SELECT_FOR_UPDATE_QUERY)
             .bind(resource_group_id)
             .fetch_optional(&mut *tx)
-            .await?;
-        if existing_id.is_none() {
+            .await?
+        else {
             return Err(DbError::ResourceGroupNotFound(resource_group_id));
-        }
+        };
 
         sqlx::query(DELETE_JOBS_QUERY)
             .bind(resource_group_id)

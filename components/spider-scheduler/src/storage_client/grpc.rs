@@ -140,7 +140,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
 fn map_inbound_status(status: &tonic::Status) -> StorageClientError {
     match status.code() {
         Code::Unavailable => StorageClientError::InboundClosed,
-        Code::InvalidArgument => StorageClientError::InvalidInput(status.message().to_owned()),
+        Code::InvalidArgument => to_invalid_input_error(status.message()),
         _ => StorageClientError::Server(status.message().to_owned()),
     }
 }

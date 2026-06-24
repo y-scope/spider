@@ -22,12 +22,4 @@ pub enum Error {
     /// A protobuf [`crate::storage::TimeoutPolicy`] was missing.
     #[error("timeout policy is missing")]
     TimeoutPolicyMissing,
-
-    /// A protobuf IP address string could not be parsed.
-    #[error("invalid IP address: {0}")]
-    IpAddressInvalid(String),
-
-    /// A protobuf port could not be represented as a [`u16`].
-    #[error("port does not fit in `u16`: {0}")]
-    PortOutOfRange(u32),
 }
