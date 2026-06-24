@@ -1,5 +1,5 @@
 use spider_core::{job::JobState, task::TaskState, types::id::JobId};
-use spider_tdl::wire::WireError;
+use spider_utils::wire::WireError;
 
 use crate::db::DbError;
 

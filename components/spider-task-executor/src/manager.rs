@@ -132,7 +132,7 @@ impl TdlPackage {
     ///
     /// `raw_ctx` is a msgpack-encoded
     /// [`TaskContext`](spider_tdl::TaskContext); `raw_inputs` is a wire-format-encoded
-    /// [`TaskInputsSerializer`](spider_tdl::wire::TaskInputsSerializer) buffer.
+    /// [`TaskInputsSerializer`](spider_core::types::io::TaskInputsSerializer) buffer.
     ///
     /// # Returns
     ///

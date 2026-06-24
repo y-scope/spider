@@ -1951,6 +1951,7 @@ dependencies = [
 name = "spider-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "non-empty-string",
  "rand 0.9.4",
  "rmp-serde",
@@ -1958,6 +1959,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spider-derive",
+ "spider-utils",
  "sqlx",
  "strum",
  "thiserror",
@@ -1988,6 +1990,7 @@ dependencies = [
  "spider-proto-rust",
  "spider-task-executor",
  "spider-tdl",
+ "spider-utils",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2103,6 +2106,9 @@ dependencies = [
 name = "spider-utils"
 version = "0.1.0"
 dependencies = [
+ "rmp-serde",
+ "serde",
+ "thiserror",
  "tracing-appender",
  "tracing-subscriber",
 ]

@@ -22,7 +22,7 @@ use spider_core::{
             TaskAssignmentId,
             TaskId,
         },
-        io::{ExecutionContext, TaskInput},
+        io::{ExecutionContext, TaskInput, TaskInputsSerializer},
         scheduler::{TaskAssignment, TaskAssignmentRecord},
     },
 };
@@ -30,7 +30,6 @@ use spider_execution_manager::{
     client::{SchedulerError, SchedulerResponse, StorageResponseError},
     runtime::{Runtime, RuntimeConfig, RuntimeError},
 };
-use spider_tdl::wire::TaskInputsSerializer;
 use test_utils::{
     MockLiveness,
     MockScheduler,

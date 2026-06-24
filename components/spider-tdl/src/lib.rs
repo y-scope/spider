@@ -5,7 +5,6 @@ pub mod r#std;
 pub mod task;
 pub mod task_context;
 pub mod version;
-pub mod wire;
 
 pub use error::TdlError;
 #[cfg(feature = "derive")]

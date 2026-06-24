@@ -15,7 +15,8 @@ use spider_core::types::{
     io::ExecutionContext,
 };
 use spider_task_executor::protocol::{ExecutorOutcome, Request, Response};
-use spider_tdl::{TaskContext, wire::WireError};
+use spider_tdl::TaskContext;
+use spider_utils::wire::WireError;
 use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
     sync::Mutex,
@@ -57,7 +58,7 @@ pub struct ExecuteRequest {
 #[derive(Debug)]
 pub enum Outcome {
     /// Task ran to completion. `outputs` is the wire-format
-    /// [`spider_tdl::wire::TaskOutputsSerializer`] buffer ready to forward to storage as
+    /// [`spider_core::types::io::TaskOutputsSerializer`] buffer ready to forward to storage as
     /// `serialized_outputs`. `elapsed_us` is the in-FFI duration measured by the executor.
     Success { outputs: Vec<u8>, elapsed_us: u64 },
 
