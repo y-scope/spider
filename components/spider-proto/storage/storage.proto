@@ -116,10 +116,24 @@ message RegisterTaskInstanceRequest {
 }
 
 message RegisterTaskInstanceResponse {
-  oneof result {
-    bytes execution_context = 1;
-    TaskInstanceManagementError error = 2;
-  }
+  ExecutionContext execution_context = 1;
+}
+
+message ExecutionContext {
+  uint64 task_instance_id = 1;
+  TdlContext tdl_context = 2;
+  TimeoutPolicy timeout_policy = 3;
+  bytes serialized_inputs = 4;
+}
+
+message TdlContext {
+  string package = 1;
+  string task_func = 2;
+}
+
+message TimeoutPolicy {
+  uint64 soft_timeout_ms = 1;
+  uint64 hard_timeout_ms = 2;
 }
 
 message ReportTaskSuccessRequest {
@@ -243,12 +257,7 @@ enum JobState {
   CANCELLED = 7;
 }
 
-message TaskInstanceOperationResponse {
-  oneof result {
-    Void ok = 1;
-    TaskInstanceManagementError error = 2;
-  }
-}
+message TaskInstanceOperationResponse {}
 
 message ResourceGroupOperationResponse {
   oneof result {
@@ -258,20 +267,6 @@ message ResourceGroupOperationResponse {
 }
 
 message Void {}
-
-message TaskInstanceManagementError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    STALE_SESSION = 1;
-    CACHE_STALE = 2;
-    SERVER = 3;
-    INVALID_INPUT = 4;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-  uint64 storage_session = 3;
-}
 
 message InboundQueueResponseError {
   enum ErrCode {

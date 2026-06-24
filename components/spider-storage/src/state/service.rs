@@ -14,14 +14,12 @@ use spider_core::{
             TaskId,
             TaskInstanceId,
         },
-        io::{ExecutionContext, TaskInput, TaskOutput},
+        io::{ExecutionContext, TaskInput, TaskOutput, TaskOutputsSerializer},
         scheduler::RegisteredScheduler,
     },
 };
-use spider_tdl::{
-    error::TdlError,
-    wire::{TaskOutputsSerializer, unframe},
-};
+use spider_tdl::error::TdlError;
+use spider_utils::wire::unframe;
 
 use crate::{
     cache::{
@@ -116,7 +114,7 @@ impl<
     ///
     /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
     /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
-    /// * Forwards [`spider_tdl::wire::unframe`]'s return values on failure.
+    /// * Forwards [`spider_utils::wire::unframe`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
@@ -359,7 +357,7 @@ impl<
     ///
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
-    /// * Forwards [`spider_tdl::wire::TaskOutputsSerializer::deserialize`]'s return values on
+    /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     pub async fn succeed_task_instance(
@@ -730,7 +728,7 @@ impl<
     /// Returns [`StorageServerError::StaleSession`] if the session IDs don't match.
     fn validate_session(&self, session_id: SessionId) -> Result<(), StorageServerError> {
         if session_id != self.inner.session_id {
-            return Err(StorageServerError::StaleSession);
+            return Err(StorageServerError::StaleSession(self.inner.session_id));
         }
         Ok(())
     }
@@ -1588,7 +1586,7 @@ mod tests {
                 )
                 .await;
             assert!(
-                matches!(result, Err(StorageServerError::StaleSession)),
+                matches!(result, Err(StorageServerError::StaleSession(_))),
                 "create_task_instance should return StaleSession on session mismatch"
             );
         }
@@ -1604,7 +1602,7 @@ mod tests {
                 )
                 .await;
             assert!(
-                matches!(result, Err(StorageServerError::StaleSession)),
+                matches!(result, Err(StorageServerError::StaleSession(_))),
                 "succeed_task_instance should return StaleSession on session mismatch"
             );
         }
@@ -1620,7 +1618,7 @@ mod tests {
                 )
                 .await;
             assert!(
-                matches!(result, Err(StorageServerError::StaleSession)),
+                matches!(result, Err(StorageServerError::StaleSession(_))),
                 "fail_task_instance should return StaleSession on session mismatch"
             );
         }

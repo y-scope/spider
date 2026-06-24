@@ -19,7 +19,7 @@ use spider_proto_rust::{
     payload::{decode_payload, encode_payload},
     storage::BinaryPayload,
 };
-use spider_tdl::wire::unframe;
+use spider_utils::wire::unframe;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{

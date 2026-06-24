@@ -123,7 +123,7 @@ impl ValidatedJobSubmission {
 #[cfg(test)]
 use spider_core::compression::encode_zstd_bytes;
 #[cfg(test)]
-use spider_tdl::wire::TaskInputsSerializer;
+use spider_core::types::io::TaskInputsSerializer;
 
 /// Compresses a task graph into the zstd-compressed JSON format the database persists.
 ///

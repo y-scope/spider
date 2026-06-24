@@ -8,10 +8,9 @@ use spider_core::{
     task::{Task, TaskIndex, TaskState, TdlContext, TerminationTaskDescriptor, TimeoutPolicy},
     types::{
         id::TaskInstanceId,
-        io::{ExecutionContext, TaskInput, TaskOutput},
+        io::{ExecutionContext, TaskInput, TaskInputsSerializer, TaskOutput},
     },
 };
-use spider_tdl::wire::TaskInputsSerializer;
 use tokio::sync::RwLock;
 
 use crate::cache::{
@@ -977,7 +976,7 @@ mod tests {
         TerminationTaskDescriptor,
         ValueTypeDescriptor,
     };
-    use spider_tdl::wire::unframe;
+    use spider_utils::wire::unframe;
 
     use super::*;
     use crate::cache::job_submission::create_validated_submission;
