@@ -63,22 +63,7 @@ message JobStateResponse {
 }
 
 message JobOutputsResponse {
-  JobOutputs outputs = 1;
-}
-
-message JobOutputs {
-  repeated BinaryPayload outputs = 1;
-}
-
-enum BinaryPayloadEncoding {
-  BINARY_PAYLOAD_ENCODING_UNSPECIFIED = 0;
-  BINARY_PAYLOAD_ENCODING_RAW = 1;
-  BINARY_PAYLOAD_ENCODING_ZSTD = 2;
-}
-
-message BinaryPayload {
-  BinaryPayloadEncoding encoding = 1;
-  bytes data = 2;
+  bytes serialized_outputs = 1;
 }
 
 message JobErrorResponse {

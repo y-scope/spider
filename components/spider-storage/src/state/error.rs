@@ -32,4 +32,7 @@ pub enum StorageServerError {
 
     #[error("bad request: {0}")]
     BadRequest(String),
+
+    #[error("serde: {0}")]
+    Serde(#[source] Box<dyn std::error::Error + Send + Sync>),
 }

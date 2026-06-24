@@ -1,9 +1,8 @@
 //! gRPC service adapters for the storage runtime.
 
 use async_trait::async_trait;
-use spider_core::types::id::TaskId;
+use spider_core::types::{id::TaskId, io::SerializedTaskOutputs};
 use spider_proto_rust::{
-    payload::encode_payload,
     storage::{
         self,
         execution_manager_liveness_service_server::ExecutionManagerLivenessService,
@@ -336,19 +335,26 @@ impl<
         &self,
         request: Request<storage::JobIdRequest>,
     ) -> Result<Response<storage::JobOutputsResponse>, Status> {
+        const TAG: &str = "get_job_outputs";
+
         let job_id = request.into_inner().unpack()?;
         tracing::info!(job_id = job_id.get(), "Job outputs request received.");
 
-        match self.inner.get_job_outputs(job_id).await {
-            Ok(outputs) => Ok(Response::new(storage::JobOutputsResponse {
-                outputs: Some(storage::JobOutputs {
-                    outputs: outputs.into_iter().map(encode_payload).collect(),
-                }),
-            })),
-            Err(error) => {
-                Err(self.job_orchestration_service_error_handler(error, "get_job_outputs"))
-            }
-        }
+        let job_outputs = self
+            .inner
+            .get_job_outputs(job_id)
+            .await
+            .map_err(|error| self.job_orchestration_service_error_handler(error, TAG))?;
+
+        let serialized_job_outputs = SerializedTaskOutputs::serialize_with_size_hint(&job_outputs)
+            .map_err(|error| {
+                let storage_error = StorageServerError::Serde(Box::new(error));
+                self.job_orchestration_service_error_handler(storage_error, TAG)
+            })?;
+
+        Ok(Response::new(storage::JobOutputsResponse {
+            serialized_outputs: serialized_job_outputs.to_raw(),
+        }))
     }
 
     async fn get_job_error(

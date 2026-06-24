@@ -22,16 +22,4 @@ pub enum Error {
     /// A protobuf [`crate::storage::TimeoutPolicy`] was missing.
     #[error("timeout policy is missing")]
     TimeoutPolicyMissing,
-
-    /// A protobuf [`crate::storage::BinaryPayload`] was left unspecified.
-    #[error("binary payload encoding is unspecified")]
-    BinaryPayloadEncodingUnspecified,
-
-    /// A protobuf [`crate::storage::BinaryPayload`] carried an unknown encoding.
-    #[error("binary payload encoding is unknown: {0}")]
-    BinaryPayloadEncodingUnknown(i32),
-
-    /// A protobuf [`crate::storage::BinaryPayload`] could not be decompressed.
-    #[error("failed to decompress binary payload: {0}")]
-    BinaryPayloadDecompression(String),
 }

@@ -2,7 +2,6 @@ use std::net::IpAddr;
 
 use async_trait::async_trait;
 use const_format::formatcp;
-use prost::Message;
 use secrecy::ExposeSecret;
 use spider_core::{
     compression::decode_zstd_bytes,
@@ -10,15 +9,11 @@ use spider_core::{
     task::TaskGraph,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
-        io::{TaskInput, TaskOutput},
+        io::{SerializedTaskOutputs, TaskInput, TaskOutput},
         scheduler::RegisteredScheduler,
     },
 };
 use spider_derive::MySqlEnum;
-use spider_proto_rust::{
-    payload::{decode_payload, encode_payload},
-    storage::BinaryPayload,
-};
 use spider_utils::wire::unframe;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
@@ -183,10 +178,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                 "job `{job_id}` succeeded but has no serialized outputs"
             ))
         })?;
-        let outputs_bytes = decode_payload_blob(&outputs_bytes)
+        let outputs = SerializedTaskOutputs::deserialize_from_raw(&outputs_bytes)
             .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
-        let outputs: Vec<TaskOutput> =
-            rmp_serde::from_slice(&outputs_bytes).map_err(DbError::value_de)?;
         Ok(outputs)
     }
 
@@ -284,8 +277,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let serialized_outputs = rmp_serde::to_vec(&job_outputs).map_err(DbError::value_ser)?;
-        let serialized_outputs = encode_job_output_payload_blob(serialized_outputs);
+        let serialized_outputs = SerializedTaskOutputs::serialize_with_size_hint(&job_outputs)
+            .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?
+            .to_raw();
 
         sqlx::query(if new_state.is_terminal() {
             UPDATE_SUCCEEDED_QUERY
@@ -763,45 +757,6 @@ CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
     )
 }
 
-/// Encodes raw job-output bytes into a [`BinaryPayload`] storage blob.
-///
-/// # Returns
-///
-/// A protobuf-encoded [`BinaryPayload`] blob using raw encoding for small job
-/// outputs and zstd-compressed encoding for larger ones.
-fn encode_job_output_payload_blob(raw: Vec<u8>) -> Vec<u8> {
-    encode_payload(raw).encode_to_vec()
-}
-
-/// Errors from decoding a [`BinaryPayload`] storage blob.
-#[derive(Debug, thiserror::Error)]
-enum PayloadBlobDecodeError {
-    /// The stored blob was not a valid protobuf [`BinaryPayload`].
-    #[error("failed to decode protobuf binary payload: {0}")]
-    Protobuf(#[from] prost::DecodeError),
-
-    /// The decoded [`BinaryPayload`] used an invalid or unsupported encoding.
-    #[error(transparent)]
-    Payload(#[from] spider_proto_rust::error::Error),
-}
-
-/// Decodes a [`BinaryPayload`] storage blob into raw bytes.
-///
-/// # Returns
-///
-/// The decoded raw bytes on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`BinaryPayload::decode`]'s return values on failure.
-/// * Forwards [`decode_payload`]'s return values on failure.
-fn decode_payload_blob(blob: &[u8]) -> Result<Vec<u8>, PayloadBlobDecodeError> {
-    let payload = BinaryPayload::decode(blob)?;
-    Ok(decode_payload(payload)?)
-}
-
 /// A raw row selected from the job table representing a recoverable job.
 #[derive(sqlx::FromRow)]
 struct RecoverableJobRowProjection {
@@ -826,7 +781,7 @@ impl RecoverableJobRowProjection {
     ///
     /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
     /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
-    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
+    /// * Forwards [`SerializedTaskOutputs::deserialize_from_raw`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
     ///   [`DbError::CorruptedDbState`] on failure.
     fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
@@ -850,9 +805,8 @@ impl RecoverableJobRowProjection {
         let outputs = self
             .serialized_job_outputs
             .map(|outputs| {
-                let outputs = decode_payload_blob(&outputs)
-                    .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
-                rmp_serde::from_slice(&outputs).map_err(DbError::value_de)
+                SerializedTaskOutputs::deserialize_from_raw(&outputs)
+                    .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))
             })
             .transpose()?;
         Ok(RecoverableJobContext {

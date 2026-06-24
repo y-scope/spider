@@ -25,20 +25,8 @@ pub struct JobStateResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobOutputsResponse {
-    #[prost(message, optional, tag = "1")]
-    pub outputs: ::core::option::Option<JobOutputs>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct JobOutputs {
-    #[prost(message, repeated, tag = "1")]
-    pub outputs: ::prost::alloc::vec::Vec<BinaryPayload>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BinaryPayload {
-    #[prost(enumeration = "BinaryPayloadEncoding", tag = "1")]
-    pub encoding: i32,
-    #[prost(bytes = "vec", tag = "2")]
-    pub data: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobErrorResponse {
@@ -539,35 +527,6 @@ pub mod scheduler_registration_error {
                 "SERVER" => Some(Self::Server),
                 _ => None,
             }
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum BinaryPayloadEncoding {
-    Unspecified = 0,
-    Raw = 1,
-    Zstd = 2,
-}
-impl BinaryPayloadEncoding {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::Unspecified => "BINARY_PAYLOAD_ENCODING_UNSPECIFIED",
-            Self::Raw => "BINARY_PAYLOAD_ENCODING_RAW",
-            Self::Zstd => "BINARY_PAYLOAD_ENCODING_ZSTD",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "BINARY_PAYLOAD_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
-            "BINARY_PAYLOAD_ENCODING_RAW" => Some(Self::Raw),
-            "BINARY_PAYLOAD_ENCODING_ZSTD" => Some(Self::Zstd),
-            _ => None,
         }
     }
 }

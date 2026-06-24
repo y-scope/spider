@@ -91,6 +91,33 @@ impl SerializedTaskOutputs {
         Ok(Self { option, payload })
     }
 
+    /// Serializes `task_outputs` with a hardcoded size hint heuristic to determine whether to apply
+    /// Zstd compression.
+    ///
+    /// The size hint is a hard coded value: if the total number of bytes of the given task output
+    /// payload exceeds 1KiB, the task outputs will be serialized using
+    /// [`TaskOutputsSerializeOption::ZstdWire`], otherwise [`TaskOutputsSerializeOption::Wire`].
+    ///
+    /// # Returns
+    ///
+    /// The serialized task outputs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::serialize`]'s return values on failure.
+    pub fn serialize_with_size_hint(task_outputs: &[TaskOutput]) -> Result<Self, TaskOutputsError> {
+        const COMPRESSION_THRESHOLD: usize = 1_024;
+        let total_size = task_outputs.iter().map(std::vec::Vec::len).sum::<usize>();
+        let option = if total_size > COMPRESSION_THRESHOLD {
+            TaskOutputsSerializeOption::ZstdWire
+        } else {
+            TaskOutputsSerializeOption::Wire
+        };
+        Self::serialize(task_outputs, option)
+    }
+
     /// Packs the bundle into a raw byte buffer for storage.
     ///
     /// The first byte is the [`TaskOutputsSerializeOption`] encoded as `u8`; the remaining bytes
@@ -801,42 +828,28 @@ mod tests {
     }
 
     #[test]
-    fn serialized_task_outputs_wire_round_trip() -> anyhow::Result<()> {
-        let outputs: Vec<TaskOutput> = vec![encode(&"result"), encode(&99i64)];
+    fn serialized_task_outputs_round_trip() -> anyhow::Result<()> {
+        let datasets: [Vec<TaskOutput>; 3] = [
+            Vec::new(),
+            vec![vec![7u8; 4096], vec![0u8; 4096]],
+            vec![encode(&"result"), encode(&99i64)],
+        ];
 
-        let serialized =
-            SerializedTaskOutputs::serialize(&outputs, TaskOutputsSerializeOption::Wire)?;
-        let raw = serialized.to_raw();
-        assert_eq!(raw[0], TaskOutputsSerializeOption::Wire as u8);
+        for option in [
+            TaskOutputsSerializeOption::Wire,
+            TaskOutputsSerializeOption::ZstdWire,
+        ] {
+            for outputs in &datasets {
+                let raw = SerializedTaskOutputs::serialize(outputs, option)?.to_raw();
+                assert_eq!(raw[0], option as u8);
+                assert_eq!(
+                    SerializedTaskOutputs::from_raw(&raw)?.deserialize()?,
+                    *outputs
+                );
+                assert_eq!(SerializedTaskOutputs::deserialize_from_raw(&raw)?, *outputs);
+            }
+        }
 
-        let decoded = SerializedTaskOutputs::from_raw(&raw)?.deserialize()?;
-        assert_eq!(decoded, outputs);
-        Ok(())
-    }
-
-    #[test]
-    fn serialized_task_outputs_zstd_wire_round_trip() -> anyhow::Result<()> {
-        let outputs: Vec<TaskOutput> = vec![vec![7u8; 4096], vec![0u8; 4096]];
-
-        let serialized =
-            SerializedTaskOutputs::serialize(&outputs, TaskOutputsSerializeOption::ZstdWire)?;
-        let raw = serialized.to_raw();
-        assert_eq!(raw[0], TaskOutputsSerializeOption::ZstdWire as u8);
-        assert!(
-            raw.len() < outputs.iter().map(Vec::len).sum::<usize>(),
-            "zstd payload should be smaller than the raw outputs"
-        );
-
-        let decoded = SerializedTaskOutputs::from_raw(&raw)?.deserialize()?;
-        assert_eq!(decoded, outputs);
-        Ok(())
-    }
-
-    #[test]
-    fn serialized_task_outputs_empty_outputs_round_trip() -> anyhow::Result<()> {
-        let serialized = SerializedTaskOutputs::serialize(&[], TaskOutputsSerializeOption::Wire)?;
-        let decoded = SerializedTaskOutputs::from_raw(&serialized.to_raw())?.deserialize()?;
-        assert!(decoded.is_empty());
         Ok(())
     }
 
@@ -845,16 +858,5 @@ mod tests {
         let err =
             SerializedTaskOutputs::from_raw(&[]).expect_err("expected empty buffer to be rejected");
         assert!(matches!(err, TaskOutputsError::Empty));
-    }
-
-    #[test]
-    fn serialized_task_outputs_deserialize_from_raw() -> anyhow::Result<()> {
-        let outputs: Vec<TaskOutput> = vec![encode(&"result"), encode(&99i64)];
-
-        let raw = SerializedTaskOutputs::serialize(&outputs, TaskOutputsSerializeOption::ZstdWire)?
-            .to_raw();
-        let decoded = SerializedTaskOutputs::deserialize_from_raw(&raw)?;
-        assert_eq!(decoded, outputs);
-        Ok(())
     }
 }
