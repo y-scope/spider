@@ -6,11 +6,9 @@
 
 use std::marker::PhantomData;
 
-use crate::{
-    error::TdlError,
-    task_context::TaskContext,
-    wire::{TaskInputsSerializer, TaskOutputsSerializer},
-};
+use spider_core::types::io::{TaskInputsSerializer, TaskOutputsSerializer};
+
+use crate::{error::TdlError, task_context::TaskContext};
 
 /// The result of executing a task through the [`TaskHandler`] interface.
 ///
@@ -173,16 +171,11 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use spider_core::types::{
         id::{JobId, ResourceGroupId, TaskId},
-        io::TaskInput,
+        io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
     };
 
     use super::*;
-    use crate::{
-        error::TdlError,
-        r#std::int32,
-        task_context::TaskContext,
-        wire::{TaskInputsSerializer, TaskOutputsSerializer},
-    };
+    use crate::{error::TdlError, r#std::int32, task_context::TaskContext};
 
     const INTENTIONAL_FAILURE: &str = "intentional failure";
 

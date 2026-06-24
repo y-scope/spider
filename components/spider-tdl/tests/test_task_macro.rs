@@ -7,18 +7,9 @@
 use serde::{Deserialize, Serialize};
 use spider_core::types::{
     id::{JobId, ResourceGroupId, TaskId},
-    io::TaskInput,
+    io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
 };
-use spider_tdl::{
-    Task,
-    TaskContext,
-    TaskHandler,
-    TaskHandlerImpl,
-    TdlError,
-    r#std::int32,
-    task,
-    wire::{TaskInputsSerializer, TaskOutputsSerializer},
-};
+use spider_tdl::{Task, TaskContext, TaskHandler, TaskHandlerImpl, TdlError, r#std::int32, task};
 
 type AliasedContext = TaskContext;
 type _AliasedTdlError = TdlError;

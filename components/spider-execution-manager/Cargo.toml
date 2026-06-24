@@ -21,6 +21,7 @@ spider-core = { path = "../spider-core" }
 spider-proto-rust = { path = "../spider-proto-rust" }
 spider-task-executor = { path = "../spider-task-executor" }
 spider-tdl = { path = "../spider-tdl" }
+spider-utils = { path = "../spider-utils" }
 thiserror = "2.0.18"
 tokio = {
   version = "1.50.0",

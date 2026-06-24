@@ -13,14 +13,12 @@ use spider_core::{
             TaskId,
             TaskInstanceId,
         },
-        io::{ExecutionContext, TaskInput, TaskOutput},
+        io::{ExecutionContext, TaskInput, TaskOutput, TaskOutputsSerializer},
         scheduler::RegisteredScheduler,
     },
 };
-use spider_tdl::{
-    error::TdlError,
-    wire::{TaskOutputsSerializer, unframe},
-};
+use spider_tdl::error::TdlError;
+use spider_utils::wire::unframe;
 
 use crate::{
     cache::{
@@ -114,7 +112,7 @@ impl<
     /// Returns an error if:
     ///
     /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
-    /// * Forwards [`spider_tdl::wire::unframe`]'s return values on failure.
+    /// * Forwards [`spider_utils::wire::unframe`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
@@ -347,7 +345,7 @@ impl<
     ///
     /// * [`StorageServerError::StaleSession`] if the session has changed.
     /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
-    /// * Forwards [`spider_tdl::wire::TaskOutputsSerializer::deserialize`]'s return values on
+    /// * Forwards [`spider_core::types::io::TaskOutputsSerializer::deserialize`]'s return values on
     ///   failure.
     /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
     pub async fn succeed_task_instance(
@@ -869,7 +867,7 @@ mod tests {
         let task_graph = create_test_task_graph()
             .to_json()
             .expect("task graph serialization should succeed");
-        let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
+        let mut serializer = spider_core::types::io::TaskInputsSerializer::new();
         serializer
             .append(TaskInput::ValuePayload(vec![0u8; 4]))
             .expect("input serialization should succeed");
@@ -883,7 +881,7 @@ mod tests {
     }
 
     fn create_empty_serialized_inputs() -> Vec<u8> {
-        spider_tdl::wire::TaskInputsSerializer::new().release()
+        spider_core::types::io::TaskInputsSerializer::new().release()
     }
 
     async fn create_test_jcb(

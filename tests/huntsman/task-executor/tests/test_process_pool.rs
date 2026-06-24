@@ -17,7 +17,7 @@ use spider_core::{
     task::{TdlContext, TimeoutPolicy},
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId},
-        io::{ExecutionContext, TaskInput},
+        io::{ExecutionContext, TaskInput, TaskInputsSerializer},
     },
 };
 use spider_execution_manager::process_pool::{
@@ -27,7 +27,7 @@ use spider_execution_manager::process_pool::{
     ProcessPoolConfig,
 };
 use spider_task_executor::ExecutorError;
-use spider_tdl::{TdlError, wire::TaskInputsSerializer};
+use spider_tdl::TdlError;
 use test_utils::{
     PACKAGE_NAME,
     decode_single_output,

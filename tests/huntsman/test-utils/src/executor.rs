@@ -22,14 +22,11 @@ use spider_core::{
     task::TdlContext,
     types::{
         id::{JobId, ResourceGroupId, TaskId},
-        io::TaskInput,
+        io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
     },
 };
 use spider_task_executor::protocol::{Request, Response};
-use spider_tdl::{
-    TaskContext,
-    wire::{TaskInputsSerializer, TaskOutputsSerializer},
-};
+use spider_tdl::TaskContext;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
