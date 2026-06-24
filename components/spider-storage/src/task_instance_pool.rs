@@ -562,7 +562,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
-    use crate::{cache::job_submission::create_validated_submission, db::DbError};
+    use crate::{db::DbError, job_submission::create_validated_submission};
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
 

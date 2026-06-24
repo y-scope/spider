@@ -14,7 +14,7 @@ use spider_core::{
     },
     types::io::{TaskInput, TaskInputsSerializer},
 };
-use spider_storage::cache::job_submission::ValidatedJobSubmission;
+use spider_storage::job_submission::ValidatedJobSubmission;
 
 /// The submitted task graph type from spider-core.
 pub type SubmittedTaskGraph = spider_core::task::TaskGraph;
@@ -55,6 +55,9 @@ pub fn compress_job_inputs(inputs: &[TaskInput]) -> Result<Vec<u8>> {
 /// # Panics
 ///
 /// Panics if compression or submission validation fails.
+// Takes the graph and inputs by value for caller ergonomics: callers build and hand off owned
+// values, even though they are only borrowed here to produce the compressed serializations.
+#[allow(clippy::needless_pass_by_value)]
 #[must_use]
 pub fn create_validated_submission(
     task_graph: SubmittedTaskGraph,
@@ -63,7 +66,7 @@ pub fn create_validated_submission(
     let compressed_task_graph =
         compress_task_graph(&task_graph).expect("task graph compression should succeed");
     let compressed_inputs = compress_job_inputs(&inputs).expect("input compression should succeed");
-    ValidatedJobSubmission::create(task_graph, inputs, compressed_task_graph, compressed_inputs)
+    ValidatedJobSubmission::create(compressed_task_graph, compressed_inputs)
         .expect("job submission should be valid")
 }
 

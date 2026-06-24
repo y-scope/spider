@@ -171,11 +171,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::{
-            error::InternalError,
-            job::SharedJobControlBlock,
-            job_submission::create_validated_submission,
-        },
+        cache::{error::InternalError, job::SharedJobControlBlock},
+        job_submission::create_validated_submission,
         ready_queue::ReadyQueueSender,
         state::test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
     };

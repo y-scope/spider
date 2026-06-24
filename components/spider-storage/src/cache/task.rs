@@ -13,11 +13,13 @@ use spider_core::{
 };
 use tokio::sync::RwLock;
 
-use crate::cache::{
-    error::{CacheError, InternalError, StaleStateError},
-    io::{InputReader, OutputReader, OutputWriter, ValuePayload},
+use crate::{
+    cache::{
+        error::{CacheError, InternalError, StaleStateError},
+        io::{InputReader, OutputReader, OutputWriter, ValuePayload},
+        sync::{Reader, SharedRw, Writer},
+    },
     job_submission::ValidatedJobSubmission,
-    sync::{Reader, SharedRw, Writer},
 };
 
 /// Represents the task graph in the cache as a collection of TCBs.
@@ -979,7 +981,7 @@ mod tests {
     use spider_utils::wire::unframe;
 
     use super::*;
-    use crate::cache::job_submission::create_validated_submission;
+    use crate::job_submission::create_validated_submission;
 
     /// # Returns
     ///

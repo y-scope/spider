@@ -1,9 +1,8 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use spider_core::{
-    compression::decode_zstd_bytes,
     job::JobState,
-    task::{Error as TaskError, TaskGraph, TaskIndex},
+    task::TaskIndex,
     types::{
         id::{
             ExecutionManagerId,
@@ -14,20 +13,19 @@ use spider_core::{
             TaskId,
             TaskInstanceId,
         },
-        io::{ExecutionContext, TaskInput, TaskOutput, TaskOutputsSerializer},
+        io::{ExecutionContext, TaskOutput, TaskOutputsSerializer},
         scheduler::RegisteredScheduler,
     },
 };
 use spider_tdl::error::TdlError;
-use spider_utils::wire::unframe;
 
 use crate::{
     cache::{
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
-        job_submission::ValidatedJobSubmission,
     },
     db::DbStorage,
+    job_submission::ValidatedJobSubmission,
     ready_queue::{
         CleanupTaskMarker,
         CommitTaskMarker,
@@ -112,10 +110,8 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
-    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
-    /// * Forwards [`spider_utils::wire::unframe`]'s return values on failure.
-    /// * Forwards [`ValidatedJobSubmission::create`]'s return values on failure.
+    /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
+    ///   [`StorageServerError::BadRequest`] on failure.
     /// * Forwards [`ExternalJobOrchestration::register`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::create`]'s return values on failure.
     /// * Forwards [`JobCache::insert`]'s return values on failure.
@@ -125,25 +121,11 @@ impl<
         compressed_serialized_task_graph: Vec<u8>,
         compressed_serialized_inputs: Vec<u8>,
     ) -> Result<JobId, StorageServerError> {
-        let task_graph = TaskGraph::from_zstd_compressed_json(&compressed_serialized_task_graph)
-            .map_err(|e| match e {
-                TaskError::CompressionError(_) => StorageServerError::BadRequest(e.to_string()),
-                e => StorageServerError::Task(e),
-            })?;
-        let serialized_inputs = decode_zstd_bytes(&compressed_serialized_inputs)
-            .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
-        let inputs = unframe(&serialized_inputs)
-            .map_err(|e| StorageServerError::Tdl(TdlError::DeserializationError(e.to_string())))?
-            .into_iter()
-            .map(TaskInput::ValuePayload)
-            .collect();
         let job_submission = ValidatedJobSubmission::create(
-            task_graph,
-            inputs,
             compressed_serialized_task_graph,
             compressed_serialized_inputs,
         )
-        .map_err(CacheError::from)?;
+        .map_err(|e| StorageServerError::BadRequest(e.to_string()))?;
 
         let job_id = self
             .inner
@@ -785,15 +767,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::{
-            job::SharedJobControlBlock,
-            job_submission::{
-                compress_job_inputs,
-                compress_task_graph,
-                create_validated_submission,
-            },
-        },
+        cache::job::SharedJobControlBlock,
         db::DbError,
+        job_submission::{compress_job_inputs, compress_task_graph, create_validated_submission},
         ready_queue::ReadyQueueSenderHandle,
         state::{
             JobCacheGcHandle,
@@ -952,8 +928,8 @@ mod tests {
             )
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::Task(_))),
-            "register_job should return Task error on invalid task graph JSON"
+            matches!(result, Err(StorageServerError::BadRequest(_))),
+            "register_job should return a bad-request error on invalid task graph JSON"
         );
         Ok(())
     }
@@ -973,8 +949,8 @@ mod tests {
             )
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::Cache(_))),
-            "register_job should return Cache error on input size mismatch"
+            matches!(result, Err(StorageServerError::BadRequest(_))),
+            "register_job should return a bad-request error on input size mismatch"
         );
         Ok(())
     }
@@ -982,7 +958,7 @@ mod tests {
     #[tokio::test]
     async fn register_job_returns_error_on_empty_task_graph() -> anyhow::Result<()> {
         let service = create_test_service();
-        let task_graph = TaskGraph::new(None, None)
+        let task_graph = SubmittedTaskGraph::new(None, None)
             .expect("empty task graph creation should succeed")
             .to_json()
             .expect("task graph serialization should succeed");
@@ -995,8 +971,8 @@ mod tests {
             )
             .await;
         assert!(
-            matches!(result, Err(StorageServerError::Cache(_))),
-            "register_job should return Cache error on empty task graph"
+            matches!(result, Err(StorageServerError::BadRequest(_))),
+            "register_job should return a bad-request error on empty task graph"
         );
         Ok(())
     }

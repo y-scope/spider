@@ -1,12 +1,37 @@
-use spider_core::{task::TaskGraph, types::io::TaskInput};
+use spider_core::{
+    compression::decode_zstd_bytes,
+    task::{self, TaskGraph},
+    types::io::TaskInput,
+};
+use spider_utils::wire;
 
-use super::error::InternalError;
+/// Errors produced while constructing a [`ValidatedJobSubmission`] from its compressed
+/// serializations.
+#[derive(Debug, thiserror::Error)]
+pub enum JobSubmissionError {
+    /// The compressed task graph could not be deserialized.
+    #[error("failed to deserialize the compressed task graph: {0}")]
+    TaskGraphDeserialization(#[from] task::Error),
+
+    /// The compressed job inputs could not be decompressed or unframed.
+    #[error("failed to deserialize the job inputs: {0}")]
+    InputsDeserialization(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    /// The task graph contains no tasks.
+    #[error("task graph must contain at least one task")]
+    TaskGraphEmpty,
+
+    /// The number of job inputs does not match the number of graph inputs.
+    #[error("task graph input size mismatch: expected {expected}, got {actual}")]
+    TaskGraphInputSizeMismatch { expected: usize, actual: usize },
+}
 
 /// A validated wrapper around a task graph, its corresponding job inputs, and the compressed
 /// serializations that the database persists verbatim.
 ///
 /// This type guarantees at construction time that:
 ///
+/// * The compressed task graph and job inputs deserialize successfully.
 /// * The task graph contains at least one task.
 /// * The number of job inputs matches the number of graph inputs expected by the task graph.
 ///
@@ -26,14 +51,10 @@ pub struct ValidatedJobSubmission {
 }
 
 impl ValidatedJobSubmission {
-    /// Creates a new validated job submission.
+    /// Creates a new validated job submission from its compressed serializations.
     ///
-    /// # Parameters
-    ///
-    /// * `task_graph` - The decoded task graph.
-    /// * `inputs` - The decoded job inputs.
-    /// * `compressed_serialized_task_graph` - The zstd-compressed serialized task graph to persist.
-    /// * `compressed_serialized_job_inputs` - The zstd-compressed serialized job inputs to persist.
+    /// The compressed task graph and job inputs are deserialized in place, then validated for
+    /// consistency. The compressed buffers are retained verbatim for the database to persist.
     ///
     /// # Returns
     ///
@@ -43,23 +64,33 @@ impl ValidatedJobSubmission {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::TaskGraphEmpty`] if the task graph contains no tasks.
-    /// * [`InternalError::TaskGraphInputSizeMismatch`] if the number of inputs does not match the
-    ///   number of graph inputs.
+    /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
+    /// * Forwards [`wire::unframe`]'s return values on failure.
+    /// * [`JobSubmissionError::TaskGraphEmpty`] if the task graph contains no tasks.
+    /// * [`JobSubmissionError::TaskGraphInputSizeMismatch`] if the number of inputs does not match
+    ///   the number of graph inputs.
     pub fn create(
-        task_graph: TaskGraph,
-        inputs: Vec<TaskInput>,
         compressed_serialized_task_graph: Vec<u8>,
         compressed_serialized_job_inputs: Vec<u8>,
-    ) -> Result<Self, InternalError> {
+    ) -> Result<Self, JobSubmissionError> {
+        let task_graph = TaskGraph::from_zstd_compressed_json(&compressed_serialized_task_graph)?;
+        let serialized_job_inputs = decode_zstd_bytes(&compressed_serialized_job_inputs)
+            .map_err(|e| JobSubmissionError::InputsDeserialization(Box::new(e)))?;
+        let inputs: Vec<TaskInput> = wire::unframe(&serialized_job_inputs)
+            .map_err(|e| JobSubmissionError::InputsDeserialization(Box::new(e)))?
+            .into_iter()
+            .map(TaskInput::ValuePayload)
+            .collect();
+
         let num_tasks = task_graph.get_num_tasks();
         if num_tasks == 0 {
-            return Err(InternalError::TaskGraphEmpty);
+            return Err(JobSubmissionError::TaskGraphEmpty);
         }
         let expected_num_inputs = task_graph.get_task_graph_input_indices().len();
         let actual_num_inputs = inputs.len();
         if expected_num_inputs != actual_num_inputs {
-            return Err(InternalError::TaskGraphInputSizeMismatch {
+            return Err(JobSubmissionError::TaskGraphInputSizeMismatch {
                 expected: expected_num_inputs,
                 actual: actual_num_inputs,
             });
@@ -127,8 +158,6 @@ use spider_core::types::io::TaskInputsSerializer;
 
 /// Compresses a task graph into the zstd-compressed JSON format the database persists.
 ///
-/// Shared test helper for constructing [`ValidatedJobSubmission`] instances across the crate.
-///
 /// # Panics
 ///
 /// Panics if task graph serialization or compression fails.
@@ -141,8 +170,6 @@ pub fn compress_task_graph(task_graph: &TaskGraph) -> Vec<u8> {
 }
 
 /// Compresses job inputs into the zstd-compressed TDL wire-framed format the database persists.
-///
-/// Shared test helper for constructing [`ValidatedJobSubmission`] instances across the crate.
 ///
 /// # Panics
 ///
@@ -162,13 +189,10 @@ pub fn compress_job_inputs(inputs: &[TaskInput]) -> Vec<u8> {
 /// Compresses a task graph and job inputs into the formats the database persists, then builds a
 /// [`ValidatedJobSubmission`].
 ///
-/// Shared test helper for the happy path: callers that need to assert on validation errors should
-/// use [`ValidatedJobSubmission::create`] directly with [`compress_task_graph`] and
-/// [`compress_job_inputs`].
-///
 /// # Panics
 ///
 /// Panics if compression or submission validation fails.
+#[allow(clippy::needless_pass_by_value)]
 #[cfg(test)]
 #[must_use]
 pub fn create_validated_submission(
@@ -177,13 +201,8 @@ pub fn create_validated_submission(
 ) -> ValidatedJobSubmission {
     let compressed_task_graph = compress_task_graph(&task_graph);
     let compressed_job_inputs = compress_job_inputs(&inputs);
-    ValidatedJobSubmission::create(
-        task_graph,
-        inputs,
-        compressed_task_graph,
-        compressed_job_inputs,
-    )
-    .expect("job submission should be valid")
+    ValidatedJobSubmission::create(compressed_task_graph, compressed_job_inputs)
+        .expect("job submission should be valid")
 }
 
 #[cfg(test)]
@@ -197,13 +216,7 @@ mod tests {
         ValueTypeDescriptor,
     };
 
-    use super::{
-        super::error::InternalError,
-        compress_job_inputs,
-        compress_task_graph,
-        create_validated_submission,
-        *,
-    };
+    use super::*;
 
     fn create_single_input_task_graph() -> SubmittedTaskGraph {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
@@ -240,31 +253,23 @@ mod tests {
     fn empty_task_graph_fails() {
         let graph =
             SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
-        let result = ValidatedJobSubmission::create(
-            graph,
-            vec![],
-            compress_task_graph(&create_single_input_task_graph()),
-            compress_job_inputs(&[]),
-        );
+        let result =
+            ValidatedJobSubmission::create(compress_task_graph(&graph), compress_job_inputs(&[]));
         assert!(
-            matches!(result, Err(InternalError::TaskGraphEmpty)),
-            "empty task graph should return EmptyTaskGraph"
+            matches!(result, Err(JobSubmissionError::TaskGraphEmpty)),
+            "empty task graph should return TaskGraphEmpty"
         );
     }
 
     #[test]
     fn mismatched_input_count_fails() {
         let graph = create_single_input_task_graph();
-        let result = ValidatedJobSubmission::create(
-            graph,
-            vec![],
-            compress_task_graph(&create_single_input_task_graph()),
-            compress_job_inputs(&[]),
-        );
+        let result =
+            ValidatedJobSubmission::create(compress_task_graph(&graph), compress_job_inputs(&[]));
         assert!(
             matches!(
                 result,
-                Err(InternalError::TaskGraphInputSizeMismatch {
+                Err(JobSubmissionError::TaskGraphInputSizeMismatch {
                     expected: 1,
                     actual: 0
                 })

@@ -10,7 +10,7 @@ use spider_core::{
     },
 };
 
-use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
+use crate::{db::error::DbError, job_submission::ValidatedJobSubmission};
 
 /// A job persisted in the database that should be rebuilt in the storage cache on startup.
 ///

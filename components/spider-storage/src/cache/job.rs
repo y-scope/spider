@@ -19,10 +19,10 @@ use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
 use crate::{
     cache::{
         error::{CacheError, InternalError, StaleStateError},
-        job_submission::ValidatedJobSubmission,
         task::TaskGraph,
     },
     db::{InternalJobOrchestration, RecoverableJobContext},
+    job_submission::ValidatedJobSubmission,
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };

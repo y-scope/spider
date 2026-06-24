@@ -95,7 +95,6 @@ use spider_storage::{
     cache::{
         error::{CacheError, InternalError},
         job::SharedJobControlBlock,
-        job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{
@@ -105,6 +104,7 @@ use spider_storage::{
         MariaDbStorageConnector,
         RecoverableJobContext,
     },
+    job_submission::ValidatedJobSubmission,
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };

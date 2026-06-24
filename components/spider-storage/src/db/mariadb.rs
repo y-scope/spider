@@ -4,21 +4,17 @@ use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
-    compression::decode_zstd_bytes,
     job::JobState,
-    task::TaskGraph,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
-        io::{SerializedTaskOutputs, TaskInput, TaskOutput},
+        io::{SerializedTaskOutputs, TaskOutput},
         scheduler::RegisteredScheduler,
     },
 };
 use spider_derive::MySqlEnum;
-use spider_utils::wire::unframe;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
-    cache::job_submission::ValidatedJobSubmission,
     config::DatabaseConfig,
     db::{
         DbError,
@@ -32,6 +28,7 @@ use crate::{
         SessionManagement,
         error::ExpectedStates,
     },
+    job_submission::ValidatedJobSubmission,
 };
 
 /// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
@@ -779,25 +776,11 @@ impl RecoverableJobRowProjection {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`TaskGraph::from_zstd_compressed_json`]'s return values on failure.
-    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
     /// * Forwards [`SerializedTaskOutputs::deserialize_from_raw`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
     ///   [`DbError::CorruptedDbState`] on failure.
     fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
-        let task_graph =
-            TaskGraph::from_zstd_compressed_json(&self.compressed_serialized_task_graph)
-                .map_err(DbError::task_graph_de)?;
-        let serialized_job_inputs = decode_zstd_bytes(&self.compressed_serialized_job_inputs)
-            .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
-        let inputs: Vec<TaskInput> = unframe(&serialized_job_inputs)
-            .map_err(DbError::value_de)?
-            .into_iter()
-            .map(TaskInput::ValuePayload)
-            .collect();
         let submission = ValidatedJobSubmission::create(
-            task_graph,
-            inputs,
             self.compressed_serialized_task_graph,
             self.compressed_serialized_job_inputs,
         )
