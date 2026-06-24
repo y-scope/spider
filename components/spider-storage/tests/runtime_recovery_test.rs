@@ -1,12 +1,11 @@
 use std::{net::IpAddr, time::Duration};
 
 use spider_core::{
-    compression::encode_zstd_bytes,
     job::JobState,
     task::TaskIndex,
     types::{
         id::{ExecutionManagerId, JobId, TaskInstanceId},
-        io::{TaskInput, TaskOutput},
+        io::TaskOutput,
     },
 };
 use spider_storage::{
@@ -23,11 +22,11 @@ use spider_storage::{
     },
     task_instance_pool::TaskInstancePoolConfig,
 };
-use spider_tdl::wire::{TaskInputsSerializer, TaskOutputsSerializer};
+use spider_tdl::wire::TaskOutputsSerializer;
 
 use crate::{
     mariadb_infra::{create_mariadb_config, create_mariadb_connector},
-    task_graph_builder::build_flat_task_graph,
+    task_graph_builder::{build_flat_task_graph, compress_job_inputs, compress_task_graph},
 };
 
 #[tokio::test]
@@ -379,8 +378,8 @@ async fn register_and_start_job<
 /// Returns an error if:
 ///
 /// * Forwards [`ServiceState::add_resource_group`]'s return values on failure.
-/// * Forwards [`spider_core::task::TaskGraph::to_zstd_compressed_json`]'s return values on failure.
-/// * Forwards [`serialize_compressed_inputs`]'s return values on failure.
+/// * Forwards [`compress_task_graph`]'s return values on failure.
+/// * Forwards [`compress_job_inputs`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<
     ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
@@ -398,12 +397,10 @@ async fn register_job<
         )
         .await?;
     let (task_graph, inputs) = build_flat_task_graph(1, 4, with_commit, with_cleanup);
+    let compressed_task_graph = compress_task_graph(&task_graph)?;
+    let compressed_inputs = compress_job_inputs(&inputs)?;
     Ok(service
-        .register_job(
-            rg_id,
-            task_graph.to_zstd_compressed_json()?,
-            serialize_compressed_inputs(inputs)?,
-        )
+        .register_job(rg_id, compressed_task_graph, compressed_inputs)
         .await?)
 }
 
@@ -560,25 +557,6 @@ fn find_entry_for_job<TaskKind>(
         .into_iter()
         .filter(|entry| entry.job_id == job_id)
         .collect()
-}
-
-/// Serializes task inputs into the storage service wire format.
-///
-/// # Returns
-///
-/// The serialized task inputs on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
-fn serialize_compressed_inputs(inputs: Vec<TaskInput>) -> anyhow::Result<Vec<u8>> {
-    let mut serializer = TaskInputsSerializer::new();
-    for input in inputs {
-        serializer.append(input)?;
-    }
-    Ok(encode_zstd_bytes(&serializer.release())?)
 }
 
 /// Serializes the single output payload used by recovery tests.

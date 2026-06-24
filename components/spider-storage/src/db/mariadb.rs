@@ -5,7 +5,7 @@ use const_format::formatcp;
 use prost::Message;
 use secrecy::ExposeSecret;
 use spider_core::{
-    compression::{decode_zstd_bytes, encode_zstd_bytes},
+    compression::decode_zstd_bytes,
     job::JobState,
     task::TaskGraph,
     types::{
@@ -19,6 +19,7 @@ use spider_proto_rust::{
     payload::{decode_payload, encode_payload},
     storage::BinaryPayload,
 };
+use spider_tdl::wire::unframe;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
@@ -119,14 +120,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
             table = JOBS_TABLE_NAME,
         );
 
-        let task_graph = job_submission.task_graph();
-        let job_inputs = job_submission.inputs();
-        let compressed_serialized_task_graph = task_graph
-            .to_zstd_compressed_json()
-            .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;
-        let serialized_job_inputs = rmp_serde::to_vec(&job_inputs).map_err(DbError::value_ser)?;
-        let compressed_serialized_job_inputs = encode_zstd_bytes(&serialized_job_inputs)
-            .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?;
+        let compressed_serialized_task_graph = job_submission.compressed_serialized_task_graph();
+        let compressed_serialized_job_inputs = job_submission.compressed_serialized_job_inputs();
 
         let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
             .bind(resource_group_id)
@@ -840,10 +835,18 @@ impl RecoverableJobRowProjection {
                 .map_err(DbError::task_graph_de)?;
         let serialized_job_inputs = decode_zstd_bytes(&self.compressed_serialized_job_inputs)
             .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
-        let inputs: Vec<TaskInput> =
-            rmp_serde::from_slice(&serialized_job_inputs).map_err(DbError::value_de)?;
-        let submission = ValidatedJobSubmission::create(task_graph, inputs)
-            .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
+        let inputs: Vec<TaskInput> = unframe(&serialized_job_inputs)
+            .map_err(DbError::value_de)?
+            .into_iter()
+            .map(TaskInput::ValuePayload)
+            .collect();
+        let submission = ValidatedJobSubmission::create(
+            task_graph,
+            inputs,
+            self.compressed_serialized_task_graph,
+            self.compressed_serialized_job_inputs,
+        )
+        .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
         let outputs = self
             .serialized_job_outputs
             .map(|outputs| {

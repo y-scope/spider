@@ -174,7 +174,7 @@ mod tests {
         cache::{
             error::InternalError,
             job::SharedJobControlBlock,
-            job_submission::ValidatedJobSubmission,
+            job_submission::create_validated_submission,
         },
         ready_queue::ReadyQueueSender,
         state::test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
@@ -201,8 +201,7 @@ mod tests {
             .expect("task insertion should succeed");
 
         let job_submission =
-            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
-                .expect("job submission should be valid");
+            create_validated_submission(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])]);
         SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::random(),
@@ -420,8 +419,7 @@ mod tests {
 
         let job_id = JobId::random();
         let job_submission =
-            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
-                .expect("job submission should be valid");
+            create_validated_submission(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])]);
         let jcb = SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::random(),
