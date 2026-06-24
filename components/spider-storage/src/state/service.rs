@@ -542,7 +542,7 @@ impl<
             .map_err(StorageServerError::from)
     }
 
-    /// Deletes a resource group and, transitively, all of its jobs.
+    /// Deletes a resource group and all of its jobs from database and cache.
     ///
     /// # Errors
     ///
@@ -554,8 +554,14 @@ impl<
         resource_group_id: ResourceGroupId,
     ) -> Result<(), StorageServerError> {
         self.inner.db.delete(resource_group_id).await?;
+        let evicted_jobs = self
+            .inner
+            .job_cache
+            .remove_by_resource_group(resource_group_id)
+            .await;
         tracing::info!(
             rg_id = ? resource_group_id,
+            evicted_jobs,
             "Resource group deleted.",
         );
         Ok(())

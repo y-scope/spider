@@ -9,11 +9,8 @@ use spider_core::{
 };
 use spider_proto_rust::storage::{
     self,
-    inbound_queue_response_error,
     inbound_queue_service_client::InboundQueueServiceClient,
     job_orchestration_service_client::JobOrchestrationServiceClient,
-    poll_ready_tasks_response,
-    resend_ready_tasks_response,
 };
 use tonic::{
     Code,
@@ -68,7 +65,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .poll_ready_tasks(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| map_inbound_status(&status))?
             .into_inner();
         poll_ready_tasks_response_to_result(response)
     }
@@ -84,7 +81,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .poll_ready_commit_tasks(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| map_inbound_status(&status))?
             .into_inner();
         poll_ready_tasks_response_to_result(response)
     }
@@ -100,7 +97,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .poll_ready_cleanup_tasks(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| map_inbound_status(&status))?
             .into_inner();
         poll_ready_tasks_response_to_result(response)
     }
@@ -123,30 +120,28 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     }
 
     async fn resend_ready_tasks(&self) -> Result<(), StorageClientError> {
-        let response = self
-            .scheduler_client
+        self.scheduler_client
             .clone()
             .resend_ready_tasks(storage::ResendReadyTasksRequest {})
             .await
-            .map_err(to_transport_error)?
-            .into_inner();
-        resend_ready_tasks_response_to_result(response)
+            .map_err(|status| map_inbound_status(&status))?;
+        Ok(())
     }
 }
 
-impl From<storage::InboundQueueResponseError> for StorageClientError {
-    fn from(error: storage::InboundQueueResponseError) -> Self {
-        match inbound_queue_response_error::ErrCode::try_from(error.err_code) {
-            Ok(inbound_queue_response_error::ErrCode::InboundClosed) => Self::InboundClosed,
-            Ok(inbound_queue_response_error::ErrCode::InvalidInput) => {
-                Self::InvalidInput(error.message)
-            }
-            Ok(
-                inbound_queue_response_error::ErrCode::Server
-                | inbound_queue_response_error::ErrCode::Unspecified,
-            ) => Self::Server(error.message),
-            Err(error) => Self::Transport(format!("unknown scheduler storage error kind: {error}")),
-        }
+/// Maps a [`tonic::Status`] returned by an inbound-queue RPC into a [`StorageClientError`].
+///
+/// # Returns
+///
+/// * [`StorageClientError::InboundClosed`] when the inbound queue is closed (or the request was
+///   issued from a stale session), signalled by `UNAVAILABLE`.
+/// * [`StorageClientError::InvalidInput`] for a malformed request, signalled by `INVALID_ARGUMENT`.
+/// * [`StorageClientError::Server`] for any other failure.
+fn map_inbound_status(status: &tonic::Status) -> StorageClientError {
+    match status.code() {
+        Code::Unavailable => StorageClientError::InboundClosed,
+        Code::InvalidArgument => StorageClientError::InvalidInput(status.message().to_owned()),
+        _ => StorageClientError::Server(status.message().to_owned()),
     }
 }
 
@@ -173,31 +168,19 @@ fn poll_ready_tasks_request(
 ///
 /// [`storage::PollReadyTasksResponse`] converted into
 /// [`Result<(SessionId, Vec<InboundEntry>), StorageClientError>`].
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`StorageClientError::Transport`] if the response omits the `tasks` payload.
 fn poll_ready_tasks_response_to_result(
     response: storage::PollReadyTasksResponse,
 ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
-    match response.result {
-        Some(poll_ready_tasks_response::Result::Tasks(tasks)) => ready_tasks_to_result(tasks),
-        Some(poll_ready_tasks_response::Result::Error(error)) => Err(error.into()),
-        None => Err(StorageClientError::Transport(
-            "poll ready tasks response missing `result` message".to_owned(),
-        )),
-    }
-}
-
-/// # Returns
-///
-/// [`storage::ResendReadyTasksResponse`] converted into [`Result<(), StorageClientError>`].
-fn resend_ready_tasks_response_to_result(
-    response: storage::ResendReadyTasksResponse,
-) -> Result<(), StorageClientError> {
-    match response.result {
-        Some(resend_ready_tasks_response::Result::Ok(_)) => Ok(()),
-        Some(resend_ready_tasks_response::Result::Error(error)) => Err(error.into()),
-        None => Err(StorageClientError::Transport(
-            "resend ready tasks response missing `result` message".to_owned(),
-        )),
-    }
+    let tasks = response.tasks.ok_or_else(|| {
+        StorageClientError::Transport("poll ready tasks response missing `tasks`".to_owned())
+    })?;
+    ready_tasks_to_result(tasks)
 }
 
 /// # Returns
@@ -281,11 +264,7 @@ fn to_invalid_input_error(error: impl std::fmt::Display) -> StorageClientError {
 #[cfg(test)]
 mod tests {
     use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
-    use spider_proto_rust::storage::{
-        self,
-        inbound_queue_response_error,
-        poll_ready_tasks_response,
-    };
+    use spider_proto_rust::storage;
 
     use super::*;
 
@@ -297,16 +276,14 @@ mod tests {
     #[test]
     fn poll_ready_tasks_response_converts_entries() {
         let response = storage::PollReadyTasksResponse {
-            result: Some(poll_ready_tasks_response::Result::Tasks(
-                storage::ReadyTasks {
-                    session_id: SESSION_ID,
-                    tasks: vec![storage::ReadyTask {
-                        resource_group_id: RESOURCE_GROUP_ID,
-                        job_id: JOB_ID,
-                        task_id: Some(storage::TaskId::from(TaskId::Index(TASK_INDEX))),
-                    }],
-                },
-            )),
+            tasks: Some(storage::ReadyTasks {
+                session_id: SESSION_ID,
+                tasks: vec![storage::ReadyTask {
+                    resource_group_id: RESOURCE_GROUP_ID,
+                    job_id: JOB_ID,
+                    task_id: Some(storage::TaskId::from(TaskId::Index(TASK_INDEX))),
+                }],
+            }),
         };
 
         let (session_id, entries) = poll_ready_tasks_response_to_result(response)
@@ -328,16 +305,14 @@ mod tests {
         const MISSING_TASK_ID_MESSAGE: &str = "missing task ID";
 
         let response = storage::PollReadyTasksResponse {
-            result: Some(poll_ready_tasks_response::Result::Tasks(
-                storage::ReadyTasks {
-                    session_id: SESSION_ID,
-                    tasks: vec![storage::ReadyTask {
-                        resource_group_id: RESOURCE_GROUP_ID,
-                        job_id: JOB_ID,
-                        task_id: None,
-                    }],
-                },
-            )),
+            tasks: Some(storage::ReadyTasks {
+                session_id: SESSION_ID,
+                tasks: vec![storage::ReadyTask {
+                    resource_group_id: RESOURCE_GROUP_ID,
+                    job_id: JOB_ID,
+                    task_id: None,
+                }],
+            }),
         };
 
         match poll_ready_tasks_response_to_result(response) {
@@ -349,53 +324,43 @@ mod tests {
     }
 
     #[test]
-    fn inbound_queue_response_error_maps_inbound_closed() {
-        const ERROR_MESSAGE: &str = "closed";
-
-        let error = storage::InboundQueueResponseError {
-            err_code: inbound_queue_response_error::ErrCode::InboundClosed.into(),
-            message: ERROR_MESSAGE.to_owned(),
-        };
+    fn poll_ready_tasks_response_rejects_missing_tasks() {
+        let response = storage::PollReadyTasksResponse { tasks: None };
 
         assert!(matches!(
-            StorageClientError::from(error),
+            poll_ready_tasks_response_to_result(response),
+            Err(StorageClientError::Transport(_))
+        ));
+    }
+
+    #[test]
+    fn map_inbound_status_maps_unavailable_to_inbound_closed() {
+        let status = tonic::Status::unavailable("inbound queue is closed");
+
+        assert!(matches!(
+            map_inbound_status(&status),
             StorageClientError::InboundClosed
         ));
     }
 
     #[test]
-    fn resend_ready_tasks_response_accepts_ok() {
-        let response = storage::ResendReadyTasksResponse {
-            result: Some(resend_ready_tasks_response::Result::Ok(storage::Void {})),
-        };
+    fn map_inbound_status_maps_invalid_argument_to_invalid_input() {
+        const MESSAGE: &str = "bad max_items";
+        let status = tonic::Status::invalid_argument(MESSAGE);
 
-        assert!(resend_ready_tasks_response_to_result(response).is_ok());
+        match map_inbound_status(&status) {
+            StorageClientError::InvalidInput(message) => assert_eq!(message, MESSAGE),
+            error => panic!("unexpected inbound status mapping: {error:?}"),
+        }
     }
 
     #[test]
-    fn resend_ready_tasks_response_maps_error() {
-        let response = storage::ResendReadyTasksResponse {
-            result: Some(resend_ready_tasks_response::Result::Error(
-                storage::InboundQueueResponseError {
-                    err_code: inbound_queue_response_error::ErrCode::InboundClosed.into(),
-                    message: "closed".to_owned(),
-                },
-            )),
-        };
+    fn map_inbound_status_maps_other_codes_to_server() {
+        let status = tonic::Status::internal("boom");
 
         assert!(matches!(
-            resend_ready_tasks_response_to_result(response),
-            Err(StorageClientError::InboundClosed)
-        ));
-    }
-
-    #[test]
-    fn resend_ready_tasks_response_rejects_missing_result() {
-        let response = storage::ResendReadyTasksResponse { result: None };
-
-        assert!(matches!(
-            resend_ready_tasks_response_to_result(response),
-            Err(StorageClientError::Transport(_))
+            map_inbound_status(&status),
+            StorageClientError::Server(_)
         ));
     }
 }

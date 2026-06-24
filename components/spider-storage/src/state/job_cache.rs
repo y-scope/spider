@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use spider_core::types::id::JobId;
+use spider_core::types::id::{JobId, ResourceGroupId};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -119,6 +119,27 @@ impl<
             .count()
     }
 
+    /// Removes every job control block belonging to the given resource group from the cache.
+    ///
+    /// # Returns
+    ///
+    /// The number of job control blocks that existed and were removed.
+    pub async fn remove_by_resource_group(&self, resource_group_id: ResourceGroupId) -> usize {
+        let victim_ids: Vec<JobId> = self
+            .jobs
+            .read()
+            .await
+            .iter()
+            .filter(|(_, jcb)| jcb.resource_group_id() == resource_group_id)
+            .map(|(job_id, _)| *job_id)
+            .collect();
+        let mut jobs = self.jobs.write().await;
+        victim_ids
+            .iter()
+            .filter(|job_id| jobs.remove(job_id).is_some())
+            .count()
+    }
+
     /// Resends all ready tasks for every job in the cache to the ready queue.
     ///
     /// # Errors
@@ -184,6 +205,14 @@ mod tests {
         job_id: JobId,
     ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
     {
+        create_test_jcb_with_resource_group(job_id, ResourceGroupId::random()).await
+    }
+
+    async fn create_test_jcb_with_resource_group(
+        job_id: JobId,
+        resource_group_id: ResourceGroupId,
+    ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
+    {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
         let mut submitted =
             SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
@@ -205,7 +234,7 @@ mod tests {
                 .expect("job submission should be valid");
         SharedJobControlBlock::create(
             job_id,
-            spider_core::types::id::ResourceGroupId::random(),
+            resource_group_id,
             job_submission,
             MockReadyQueueSender,
             MockDbConnector::default(),
@@ -272,6 +301,47 @@ mod tests {
         assert!(
             cache.get(second_job_id).await.is_none(),
             "second job should be removed"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn job_cache_remove_by_resource_group_evicts_only_owned_jobs() -> anyhow::Result<()> {
+        let cache: JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector> =
+            JobCache::new();
+        let target_group = ResourceGroupId::from(42);
+        let other_group = ResourceGroupId::from(7);
+        let first_job_id = JobId::random();
+        let second_job_id = JobId::random();
+        let unrelated_job_id = JobId::random();
+
+        cache
+            .insert(create_test_jcb_with_resource_group(first_job_id, target_group).await)
+            .await?;
+        cache
+            .insert(create_test_jcb_with_resource_group(second_job_id, target_group).await)
+            .await?;
+        cache
+            .insert(create_test_jcb_with_resource_group(unrelated_job_id, other_group).await)
+            .await?;
+
+        let num_removed_jobs = cache.remove_by_resource_group(target_group).await;
+
+        assert_eq!(
+            num_removed_jobs, 2,
+            "only the resource group's jobs should be removed"
+        );
+        assert!(
+            cache.get(first_job_id).await.is_none(),
+            "first owned job should be removed"
+        );
+        assert!(
+            cache.get(second_job_id).await.is_none(),
+            "second owned job should be removed"
+        );
+        assert!(
+            cache.get(unrelated_job_id).await.is_some(),
+            "unrelated job should remain"
         );
         Ok(())
     }
