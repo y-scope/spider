@@ -21,11 +21,13 @@ service InboundQueueService {
   rpc PollReadyTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCommitTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCleanupTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (ResendReadyTasksResponse);
 }
 
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
   rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (ResourceGroupOperationResponse);
+  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (ResourceGroupOperationResponse);
 }
 
 service ExecutionManagerLivenessService {
@@ -97,6 +99,17 @@ message ReadyTask {
   TaskId task_id = 3;
 }
 
+// Request to re-enqueue the ready tasks of every cached job. Carries no parameters because the
+// operation applies to the whole cache.
+message ResendReadyTasksRequest {}
+
+message ResendReadyTasksResponse {
+  oneof result {
+    Void ok = 1;
+    InboundQueueResponseError error = 2;
+  }
+}
+
 message RegisterTaskInstanceRequest {
   uint64 job_id = 1;
   TaskId task_id = 2;
@@ -160,6 +173,13 @@ message VerifyResourceGroupRequest {
   uint64 resource_group_id = 1;
   bytes password = 2;
   uint64 session_id = 3;
+}
+
+// Request to delete a resource group (and, transitively, all of its jobs). Carries the caller's
+// storage session so the server can reject stale requests.
+message ResourceGroupIdRequest {
+  uint64 resource_group_id = 1;
+  uint64 session_id = 2;
 }
 
 message RegisterExecutionManagerRequest {

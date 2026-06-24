@@ -1,5 +1,7 @@
 //! [`RequestUnpack`] implementations for `storage.proto` requests.
 
+use std::{net::IpAddr, time::Duration};
+
 use spider_core::types::id::{
     ExecutionManagerId,
     JobId,
@@ -13,11 +15,18 @@ use tonic::Code;
 use crate::{
     storage::{
         self,
+        AddResourceGroupRequest,
+        ExecutionManagerIdRequest,
         JobIdRequest,
+        PollReadyTasksRequest,
+        RegisterExecutionManagerRequest,
         RegisterJobRequest,
+        RegisterSchedulerRequest,
         RegisterTaskInstanceRequest,
         ReportTaskFailureRequest,
         ReportTaskSuccessRequest,
+        ResourceGroupIdRequest,
+        VerifyResourceGroupRequest,
     },
     unpack::{RequestUnpack, UnpackError},
 };
@@ -147,6 +156,119 @@ impl RequestUnpack for ReportTaskFailureRequest {
             self.task_instance_id,
             self.error_message,
         ))
+    }
+}
+
+/// Unpacks [`AddResourceGroupRequest`] into a tuple containing:
+///
+/// * The external resource group ID.
+/// * The password.
+/// * The caller's storage session ID.
+impl RequestUnpack for AddResourceGroupRequest {
+    type Unpacked = (String, Vec<u8>, SessionId);
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        Ok((
+            self.external_resource_group_id,
+            self.password,
+            self.session_id,
+        ))
+    }
+}
+
+/// Unpacks [`VerifyResourceGroupRequest`] into a tuple containing:
+///
+/// * The resource group ID.
+/// * The password.
+/// * The caller's storage session ID.
+impl RequestUnpack for VerifyResourceGroupRequest {
+    type Unpacked = (ResourceGroupId, Vec<u8>, SessionId);
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        Ok((
+            ResourceGroupId::from(self.resource_group_id),
+            self.password,
+            self.session_id,
+        ))
+    }
+}
+
+/// Unpacks [`ResourceGroupIdRequest`] into a tuple containing:
+///
+/// * The resource group ID.
+/// * The caller's storage session ID.
+impl RequestUnpack for ResourceGroupIdRequest {
+    type Unpacked = (ResourceGroupId, SessionId);
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        Ok((
+            ResourceGroupId::from(self.resource_group_id),
+            self.session_id,
+        ))
+    }
+}
+
+/// Unpacks [`RegisterExecutionManagerRequest`] into the execution manager's IP address.
+impl RequestUnpack for RegisterExecutionManagerRequest {
+    type Unpacked = IpAddr;
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        self.ip_address
+            .parse::<IpAddr>()
+            .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))
+    }
+}
+
+/// Unpacks [`ExecutionManagerIdRequest`] into an [`ExecutionManagerId`].
+impl RequestUnpack for ExecutionManagerIdRequest {
+    type Unpacked = ExecutionManagerId;
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        Ok(ExecutionManagerId::from(self.execution_manager_id))
+    }
+}
+
+/// Unpacks [`RegisterSchedulerRequest`] into a tuple containing:
+///
+/// * The scheduler IP address.
+/// * The scheduler port.
+impl RequestUnpack for RegisterSchedulerRequest {
+    type Unpacked = (IpAddr, u16);
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        let ip_address = self
+            .ip_address
+            .parse::<IpAddr>()
+            .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))?;
+        let port = u16::try_from(self.port)
+            .map_err(|_| invalid_argument(format!("port does not fit in `u16`: {}", self.port)))?;
+        Ok((ip_address, port))
+    }
+}
+
+/// Unpacks [`PollReadyTasksRequest`] into a tuple containing:
+///
+/// * The maximum number of entries to return.
+/// * The maximum duration to block waiting for entries.
+impl RequestUnpack for PollReadyTasksRequest {
+    type Unpacked = (usize, Duration);
+
+    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        let max_items = usize::try_from(self.max_items).map_err(|_| {
+            invalid_argument(format!(
+                "max_items does not fit in `usize`: {}",
+                self.max_items
+            ))
+        })?;
+        Ok((max_items, Duration::from_millis(self.wait_ms)))
+    }
+}
+
+/// Builds an [`UnpackError`] carrying [`Code::InvalidArgument`] and the given message.
+const fn invalid_argument(message: String) -> UnpackError {
+    UnpackError {
+        code: Code::InvalidArgument,
+        message,
     }
 }
 
