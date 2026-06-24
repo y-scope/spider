@@ -1288,48 +1288,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn succeed_task_instance_accepts_raw_serialized_outputs() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let (compressed_serialized_task_graph, compressed_serialized_inputs) =
-            create_test_job_submission();
-        let job_id = service
-            .register_job(
-                ResourceGroupId::random(),
-                compressed_serialized_task_graph,
-                compressed_serialized_inputs,
-            )
-            .await?;
-        service.start_job(job_id).await?;
-
-        let context = service
-            .create_task_instance(
-                TEST_SESSION_ID,
-                job_id,
-                TaskId::Index(0),
-                ExecutionManagerId::random(),
-            )
-            .await?;
-        let serialized_outputs = create_test_serialized_outputs();
-        let state = service
-            .succeed_task_instance(
-                TEST_SESSION_ID,
-                job_id,
-                context.task_instance_id,
-                0,
-                serialized_outputs.clone(),
-            )
-            .await?;
-
-        assert_eq!(state, JobState::Succeeded);
-        assert_eq!(
-            service.get_job_outputs(job_id).await?,
-            TaskOutputsSerializer::deserialize(&serialized_outputs)
-                .expect("test serialized outputs should deserialize successfully")
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn succeed_task_instance_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service

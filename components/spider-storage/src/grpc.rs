@@ -147,9 +147,7 @@ impl<
                 Status::not_found("job not found")
             }
 
-            error @ (StorageServerError::Task(_)
-            | StorageServerError::Tdl(_)
-            | StorageServerError::BadRequest(_)) => {
+            error @ (StorageServerError::Tdl(_) | StorageServerError::BadRequest(_)) => {
                 tracing::warn!(
                     error = % error,
                     service = SERVICE_NAME,
