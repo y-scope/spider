@@ -139,8 +139,13 @@ impl<
             .into_iter()
             .map(TaskInput::ValuePayload)
             .collect();
-        let job_submission =
-            ValidatedJobSubmission::create(task_graph, inputs).map_err(CacheError::from)?;
+        let job_submission = ValidatedJobSubmission::create(
+            task_graph,
+            inputs,
+            compressed_serialized_task_graph,
+            compressed_serialized_inputs,
+        )
+        .map_err(CacheError::from)?;
 
         let job_id = self
             .inner
@@ -782,7 +787,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::{job::SharedJobControlBlock, job_submission::ValidatedJobSubmission},
+        cache::{
+            job::SharedJobControlBlock,
+            job_submission::{
+                compress_job_inputs,
+                compress_task_graph,
+                create_validated_submission,
+            },
+        },
         db::DbError,
         ready_queue::ReadyQueueSenderHandle,
         state::{
@@ -873,17 +885,11 @@ mod tests {
     }
 
     fn create_test_job_submission() -> (Vec<u8>, Vec<u8>) {
-        let task_graph = create_test_task_graph()
-            .to_zstd_compressed_json()
-            .expect("task graph serialization and compression should succeed");
-        let mut serializer = spider_tdl::wire::TaskInputsSerializer::new();
-        serializer
-            .append(TaskInput::ValuePayload(vec![0u8; 4]))
-            .expect("input serialization should succeed");
-        let serialized_inputs = serializer.release();
+        let task_graph = create_test_task_graph();
+        let inputs = vec![TaskInput::ValuePayload(vec![0u8; 4])];
         (
-            task_graph,
-            encode_zstd_bytes(&serialized_inputs).expect("input compression should succeed"),
+            compress_task_graph(&task_graph),
+            compress_job_inputs(&inputs),
         )
     }
 
@@ -894,8 +900,7 @@ mod tests {
     }
 
     fn create_empty_compressed_serialized_inputs() -> Vec<u8> {
-        encode_zstd_bytes(&spider_tdl::wire::TaskInputsSerializer::new().release())
-            .expect("empty input compression should succeed")
+        compress_job_inputs(&[])
     }
 
     async fn create_test_jcb(
@@ -903,9 +908,8 @@ mod tests {
     ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
     {
         let task_graph = create_test_task_graph();
-        let job_submission =
-            ValidatedJobSubmission::create(task_graph, vec![TaskInput::ValuePayload(vec![0u8; 4])])
-                .expect("job submission should be valid");
+        let inputs = vec![TaskInput::ValuePayload(vec![0u8; 4])];
+        let job_submission = create_validated_submission(task_graph, inputs);
 
         SharedJobControlBlock::create(
             job_id,

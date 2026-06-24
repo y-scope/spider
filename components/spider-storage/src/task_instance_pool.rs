@@ -562,7 +562,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
-    use crate::{cache::job_submission::ValidatedJobSubmission, db::DbError};
+    use crate::{cache::job_submission::create_validated_submission, db::DbError};
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
 
@@ -713,8 +713,7 @@ mod tests {
             })
             .expect("task insertion should succeed");
         let job_submission =
-            ValidatedJobSubmission::create(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])])
-                .expect("job submission should be valid");
+            create_validated_submission(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])]);
         let task_graph = crate::cache::task::TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed");

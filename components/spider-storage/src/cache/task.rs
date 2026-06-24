@@ -980,7 +980,7 @@ mod tests {
     use spider_tdl::wire::unframe;
 
     use super::*;
-    use crate::cache::job_submission::ValidatedJobSubmission;
+    use crate::cache::job_submission::create_validated_submission;
 
     /// # Returns
     ///
@@ -1124,8 +1124,7 @@ mod tests {
         let inputs: Vec<TaskInput> = (0..num_inputs)
             .map(|_| TaskInput::ValuePayload(vec![0u8; 4]))
             .collect();
-        let job_submission = ValidatedJobSubmission::create(submitted, inputs)
-            .expect("job submission should be valid");
+        let job_submission = create_validated_submission(submitted, inputs);
         TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
@@ -1168,8 +1167,7 @@ mod tests {
                 input_sources: None,
             })
             .expect("task insertion should succeed");
-        let job_submission = ValidatedJobSubmission::create(submitted, vec![])
-            .expect("job submission should be valid");
+        let job_submission = create_validated_submission(submitted, vec![]);
         let task_graph = TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed");
@@ -1285,8 +1283,7 @@ mod tests {
             TaskInput::ValuePayload(input_a),
             TaskInput::ValuePayload(input_b),
         ];
-        let job_submission = ValidatedJobSubmission::create(submitted, inputs)
-            .expect("job submission should be valid");
+        let job_submission = create_validated_submission(submitted, inputs);
         TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
