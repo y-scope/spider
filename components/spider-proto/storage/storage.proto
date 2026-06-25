@@ -96,8 +96,6 @@ message ReadyTask {
   TaskId task_id = 3;
 }
 
-// Request to re-enqueue the ready tasks of every cached job. Carries no parameters because the
-// operation applies to the whole cache.
 message ResendReadyTasksRequest {}
 
 message ResendReadyTasksResponse {}
@@ -162,10 +160,6 @@ message VerifyResourceGroupRequest {
   bytes password = 2;
 }
 
-// Request to delete a resource group (and, transitively, all of its jobs).
-//
-// Carries the resource group's password so the caller must prove ownership before the group and
-// its jobs are removed, mirroring `VerifyResourceGroupRequest`.
 message DeleteResourceGroupRequest {
   uint64 resource_group_id = 1;
   bytes password = 2;

@@ -66,8 +66,6 @@ pub struct ReadyTask {
     #[prost(message, optional, tag = "3")]
     pub task_id: ::core::option::Option<TaskId>,
 }
-/// Request to re-enqueue the ready tasks of every cached job. Carries no parameters because the
-/// operation applies to the whole cache.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ResendReadyTasksRequest {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -162,10 +160,6 @@ pub struct VerifyResourceGroupRequest {
     #[prost(bytes = "vec", tag = "2")]
     pub password: ::prost::alloc::vec::Vec<u8>,
 }
-/// Request to delete a resource group (and, transitively, all of its jobs).
-///
-/// Carries the resource group's password so the caller must prove ownership before the group and
-/// its jobs are removed, mirroring `VerifyResourceGroupRequest`.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeleteResourceGroupRequest {
     #[prost(uint64, tag = "1")]
