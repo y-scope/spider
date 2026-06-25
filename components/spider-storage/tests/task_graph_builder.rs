@@ -1,5 +1,7 @@
+use anyhow::Result;
 use rand::{Rng, SeedableRng};
 use spider_core::{
+    compression::encode_zstd_bytes,
     task::{
         DataTypeDescriptor,
         ExecutionPolicy,
@@ -10,11 +12,63 @@ use spider_core::{
         TerminationTaskDescriptor,
         ValueTypeDescriptor,
     },
-    types::io::TaskInput,
+    types::io::{TaskInput, TaskInputsSerializer},
 };
+use spider_storage::job_submission::ValidatedJobSubmission;
 
 /// The submitted task graph type from spider-core.
 pub type SubmittedTaskGraph = spider_core::task::TaskGraph;
+
+/// Compresses a task graph into the zstd-compressed JSON format the database persists.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`spider_core::task::TaskGraph::to_zstd_compressed_json`]'s return values on failure.
+pub fn compress_task_graph(task_graph: &SubmittedTaskGraph) -> Result<Vec<u8>> {
+    Ok(task_graph.to_zstd_compressed_json()?)
+}
+
+/// Compresses job inputs into the zstd-compressed TDL wire-framed format the database persists.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
+/// * Forwards [`encode_zstd_bytes`]'s return values on failure.
+pub fn compress_job_inputs(inputs: &[TaskInput]) -> Result<Vec<u8>> {
+    let mut serializer = TaskInputsSerializer::new();
+    for input in inputs {
+        serializer.append(input.clone())?;
+    }
+    Ok(encode_zstd_bytes(&serializer.release())?)
+}
+
+/// Compresses a submitted task graph and job inputs into the formats the database persists, then
+/// builds a [`ValidatedJobSubmission`].
+///
+/// The task graph is zstd-compressed JSON and the job inputs are zstd-compressed TDL wire-framed
+/// bytes, matching what the storage service receives from a client.
+///
+/// # Panics
+///
+/// Panics if compression or submission validation fails.
+// Takes the graph and inputs by value for caller ergonomics: callers build and hand off owned
+// values, even though they are only borrowed here to produce the compressed serializations.
+#[allow(clippy::needless_pass_by_value)]
+#[must_use]
+pub fn create_validated_submission(
+    task_graph: SubmittedTaskGraph,
+    inputs: Vec<TaskInput>,
+) -> ValidatedJobSubmission {
+    let compressed_task_graph =
+        compress_task_graph(&task_graph).expect("task graph compression should succeed");
+    let compressed_inputs = compress_job_inputs(&inputs).expect("input compression should succeed");
+    ValidatedJobSubmission::create(compressed_task_graph, compressed_inputs)
+        .expect("job submission should be valid")
+}
 
 /// Builds a flat workload of `num_tasks` independent tasks
 ///

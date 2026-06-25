@@ -5,10 +5,9 @@ use const_format::formatcp;
 use secrecy::ExposeSecret;
 use spider_core::{
     job::JobState,
-    task::TaskGraph,
     types::{
         id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
-        io::{TaskInput, TaskOutput},
+        io::{SerializedTaskOutputs, TaskOutput},
         scheduler::RegisteredScheduler,
     },
 };
@@ -16,7 +15,6 @@ use spider_derive::MySqlEnum;
 use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
 
 use crate::{
-    cache::job_submission::ValidatedJobSubmission,
     config::DatabaseConfig,
     db::{
         DbError,
@@ -30,6 +28,7 @@ use crate::{
         SessionManagement,
         error::ExpectedStates,
     },
+    job_submission::ValidatedJobSubmission,
 };
 
 /// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
@@ -108,22 +107,18 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`resource_group_id`, `serialized_task_graph`, \
-             `serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
+            "INSERT INTO `{table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
+             `compressed_serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
             table = JOBS_TABLE_NAME,
         );
 
-        let task_graph = job_submission.task_graph();
-        let job_inputs = job_submission.inputs();
-        let serialized_task_graph = task_graph
-            .to_json()
-            .map_err(|e| DbError::TaskGraphSerializationFailure(Box::new(e)))?;
-        let serialized_job_inputs = rmp_serde::to_vec(&job_inputs).map_err(DbError::value_ser)?;
+        let compressed_serialized_task_graph = job_submission.compressed_serialized_task_graph();
+        let compressed_serialized_job_inputs = job_submission.compressed_serialized_job_inputs();
 
         let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
             .bind(resource_group_id)
-            .bind(serialized_task_graph)
-            .bind(serialized_job_inputs)
+            .bind(compressed_serialized_task_graph)
+            .bind(compressed_serialized_job_inputs)
             .fetch_one(&self.pool)
             .await
             .map_err(|e| match e {
@@ -180,8 +175,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                 "job `{job_id}` succeeded but has no serialized outputs"
             ))
         })?;
-        let outputs: Vec<TaskOutput> =
-            rmp_serde::from_slice(&outputs_bytes).map_err(DbError::value_de)?;
+        let outputs = SerializedTaskOutputs::deserialize_from_raw(&outputs_bytes)
+            .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))?;
         Ok(outputs)
     }
 
@@ -279,7 +274,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             });
         }
 
-        let serialized_outputs = rmp_serde::to_vec(&job_outputs).map_err(DbError::value_ser)?;
+        let serialized_outputs = SerializedTaskOutputs::serialize_with_size_hint(&job_outputs)
+            .map_err(|e| DbError::ValueSerializationFailure(Box::new(e)))?
+            .to_raw();
 
         sqlx::query(if new_state.is_terminal() {
             UPDATE_SUCCEEDED_QUERY
@@ -390,8 +387,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
     async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `id`, `resource_group_id`, `state`, `serialized_task_graph`, \
-             `serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE `state` IN \
+            "SELECT `id`, `resource_group_id`, `state`, `compressed_serialized_task_graph`, \
+             `compressed_serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE \
+             `state` IN \
              ('{ready_state}','{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
             table = JOBS_TABLE_NAME,
             ready_state = JobState::Ready.as_str(),
@@ -692,8 +690,8 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `resource_group_id` BIGINT UNSIGNED NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
-  `serialized_task_graph` LONGTEXT NOT NULL,
-  `serialized_job_inputs` LONGBLOB NOT NULL,
+  `compressed_serialized_task_graph` LONGBLOB NOT NULL,
+  `compressed_serialized_job_inputs` LONGBLOB NOT NULL,
   `serialized_job_outputs` LONGBLOB,
   `error_message` LONGTEXT,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -762,8 +760,8 @@ struct RecoverableJobRowProjection {
     id: JobId,
     resource_group_id: ResourceGroupId,
     state: JobState,
-    serialized_task_graph: String,
-    serialized_job_inputs: Vec<u8>,
+    compressed_serialized_task_graph: Vec<u8>,
+    compressed_serialized_job_inputs: Vec<u8>,
     serialized_job_outputs: Option<Vec<u8>>,
 }
 
@@ -778,20 +776,21 @@ impl RecoverableJobRowProjection {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`TaskGraph::from_json`]'s return values on failure.
-    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
+    /// * Forwards [`SerializedTaskOutputs::deserialize_from_raw`]'s return values on failure.
     /// * Forwards [`ValidatedJobSubmission::create`]'s return values as
     ///   [`DbError::CorruptedDbState`] on failure.
     fn into_recoverable_job_context(self) -> Result<RecoverableJobContext, DbError> {
-        let task_graph =
-            TaskGraph::from_json(&self.serialized_task_graph).map_err(DbError::task_graph_de)?;
-        let inputs: Vec<TaskInput> =
-            rmp_serde::from_slice(&self.serialized_job_inputs).map_err(DbError::value_de)?;
-        let submission = ValidatedJobSubmission::create(task_graph, inputs)
-            .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
+        let submission = ValidatedJobSubmission::create(
+            self.compressed_serialized_task_graph,
+            self.compressed_serialized_job_inputs,
+        )
+        .map_err(|e| DbError::CorruptedDbState(e.to_string()))?;
         let outputs = self
             .serialized_job_outputs
-            .map(|outputs| rmp_serde::from_slice(&outputs).map_err(DbError::value_de))
+            .map(|outputs| {
+                SerializedTaskOutputs::deserialize_from_raw(&outputs)
+                    .map_err(|e| DbError::ValueDeserializationFailure(Box::new(e)))
+            })
             .transpose()?;
         Ok(RecoverableJobContext {
             id: self.id,

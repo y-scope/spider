@@ -10,7 +10,7 @@ use spider_core::{
     },
 };
 
-use crate::{cache::job_submission::ValidatedJobSubmission, db::error::DbError};
+use crate::{db::error::DbError, job_submission::ValidatedJobSubmission};
 
 /// A job persisted in the database that should be rebuilt in the storage cache on startup.
 ///
@@ -49,7 +49,8 @@ pub trait ExternalJobOrchestration {
     /// # Parameters
     ///
     /// * `resource_group_id` - The owner of the created job.
-    /// * `job_submission` - The validated job submission containing the task graph and job inputs.
+    /// * `job_submission` - The validated job submission containing the task graph, job inputs, and
+    ///   the compressed serializations to persist verbatim.
     ///
     /// # Returns
     ///
@@ -60,8 +61,6 @@ pub trait ExternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
-    /// * [`DbError::TaskGraphSerializationFailure`] if the task graph serialization fails.
-    /// * [`DbError::ValueSerializationFailure`] if the job inputs serialization fails.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn register(
         &self,

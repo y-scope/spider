@@ -48,8 +48,8 @@ service SessionManagementService {
 
 message RegisterJobRequest {
   uint64 resource_group_id = 1;
-  bytes serialized_task_graph = 2;
-  bytes serialized_inputs = 3;
+  bytes compressed_serialized_task_graph = 2;
+  bytes compressed_serialized_inputs = 3;
 }
 
 message RegisterJobResponse {
@@ -65,11 +65,7 @@ message JobStateResponse {
 }
 
 message JobOutputsResponse {
-  JobOutputs outputs = 1;
-}
-
-message JobOutputs {
-  repeated bytes outputs = 1;
+  bytes serialized_outputs = 1;
 }
 
 message JobErrorResponse {

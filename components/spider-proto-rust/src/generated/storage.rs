@@ -4,9 +4,9 @@ pub struct RegisterJobRequest {
     #[prost(uint64, tag = "1")]
     pub resource_group_id: u64,
     #[prost(bytes = "vec", tag = "2")]
-    pub serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
+    pub compressed_serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "3")]
-    pub serialized_inputs: ::prost::alloc::vec::Vec<u8>,
+    pub compressed_serialized_inputs: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RegisterJobResponse {
@@ -25,13 +25,8 @@ pub struct JobStateResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobOutputsResponse {
-    #[prost(message, optional, tag = "1")]
-    pub outputs: ::core::option::Option<JobOutputs>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct JobOutputs {
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub outputs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobErrorResponse {

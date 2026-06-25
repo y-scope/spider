@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use spider_utils::wire::{self, StreamDeserializer, WireError, WireFrameBuilder};
 
 use crate::{
+    compression::{self, decode_zstd_bytes, encode_zstd_bytes},
     task::{TdlContext, TimeoutPolicy},
     types::id::TaskInstanceId,
 };
@@ -14,6 +15,217 @@ pub enum TaskInput {
 
 /// Represents an output of a task.
 pub type TaskOutput = Vec<u8>;
+
+/// Errors produced while (de)serializing or (un)packing [`SerializedTaskOutputs`].
+#[derive(Debug, thiserror::Error)]
+pub enum TaskOutputsError {
+    /// A wire framing or unframing operation failed.
+    #[error("wire framing failed: {0}")]
+    Wire(#[from] WireError),
+
+    /// A zstd compression or decompression operation failed.
+    #[error("compression failed: {0}")]
+    Compression(#[from] compression::Error),
+
+    /// A raw buffer was empty and therefore carried no serialize-option byte.
+    #[error("raw task outputs buffer is empty")]
+    Empty,
+
+    /// The leading serialize-option byte of a raw buffer did not map to a known option.
+    #[error("unknown task outputs serialize option: {0}")]
+    UnknownOption(u8),
+}
+
+/// Selects how a [`Vec<TaskOutput>`] is encoded into a [`SerializedTaskOutputs`] payload.
+///
+/// The option is `u8`-convertible and is written as the first byte of the
+/// [`SerializedTaskOutputs::to_raw`] buffer so the encoding can be recovered by
+/// [`SerializedTaskOutputs::from_raw`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::FromRepr)]
+#[repr(u8)]
+pub enum TaskOutputsSerializeOption {
+    /// Wire-format framing only.
+    Wire = 0,
+
+    /// Wire-format framing followed by whole-buffer zstd compression.
+    ZstdWire = 1,
+}
+
+/// A serialized bundle of task outputs together with the encoding used to produce it.
+///
+/// Compression, if required, is performed in a single shot over the whole wire buffer; streaming
+/// compression is not yet supported.
+#[derive(Debug)]
+pub struct SerializedTaskOutputs {
+    option: TaskOutputsSerializeOption,
+    payload: Vec<u8>,
+}
+
+impl SerializedTaskOutputs {
+    /// Serializes `task_outputs` into the encoding selected by `option`.
+    ///
+    /// # Returns
+    ///
+    /// The serialized task outputs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`WireFrameBuilder::append_payload`]'s return values on failure.
+    /// * Forwards [`encode_zstd_bytes`]'s return values on failure.
+    pub fn serialize(
+        task_outputs: &[TaskOutput],
+        option: TaskOutputsSerializeOption,
+    ) -> Result<Self, TaskOutputsError> {
+        let mut builder = WireFrameBuilder::new();
+        for output in task_outputs {
+            builder.append_payload(output)?;
+        }
+        let wire_bytes = builder.release();
+
+        let payload = match option {
+            TaskOutputsSerializeOption::Wire => wire_bytes,
+            TaskOutputsSerializeOption::ZstdWire => encode_zstd_bytes(&wire_bytes)?,
+        };
+        Ok(Self { option, payload })
+    }
+
+    /// Serializes `task_outputs` with a hardcoded size hint heuristic to determine whether to apply
+    /// Zstd compression.
+    ///
+    /// The size hint is a hard coded value: if the total number of bytes of the given task output
+    /// payload exceeds 1KiB, the task outputs will be serialized using
+    /// [`TaskOutputsSerializeOption::ZstdWire`], otherwise [`TaskOutputsSerializeOption::Wire`].
+    ///
+    /// # Returns
+    ///
+    /// The serialized task outputs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::serialize`]'s return values on failure.
+    pub fn serialize_with_size_hint(task_outputs: &[TaskOutput]) -> Result<Self, TaskOutputsError> {
+        const COMPRESSION_THRESHOLD: usize = 1_024;
+        let total_size = task_outputs.iter().map(std::vec::Vec::len).sum::<usize>();
+        let option = if total_size > COMPRESSION_THRESHOLD {
+            TaskOutputsSerializeOption::ZstdWire
+        } else {
+            TaskOutputsSerializeOption::Wire
+        };
+        Self::serialize(task_outputs, option)
+    }
+
+    /// Packs the bundle into a raw byte buffer for storage.
+    ///
+    /// The first byte is the [`TaskOutputsSerializeOption`] encoded as `u8`; the remaining bytes
+    /// are the encoded payload.
+    ///
+    /// # Returns
+    ///
+    /// The raw byte buffer.
+    #[must_use]
+    pub fn to_raw(&self) -> Vec<u8> {
+        let mut raw = Vec::with_capacity(1 + self.payload.len());
+        raw.push(self.option as u8);
+        raw.extend_from_slice(&self.payload);
+        raw
+    }
+
+    /// Unpacks a raw byte buffer produced by [`Self::to_raw`].
+    ///
+    /// # Returns
+    ///
+    /// The reconstructed bundle on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TaskOutputsError::Empty`] if `raw_bytes` is empty.
+    /// * [`TaskOutputsError::UnknownOption`] if the leading option byte maps to no known option.
+    pub fn from_raw(raw_bytes: &[u8]) -> Result<Self, TaskOutputsError> {
+        let (option, payload_bytes) = Self::split_raw(raw_bytes)?;
+        Ok(Self {
+            option,
+            payload: payload_bytes.to_vec(),
+        })
+    }
+
+    /// Deserializes the bundle back into individual task output payloads.
+    ///
+    /// # Returns
+    ///
+    /// A vector of output payloads on success, one per wire-format element.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
+    /// * Forwards [`wire::unframe`]'s return values on failure.
+    pub fn deserialize(self) -> Result<Vec<TaskOutput>, TaskOutputsError> {
+        let wire_bytes = match self.option {
+            TaskOutputsSerializeOption::Wire => self.payload,
+            TaskOutputsSerializeOption::ZstdWire => decode_zstd_bytes(&self.payload)?,
+        };
+        Ok(wire::unframe(&wire_bytes)?)
+    }
+
+    /// Unpacks a raw byte buffer produced by [`Self::to_raw`] and deserializes it back into
+    /// individual task output payloads in one step.
+    ///
+    /// # Returns
+    ///
+    /// A vector of output payloads on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::split_raw`]'s return values on failure.
+    /// * Forwards [`decode_zstd_bytes`]'s return values on failure.
+    /// * Forwards [`wire::unframe`]'s return values on failure.
+    pub fn deserialize_from_raw(raw_bytes: &[u8]) -> Result<Vec<TaskOutput>, TaskOutputsError> {
+        let (option, payload_bytes) = Self::split_raw(raw_bytes)?;
+        let outputs = match option {
+            // Unframe directly from the borrowed slice to avoid copying the payload.
+            TaskOutputsSerializeOption::Wire => wire::unframe(payload_bytes)?,
+            TaskOutputsSerializeOption::ZstdWire => {
+                wire::unframe(&decode_zstd_bytes(payload_bytes)?)?
+            }
+        };
+        Ok(outputs)
+    }
+
+    /// Splits a raw byte buffer produced by [`Self::to_raw`] into its serialize option and a
+    /// borrowed slice of the payload bytes that follow it.
+    ///
+    /// # Returns
+    ///
+    /// A tuple on success, containing:
+    ///
+    /// * The serialize option.
+    /// * The slice of the payload bytes borrowed from the given `raw_bytes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TaskOutputsError::Empty`] if `raw_bytes` is empty.
+    /// * [`TaskOutputsError::UnknownOption`] if the leading option byte maps to no known option.
+    fn split_raw(
+        raw_bytes: &[u8],
+    ) -> Result<(TaskOutputsSerializeOption, &[u8]), TaskOutputsError> {
+        let (&option_byte, payload_bytes) =
+            raw_bytes.split_first().ok_or(TaskOutputsError::Empty)?;
+        let option = TaskOutputsSerializeOption::from_repr(option_byte)
+            .ok_or(TaskOutputsError::UnknownOption(option_byte))?;
+        Ok((option, payload_bytes))
+    }
+}
 
 /// Streaming wire-format serializer for task inputs.
 ///
@@ -593,5 +805,58 @@ mod tests {
         let err = TaskOutputsSerializer::from_tuple(&42i32)
             .expect_err("expected non-tuple to be rejected");
         assert!(matches!(err, WireError::Custom(_)));
+    }
+
+    #[test]
+    fn serialize_option_u8_round_trip() {
+        for option in [
+            TaskOutputsSerializeOption::Wire,
+            TaskOutputsSerializeOption::ZstdWire,
+        ] {
+            assert_eq!(
+                TaskOutputsSerializeOption::from_repr(option as u8),
+                Some(option)
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_option_unknown_byte_rejected() {
+        let err = SerializedTaskOutputs::from_raw(&[42u8])
+            .expect_err("expected unknown option byte to be rejected");
+        assert!(matches!(err, TaskOutputsError::UnknownOption(42)));
+    }
+
+    #[test]
+    fn serialized_task_outputs_round_trip() -> anyhow::Result<()> {
+        let datasets: [Vec<TaskOutput>; 3] = [
+            Vec::new(),
+            vec![vec![7u8; 4096], vec![0u8; 4096]],
+            vec![encode(&"result"), encode(&99i64)],
+        ];
+
+        for option in [
+            TaskOutputsSerializeOption::Wire,
+            TaskOutputsSerializeOption::ZstdWire,
+        ] {
+            for outputs in &datasets {
+                let raw = SerializedTaskOutputs::serialize(outputs, option)?.to_raw();
+                assert_eq!(raw[0], option as u8);
+                assert_eq!(
+                    SerializedTaskOutputs::from_raw(&raw)?.deserialize()?,
+                    *outputs
+                );
+                assert_eq!(SerializedTaskOutputs::deserialize_from_raw(&raw)?, *outputs);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn serialized_task_outputs_from_empty_raw_rejected() {
+        let err =
+            SerializedTaskOutputs::from_raw(&[]).expect_err("expected empty buffer to be rejected");
+        assert!(matches!(err, TaskOutputsError::Empty));
     }
 }
