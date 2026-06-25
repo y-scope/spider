@@ -1047,7 +1047,7 @@ mod tests {
     type TestGrpcStateWithReadyQueue =
         GrpcServiceState<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
 
-    const TEST_SESSION_ID: SessionId = 0;
+    const TEST_SESSION_ID: SessionId = 1;
 
     /// # Returns
     ///

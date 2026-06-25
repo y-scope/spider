@@ -104,7 +104,9 @@ fn map_liveness_status(status: &tonic::Status) -> LivenessResponseError {
 ///
 /// Returns an error if:
 ///
-/// * [`LivenessResponseError::Transport`] if the response omits the registration payload.
+/// * [`LivenessResponseError::Transport`] if the response omits the registration payload or carries
+///   a zero session ID. Storage assigns session IDs from a database auto-increment column, so a
+///   live session is always nonzero; a zero value indicates a malformed response.
 fn register_response_to_result(
     response: storage::RegisterExecutionManagerResponse,
 ) -> Result<RegistrationResponse, LivenessResponseError> {
@@ -113,6 +115,11 @@ fn register_response_to_result(
             "register execution manager response missing registration".to_owned(),
         )
     })?;
+    if registration.session_id == 0 {
+        return Err(LivenessResponseError::Transport(
+            "register execution manager response carried a zero session id".to_owned(),
+        ));
+    }
     Ok(RegistrationResponse {
         em_id: ExecutionManagerId::from(registration.execution_manager_id),
         session_id: registration.session_id,
@@ -188,6 +195,21 @@ mod tests {
     #[test]
     fn register_response_to_result_rejects_missing_registration() {
         let response = storage::RegisterExecutionManagerResponse { registration: None };
+
+        assert!(matches!(
+            register_response_to_result(response),
+            Err(LivenessResponseError::Transport(_))
+        ));
+    }
+
+    #[test]
+    fn register_response_to_result_rejects_zero_session_id() {
+        let response = storage::RegisterExecutionManagerResponse {
+            registration: Some(storage::ExecutionManagerRegistration {
+                execution_manager_id: 5,
+                session_id: 0,
+            }),
+        };
 
         assert!(matches!(
             register_response_to_result(response),
