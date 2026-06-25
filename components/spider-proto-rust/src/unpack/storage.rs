@@ -1,4 +1,4 @@
-//! [`Unpack`] implementations for `storage.proto` requests.
+//! [`RequestUnpack`] implementations for `storage.proto` requests.
 
 use spider_core::types::id::{
     ExecutionManagerId,
@@ -18,7 +18,7 @@ use crate::{
         ReportTaskFailureRequest,
         ReportTaskSuccessRequest,
     },
-    unpack::{Unpack, UnpackError, common::unpack_task_id},
+    unpack::{RequestUnpack, UnpackError, common::unpack_task_id},
 };
 
 /// Unpacks [`RegisterJobRequest`] into a tuple containing:
@@ -26,7 +26,7 @@ use crate::{
 /// * The resource group ID.
 /// * The serialized task graph.
 /// * The serialized inputs.
-impl Unpack for RegisterJobRequest {
+impl RequestUnpack for RegisterJobRequest {
     type Unpacked = (ResourceGroupId, String, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -52,7 +52,7 @@ impl Unpack for RegisterJobRequest {
 }
 
 /// Unpacks [`JobIdRequest`] into a [`JobId`].
-impl Unpack for JobIdRequest {
+impl RequestUnpack for JobIdRequest {
     type Unpacked = JobId;
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -66,7 +66,7 @@ impl Unpack for JobIdRequest {
 /// * The job ID.
 /// * The task ID.
 /// * The execution manager ID.
-impl Unpack for RegisterTaskInstanceRequest {
+impl RequestUnpack for RegisterTaskInstanceRequest {
     type Unpacked = (SessionId, JobId, TaskId, ExecutionManagerId);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -94,7 +94,7 @@ impl Unpack for RegisterTaskInstanceRequest {
 /// * The task ID.
 /// * The task instance ID.
 /// * The serialized task outputs.
-impl Unpack for ReportTaskSuccessRequest {
+impl RequestUnpack for ReportTaskSuccessRequest {
     type Unpacked = (SessionId, JobId, TaskId, TaskInstanceId, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -125,7 +125,7 @@ impl Unpack for ReportTaskSuccessRequest {
 /// * The task ID.
 /// * The task instance ID.
 /// * The error message.
-impl Unpack for ReportTaskFailureRequest {
+impl RequestUnpack for ReportTaskFailureRequest {
     type Unpacked = (SessionId, JobId, TaskId, TaskInstanceId, String);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {

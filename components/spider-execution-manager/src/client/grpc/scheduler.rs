@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use spider_core::types::{id::ExecutionManagerId, scheduler::TaskAssignmentRecord};
 use spider_proto_rust::{
     scheduler::{self, scheduler_service_client::SchedulerServiceClient},
-    unpack::Unpack,
+    unpack::ResponseUnpack,
 };
 use tonic::transport::{Channel, Endpoint};
 
@@ -56,10 +56,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                 .map_err(to_transport_error)?
                 .into_inner();
 
-            if let Some(assignment) = response
-                .unpack()
-                .map_err(|error| SchedulerError::Protocol(error.to_string()))?
-            {
+            if let Some(assignment) = response.unpack().map_err(SchedulerError::Protocol)? {
                 return Ok(assignment);
             }
         }

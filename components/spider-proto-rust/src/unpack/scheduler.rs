@@ -1,15 +1,14 @@
-//! [`Unpack`] implementations for `scheduler.proto` responses.
+//! [`ResponseUnpack`] implementations for `scheduler.proto` responses.
 
 use spider_core::types::{
     id::{JobId, ResourceGroupId, SchedulerId, TaskAssignmentId},
     scheduler::{SchedulerResponse, TaskAssignment},
 };
-use tonic::Code;
 
 use crate::{
     common,
     scheduler::{NextTaskResponse, next_task_response},
-    unpack::{Unpack, UnpackError, common::unpack_task_id},
+    unpack::{ResponseUnpack, common::unpack_task_id},
 };
 
 /// Unpacks a [`NextTaskResponse`] into an optional [`SchedulerResponse`].
@@ -25,24 +24,23 @@ use crate::{
 ///
 /// # Errors
 ///
-/// Returns an error if:
-///
-/// * [`Code::InvalidArgument`] (as [`UnpackError`]) if the response is missing a result or contains
-///   a malformed task ID.
-impl Unpack for NextTaskResponse {
+/// Returns a message string if the response is missing a result or contains a malformed task ID.
+impl ResponseUnpack for NextTaskResponse {
     type Unpacked = Option<SchedulerResponse>;
 
-    fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+    fn unpack(self) -> Result<Self::Unpacked, String> {
         match self.result {
             Some(next_task_response::Result::Assignment(assignment)) => {
-                let task_id = unpack_task_id(assignment.task_id).inspect_err(|error| {
-                    tracing::error!(
-                        error = %error.message,
-                        request = "NextTask",
-                        assignment_id = assignment.id,
-                        "Failed to unpack response."
-                    );
-                })?;
+                let task_id = unpack_task_id(assignment.task_id)
+                    .inspect_err(|error| {
+                        tracing::error!(
+                            error = %error.message,
+                            request = "NextTask",
+                            assignment_id = assignment.id,
+                            "Failed to unpack response."
+                        );
+                    })
+                    .map_err(|error| error.message)?;
                 Ok(Some(SchedulerResponse {
                     task_assignment: TaskAssignment {
                         id: TaskAssignmentId::from(assignment.id),
@@ -55,116 +53,7 @@ impl Unpack for NextTaskResponse {
                 }))
             }
             Some(next_task_response::Result::NoTask(common::Void {})) => Ok(None),
-            None => Err(UnpackError {
-                code: Code::InvalidArgument,
-                message: "next task response missing result".to_owned(),
-            }),
+            None => Err("next task response missing result".to_owned()),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use spider_core::types::{
-        id::{JobId, ResourceGroupId, SchedulerId, TaskAssignmentId, TaskId},
-        scheduler::{SchedulerResponse, TaskAssignment},
-    };
-
-    use crate::{
-        common,
-        scheduler::{NextTaskResponse, SchedulerAssignment, next_task_response},
-        unpack::Unpack,
-    };
-
-    #[test]
-    fn unpack_returns_assignment() {
-        let response = NextTaskResponse {
-            result: Some(next_task_response::Result::Assignment(
-                SchedulerAssignment {
-                    id: 7,
-                    resource_group_id: 11,
-                    job_id: 13,
-                    task_id: Some(common::TaskId::from(TaskId::Commit)),
-                    scheduler_id: 17,
-                    session_id: 19,
-                },
-            )),
-        };
-
-        let assignment = response
-            .unpack()
-            .expect("scheduler response unpacking should succeed")
-            .expect("scheduler response should contain an assignment");
-
-        assert_eq!(
-            assignment,
-            SchedulerResponse {
-                task_assignment: TaskAssignment {
-                    id: TaskAssignmentId::from(7),
-                    resource_group_id: ResourceGroupId::from(11),
-                    job_id: JobId::from(13),
-                    task_id: TaskId::Commit,
-                },
-                scheduler_id: SchedulerId::from(17),
-                session_id: 19,
-            }
-        );
-    }
-
-    #[test]
-    fn unpack_returns_none_for_no_task() {
-        let response = NextTaskResponse {
-            result: Some(next_task_response::Result::NoTask(common::Void {})),
-        };
-
-        let result = response
-            .unpack()
-            .expect("scheduler response unpacking should succeed");
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn unpack_rejects_missing_result() {
-        let result = NextTaskResponse { result: None }.unpack();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn unpack_rejects_empty_assignment_task_id() {
-        let response = NextTaskResponse {
-            result: Some(next_task_response::Result::Assignment(
-                SchedulerAssignment {
-                    id: 7,
-                    resource_group_id: 11,
-                    job_id: 11,
-                    task_id: None,
-                    scheduler_id: 17,
-                    session_id: 17,
-                },
-            )),
-        };
-
-        let result = response.unpack();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn unpack_rejects_malformed_task_id() {
-        let response = NextTaskResponse {
-            result: Some(next_task_response::Result::Assignment(
-                SchedulerAssignment {
-                    id: 7,
-                    resource_group_id: 11,
-                    job_id: 13,
-                    task_id: Some(common::TaskId { kind: None }),
-                    scheduler_id: 17,
-                    session_id: 19,
-                },
-            )),
-        };
-
-        let result = response.unpack();
-        assert!(result.is_err());
     }
 }

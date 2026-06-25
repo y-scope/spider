@@ -1,7 +1,7 @@
 //! Conversions from raw gRPC messages into their spider-native form.
 //!
-//! The generic [`Unpack`] trait and [`UnpackError`] error type live here; service-specific
-//! implementations are split into sibling modules:
+//! The generic [`RequestUnpack`] and [`ResponseUnpack`] traits plus the [`UnpackError`] error type
+//! live here; service-specific implementations are split into sibling modules:
 //!
 //! * [`common`] — shared helpers for `common.proto` types (e.g. [`common::TaskId`]).
 //! * [`storage`] — request unpacking for `storage.proto`.
@@ -10,8 +10,6 @@
 mod common;
 mod scheduler;
 mod storage;
-
-use std::fmt::{Debug, Display};
 
 use tonic::{Code, Status};
 
@@ -27,41 +25,41 @@ impl From<UnpackError> for Status {
     }
 }
 
-impl Display for UnpackError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.message, formatter)
-    }
-}
-
-impl Debug for UnpackError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("UnpackError")
-            .field("code", &self.code)
-            .field("message", &self.message)
-            .finish()
-    }
-}
-
-impl std::error::Error for UnpackError {}
-
-/// Trait for unpacking a gRPC message into its spider-native form.
+/// Trait for unpacking an inbound gRPC request into its spider-native form.
 ///
-/// Implemented for both inbound requests (server side, e.g. `storage.proto`) and inbound
-/// responses (client side, e.g. `scheduler.proto`). On the server side [`UnpackError`] converts
-/// into a [`Status`] to return to the caller; on the client side the caller maps it into its own
-/// error type.
-pub trait Unpack {
+/// Implemented by the server side (e.g. `storage.proto` handlers); [`UnpackError`] converts into a
+/// [`Status`] to return to the caller.
+pub trait RequestUnpack {
     type Unpacked;
 
-    /// Unpacks the gRPC message into the spider-native form.
+    /// Unpacks the gRPC request into the spider-native form.
     ///
     /// # Returns
     ///
-    /// The unpacked message on success.
+    /// The unpacked request on success.
     ///
     /// # Errors
     ///
     /// Returns a [`UnpackError`] on failure.
     fn unpack(self) -> Result<Self::Unpacked, UnpackError>;
+}
+
+/// Trait for unpacking an inbound gRPC response into its spider-native form.
+///
+/// Implemented by the client side (e.g. `scheduler.proto` consumers). Unlike [`RequestUnpack`], the
+/// error is a plain message string: a client does not return a [`Status`], it maps the failure
+/// into its own error type.
+pub trait ResponseUnpack {
+    type Unpacked;
+
+    /// Unpacks the gRPC response into the spider-native form.
+    ///
+    /// # Returns
+    ///
+    /// The unpacked response on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure message on failure.
+    fn unpack(self) -> Result<Self::Unpacked, String>;
 }
