@@ -19,7 +19,6 @@ use spider_core::{
 use crate::{
     cache::{
         error::InternalError,
-        job_submission::ValidatedJobSubmission,
         task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
     },
     db::{
@@ -33,6 +32,7 @@ use crate::{
         SchedulerRegistrationManagement,
         SessionManagement,
     },
+    job_submission::ValidatedJobSubmission,
     ready_queue::ReadyQueueSender,
     task_instance_pool::{TaskInstanceMetadata, TaskInstancePoolConnector},
 };

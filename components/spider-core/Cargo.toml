@@ -19,6 +19,7 @@ spider-utils = { path = "../spider-utils" }
 sqlx = { version = "0.8.6", features = ["mysql"] }
 strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.18"
+zstd = "0.13.3"
 
 [dev-dependencies]
 anyhow = "1.0.98"

@@ -47,12 +47,6 @@ pub enum InternalError {
     #[error("task graph corrupted: {0}")]
     TaskGraphCorrupted(String),
 
-    #[error("task graph must contain at least one task")]
-    TaskGraphEmpty,
-
-    #[error("task graph input size mismatch: expected {expected}, got {actual}")]
-    TaskGraphInputSizeMismatch { expected: usize, actual: usize },
-
     #[error("job not started")]
     JobNotStarted,
 

@@ -25,29 +25,16 @@ use crate::{
 /// Unpacks [`RegisterJobRequest`] into a tuple containing:
 ///
 /// * The resource group ID.
-/// * The serialized task graph.
-/// * The serialized inputs.
+/// * The zstd-compressed serialized task graph.
+/// * The zstd-compressed serialized inputs.
 impl RequestUnpack for RegisterJobRequest {
-    type Unpacked = (ResourceGroupId, String, Vec<u8>);
+    type Unpacked = (ResourceGroupId, Vec<u8>, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        let serialized_task_graph = String::from_utf8(self.serialized_task_graph)
-            .map_err(|error| UnpackError {
-                code: Code::InvalidArgument,
-                message: format!("invalid UTF-8 in serialized task graph: {error}"),
-            })
-            .inspect_err(|error| {
-                tracing::error!(
-                    error = % error.message,
-                    request = "RegisterJob",
-                    resource_group_id = self.resource_group_id,
-                    "Failed to unpack request."
-                );
-            })?;
         Ok((
             ResourceGroupId::from(self.resource_group_id),
-            serialized_task_graph,
-            self.serialized_inputs,
+            self.compressed_serialized_task_graph,
+            self.compressed_serialized_inputs,
         ))
     }
 }
