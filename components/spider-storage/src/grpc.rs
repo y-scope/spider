@@ -14,7 +14,7 @@ use spider_proto_rust::{
         session_management_service_server::SessionManagementService,
         task_instance_management_service_server::TaskInstanceManagementService,
     },
-    unpack::RequestUnpack,
+    unpack::Unpack,
 };
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};

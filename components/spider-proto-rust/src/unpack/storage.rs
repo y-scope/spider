@@ -1,4 +1,4 @@
-//! [`RequestUnpack`] implementations for `storage.proto` requests.
+//! [`Unpack`] implementations for `storage.proto` requests.
 
 use spider_core::types::id::{
     ExecutionManagerId,
@@ -11,7 +11,6 @@ use spider_core::types::id::{
 use tonic::Code;
 
 use crate::{
-    common,
     storage::{
         JobIdRequest,
         RegisterJobRequest,
@@ -19,7 +18,7 @@ use crate::{
         ReportTaskFailureRequest,
         ReportTaskSuccessRequest,
     },
-    unpack::{RequestUnpack, UnpackError},
+    unpack::{Unpack, UnpackError, common::unpack_task_id},
 };
 
 /// Unpacks [`RegisterJobRequest`] into a tuple containing:
@@ -27,7 +26,7 @@ use crate::{
 /// * The resource group ID.
 /// * The serialized task graph.
 /// * The serialized inputs.
-impl RequestUnpack for RegisterJobRequest {
+impl Unpack for RegisterJobRequest {
     type Unpacked = (ResourceGroupId, String, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -53,7 +52,7 @@ impl RequestUnpack for RegisterJobRequest {
 }
 
 /// Unpacks [`JobIdRequest`] into a [`JobId`].
-impl RequestUnpack for JobIdRequest {
+impl Unpack for JobIdRequest {
     type Unpacked = JobId;
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -67,7 +66,7 @@ impl RequestUnpack for JobIdRequest {
 /// * The job ID.
 /// * The task ID.
 /// * The execution manager ID.
-impl RequestUnpack for RegisterTaskInstanceRequest {
+impl Unpack for RegisterTaskInstanceRequest {
     type Unpacked = (SessionId, JobId, TaskId, ExecutionManagerId);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -95,7 +94,7 @@ impl RequestUnpack for RegisterTaskInstanceRequest {
 /// * The task ID.
 /// * The task instance ID.
 /// * The serialized task outputs.
-impl RequestUnpack for ReportTaskSuccessRequest {
+impl Unpack for ReportTaskSuccessRequest {
     type Unpacked = (SessionId, JobId, TaskId, TaskInstanceId, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -126,7 +125,7 @@ impl RequestUnpack for ReportTaskSuccessRequest {
 /// * The task ID.
 /// * The task instance ID.
 /// * The error message.
-impl RequestUnpack for ReportTaskFailureRequest {
+impl Unpack for ReportTaskFailureRequest {
     type Unpacked = (SessionId, JobId, TaskId, TaskInstanceId, String);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
@@ -148,27 +147,4 @@ impl RequestUnpack for ReportTaskFailureRequest {
             self.error_message,
         ))
     }
-}
-
-/// Converts a protobuf [`common::TaskId`] into a core [`TaskId`].
-///
-/// # Returns
-///
-/// The core [`TaskId`] on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`Code::InvalidArgument`] (as [`UnpackError`]) if the task ID is absent or carries an index
-///   that cannot be represented.
-fn unpack_task_id(task_id: Option<common::TaskId>) -> Result<TaskId, UnpackError> {
-    let task_id = task_id.ok_or_else(|| UnpackError {
-        code: Code::InvalidArgument,
-        message: "task ID is missing".to_owned(),
-    })?;
-    TaskId::try_from(task_id).map_err(|error| UnpackError {
-        code: Code::InvalidArgument,
-        message: error.to_string(),
-    })
 }
