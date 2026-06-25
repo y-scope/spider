@@ -30,6 +30,15 @@ fn test_serde() {
         deserialized_task_graph_from_json,
         deserialized_task_graph_from_msgpack
     );
+
+    // Test zstd-compressed JSON serde
+    let compressed_task_graph_json = task_graph
+        .to_zstd_compressed_json()
+        .expect("serialization to zstd-compressed JSON should succeed");
+    let deserialized_task_graph_from_compressed_json =
+        TaskGraph::from_zstd_compressed_json(&compressed_task_graph_json)
+            .expect("deserialization from zstd-compressed JSON should succeed");
+    assert_eq!(task_graph, deserialized_task_graph_from_compressed_json);
 }
 
 #[test]

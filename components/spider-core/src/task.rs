@@ -16,6 +16,9 @@ pub enum Error {
     #[error("`rmp_serde::decode::Error`: {0}")]
     RmpSerdeDecodeError(#[from] rmp_serde::decode::Error),
 
+    #[error("`crate::compression::Error`: {0}")]
+    CompressionError(#[from] crate::compression::Error),
+
     #[error("invalid struct name: {0}")]
     InvalidStructName(String),
 
