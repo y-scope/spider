@@ -99,47 +99,31 @@ fn map_liveness_status(status: &tonic::Status) -> LivenessResponseError {
 ///
 /// [`storage::RegisterExecutionManagerResponse`] converted into
 /// [`Result<RegistrationResponse, LivenessResponseError>`].
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`LivenessResponseError::Transport`] if the response omits the registration payload or carries
-///   a zero session ID. Storage assigns session IDs from a database auto-increment column, so a
-///   live session is always nonzero; a zero value indicates a malformed response.
 fn register_response_to_result(
     response: storage::RegisterExecutionManagerResponse,
 ) -> Result<RegistrationResponse, LivenessResponseError> {
-    let registration = response.registration.ok_or_else(|| {
-        LivenessResponseError::Transport(
+    match response.registration {
+        Some(registration) => {
+            if registration.session_id == 0 {
+                return Err(LivenessResponseError::Transport(
+                    "register execution manager response carried a zero session id".to_owned(),
+                ));
+            }
+            Ok(RegistrationResponse {
+                em_id: ExecutionManagerId::from(registration.execution_manager_id),
+                session_id: registration.session_id,
+            })
+        }
+        None => Err(LivenessResponseError::Transport(
             "register execution manager response missing registration".to_owned(),
-        )
-    })?;
-    if registration.session_id == 0 {
-        return Err(LivenessResponseError::Transport(
-            "register execution manager response carried a zero session id".to_owned(),
-        ));
+        )),
     }
-    Ok(RegistrationResponse {
-        em_id: ExecutionManagerId::from(registration.execution_manager_id),
-        session_id: registration.session_id,
-    })
 }
 
-/// Converts an [`storage::UpdateExecutionManagerHeartbeatResponse`] into the storage session ID
-/// it carries.
-///
 /// # Returns
 ///
-/// The session ID carried by `response` on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`LivenessResponseError::Transport`] if `response` carries a zero session ID. Storage assigns
-///   session IDs from a database auto-increment column, so a live session is always nonzero; a zero
-///   value indicates a malformed response.
+/// [`storage::UpdateExecutionManagerHeartbeatResponse`] converted into
+/// [`Result<SessionId, LivenessResponseError>`].
 fn heartbeat_response_to_result(
     response: storage::UpdateExecutionManagerHeartbeatResponse,
 ) -> Result<SessionId, LivenessResponseError> {
@@ -226,7 +210,7 @@ mod tests {
         };
 
         let session_id = heartbeat_response_to_result(response)
-            .expect("heartbeat response with a nonzero session id should convert");
+            .expect("heartbeat response conversion should succeed");
 
         assert_eq!(session_id, SESSION_ID);
     }

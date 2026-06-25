@@ -168,17 +168,13 @@ fn poll_ready_tasks_request(
 ///
 /// [`storage::PollReadyTasksResponse`] converted into
 /// [`Result<(SessionId, Vec<InboundEntry>), StorageClientError>`].
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`StorageClientError::Transport`] if the response omits the `tasks` payload.
 fn poll_ready_tasks_response_to_result(
     response: storage::PollReadyTasksResponse,
 ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
     let tasks = response.tasks.ok_or_else(|| {
-        StorageClientError::Transport("poll ready tasks response missing `tasks`".to_owned())
+        StorageClientError::Transport(
+            "poll ready tasks response missing `tasks` message".to_owned(),
+        )
     })?;
     ready_tasks_to_result(tasks)
 }
