@@ -73,7 +73,7 @@ impl LivenessClient for GrpcLivenessClient {
             .map_err(|status| map_liveness_status(&status))?
             .into_inner();
 
-        Ok(heartbeat_response_to_result(response))
+        heartbeat_response_to_result(response)
     }
 }
 
@@ -119,14 +119,30 @@ fn register_response_to_result(
     })
 }
 
+/// Converts an [`storage::UpdateExecutionManagerHeartbeatResponse`] into the storage session ID
+/// it carries.
+///
 /// # Returns
 ///
-/// The storage session ID carried by
-/// [`storage::UpdateExecutionManagerHeartbeatResponse`].
-const fn heartbeat_response_to_result(
+/// The session ID carried by `response` on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`LivenessResponseError::Transport`] if `response` carries a zero session ID. Storage assigns
+///   session IDs from a database auto-increment column, so a live session is always nonzero; a zero
+///   value indicates a malformed response.
+fn heartbeat_response_to_result(
     response: storage::UpdateExecutionManagerHeartbeatResponse,
-) -> SessionId {
-    response.session_id
+) -> Result<SessionId, LivenessResponseError> {
+    let session_id = response.session_id;
+    if session_id == 0 {
+        return Err(LivenessResponseError::Transport(
+            "update execution manager heartbeat response carried a zero session id".to_owned(),
+        ));
+    }
+    Ok(session_id)
 }
 
 /// Converts a displayable transport-layer error into [`LivenessResponseError::Transport`].
@@ -187,9 +203,20 @@ mod tests {
             session_id: SESSION_ID,
         };
 
-        let session_id = heartbeat_response_to_result(response);
+        let session_id = heartbeat_response_to_result(response)
+            .expect("heartbeat response with a nonzero session id should convert");
 
         assert_eq!(session_id, SESSION_ID);
+    }
+
+    #[test]
+    fn heartbeat_response_to_result_rejects_zero_session_id() {
+        let response = storage::UpdateExecutionManagerHeartbeatResponse { session_id: 0 };
+
+        assert!(matches!(
+            heartbeat_response_to_result(response),
+            Err(LivenessResponseError::Transport(_))
+        ));
     }
 
     #[test]
