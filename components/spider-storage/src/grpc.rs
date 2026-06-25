@@ -65,6 +65,55 @@ impl<
         }
     }
 
+    /// Logs a fatal cache-internal error, cancels the service, and returns an `INTERNAL` status.
+    ///
+    /// Shared by every service error handler for the `Cache(CacheError::Internal)` arm. The error
+    /// is unrecoverable, so the whole storage service is cancelled to avoid cache corruption.
+    ///
+    /// # Returns
+    ///
+    /// `Status::internal("storage service unavailable")`.
+    fn fatal_internal_status(
+        &self,
+        service_name: &'static str,
+        tag: &'static str,
+        error: &InternalError,
+    ) -> Status {
+        tracing::error!(
+            error = % error,
+            service = service_name,
+            tag,
+            "Internal error in the cache layer. Cancelling service."
+        );
+        self.cancellation_token.cancel();
+        Status::internal("storage service unavailable")
+    }
+
+    /// Logs an unexpected error, cancels the service, and returns an `INTERNAL` status.
+    ///
+    /// Shared by every service error handler for the catch-all fallback arm. An unmapped error is
+    /// treated as unrecoverable, so the whole storage service is cancelled to avoid cache
+    /// corruption.
+    ///
+    /// # Returns
+    ///
+    /// `Status::internal("internal error")`.
+    fn unexpected_internal_status(
+        &self,
+        service_name: &'static str,
+        tag: &'static str,
+        error: &StorageServerError,
+    ) -> Status {
+        tracing::error!(
+            error = % error,
+            service = service_name,
+            tag,
+            "Unexpected internal error. Cancelling service to avoid cache corruption."
+        );
+        self.cancellation_token.cancel();
+        Status::internal("internal error")
+    }
+
     /// Error handler for job orchestration service errors.
     ///
     /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
@@ -88,14 +137,7 @@ impl<
         const SERVICE_NAME: &str = "JobOrchestration";
         match error {
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
             StorageServerError::Db(db_error) => match &db_error {
@@ -168,16 +210,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("internal error")
-            }
+            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
     }
 
@@ -204,14 +237,7 @@ impl<
         const SERVICE_NAME: &str = "TaskInstanceManagement";
         match error {
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
             StorageServerError::StaleSession(storage_session) => {
@@ -257,16 +283,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("internal error")
-            }
+            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
     }
 
@@ -302,26 +319,10 @@ impl<
             }
 
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("internal error")
-            }
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
     }
 
@@ -377,26 +378,10 @@ impl<
             }
 
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("internal error")
-            }
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
     }
 
@@ -441,26 +426,10 @@ impl<
             }
 
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("internal error")
-            }
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
     }
 
@@ -476,6 +445,7 @@ impl<
     /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
     ///   failure; scheduler registration currently has no caller-visible error classification
     ///   beyond a generic server error.
+    #[must_use]
     pub fn scheduler_registration_service_error_handler(
         &self,
         error: StorageServerError,
@@ -484,26 +454,10 @@ impl<
         const SERVICE_NAME: &str = "SchedulerRegistration";
         match error {
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("internal error")
-            }
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
     }
 }
@@ -1081,10 +1035,16 @@ mod tests {
 
     const TEST_SESSION_ID: SessionId = 0;
 
+    /// # Returns
+    ///
+    /// A [`TestGrpcState`] backed by a default mock DB connector.
     fn create_grpc_service() -> TestGrpcState {
         create_grpc_service_with_db(MockDbConnector::default())
     }
 
+    /// # Returns
+    ///
+    /// A [`TestGrpcState`] backed by `db` and a [`MockReadyQueueSender`].
     fn create_grpc_service_with_db(db: MockDbConnector) -> TestGrpcState {
         let (_sender, receiver) =
             create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
@@ -1100,6 +1060,10 @@ mod tests {
         GrpcServiceState::new(service, CancellationToken::new())
     }
 
+    /// # Returns
+    ///
+    /// A [`TestGrpcStateWithReadyQueue`] wired to a real ready queue, plus the queue's sender
+    /// handle so tests can enqueue entries.
     fn create_grpc_service_with_ready_queue(
         db: MockDbConnector,
     ) -> (TestGrpcStateWithReadyQueue, ReadyQueueSenderHandle) {

@@ -201,6 +201,9 @@ mod tests {
         state::test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
     };
 
+    /// # Returns
+    ///
+    /// A test job control block owned by a random resource group.
     async fn create_test_jcb(
         job_id: JobId,
     ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
@@ -208,6 +211,9 @@ mod tests {
         create_test_jcb_with_resource_group(job_id, ResourceGroupId::random()).await
     }
 
+    /// # Returns
+    ///
+    /// A test job control block owned by `resource_group_id`.
     async fn create_test_jcb_with_resource_group(
         job_id: JobId,
         resource_group_id: ResourceGroupId,

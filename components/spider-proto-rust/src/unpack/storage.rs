@@ -249,6 +249,10 @@ impl RequestUnpack for PollReadyTasksRequest {
 }
 
 /// Builds an [`UnpackError`] carrying [`Code::InvalidArgument`] and the given message.
+///
+/// # Returns
+///
+/// An [`UnpackError`] whose [`Code`] is [`Code::InvalidArgument`] and whose message is `message`.
 const fn invalid_argument(message: String) -> UnpackError {
     UnpackError {
         code: Code::InvalidArgument,
