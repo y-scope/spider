@@ -16,6 +16,7 @@ use crate::{
     storage::{
         self,
         AddResourceGroupRequest,
+        DeleteResourceGroupRequest,
         ExecutionManagerIdRequest,
         JobIdRequest,
         PollReadyTasksRequest,
@@ -25,7 +26,6 @@ use crate::{
         RegisterTaskInstanceRequest,
         ReportTaskFailureRequest,
         ReportTaskSuccessRequest,
-        ResourceGroupIdRequest,
         VerifyResourceGroupRequest,
     },
     unpack::{RequestUnpack, UnpackError},
@@ -183,12 +183,15 @@ impl RequestUnpack for VerifyResourceGroupRequest {
     }
 }
 
-/// Unpacks [`ResourceGroupIdRequest`] into the resource group ID.
-impl RequestUnpack for ResourceGroupIdRequest {
-    type Unpacked = ResourceGroupId;
+/// Unpacks [`DeleteResourceGroupRequest`] into a tuple containing:
+///
+/// * The resource group ID.
+/// * The password proving ownership of the resource group.
+impl RequestUnpack for DeleteResourceGroupRequest {
+    type Unpacked = (ResourceGroupId, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        Ok(ResourceGroupId::from(self.resource_group_id))
+        Ok((ResourceGroupId::from(self.resource_group_id), self.password))
     }
 }
 

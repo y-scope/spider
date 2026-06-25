@@ -27,7 +27,7 @@ service InboundQueueService {
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
   rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (ResourceGroupOperationResponse);
-  rpc DeleteResourceGroup(ResourceGroupIdRequest) returns (ResourceGroupOperationResponse);
+  rpc DeleteResourceGroup(DeleteResourceGroupRequest) returns (ResourceGroupOperationResponse);
 }
 
 service ExecutionManagerLivenessService {
@@ -163,8 +163,12 @@ message VerifyResourceGroupRequest {
 }
 
 // Request to delete a resource group (and, transitively, all of its jobs).
-message ResourceGroupIdRequest {
+//
+// Carries the resource group's password so the caller must prove ownership before the group and
+// its jobs are removed, mirroring `VerifyResourceGroupRequest`.
+message DeleteResourceGroupRequest {
   uint64 resource_group_id = 1;
+  bytes password = 2;
 }
 
 message RegisterExecutionManagerRequest {

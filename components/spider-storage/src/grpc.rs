@@ -227,6 +227,8 @@ impl<
     ///   * A fatal cache-internal error (the service will restart).
     ///   * Any other unexpected error (the service will restart).
     /// * `UNAVAILABLE` for a request issued from a stale session.
+    /// * `NOT_FOUND` for a request targeting a job that no longer exists in the cache (e.g. its
+    ///   resource group was deleted). Clients treat this as a benign no-op and drop the request.
     /// * `FAILED_PRECONDITION` for a request issued against a stale cache state.
     /// * `INVALID_ARGUMENT` for malformed inputs or a malformed request.
     pub fn task_instance_management_service_error_handler(
@@ -267,10 +269,12 @@ impl<
                     job_id = job_id.get(),
                     service = SERVICE_NAME,
                     tag,
-                    "The request attempts to access a job that does not exist in the cache."
+                    "The request targets a job that no longer exists in the cache."
                 );
-                // The absence of the job is considered a stale cache state.
-                Status::failed_precondition(format!("cache stale: {error}"))
+                // The job is gone (deleted or evicted), not transiently stale. Report it as
+                // NOT_FOUND so clients can drop the request as a benign no-op instead of retrying
+                // against a permanently missing job.
+                Status::not_found(error.to_string())
             }
 
             error @ (StorageServerError::Tdl(_) | StorageServerError::BadRequest(_)) => {
@@ -803,15 +807,15 @@ impl<
 
     async fn delete_resource_group(
         &self,
-        request: Request<storage::ResourceGroupIdRequest>,
+        request: Request<storage::DeleteResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
-        let rg_id = request.into_inner().unpack()?;
+        let (rg_id, password) = request.into_inner().unpack()?;
         tracing::info!(
             rg_id = rg_id.get(),
             "Delete resource group request received."
         );
         self.inner
-            .delete_resource_group(rg_id)
+            .delete_resource_group(rg_id, &password)
             .await
             .map_err(|error| {
                 self.resource_group_management_service_error_handler(error, "delete_resource_group")
@@ -1117,8 +1121,9 @@ mod tests {
             .await?;
 
         service
-            .delete_resource_group(Request::new(storage::ResourceGroupIdRequest {
+            .delete_resource_group(Request::new(storage::DeleteResourceGroupRequest {
                 resource_group_id: rg_id,
+                password: password.clone(),
             }))
             .await?;
 
@@ -1130,6 +1135,31 @@ mod tests {
             .await;
         let status = verify_after_delete.expect_err("verify should fail after delete");
         assert_eq!(status.code(), Code::NotFound);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_rejects_wrong_password_as_unauthenticated() -> anyhow::Result<()>
+    {
+        let service = create_grpc_service();
+        let password = b"secret".to_vec();
+        let rg_id = service
+            .add_resource_group(Request::new(storage::AddResourceGroupRequest {
+                external_resource_group_id: "external-rg".to_owned(),
+                password: password.clone(),
+            }))
+            .await?
+            .into_inner()
+            .resource_group_id;
+
+        let result = service
+            .delete_resource_group(Request::new(storage::DeleteResourceGroupRequest {
+                resource_group_id: rg_id,
+                password: b"wrong".to_vec(),
+            }))
+            .await;
+        let status = result.expect_err("a wrong password should be rejected");
+        assert_eq!(status.code(), Code::Unauthenticated);
         Ok(())
     }
 
@@ -1155,6 +1185,22 @@ mod tests {
             .await;
         let status = result.expect_err("a wrong password should be rejected");
         assert_eq!(status.code(), Code::Unauthenticated);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_task_instance_reports_missing_job_as_not_found() -> anyhow::Result<()> {
+        let service = create_grpc_service();
+        let result = service
+            .register_task_instance(Request::new(storage::RegisterTaskInstanceRequest {
+                job_id: JobId::random().get(),
+                task_id: Some(storage::TaskId::from(TaskId::Index(0))),
+                execution_manager_id: ExecutionManagerId::from(1).get(),
+                session_id: TEST_SESSION_ID,
+            }))
+            .await;
+        let status = result.expect_err("an unknown job should be rejected");
+        assert_eq!(status.code(), Code::NotFound);
         Ok(())
     }
 

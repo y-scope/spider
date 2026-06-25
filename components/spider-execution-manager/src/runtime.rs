@@ -369,6 +369,8 @@ impl<
     /// * `Ok(None)` if:
     ///   * The assignment is stale: either from a stale cache session or the task has already in a
     ///     terminal state.
+    ///   * The target job is gone (e.g. its resource group was deleted), so the assignment is
+    ///     dropped as a benign no-op.
     ///   * The runtime is cancelled.
     ///
     /// # Errors
@@ -416,6 +418,16 @@ impl<
                         job_id = ? response.task_assignment.job_id,
                         task_id = ? response.task_assignment.task_id,
                         "Storage rejected task registration. Dropping the assignment."
+                    );
+                    self.mark_consume(&response);
+                    Ok(None)
+                }
+                StorageResponseError::JobGone(_) => {
+                    tracing::info!(
+                        err = % err,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage reports the target job is gone. Dropping the assignment."
                     );
                     self.mark_consume(&response);
                     Ok(None)

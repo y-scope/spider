@@ -163,10 +163,15 @@ pub struct VerifyResourceGroupRequest {
     pub password: ::prost::alloc::vec::Vec<u8>,
 }
 /// Request to delete a resource group (and, transitively, all of its jobs).
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ResourceGroupIdRequest {
+///
+/// Carries the resource group's password so the caller must prove ownership before the group and
+/// its jobs are removed, mirroring `VerifyResourceGroupRequest`.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteResourceGroupRequest {
     #[prost(uint64, tag = "1")]
     pub resource_group_id: u64,
+    #[prost(bytes = "vec", tag = "2")]
+    pub password: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterExecutionManagerRequest {
@@ -1090,7 +1095,7 @@ pub mod resource_group_management_service_client {
         }
         pub async fn delete_resource_group(
             &mut self,
-            request: impl tonic::IntoRequest<super::ResourceGroupIdRequest>,
+            request: impl tonic::IntoRequest<super::DeleteResourceGroupRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
@@ -2689,7 +2694,7 @@ pub mod resource_group_management_service_server {
         >;
         async fn delete_resource_group(
             &self,
-            request: tonic::Request<super::ResourceGroupIdRequest>,
+            request: tonic::Request<super::DeleteResourceGroupRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ResourceGroupOperationResponse>,
             tonic::Status,
@@ -2881,7 +2886,7 @@ pub mod resource_group_management_service_server {
                     );
                     impl<
                         T: ResourceGroupManagementService,
-                    > tonic::server::UnaryService<super::ResourceGroupIdRequest>
+                    > tonic::server::UnaryService<super::DeleteResourceGroupRequest>
                     for DeleteResourceGroupSvc<T> {
                         type Response = super::ResourceGroupOperationResponse;
                         type Future = BoxFuture<
@@ -2890,7 +2895,7 @@ pub mod resource_group_management_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ResourceGroupIdRequest>,
+                            request: tonic::Request<super::DeleteResourceGroupRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
