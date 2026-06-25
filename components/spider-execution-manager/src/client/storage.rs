@@ -99,6 +99,7 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::StaleSession`] if `session_id` no longer matches storage's current
     ///   session.
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the report.
+    /// * [`StorageResponseError::JobGone`] if the target job no longer exists in storage.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
     /// * [`StorageResponseError::InvalidInput`] if `serialized_outputs` is `Some` for a commit or
@@ -131,6 +132,7 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::StaleSession`] if `session_id` no longer matches storage's current
     ///   session.
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the report.
+    /// * [`StorageResponseError::JobGone`] if the target job no longer exists in storage.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
     async fn report_task_failure(

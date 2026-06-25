@@ -65,55 +65,6 @@ impl<
         }
     }
 
-    /// Logs a fatal cache-internal error, cancels the service, and returns an `INTERNAL` status.
-    ///
-    /// Shared by every service error handler for the `Cache(CacheError::Internal)` arm. The error
-    /// is unrecoverable, so the whole storage service is cancelled to avoid cache corruption.
-    ///
-    /// # Returns
-    ///
-    /// `Status::internal("storage service unavailable")`.
-    fn fatal_internal_status(
-        &self,
-        service_name: &'static str,
-        tag: &'static str,
-        error: &InternalError,
-    ) -> Status {
-        tracing::error!(
-            error = % error,
-            service = service_name,
-            tag,
-            "Internal error in the cache layer. Cancelling service."
-        );
-        self.cancellation_token.cancel();
-        Status::internal("storage service unavailable")
-    }
-
-    /// Logs an unexpected error, cancels the service, and returns an `INTERNAL` status.
-    ///
-    /// Shared by every service error handler for the catch-all fallback arm. An unmapped error is
-    /// treated as unrecoverable, so the whole storage service is cancelled to avoid cache
-    /// corruption.
-    ///
-    /// # Returns
-    ///
-    /// `Status::internal("internal error")`.
-    fn unexpected_internal_status(
-        &self,
-        service_name: &'static str,
-        tag: &'static str,
-        error: &StorageServerError,
-    ) -> Status {
-        tracing::error!(
-            error = % error,
-            service = service_name,
-            tag,
-            "Unexpected internal error. Cancelling service to avoid cache corruption."
-        );
-        self.cancellation_token.cancel();
-        Status::internal("internal error")
-    }
-
     /// Error handler for job orchestration service errors.
     ///
     /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
@@ -123,9 +74,9 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `INTERNAL` for a fatal cache-internal error (the service will restart).
-    /// * `UNAUTHENTICATED` for a wrong resource-group password.
-    /// * `NOT_FOUND` for an unknown resource group or a missing job.
+    /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
+    /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group, or a wrong password.
+    /// * `NOT_FOUND` for a missing job.
     /// * `FAILED_PRECONDITION` for operations on an invalid job state.
     /// * `INVALID_ARGUMENT` for a malformed task graph, inputs, or request.
     /// * `INTERNAL` for any other (database or otherwise unexpected) error.
@@ -137,27 +88,18 @@ impl<
         const SERVICE_NAME: &str = "JobOrchestration";
         match error {
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
+                self.fatal_unavailable_status(SERVICE_NAME, tag, &e)
             }
 
             StorageServerError::Db(db_error) => match &db_error {
-                DbError::ResourceGroupNotFound(_) => {
+                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_) => {
                     tracing::warn!(
                         error = % db_error,
                         service = SERVICE_NAME,
                         tag,
-                        "Resource group not found."
+                        "Invalid resource group."
                     );
-                    Status::not_found(db_error.to_string())
-                }
-                DbError::InvalidPassword(_) => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Invalid resource group password."
-                    );
-                    Status::unauthenticated(db_error.to_string())
+                    Status::unauthenticated("invalid resource group")
                 }
                 DbError::JobNotFound(_) => {
                     tracing::warn!(
@@ -339,11 +281,10 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `NOT_FOUND` for an unknown resource group.
-    /// * `UNAUTHENTICATED` for a wrong password.
+    /// * `UNAUTHENTICATED` for an unknown resource group or a wrong password.
     /// * `ALREADY_EXISTS` for a duplicate external resource group ID.
-    /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
-    ///   unexpected failure.
+    /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
+    /// * `INTERNAL` for any other unexpected failure.
     pub fn resource_group_management_service_error_handler(
         &self,
         error: StorageServerError,
@@ -351,24 +292,16 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "ResourceGroupManagement";
         match error {
-            error @ StorageServerError::Db(DbError::ResourceGroupNotFound(_)) => {
+            error @ StorageServerError::Db(
+                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_),
+            ) => {
                 tracing::warn!(
                     error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    "Resource group not found."
+                    "Invalid resource group."
                 );
-                Status::not_found(error.to_string())
-            }
-
-            error @ StorageServerError::Db(DbError::InvalidPassword(_)) => {
-                tracing::warn!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Invalid resource group password."
-                );
-                Status::unauthenticated(error.to_string())
+                Status::unauthenticated("invalid resource group")
             }
 
             error @ StorageServerError::Db(DbError::ResourceGroupAlreadyExists(_)) => {
@@ -382,7 +315,7 @@ impl<
             }
 
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
+                self.fatal_unavailable_status(SERVICE_NAME, tag, &e)
             }
 
             error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
@@ -400,8 +333,8 @@ impl<
     ///
     /// * `FAILED_PRECONDITION` when the execution manager has already been reaped.
     /// * `INVALID_ARGUMENT` for an illegal execution manager ID.
-    /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
-    ///   unexpected failure.
+    /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
+    /// * `INTERNAL` for any other unexpected failure.
     pub fn execution_manager_liveness_service_error_handler(
         &self,
         error: StorageServerError,
@@ -430,7 +363,7 @@ impl<
             }
 
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
+                self.fatal_unavailable_status(SERVICE_NAME, tag, &e)
             }
 
             error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
@@ -446,9 +379,9 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
-    ///   failure; scheduler registration currently has no caller-visible error classification
-    ///   beyond a generic server error.
+    /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
+    /// * `INTERNAL` for any other failure; scheduler registration currently has no caller-visible
+    ///   error classification beyond a generic server error.
     #[must_use]
     pub fn scheduler_registration_service_error_handler(
         &self,
@@ -458,11 +391,88 @@ impl<
         const SERVICE_NAME: &str = "SchedulerRegistration";
         match error {
             StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
+                self.fatal_unavailable_status(SERVICE_NAME, tag, &e)
             }
 
             error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
         }
+    }
+
+    /// Logs a fatal cache-internal error, cancels the service, and returns an `UNAVAILABLE` status.
+    ///
+    /// Shared by the service error handlers whose `Cache(CacheError::Internal)` arm must read as a
+    /// transient "service restarting" signal (job orchestration, resource-group management,
+    /// liveness, and scheduler registration). The error is unrecoverable, so the whole storage
+    /// service is cancelled to avoid cache corruption.
+    ///
+    /// # Returns
+    ///
+    /// `Status::unavailable("storage service unavailable")`.
+    fn fatal_unavailable_status(
+        &self,
+        service_name: &'static str,
+        tag: &'static str,
+        error: &InternalError,
+    ) -> Status {
+        tracing::error!(
+            error = % error,
+            service = service_name,
+            tag,
+            "Internal error in the cache layer. Cancelling service."
+        );
+        self.cancellation_token.cancel();
+        Status::unavailable("storage service unavailable")
+    }
+
+    /// Logs a fatal cache-internal error, cancels the service, and returns an `INTERNAL` status.
+    ///
+    /// Shared by the service error handlers whose `UNAVAILABLE` code is already reserved for a
+    /// caller-facing semantic (task-instance `StaleSession`, inbound `InboundClosed`), so the fatal
+    /// cache-internal arm falls back to `INTERNAL`. The error is unrecoverable, so the whole
+    /// storage service is cancelled to avoid cache corruption.
+    ///
+    /// # Returns
+    ///
+    /// `Status::internal("storage service unavailable")`.
+    fn fatal_internal_status(
+        &self,
+        service_name: &'static str,
+        tag: &'static str,
+        error: &InternalError,
+    ) -> Status {
+        tracing::error!(
+            error = % error,
+            service = service_name,
+            tag,
+            "Internal error in the cache layer. Cancelling service."
+        );
+        self.cancellation_token.cancel();
+        Status::internal("storage service unavailable")
+    }
+
+    /// Logs an unexpected error, cancels the service, and returns an `INTERNAL` status.
+    ///
+    /// Shared by every service error handler for the catch-all fallback arm. An unmapped error is
+    /// treated as unrecoverable, so the whole storage service is cancelled to avoid cache
+    /// corruption.
+    ///
+    /// # Returns
+    ///
+    /// `Status::internal("internal error")`.
+    fn unexpected_internal_status(
+        &self,
+        service_name: &'static str,
+        tag: &'static str,
+        error: &StorageServerError,
+    ) -> Status {
+        tracing::error!(
+            error = % error,
+            service = service_name,
+            tag,
+            "Unexpected internal error. Cancelling service to avoid cache corruption."
+        );
+        self.cancellation_token.cancel();
+        Status::internal("internal error")
     }
 }
 
@@ -1134,7 +1144,7 @@ mod tests {
             }))
             .await;
         let status = verify_after_delete.expect_err("verify should fail after delete");
-        assert_eq!(status.code(), Code::NotFound);
+        assert_eq!(status.code(), Code::Unauthenticated);
         Ok(())
     }
 
@@ -1202,6 +1212,56 @@ mod tests {
         let status = result.expect_err("an unknown job should be rejected");
         assert_eq!(status.code(), Code::NotFound);
         Ok(())
+    }
+
+    #[test]
+    fn job_orchestration_maps_unknown_resource_group_to_unauthenticated() {
+        let service = create_grpc_service();
+        let status = service.job_orchestration_service_error_handler(
+            StorageServerError::Db(DbError::ResourceGroupNotFound(ResourceGroupId::from(7))),
+            "test",
+        );
+        assert_eq!(status.code(), Code::Unauthenticated);
+    }
+
+    #[test]
+    fn job_orchestration_maps_wrong_password_to_unauthenticated() {
+        let service = create_grpc_service();
+        let status = service.job_orchestration_service_error_handler(
+            StorageServerError::Db(DbError::InvalidPassword(ResourceGroupId::from(7))),
+            "test",
+        );
+        assert_eq!(status.code(), Code::Unauthenticated);
+    }
+
+    #[test]
+    fn job_orchestration_maps_fatal_cache_internal_to_unavailable() {
+        let service = create_grpc_service();
+        let status = service.job_orchestration_service_error_handler(
+            StorageServerError::Cache(CacheError::Internal(InternalError::TaskGraphEmpty)),
+            "test",
+        );
+        assert_eq!(status.code(), Code::Unavailable);
+    }
+
+    #[test]
+    fn resource_group_management_maps_unknown_resource_group_to_unauthenticated() {
+        let service = create_grpc_service();
+        let status = service.resource_group_management_service_error_handler(
+            StorageServerError::Db(DbError::ResourceGroupNotFound(ResourceGroupId::from(7))),
+            "test",
+        );
+        assert_eq!(status.code(), Code::Unauthenticated);
+    }
+
+    #[test]
+    fn resource_group_management_maps_fatal_cache_internal_to_unavailable() {
+        let service = create_grpc_service();
+        let status = service.resource_group_management_service_error_handler(
+            StorageServerError::Cache(CacheError::Internal(InternalError::TaskGraphEmpty)),
+            "test",
+        );
+        assert_eq!(status.code(), Code::Unavailable);
     }
 
     #[tokio::test]
