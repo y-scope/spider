@@ -23,7 +23,7 @@ pub struct GrpcLivenessClient {
 }
 
 impl GrpcLivenessClient {
-    /// Connects a pool of `pool_size` connections to the storage gRPC endpoint.
+    /// Connects a pool of `pool_size` connections to the liveness gRPC endpoint.
     ///
     /// # Returns
     ///
