@@ -108,6 +108,7 @@ impl SchedulerClient for MockScheduler {
         &self,
         _em_id: ExecutionManagerId,
         prev_assignment: Option<TaskAssignmentRecord>,
+        _wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError> {
         if let Some(record) = prev_assignment {
             self.inner.outstanding.remove(&record);

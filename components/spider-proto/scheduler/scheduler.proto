@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package scheduler;
+
+import "common/common.proto";
+
+service SchedulerService {
+  rpc NextTask(NextTaskRequest) returns (NextTaskResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (common.Void);
+  rpc Shutdown(ShutdownRequest) returns (common.Void);
+}
+
+message NextTaskRequest {
+  uint64 execution_manager_id = 1;
+  TaskAssignmentRecord prev_assignment = 2;
+  uint64 wait_time_ms = 3;
+}
+
+message NextTaskResponse {
+  oneof result {
+    SchedulerAssignment assignment = 1;
+    common.Void no_task = 2;
+  }
+}
+
+message TaskAssignmentRecord {
+  uint64 id = 1;
+  uint64 from = 2;
+}
+
+message HeartbeatRequest {
+  uint64 execution_manager_id = 1;
+}
+
+message ShutdownRequest {
+  uint64 execution_manager_id = 1;
+  repeated TaskAssignmentRecord prev_assignments = 2;
+}
+
+message SchedulerAssignment {
+  uint64 id = 1;
+  uint64 resource_group_id = 2;
+  uint64 job_id = 3;
+  common.TaskId task_id = 4;
+  uint64 scheduler_id = 5;
+  uint64 session_id = 6;
+}

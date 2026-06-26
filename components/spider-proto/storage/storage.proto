@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package storage;
 
+import "common/common.proto";
+
 service JobOrchestrationService {
   rpc RegisterJob(RegisterJobRequest) returns (RegisterJobResponse);
   rpc StartJob(JobIdRequest) returns (JobStateResponse);
@@ -39,11 +41,11 @@ service ExecutionManagerLivenessService {
 
 service SchedulerRegistrationService {
   rpc RegisterScheduler(RegisterSchedulerRequest) returns (RegisterSchedulerResponse);
-  rpc GetSchedulers(Void) returns (GetSchedulersResponse);
+  rpc GetSchedulers(common.Void) returns (GetSchedulersResponse);
 }
 
 service SessionManagementService {
-  rpc GetSession(Void) returns (GetSessionResponse);
+  rpc GetSession(common.Void) returns (GetSessionResponse);
 }
 
 message RegisterJobRequest {
@@ -89,7 +91,7 @@ message ReadyTasks {
 message ReadyTask {
   uint64 resource_group_id = 1;
   uint64 job_id = 2;
-  TaskId task_id = 3;
+  common.TaskId task_id = 3;
 }
 
 message ResendReadyTasksRequest {}
@@ -98,7 +100,7 @@ message ResendReadyTasksResponse {}
 
 message RegisterTaskInstanceRequest {
   uint64 job_id = 1;
-  TaskId task_id = 2;
+  common.TaskId task_id = 2;
   uint64 execution_manager_id = 3;
   uint64 session_id = 4;
 }
@@ -126,7 +128,7 @@ message TimeoutPolicy {
 
 message ReportTaskSuccessRequest {
   uint64 job_id = 1;
-  TaskId task_id = 2;
+  common.TaskId task_id = 2;
   uint64 task_instance_id = 3;
   uint64 execution_manager_id = 4;
   uint64 session_id = 5;
@@ -135,7 +137,7 @@ message ReportTaskSuccessRequest {
 
 message ReportTaskFailureRequest {
   uint64 job_id = 1;
-  TaskId task_id = 2;
+  common.TaskId task_id = 2;
   uint64 task_instance_id = 3;
   uint64 execution_manager_id = 4;
   uint64 session_id = 5;
@@ -214,14 +216,6 @@ message GetSessionResponse {
   uint64 session_id = 1;
 }
 
-message TaskId {
-  oneof kind {
-    uint64 index = 1;
-    Void commit = 2;
-    Void cleanup = 3;
-  }
-}
-
 enum JobState {
   JOB_STATE_UNSPECIFIED = 0;
   READY = 1;
@@ -236,5 +230,3 @@ enum JobState {
 message TaskInstanceOperationResponse {}
 
 message ResourceGroupOperationResponse {}
-
-message Void {}

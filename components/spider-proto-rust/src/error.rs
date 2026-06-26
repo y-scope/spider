@@ -7,7 +7,7 @@ pub enum Error {
     #[error("task index does not fit in `usize`: {0}")]
     TaskIndexOutOfRange(u64),
 
-    /// A protobuf [`crate::storage::TaskId`] carried no `kind`.
+    /// A protobuf [`crate::common::TaskId`] carried no `kind`.
     #[error("task id missing kind")]
     TaskIdKindMissing,
 
@@ -22,4 +22,12 @@ pub enum Error {
     /// A protobuf [`crate::storage::TimeoutPolicy`] was missing.
     #[error("timeout policy is missing")]
     TimeoutPolicyMissing,
+
+    /// A protobuf [`crate::scheduler::next_task_response::Result`] was missing.
+    #[error("next task response result is missing")]
+    NextTaskResultMissing,
+
+    /// A protobuf [`crate::common::TaskId`] was missing.
+    #[error("task id is missing")]
+    TaskIdMissing,
 }

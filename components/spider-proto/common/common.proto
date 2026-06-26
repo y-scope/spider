@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package common;
+
+message TaskId {
+  oneof kind {
+    uint64 index = 1;
+    Void commit = 2;
+    Void cleanup = 3;
+  }
+}
+
+message Void {}
