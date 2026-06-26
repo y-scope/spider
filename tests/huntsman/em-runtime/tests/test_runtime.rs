@@ -45,6 +45,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(100);
 const SLOW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const BOUNDED_WAIT: Duration = Duration::from_secs(2);
 const TIGHT_WAIT: Duration = Duration::from_millis(500);
+const SCHEDULER_POLL_WAIT_MS: u64 = 2_000;
 
 /// Builds a [`SchedulerResponse`] tagged with `session_id` and fresh ids for the rest.
 ///
@@ -128,7 +129,7 @@ fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
         em_ip: "127.0.0.1".parse().expect("parse loopback"),
         heartbeat_interval,
         scheduler_heartbeat_interval: heartbeat_interval,
-        scheduler_poll_wait: HEARTBEAT_INTERVAL,
+        scheduler_poll_wait_ms: SCHEDULER_POLL_WAIT_MS,
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,
