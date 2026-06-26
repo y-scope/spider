@@ -14,6 +14,7 @@ use spider_proto_rust::storage::{
 };
 use tonic::{
     Code,
+    Status,
     transport::{Channel, Endpoint},
 };
 
@@ -65,7 +66,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .poll_ready_tasks(request)
             .await
-            .map_err(|status| map_inbound_status(&status))?
+            .map_err(|status| inbound_status_to_error(&status))?
             .into_inner();
         poll_ready_tasks_response_to_result(response)
     }
@@ -81,7 +82,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .poll_ready_commit_tasks(request)
             .await
-            .map_err(|status| map_inbound_status(&status))?
+            .map_err(|status| inbound_status_to_error(&status))?
             .into_inner();
         poll_ready_tasks_response_to_result(response)
     }
@@ -97,7 +98,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .clone()
             .poll_ready_cleanup_tasks(request)
             .await
-            .map_err(|status| map_inbound_status(&status))?
+            .map_err(|status| inbound_status_to_error(&status))?
             .into_inner();
         poll_ready_tasks_response_to_result(response)
     }
@@ -120,15 +121,16 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     }
 }
 
-/// Maps a [`tonic::Status`] returned by an inbound-queue RPC into a [`StorageClientError`].
+/// Maps an inbound-queue gRPC [`Status`] to a [`StorageClientError`].
 ///
 /// # Returns
 ///
-/// * [`StorageClientError::InboundClosed`] when the inbound queue is closed, signalled by
-///   `UNAVAILABLE`.
-/// * [`StorageClientError::InvalidInput`] for a malformed request, signalled by `INVALID_ARGUMENT`.
-/// * [`StorageClientError::Server`] for any other failure.
-fn map_inbound_status(status: &tonic::Status) -> StorageClientError {
+/// The [`StorageClientError`] for `status`'s code:
+///
+/// * [`StorageClientError::InboundClosed`] for `UNAVAILABLE`.
+/// * [`StorageClientError::InvalidInput`] for `INVALID_ARGUMENT`.
+/// * [`StorageClientError::Server`] for any other code.
+fn inbound_status_to_error(status: &Status) -> StorageClientError {
     match status.code() {
         Code::Unavailable => StorageClientError::InboundClosed,
         Code::InvalidArgument => to_invalid_input_error(status.message()),
@@ -321,32 +323,32 @@ mod tests {
     }
 
     #[test]
-    fn map_inbound_status_maps_unavailable_to_inbound_closed() {
+    fn inbound_status_maps_unavailable_to_inbound_closed() {
         let status = tonic::Status::unavailable("inbound queue is closed");
 
         assert!(matches!(
-            map_inbound_status(&status),
+            inbound_status_to_error(&status),
             StorageClientError::InboundClosed
         ));
     }
 
     #[test]
-    fn map_inbound_status_maps_invalid_argument_to_invalid_input() {
+    fn inbound_status_maps_invalid_argument_to_invalid_input() {
         const MESSAGE: &str = "bad max_items";
         let status = tonic::Status::invalid_argument(MESSAGE);
 
-        match map_inbound_status(&status) {
+        match inbound_status_to_error(&status) {
             StorageClientError::InvalidInput(message) => assert_eq!(message, MESSAGE),
             error => panic!("unexpected inbound status mapping: {error:?}"),
         }
     }
 
     #[test]
-    fn map_inbound_status_maps_other_codes_to_server() {
+    fn inbound_status_maps_other_codes_to_server() {
         let status = tonic::Status::internal("boom");
 
         assert!(matches!(
-            map_inbound_status(&status),
+            inbound_status_to_error(&status),
             StorageClientError::Server(_)
         ));
     }
