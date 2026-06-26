@@ -76,10 +76,7 @@ message PollReadyTasksRequest {
 }
 
 message PollReadyTasksResponse {
-  oneof result {
-    ReadyTasks tasks = 1;
-    InboundQueueResponseError error = 2;
-  }
+  ReadyTasks tasks = 1;
 }
 
 message ReadyTasks {
@@ -142,20 +139,15 @@ message ReportTaskFailureRequest {
 message AddResourceGroupRequest {
   string external_resource_group_id = 1;
   bytes password = 2;
-  uint64 session_id = 3;
 }
 
 message ResourceGroupIdResponse {
-  oneof result {
-    uint64 resource_group_id = 1;
-    ResourceGroupManagementError error = 2;
-  }
+  uint64 resource_group_id = 1;
 }
 
 message VerifyResourceGroupRequest {
   uint64 resource_group_id = 1;
   bytes password = 2;
-  uint64 session_id = 3;
 }
 
 message RegisterExecutionManagerRequest {
@@ -172,17 +164,11 @@ message ExecutionManagerRegistration {
 }
 
 message RegisterExecutionManagerResponse {
-  oneof result {
-    ExecutionManagerRegistration registration = 1;
-    ExecutionManagerLivenessError error = 2;
-  }
+  ExecutionManagerRegistration registration = 1;
 }
 
 message UpdateExecutionManagerHeartbeatResponse {
-  oneof result {
-    uint64 session_id = 1;
-    ExecutionManagerLivenessError error = 2;
-  }
+  uint64 session_id = 1;
 }
 
 message RegisterSchedulerRequest {
@@ -196,10 +182,7 @@ message SchedulerRegistration {
 }
 
 message RegisterSchedulerResponse {
-  oneof result {
-    SchedulerRegistration registration = 1;
-    SchedulerRegistrationError error = 2;
-  }
+  SchedulerRegistration registration = 1;
 }
 
 message Scheduler {
@@ -213,10 +196,7 @@ message SchedulerRegistrations {
 }
 
 message GetSchedulersResponse {
-  oneof result {
-    SchedulerRegistrations schedulers = 1;
-    SchedulerRegistrationError error = 2;
-  }
+  SchedulerRegistrations schedulers = 1;
 }
 
 message GetSessionResponse {
@@ -244,58 +224,6 @@ enum JobState {
 
 message TaskInstanceOperationResponse {}
 
-message ResourceGroupOperationResponse {
-  oneof result {
-    Void ok = 1;
-    ResourceGroupManagementError error = 2;
-  }
-}
+message ResourceGroupOperationResponse {}
 
 message Void {}
-
-message InboundQueueResponseError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    INBOUND_CLOSED = 1;
-    SERVER = 2;
-    INVALID_INPUT = 3;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-}
-
-message ResourceGroupManagementError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    STALE_SESSION = 1;
-    SERVER = 2;
-    INVALID_INPUT = 3;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-  uint64 storage_session = 3;
-}
-
-message ExecutionManagerLivenessError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    MARKED_DEAD = 1;
-    INVALID_INPUT = 2;
-    SERVER = 3;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-}
-
-message SchedulerRegistrationError {
-  enum ErrCode {
-    ERR_CODE_UNSPECIFIED = 0;
-    SERVER = 1;
-  }
-
-  ErrCode err_code = 1;
-  string message = 2;
-}
