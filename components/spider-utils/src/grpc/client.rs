@@ -41,8 +41,7 @@ impl<GrpcServiceClientType: Clone> ConnectionPool<GrpcServiceClientType> {
     /// Returns an error if:
     ///
     /// * [`Error::TonicTransport`] if a connection to `endpoint` fails to establish.
-    /// * Forwards `client_factory`'s return values on failure.
-    pub async fn connect<ClientFactory: Fn(Channel) -> Result<GrpcServiceClientType, Error>>(
+    pub async fn connect<ClientFactory: Fn(Channel) -> GrpcServiceClientType>(
         endpoint: Endpoint,
         pool_size: NonZeroUsize,
         client_factory: ClientFactory,
@@ -54,7 +53,7 @@ impl<GrpcServiceClientType: Clone> ConnectionPool<GrpcServiceClientType> {
                 .connect()
                 .await
                 .map_err(Error::TonicTransport)?;
-            connections.push(client_factory(channel)?);
+            connections.push(client_factory(channel));
         }
 
         Ok(Self {

@@ -51,13 +51,13 @@ impl GrpcSchedulerStorageClient {
     ) -> Result<Self, StorageClientError> {
         let inbound_queue_connection_pool =
             ConnectionPool::connect(endpoint.clone(), pool_size, |channel| {
-                Ok(InboundQueueServiceClient::new(channel))
+                InboundQueueServiceClient::new(channel)
             })
             .await
             .map_err(to_transport_error)?;
         let job_orchestration_connection_pool =
             ConnectionPool::connect(endpoint, pool_size, |channel| {
-                Ok(JobOrchestrationServiceClient::new(channel))
+                JobOrchestrationServiceClient::new(channel)
             })
             .await
             .map_err(to_transport_error)?;

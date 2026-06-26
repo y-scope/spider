@@ -46,7 +46,7 @@ impl GrpcStorageClient {
         pool_size: NonZeroUsize,
     ) -> Result<Self, StorageResponseError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
-            Ok(TaskInstanceManagementServiceClient::new(channel))
+            TaskInstanceManagementServiceClient::new(channel)
         })
         .await
         .map_err(to_transport_error)?;
