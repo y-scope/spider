@@ -13,5 +13,6 @@ pub mod storage;
 
 pub use grpc::{GrpcLivenessClient, GrpcStorageClient};
 pub use liveness::{LivenessClient, LivenessResponseError, RegistrationResponse};
-pub use scheduler::{SchedulerClient, SchedulerError, SchedulerResponse};
+pub use scheduler::{SchedulerClient, SchedulerError};
+pub use spider_core::types::scheduler::SchedulerResponse;
 pub use storage::{StorageClient, StorageResponseError};

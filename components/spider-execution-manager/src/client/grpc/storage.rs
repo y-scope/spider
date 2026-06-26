@@ -8,9 +8,9 @@ use spider_core::types::{
     id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
     io::ExecutionContext,
 };
-use spider_proto_rust::storage::{
-    self,
-    task_instance_management_service_client::TaskInstanceManagementServiceClient,
+use spider_proto_rust::{
+    common,
+    storage::{self, task_instance_management_service_client::TaskInstanceManagementServiceClient},
 };
 use tonic::{
     Code,
@@ -57,7 +57,7 @@ impl StorageClient for GrpcStorageClient {
     ) -> Result<ExecutionContext, StorageResponseError> {
         let request = storage::RegisterTaskInstanceRequest {
             job_id: job_id.get(),
-            task_id: Some(storage::TaskId::from(task_id)),
+            task_id: Some(common::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
         };
@@ -89,7 +89,7 @@ impl StorageClient for GrpcStorageClient {
     ) -> Result<(), StorageResponseError> {
         let request = storage::ReportTaskSuccessRequest {
             job_id: job_id.get(),
-            task_id: Some(storage::TaskId::from(task_id)),
+            task_id: Some(common::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
             serialized_outputs: serialized_outputs.unwrap_or_default(),
@@ -114,7 +114,7 @@ impl StorageClient for GrpcStorageClient {
     ) -> Result<(), StorageResponseError> {
         let request = storage::ReportTaskFailureRequest {
             job_id: job_id.get(),
-            task_id: Some(storage::TaskId::from(task_id)),
+            task_id: Some(common::TaskId::from(task_id)),
             execution_manager_id: em_id.get(),
             session_id,
             error_message,

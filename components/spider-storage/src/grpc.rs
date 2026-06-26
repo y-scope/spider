@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use spider_core::types::{id::TaskId, io::SerializedTaskOutputs};
 use spider_proto_rust::{
+    common,
     storage::{
         self,
         execution_manager_liveness_service_server::ExecutionManagerLivenessService,
@@ -576,7 +577,7 @@ impl<
 
     async fn get_schedulers(
         &self,
-        _request: Request<storage::Void>,
+        _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
         todo!("Not implemented")
     }
@@ -592,7 +593,7 @@ impl<
 {
     async fn get_session(
         &self,
-        _request: Request<storage::Void>,
+        _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSessionResponse>, Status> {
         todo!("Not implemented")
     }

@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use crate::types::id::{JobId, ResourceGroupId, SchedulerId, TaskAssignmentId, TaskId};
+use crate::types::id::{JobId, ResourceGroupId, SchedulerId, SessionId, TaskAssignmentId, TaskId};
 
 /// The currently registered scheduler endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,4 +41,21 @@ impl TaskAssignmentRecord {
     pub const fn new(id: TaskAssignmentId, from: SchedulerId) -> Self {
         Self { id, from }
     }
+}
+
+/// A task assignment handed to the execution manager by the scheduler.
+///
+/// `session_id` is the scheduler's view of storage's session at the moment the assignment was
+/// produced. The execution manager pins this exact value on every subsequent storage call for the
+/// attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SchedulerResponse {
+    /// The task placement decision produced by the scheduler.
+    pub task_assignment: TaskAssignment,
+
+    /// The scheduler that produced the assignment.
+    pub scheduler_id: SchedulerId,
+
+    /// The scheduler's view of storage's session when the assignment was produced.
+    pub session_id: SessionId,
 }

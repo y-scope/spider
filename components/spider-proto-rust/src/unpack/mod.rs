@@ -1,5 +1,12 @@
-//! Conversions from raw gRPC requests into their spider-native form.
+//! Conversions from raw gRPC messages into their spider-native form.
+//!
+//! The generic [`RequestUnpack`] trait plus the [`UnpackError`] error type live here;
+//! service-specific implementations are split into sibling modules:
+//!
+//! * [`common`] — shared helpers for `common.proto` types (e.g. [`common::TaskId`]).
+//! * [`storage`] — request unpacking for `storage.proto`.
 
+mod common;
 mod storage;
 
 use tonic::{Code, Status};
@@ -16,7 +23,10 @@ impl From<UnpackError> for Status {
     }
 }
 
-/// Trait for unpacking gRPC requests into spider-native form.
+/// Trait for unpacking an inbound gRPC request into its spider-native form.
+///
+/// Implemented by the server side (e.g. `storage.proto` handlers); [`UnpackError`] converts into a
+/// [`Status`] to return to the caller.
 pub trait RequestUnpack {
     type Unpacked;
 
