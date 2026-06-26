@@ -2,10 +2,7 @@
 
 use async_trait::async_trait;
 use spider_core::types::{id::ExecutionManagerId, scheduler::TaskAssignmentRecord};
-use spider_proto_rust::{
-    scheduler::{self, scheduler_service_client::SchedulerServiceClient},
-    unpack::ResponseUnpack,
-};
+use spider_proto_rust::scheduler::{self, scheduler_service_client::SchedulerServiceClient};
 use tonic::transport::{Channel, Endpoint};
 
 use crate::client::{SchedulerClient, SchedulerError, SchedulerResponse};
@@ -42,21 +39,24 @@ impl SchedulerClient for GrpcSchedulerClient {
         &self,
         em_id: ExecutionManagerId,
         prev_assignment: Option<TaskAssignmentRecord>,
+        wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError> {
-        let prev_assignment = prev_assignment.map(task_assignment_record_to_protocol);
         loop {
             let response = self
                 .client
                 .clone()
                 .next_task(scheduler::NextTaskRequest {
                     execution_manager_id: em_id.get(),
-                    prev_assignment,
+                    prev_assignment: prev_assignment.map(Into::into),
+                    wait_time_ms,
                 })
                 .await
                 .map_err(to_transport_error)?
                 .into_inner();
 
-            if let Some(assignment) = response.unpack().map_err(SchedulerError::Protocol)? {
+            let assignment: Option<SchedulerResponse> =
+                response.try_into().map_err(SchedulerError::Protocol)?;
+            if let Some(assignment) = assignment {
                 return Ok(assignment);
             }
         }
@@ -83,33 +83,16 @@ impl SchedulerClient for GrpcSchedulerClient {
             .clone()
             .shutdown(scheduler::ShutdownRequest {
                 execution_manager_id: em_id.get(),
-                prev_assignments: prev_assignments
-                    .into_iter()
-                    .map(task_assignment_record_to_protocol)
-                    .collect(),
+                prev_assignments: prev_assignments.into_iter().map(Into::into).collect(),
             })
             .await
         {
             tracing::warn!(
-                em_id = ?em_id,
-                error = ?error,
+                em_id = ? em_id,
+                error = ? error,
                 "Failed to notify scheduler shutdown."
             );
         }
-    }
-}
-
-/// Converts an assignment record into its protobuf representation.
-///
-/// # Returns
-///
-/// The protobuf representation of `record`.
-const fn task_assignment_record_to_protocol(
-    record: TaskAssignmentRecord,
-) -> scheduler::TaskAssignmentRecord {
-    scheduler::TaskAssignmentRecord {
-        id: record.id.get(),
-        from: record.from.get(),
     }
 }
 

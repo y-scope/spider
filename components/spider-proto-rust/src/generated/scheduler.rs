@@ -5,6 +5,8 @@ pub struct NextTaskRequest {
     pub execution_manager_id: u64,
     #[prost(message, optional, tag = "2")]
     pub prev_assignment: ::core::option::Option<TaskAssignmentRecord>,
+    #[prost(uint64, tag = "3")]
+    pub wait_time_ms: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NextTaskResponse {

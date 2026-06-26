@@ -12,8 +12,8 @@ const SPIDER_PROTO_ROOT: &str = "spider-proto";
 /// The protobuf source files to compile, relative to [`SPIDER_PROTO_ROOT`].
 const SPIDER_PROTO_SOURCE_FILES: &[&str] = &[
     "common/common.proto",
-    "storage/storage.proto",
     "scheduler/scheduler.proto",
+    "storage/storage.proto",
 ];
 
 fn main() {

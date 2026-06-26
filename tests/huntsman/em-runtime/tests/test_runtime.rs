@@ -128,6 +128,7 @@ fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
         em_ip: "127.0.0.1".parse().expect("parse loopback"),
         heartbeat_interval,
         scheduler_heartbeat_interval: heartbeat_interval,
+        scheduler_poll_wait: HEARTBEAT_INTERVAL,
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,

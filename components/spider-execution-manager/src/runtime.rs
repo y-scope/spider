@@ -38,6 +38,10 @@ pub struct RuntimeConfig {
     /// Interval between scheduler heartbeats. Handed verbatim to the scheduler heartbeat task.
     pub scheduler_heartbeat_interval: Duration,
 
+    /// How long the scheduler is asked to block each [`SchedulerClient::next_task`] long poll
+    /// before returning `NoTask`.
+    pub scheduler_poll_wait: Duration,
+
     /// Absolute path to the `spider-task-executor` binary the process pool spawns.
     pub executor_binary_path: PathBuf,
 
@@ -84,6 +88,7 @@ pub struct Runtime<
     liveness_handle: LivenessHandle,
     liveness_join: JoinHandle<()>,
     scheduler_heartbeat_join: JoinHandle<()>,
+    scheduler_poll_wait: Duration,
     prev_assignments: VecDeque<TaskAssignmentRecord>,
     cancellation_token: CancellationToken,
     _cancel_guard: DropGuard,
@@ -186,6 +191,7 @@ impl<
             liveness_handle,
             liveness_join,
             scheduler_heartbeat_join,
+            scheduler_poll_wait: config.scheduler_poll_wait,
             prev_assignments: VecDeque::new(),
             cancellation_token: cancellation_token.clone(),
             _cancel_guard: cancel_guard,
@@ -264,7 +270,11 @@ impl<
                 () = self.cancellation_token.cancelled() => return Ok(()),
                 result = self.scheduler_client.next_task(
                     self.em_id,
-                    self.prev_assignments.pop_front()
+                    self.prev_assignments.pop_front(),
+                    self.scheduler_poll_wait
+                        .as_millis()
+                        .try_into()
+                        .expect("scheduler poll wait fits in a u64 millisecond budget"),
                 ) => {
                     match result {
                         Ok(response) => response,
@@ -494,7 +504,7 @@ impl Report {
                 tracing::warn!(
                     job_id = ? target.job,
                     task_id = ? target.task,
-                    hard_timeout_ms = ?hard_timeout.as_millis(),
+                    hard_timeout_ms = ? hard_timeout.as_millis(),
                     "Task hit the hard timeout."
                 );
                 Self::Failure(format!(
@@ -506,7 +516,7 @@ impl Report {
                 tracing::warn!(
                     job_id = ? target.job,
                     task_id = ? target.task,
-                    exit_status = ?exit_status,
+                    exit_status = ? exit_status,
                     "Task executor crashed."
                 );
                 Self::Failure(format!("executor crashed (exit_status = {exit_status:?})"))

@@ -1,15 +1,29 @@
-//! [`ResponseUnpack`] implementations for `scheduler.proto` responses.
+//! Conversions between `scheduler.proto` messages and their spider-native forms.
 
 use spider_core::types::{
     id::{JobId, ResourceGroupId, SchedulerId, TaskAssignmentId},
-    scheduler::{SchedulerResponse, TaskAssignment},
+    scheduler::{SchedulerResponse, TaskAssignment, TaskAssignmentRecord},
 };
 
 use crate::{
     common,
-    scheduler::{NextTaskResponse, next_task_response},
-    unpack::{ResponseUnpack, common::unpack_task_id},
+    scheduler::{
+        NextTaskResponse,
+        TaskAssignmentRecord as ProtoTaskAssignmentRecord,
+        next_task_response,
+    },
+    unpack::common::unpack_task_id,
 };
+
+/// Converts an assignment record into its protobuf representation.
+impl From<TaskAssignmentRecord> for ProtoTaskAssignmentRecord {
+    fn from(record: TaskAssignmentRecord) -> Self {
+        Self {
+            id: record.id.get(),
+            from: record.from.get(),
+        }
+    }
+}
 
 /// Unpacks a [`NextTaskResponse`] into an optional [`SchedulerResponse`].
 ///
@@ -25,16 +39,16 @@ use crate::{
 /// # Errors
 ///
 /// Returns a message string if the response is missing a result or contains a malformed task ID.
-impl ResponseUnpack for NextTaskResponse {
-    type Unpacked = Option<SchedulerResponse>;
+impl TryFrom<NextTaskResponse> for Option<SchedulerResponse> {
+    type Error = String;
 
-    fn unpack(self) -> Result<Self::Unpacked, String> {
-        match self.result {
+    fn try_from(response: NextTaskResponse) -> Result<Self, String> {
+        match response.result {
             Some(next_task_response::Result::Assignment(assignment)) => {
                 let task_id = unpack_task_id(assignment.task_id)
                     .inspect_err(|error| {
                         tracing::error!(
-                            error = %error.message,
+                            error = % error.message,
                             request = "NextTask",
                             assignment_id = assignment.id,
                             "Failed to unpack response."

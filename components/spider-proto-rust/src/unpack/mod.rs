@@ -1,11 +1,11 @@
 //! Conversions from raw gRPC messages into their spider-native form.
 //!
-//! The generic [`RequestUnpack`] and [`ResponseUnpack`] traits plus the [`UnpackError`] error type
-//! live here; service-specific implementations are split into sibling modules:
+//! The generic [`RequestUnpack`] trait plus the [`UnpackError`] error type live here;
+//! service-specific implementations are split into sibling modules:
 //!
 //! * [`common`] — shared helpers for `common.proto` types (e.g. [`common::TaskId`]).
 //! * [`storage`] — request unpacking for `storage.proto`.
-//! * [`scheduler`] — response unpacking for `scheduler.proto`.
+//! * [`scheduler`] — conversions for `scheduler.proto`.
 
 mod common;
 mod scheduler;
@@ -42,24 +42,4 @@ pub trait RequestUnpack {
     ///
     /// Returns a [`UnpackError`] on failure.
     fn unpack(self) -> Result<Self::Unpacked, UnpackError>;
-}
-
-/// Trait for unpacking an inbound gRPC response into its spider-native form.
-///
-/// Implemented by the client side (e.g. `scheduler.proto` consumers). Unlike [`RequestUnpack`], the
-/// error is a plain message string: a client does not return a [`Status`], it maps the failure
-/// into its own error type.
-pub trait ResponseUnpack {
-    type Unpacked;
-
-    /// Unpacks the gRPC response into the spider-native form.
-    ///
-    /// # Returns
-    ///
-    /// The unpacked response on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the failure message on failure.
-    fn unpack(self) -> Result<Self::Unpacked, String>;
 }
