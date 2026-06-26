@@ -14,7 +14,6 @@ use tonic::Code;
 
 use crate::{
     storage::{
-        self,
         AddResourceGroupRequest,
         ExecutionManagerIdRequest,
         JobIdRequest,
@@ -27,7 +26,7 @@ use crate::{
         ReportTaskSuccessRequest,
         VerifyResourceGroupRequest,
     },
-    unpack::{RequestUnpack, UnpackError},
+    unpack::{RequestUnpack, UnpackError, common::unpack_task_id},
 };
 
 /// Unpacks [`RegisterJobRequest`] into a tuple containing:
@@ -235,27 +234,4 @@ const fn invalid_argument(message: String) -> UnpackError {
         code: Code::InvalidArgument,
         message,
     }
-}
-
-/// Converts a protobuf [`storage::TaskId`] into a core [`TaskId`].
-///
-/// # Returns
-///
-/// The core [`TaskId`] on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`Code::InvalidArgument`] (as [`UnpackError`]) if the task ID is absent or carries an index
-///   that cannot be represented.
-fn unpack_task_id(task_id: Option<storage::TaskId>) -> Result<TaskId, UnpackError> {
-    let task_id = task_id.ok_or_else(|| UnpackError {
-        code: Code::InvalidArgument,
-        message: "task ID is missing".to_owned(),
-    })?;
-    TaskId::try_from(task_id).map_err(|error| UnpackError {
-        code: Code::InvalidArgument,
-        message: error.to_string(),
-    })
 }

@@ -6,6 +6,7 @@ use spider_core::types::{
     io::SerializedTaskOutputs,
 };
 use spider_proto_rust::{
+    common,
     storage::{
         self,
         execution_manager_liveness_service_server::ExecutionManagerLivenessService,
@@ -720,7 +721,7 @@ impl<
             tasks: Some(build_ready_tasks(
                 self.inner.session_id(),
                 entries,
-                |task_index| storage::TaskId::from(TaskId::Index(task_index)),
+                |task_index| common::TaskId::from(TaskId::Index(task_index)),
             )),
         }))
     }
@@ -744,7 +745,7 @@ impl<
             })?;
         Ok(Response::new(storage::PollReadyTasksResponse {
             tasks: Some(build_ready_tasks(self.inner.session_id(), entries, |_| {
-                storage::TaskId::from(TaskId::Commit)
+                common::TaskId::from(TaskId::Commit)
             })),
         }))
     }
@@ -768,7 +769,7 @@ impl<
             })?;
         Ok(Response::new(storage::PollReadyTasksResponse {
             tasks: Some(build_ready_tasks(self.inner.session_id(), entries, |_| {
-                storage::TaskId::from(TaskId::Cleanup)
+                common::TaskId::from(TaskId::Cleanup)
             })),
         }))
     }
@@ -908,7 +909,7 @@ impl<
 
     async fn get_schedulers(
         &self,
-        _request: Request<storage::Void>,
+        _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
         tracing::info!("Get schedulers request received.");
         let schedulers = self.inner.get_schedulers().await.map_err(|error| {
@@ -935,7 +936,7 @@ impl<
 {
     async fn get_session(
         &self,
-        _request: Request<storage::Void>,
+        _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSessionResponse>, Status> {
         let session_id = self.inner.session_id();
         tracing::info!(session_id, "Get session request received.");
@@ -960,7 +961,7 @@ impl<
 fn build_ready_tasks<TaskKindType>(
     session_id: SessionId,
     entries: Vec<ReadyQueueEntry<TaskKindType>>,
-    to_task_id: impl Fn(TaskKindType) -> storage::TaskId,
+    to_task_id: impl Fn(TaskKindType) -> common::TaskId,
 ) -> storage::ReadyTasks {
     let tasks = entries
         .into_iter()
@@ -1066,7 +1067,7 @@ mod tests {
     async fn get_session_returns_service_session_id() -> anyhow::Result<()> {
         let service = create_grpc_service();
         let response = service
-            .get_session(Request::new(storage::Void {}))
+            .get_session(Request::new(common::Void {}))
             .await?
             .into_inner();
         assert_eq!(response.session_id, TEST_SESSION_ID);
