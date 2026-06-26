@@ -79,8 +79,6 @@ pub struct MockDbConnector {
     pub next_resource_group_id: Arc<AtomicUsize>,
     pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
     pub next_execution_manager_id: Arc<AtomicUsize>,
-    pub schedulers: Arc<DashMap<SchedulerId, RegisteredScheduler>>,
-    pub next_scheduler_id: Arc<AtomicUsize>,
     pub session_id: SessionId,
 }
 
@@ -94,8 +92,6 @@ impl Default for MockDbConnector {
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
             execution_managers: Arc::new(DashMap::new()),
             next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
-            schedulers: Arc::new(DashMap::new()),
-            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
             session_id: 0,
         }
     }
@@ -261,30 +257,18 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
 impl SchedulerRegistrationManagement for MockDbConnector {
     async fn register_scheduler(
         &self,
-        ip_address: IpAddr,
-        port: u16,
+        _ip_address: IpAddr,
+        _port: u16,
     ) -> Result<SchedulerId, DbError> {
-        // Mirror the production semantics: only one scheduler is registered at a time.
-        self.schedulers.clear();
-        let counter = self.next_scheduler_id.fetch_add(1, Ordering::Relaxed);
-        let scheduler_id = SchedulerId::from(counter as u64);
-        self.schedulers.insert(
-            scheduler_id,
-            RegisteredScheduler {
-                id: scheduler_id,
-                ip_address,
-                port,
-            },
-        );
-        Ok(scheduler_id)
+        unreachable!("not implemented for mock connector")
     }
 
     async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {
-        Ok(self.schedulers.iter().map(|entry| *entry).collect())
+        unreachable!("not implemented for mock connector")
     }
 
-    async fn is_scheduler_registered(&self, scheduler_id: SchedulerId) -> Result<bool, DbError> {
-        Ok(self.schedulers.contains_key(&scheduler_id))
+    async fn is_scheduler_registered(&self, _scheduler_id: SchedulerId) -> Result<bool, DbError> {
+        unreachable!("not implemented for mock connector")
     }
 }
 

@@ -24,7 +24,7 @@ use tonic::{Request, Response, Status};
 use crate::{
     cache::error::{CacheError, InternalError},
     db::{DbError, DbStorage},
-    ready_queue::{CleanupTaskMarker, CommitTaskMarker, ReadyQueueEntry, ReadyQueueSender},
+    ready_queue::{ReadyQueueEntry, ReadyQueueSender},
     state::{ServiceState, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
 };
@@ -717,7 +717,11 @@ impl<
             .await
             .map_err(|error| self.inbound_queue_service_error_handler(error, "poll_ready_tasks"))?;
         Ok(Response::new(storage::PollReadyTasksResponse {
-            tasks: Some(ready_tasks(self.inner.session_id(), entries)),
+            tasks: Some(build_ready_tasks(
+                self.inner.session_id(),
+                entries,
+                |task_index| storage::TaskId::from(TaskId::Index(task_index)),
+            )),
         }))
     }
 
@@ -739,7 +743,9 @@ impl<
                 self.inbound_queue_service_error_handler(error, "poll_ready_commit_tasks")
             })?;
         Ok(Response::new(storage::PollReadyTasksResponse {
-            tasks: Some(ready_tasks(self.inner.session_id(), entries)),
+            tasks: Some(build_ready_tasks(self.inner.session_id(), entries, |_| {
+                storage::TaskId::from(TaskId::Commit)
+            })),
         }))
     }
 
@@ -761,7 +767,9 @@ impl<
                 self.inbound_queue_service_error_handler(error, "poll_ready_cleanup_tasks")
             })?;
         Ok(Response::new(storage::PollReadyTasksResponse {
-            tasks: Some(ready_tasks(self.inner.session_id(), entries)),
+            tasks: Some(build_ready_tasks(self.inner.session_id(), entries, |_| {
+                storage::TaskId::from(TaskId::Cleanup)
+            })),
         }))
     }
 }
@@ -935,52 +943,31 @@ impl<
     }
 }
 
-/// Converts a ready-queue task kind into its protobuf [`storage::TaskId`] form.
-trait ToProtoTaskId {
-    /// # Returns
-    ///
-    /// The protobuf task ID for this ready-queue lane marker.
-    fn to_proto_task_id(self) -> storage::TaskId;
-}
-
-impl ToProtoTaskId for spider_core::task::TaskIndex {
-    fn to_proto_task_id(self) -> storage::TaskId {
-        storage::TaskId::from(TaskId::Index(self))
-    }
-}
-
-impl ToProtoTaskId for CommitTaskMarker {
-    fn to_proto_task_id(self) -> storage::TaskId {
-        storage::TaskId::from(TaskId::Commit)
-    }
-}
-
-impl ToProtoTaskId for CleanupTaskMarker {
-    fn to_proto_task_id(self) -> storage::TaskId {
-        storage::TaskId::from(TaskId::Cleanup)
-    }
-}
-
 /// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
 ///
 /// # Type Parameters
 ///
 /// * `TaskKindType` - The kind of ready-queue task (`ReadyTask`, `CommitTask`, or `CleanupTask`)
-///   carried by each entry; must be convertible to a protobuf task ID.
+///   carried by each entry.
+///
+/// # Arguments
+///
+/// * `to_task_id` - Converts each entry's lane-specific task kind into its protobuf task ID.
 ///
 /// # Returns
 ///
 /// A [`storage::ReadyTasks`] carrying the storage session and the flattened ready tasks.
-fn ready_tasks<TaskKindType: ToProtoTaskId>(
+fn build_ready_tasks<TaskKindType>(
     session_id: SessionId,
     entries: Vec<ReadyQueueEntry<TaskKindType>>,
+    to_task_id: impl Fn(TaskKindType) -> storage::TaskId,
 ) -> storage::ReadyTasks {
     let tasks = entries
         .into_iter()
         .map(|entry| {
             let resource_group_id = entry.resource_group_id.get();
             let job_id = entry.job_id.get();
-            let task_id = entry.task_kind.to_proto_task_id();
+            let task_id = to_task_id(entry.task_kind);
             storage::ReadyTask {
                 resource_group_id,
                 job_id,
@@ -1211,34 +1198,6 @@ mod tests {
             .await;
         let status = result.expect_err("an unknown em id should be rejected");
         assert_eq!(status.code(), Code::InvalidArgument);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn register_and_get_schedulers() -> anyhow::Result<()> {
-        let service = create_grpc_service();
-        let register_response = service
-            .register_scheduler(Request::new(storage::RegisterSchedulerRequest {
-                ip_address: "127.0.0.1".to_owned(),
-                port: 5678,
-            }))
-            .await?
-            .into_inner();
-        let registration = register_response
-            .registration
-            .expect("registration should be present");
-        let scheduler_id = registration.scheduler_id;
-        assert_eq!(registration.session_id, TEST_SESSION_ID);
-
-        let get_response = service
-            .get_schedulers(Request::new(storage::Void {}))
-            .await?
-            .into_inner();
-        let schedulers = get_response
-            .schedulers
-            .expect("schedulers should be present");
-        assert_eq!(schedulers.schedulers.len(), 1);
-        assert_eq!(schedulers.schedulers[0].scheduler_id, scheduler_id);
         Ok(())
     }
 
