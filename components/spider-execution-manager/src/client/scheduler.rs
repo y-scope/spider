@@ -4,26 +4,9 @@
 
 use async_trait::async_trait;
 use spider_core::types::{
-    id::{ExecutionManagerId, SchedulerId, SessionId},
-    scheduler::{TaskAssignment, TaskAssignmentRecord},
+    id::ExecutionManagerId,
+    scheduler::{SchedulerResponse, TaskAssignmentRecord},
 };
-
-/// A task assignment handed to the execution manager by the scheduler.
-///
-/// `session_id` is the scheduler's view of storage's session at the moment the assignment was
-/// produced. The execution manager pins this exact value on every subsequent storage call for the
-/// attempt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SchedulerResponse {
-    /// The task placement decision produced by the scheduler.
-    pub task_assignment: TaskAssignment,
-
-    /// The scheduler that produced the assignment.
-    pub scheduler_id: SchedulerId,
-
-    /// The scheduler's view of storage's session when the assignment was produced.
-    pub session_id: SessionId,
-}
 
 /// Errors returned by [`SchedulerClient::next_task`].
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +34,8 @@ pub trait SchedulerClient: Send + Sync {
     /// * `em_id` - The identity of the calling execution manager.
     /// * `prev_assignment` - The last task assignment produced by the scheduler that is
     ///   successfully consumed by the execution manager.
+    /// * `wait_time_ms` - The maximum duration, in milliseconds, the scheduler may block this call
+    ///   waiting for a task assignment before returning `NoTask`.
     ///
     /// # Returns
     ///
@@ -66,6 +51,7 @@ pub trait SchedulerClient: Send + Sync {
         &self,
         em_id: ExecutionManagerId,
         prev_assignment: Option<TaskAssignmentRecord>,
+        wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError>;
 
     /// Sends a heartbeat to the scheduler to refresh the liveness of the current execution manager.

@@ -251,7 +251,7 @@ fn to_invalid_input_error(error: impl std::fmt::Display) -> StorageClientError {
 #[cfg(test)]
 mod tests {
     use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
-    use spider_proto_rust::storage;
+    use spider_proto_rust::{common, storage};
 
     use super::*;
 
@@ -268,7 +268,7 @@ mod tests {
                 tasks: vec![storage::ReadyTask {
                     resource_group_id: RESOURCE_GROUP_ID,
                     job_id: JOB_ID,
-                    task_id: Some(storage::TaskId::from(TaskId::Index(TASK_INDEX))),
+                    task_id: Some(common::TaskId::from(TaskId::Index(TASK_INDEX))),
                 }],
             }),
         };
