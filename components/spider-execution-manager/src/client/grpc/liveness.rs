@@ -10,6 +10,7 @@ use spider_proto_rust::storage::{
 };
 use tonic::{
     Code,
+    Status,
     transport::{Channel, Endpoint},
 };
 
@@ -52,7 +53,7 @@ impl LivenessClient for GrpcLivenessClient {
             .clone()
             .register_execution_manager(request)
             .await
-            .map_err(|status| map_liveness_status(&status))?
+            .map_err(|status| status_to_error(&status))?
             .into_inner();
 
         register_response_to_result(response)
@@ -70,24 +71,23 @@ impl LivenessClient for GrpcLivenessClient {
             .clone()
             .update_execution_manager_heartbeat(request)
             .await
-            .map_err(|status| map_liveness_status(&status))?
+            .map_err(|status| status_to_error(&status))?
             .into_inner();
 
         heartbeat_response_to_result(response)
     }
 }
 
-/// Maps a [`tonic::Status`] returned by an execution-manager-liveness RPC into a
-/// [`LivenessResponseError`].
+/// Maps an execution-manager-liveness gRPC [`Status`] to a [`LivenessResponseError`].
 ///
 /// # Returns
 ///
-/// * [`LivenessResponseError::MarkedDead`] when storage has already reaped the execution manager,
-///   signalled by `FAILED_PRECONDITION`.
-/// * [`LivenessResponseError::IllegalId`] when storage rejects the execution manager id, signalled
-///   by `INVALID_ARGUMENT`.
-/// * [`LivenessResponseError::Transport`] for any other failure.
-fn map_liveness_status(status: &tonic::Status) -> LivenessResponseError {
+/// The [`LivenessResponseError`] for `status`'s code:
+///
+/// * [`LivenessResponseError::MarkedDead`] for `FAILED_PRECONDITION`.
+/// * [`LivenessResponseError::IllegalId`] for `INVALID_ARGUMENT`.
+/// * [`LivenessResponseError::Transport`] for any other code.
+fn status_to_error(status: &Status) -> LivenessResponseError {
     match status.code() {
         Code::FailedPrecondition => LivenessResponseError::MarkedDead,
         Code::InvalidArgument => LivenessResponseError::IllegalId(status.message().to_owned()),
@@ -226,32 +226,32 @@ mod tests {
     }
 
     #[test]
-    fn map_liveness_status_maps_failed_precondition_to_marked_dead() {
+    fn status_maps_failed_precondition_to_marked_dead() {
         let status = tonic::Status::failed_precondition("already dead");
 
         assert!(matches!(
-            map_liveness_status(&status),
+            status_to_error(&status),
             LivenessResponseError::MarkedDead
         ));
     }
 
     #[test]
-    fn map_liveness_status_maps_invalid_argument_to_illegal_id() {
+    fn status_maps_invalid_argument_to_illegal_id() {
         const ERROR_MSG: &str = "bad em id";
         let status = tonic::Status::invalid_argument(ERROR_MSG);
 
-        match map_liveness_status(&status) {
+        match status_to_error(&status) {
             LivenessResponseError::IllegalId(message) => assert_eq!(message, ERROR_MSG),
             error => panic!("unexpected liveness status mapping: {error:?}"),
         }
     }
 
     #[test]
-    fn map_liveness_status_maps_other_codes_to_transport() {
+    fn status_maps_other_codes_to_transport() {
         let status = tonic::Status::internal("boom");
 
         assert!(matches!(
-            map_liveness_status(&status),
+            status_to_error(&status),
             LivenessResponseError::Transport(_)
         ));
     }
