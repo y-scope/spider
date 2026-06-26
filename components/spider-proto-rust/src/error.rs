@@ -23,11 +23,11 @@ pub enum Error {
     #[error("timeout policy is missing")]
     TimeoutPolicyMissing,
 
-    /// A protobuf [`crate::scheduler::NextTaskResponse`] carried no `result`.
-    #[error("next task response is missing its result")]
+    /// A protobuf [`crate::scheduler::next_task_response::Result`] was missing.
+    #[error("next task response result is missing")]
     NextTaskResultMissing,
 
-    /// A protobuf [`crate::scheduler::SchedulerAssignment`] carried no `task_id`.
-    #[error("scheduler assignment is missing its task id")]
+    /// A protobuf [`crate::common::TaskId`] was missing.
+    #[error("task id is missing")]
     TaskIdMissing,
 }
