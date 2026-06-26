@@ -3,6 +3,8 @@
 //! Wraps the generated [`TaskInstanceManagementServiceClient`] and adapts its protobuf
 //! request/response types to the transport-agnostic [`StorageClient`] trait.
 
+use std::num::NonZeroUsize;
+
 use async_trait::async_trait;
 use spider_core::types::{
     id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
@@ -12,6 +14,7 @@ use spider_proto_rust::{
     common,
     storage::{self, task_instance_management_service_client::TaskInstanceManagementServiceClient},
 };
+use spider_utils::grpc::client::ConnectionPool;
 use tonic::{
     Code,
     Status,
@@ -23,11 +26,11 @@ use crate::client::storage::{StorageClient, StorageResponseError};
 /// gRPC-backed [`StorageClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcStorageClient {
-    client: TaskInstanceManagementServiceClient<Channel>,
+    connection_pool: ConnectionPool<TaskInstanceManagementServiceClient<Channel>>,
 }
 
 impl GrpcStorageClient {
-    /// Connects to the storage gRPC endpoint.
+    /// Connects a pool of `pool_size` connections to the storage gRPC endpoint.
     ///
     /// # Returns
     ///
@@ -38,11 +41,17 @@ impl GrpcStorageClient {
     /// Returns an error if:
     ///
     /// * [`StorageResponseError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint) -> Result<Self, StorageResponseError> {
-        TaskInstanceManagementServiceClient::connect(endpoint)
-            .await
-            .map(|client| Self { client })
-            .map_err(to_transport_error)
+    pub async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+    ) -> Result<Self, StorageResponseError> {
+        let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
+            Ok(TaskInstanceManagementServiceClient::new(channel))
+        })
+        .await
+        .map_err(to_transport_error)?;
+
+        Ok(Self { connection_pool })
     }
 }
 
@@ -62,8 +71,8 @@ impl StorageClient for GrpcStorageClient {
             session_id,
         };
         let response = self
-            .client
-            .clone()
+            .connection_pool
+            .get_client()
             .register_task_instance(request)
             .await
             .map_err(|status| status_to_error(&status))?
@@ -95,8 +104,8 @@ impl StorageClient for GrpcStorageClient {
             serialized_outputs: serialized_outputs.unwrap_or_default(),
             task_instance_id,
         };
-        self.client
-            .clone()
+        self.connection_pool
+            .get_client()
             .report_task_success(request)
             .await
             .map_err(|status| status_to_error(&status))?;
@@ -120,8 +129,8 @@ impl StorageClient for GrpcStorageClient {
             error_message,
             task_instance_id,
         };
-        self.client
-            .clone()
+        self.connection_pool
+            .get_client()
             .report_task_failure(request)
             .await
             .map_err(|status| status_to_error(&status))?;
