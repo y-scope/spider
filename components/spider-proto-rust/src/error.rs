@@ -22,4 +22,12 @@ pub enum Error {
     /// A protobuf [`crate::storage::TimeoutPolicy`] was missing.
     #[error("timeout policy is missing")]
     TimeoutPolicyMissing,
+
+    /// A protobuf [`crate::scheduler::NextTaskResponse`] carried no `result`.
+    #[error("next task response is missing its result")]
+    NextTaskResultMissing,
+
+    /// A protobuf [`crate::scheduler::SchedulerAssignment`] carried no `task_id`.
+    #[error("scheduler assignment is missing its task id")]
+    TaskIdMissing,
 }

@@ -5,10 +5,8 @@
 //!
 //! * [`common`] — shared helpers for `common.proto` types (e.g. [`common::TaskId`]).
 //! * [`storage`] — request unpacking for `storage.proto`.
-//! * [`scheduler`] — conversions for `scheduler.proto`.
 
 mod common;
-mod scheduler;
 mod storage;
 
 use tonic::{Code, Status};
