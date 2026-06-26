@@ -137,12 +137,14 @@ impl StorageClient for GrpcStorageClient {
 ///
 /// * [`StorageResponseError::StaleSession`] for `UNAVAILABLE`.
 /// * [`StorageResponseError::CacheStale`] for `FAILED_PRECONDITION`.
+/// * [`StorageResponseError::JobGone`] for `NOT_FOUND`.
 /// * [`StorageResponseError::InvalidInput`] for `INVALID_ARGUMENT`.
 /// * [`StorageResponseError::Server`] for any other code.
 fn status_to_error(status: &Status) -> StorageResponseError {
     match status.code() {
         Code::Unavailable => StorageResponseError::StaleSession(status.message().to_owned()),
         Code::FailedPrecondition => StorageResponseError::CacheStale(status.message().to_owned()),
+        Code::NotFound => StorageResponseError::JobGone(status.message().to_owned()),
         Code::InvalidArgument => StorageResponseError::InvalidInput(status.message().to_owned()),
         _ => StorageResponseError::Server(status.message().to_owned()),
     }
@@ -173,6 +175,16 @@ mod tests {
     fn status_maps_invalid_argument_to_invalid_input() {
         match status_to_error(&Status::invalid_argument("bad task id")) {
             StorageResponseError::InvalidInput(message) => assert!(message.contains("bad task id")),
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn status_maps_not_found_to_job_gone() {
+        match status_to_error(&Status::not_found("job 7 is gone")) {
+            StorageResponseError::JobGone(message) => {
+                assert!(message.contains("job 7 is gone"), "message: {message}");
+            }
             error => panic!("unexpected error: {error:?}"),
         }
     }

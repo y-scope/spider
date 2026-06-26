@@ -536,6 +536,38 @@ impl<
             .map_err(StorageServerError::from)
     }
 
+    /// Deletes a resource group and all of its jobs from database and cache.
+    ///
+    /// The caller must supply the resource group's password, which is verified before any deletion
+    /// occurs so that only an authenticated owner can remove a group and its jobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagement::verify`]'s return values on failure (wrong password or
+    ///   unknown resource group).
+    /// * Forwards [`ResourceGroupManagement::delete`]'s return values on failure.
+    pub async fn delete_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: &[u8],
+    ) -> Result<(), StorageServerError> {
+        self.inner.db.verify(resource_group_id, password).await?;
+        self.inner.db.delete(resource_group_id).await?;
+        let evicted_jobs = self
+            .inner
+            .job_cache
+            .remove_by_resource_group(resource_group_id)
+            .await;
+        tracing::info!(
+            rg_id = ? resource_group_id,
+            evicted_jobs,
+            "Resource group deleted.",
+        );
+        Ok(())
+    }
+
     /// Polls the ready queue for task entries.
     ///
     /// # Returns
@@ -1591,6 +1623,62 @@ mod tests {
             .await?;
         let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
         assert!(result.is_err(), "verify should fail for wrong password");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_succeeds_for_existing() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let password = vec![1, 2, 3];
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), password.clone())
+            .await?;
+        service.delete_resource_group(rg_id, &password).await?;
+        let result = service.verify_resource_group(rg_id, &[1, 2, 3]).await;
+        assert!(
+            result.is_err(),
+            "verify should fail after the resource group is deleted"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_rejects_wrong_password() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let rg_id = service
+            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .await?;
+        let result = service.delete_resource_group(rg_id, &[4, 5, 6]).await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Db(DbError::InvalidPassword(_)))
+            ),
+            "delete_resource_group should return InvalidPassword for a wrong password"
+        );
+        assert!(
+            service
+                .verify_resource_group(rg_id, &[1, 2, 3])
+                .await
+                .is_ok(),
+            "resource group should still exist when the password is wrong"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_resource_group_returns_error_for_unknown() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let result = service
+            .delete_resource_group(ResourceGroupId::random(), &[1, 2, 3])
+            .await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Db(DbError::ResourceGroupNotFound(_)))
+            ),
+            "delete_resource_group should return ResourceGroupNotFound for an unknown id"
+        );
         Ok(())
     }
 

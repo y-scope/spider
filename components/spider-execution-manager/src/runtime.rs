@@ -369,6 +369,8 @@ impl<
     /// * `Ok(None)` if:
     ///   * The assignment is stale: either from a stale cache session or the task has already in a
     ///     terminal state.
+    ///   * The target job is gone (e.g. its resource group was deleted), so the assignment is
+    ///     dropped as a benign no-op.
     ///   * The runtime is cancelled.
     ///
     /// # Errors
@@ -416,6 +418,16 @@ impl<
                         job_id = ? response.task_assignment.job_id,
                         task_id = ? response.task_assignment.task_id,
                         "Storage rejected task registration. Dropping the assignment."
+                    );
+                    self.mark_consume(&response);
+                    Ok(None)
+                }
+                StorageResponseError::JobGone(_) => {
+                    tracing::info!(
+                        err = % err,
+                        job_id = ? response.task_assignment.job_id,
+                        task_id = ? response.task_assignment.task_id,
+                        "Storage reports the target job is gone. Dropping the assignment."
                     );
                     self.mark_consume(&response);
                     Ok(None)
@@ -557,6 +569,9 @@ impl Report {
 /// by [`Runtime::main_loop`] so reporting overlaps with the next round of task dispatching; errors
 /// are logged rather than propagated.
 ///
+/// A [`StorageResponseError::JobGone`] (the target job's resource group was deleted mid-flight) is
+/// a benign no-op logged at info level; all other errors are logged at error level.
+///
 /// # Type Parameters
 ///
 /// * `StorageClientType` - Concrete [`StorageClient`] the report is sent through.
@@ -566,15 +581,24 @@ async fn report_outcome<StorageClientType: StorageClient + 'static>(
     outcome: Outcome,
 ) {
     let report = Report::from_outcome(outcome, target);
-    let _ = report
-        .send(&storage_client, target)
-        .await
-        .inspect_err(|err| {
-            tracing::error!(
-                err = ? err,
-                job_id = ? target.job,
-                task_id = ? target.task,
-                "Failed to report task outcome to storage. Dropping the report."
-            );
-        });
+    if let Err(err) = report.send(&storage_client, target).await {
+        match &err {
+            StorageResponseError::JobGone(_) => {
+                tracing::info!(
+                    err = % err,
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    "Storage reports the target job is gone. Dropping the outcome report."
+                );
+            }
+            _ => {
+                tracing::error!(
+                    err = ? err,
+                    job_id = ? target.job,
+                    task_id = ? target.task,
+                    "Failed to report task outcome to storage. Dropping the report."
+                );
+            }
+        }
+    }
 }

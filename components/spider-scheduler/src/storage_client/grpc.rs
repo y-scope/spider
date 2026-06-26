@@ -118,6 +118,15 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .into_inner();
         job_state_response_to_result(response)
     }
+
+    async fn resend_ready_tasks(&self) -> Result<(), StorageClientError> {
+        self.scheduler_client
+            .clone()
+            .resend_ready_tasks(storage::ResendReadyTasksRequest {})
+            .await
+            .map_err(|status| map_inbound_status(&status))?;
+        Ok(())
+    }
 }
 
 /// Maps a [`tonic::Status`] returned by an inbound-queue RPC into a [`StorageClientError`].
