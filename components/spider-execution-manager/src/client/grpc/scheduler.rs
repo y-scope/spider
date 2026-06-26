@@ -55,7 +55,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                 .into_inner();
 
             let assignment: Option<SchedulerResponse> =
-                response.try_into().map_err(SchedulerError::Protocol)?;
+                response.try_into().map_err(to_protocol_error)?;
             if let Some(assignment) = assignment {
                 return Ok(assignment);
             }
@@ -103,4 +103,13 @@ impl SchedulerClient for GrpcSchedulerClient {
 /// A [`SchedulerError::Transport`] containing `error`'s display string.
 fn to_transport_error(error: impl std::fmt::Display) -> SchedulerError {
     SchedulerError::Transport(error.to_string())
+}
+
+/// Converts a displayable protocol-layer error into [`SchedulerError::Protocol`].
+///
+/// # Returns
+///
+/// A [`SchedulerError::Protocol`] containing `error`'s display string.
+fn to_protocol_error(error: impl std::fmt::Display) -> SchedulerError {
+    SchedulerError::Protocol(error.to_string())
 }
