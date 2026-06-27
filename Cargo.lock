@@ -1988,6 +1988,7 @@ dependencies = [
  "serde",
  "spider-core",
  "spider-proto-rust",
+ "spider-utils",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2074,6 +2075,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "thiserror",
+ "tonic",
  "tracing-appender",
  "tracing-subscriber",
 ]
