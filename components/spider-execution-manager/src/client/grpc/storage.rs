@@ -144,15 +144,17 @@ impl StorageClient for GrpcStorageClient {
 ///
 /// The [`StorageResponseError`] for `status`'s code:
 ///
-/// * [`StorageResponseError::StaleSession`] for `UNAVAILABLE`.
+/// * [`StorageResponseError::StaleSession`] for `NOT_FOUND`.
 /// * [`StorageResponseError::CacheStale`] for `FAILED_PRECONDITION`.
 /// * [`StorageResponseError::InvalidInput`] for `INVALID_ARGUMENT`.
+/// * [`StorageResponseError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
 /// * [`StorageResponseError::Server`] for any other code.
 fn status_to_error(status: &Status) -> StorageResponseError {
     match status.code() {
-        Code::Unavailable => StorageResponseError::StaleSession(status.message().to_owned()),
+        Code::NotFound => StorageResponseError::StaleSession(status.message().to_owned()),
         Code::FailedPrecondition => StorageResponseError::CacheStale(status.message().to_owned()),
         Code::InvalidArgument => StorageResponseError::InvalidInput(status.message().to_owned()),
+        Code::Unavailable => to_transport_error(status.message()),
         _ => StorageResponseError::Server(status.message().to_owned()),
     }
 }
@@ -171,17 +173,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_maps_unavailable_to_stale_session() {
-        match status_to_error(&Status::unavailable("storage session is 9")) {
+    fn status_maps_not_found_to_stale_session() {
+        match status_to_error(&Status::not_found("storage session is 9")) {
             StorageResponseError::StaleSession(message) => assert!(message.contains('9')),
             error => panic!("unexpected error: {error:?}"),
         }
     }
 
     #[test]
+    fn status_maps_unavailable_to_transport() {
+        const MESSAGE: &str = "connection lost";
+        match status_to_error(&Status::unavailable(MESSAGE)) {
+            StorageResponseError::Transport(message) => {
+                assert!(message.contains(MESSAGE));
+            }
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
     fn status_maps_invalid_argument_to_invalid_input() {
-        match status_to_error(&Status::invalid_argument("bad task id")) {
-            StorageResponseError::InvalidInput(message) => assert!(message.contains("bad task id")),
+        const MESSAGE: &str = "bad task id";
+        match status_to_error(&Status::invalid_argument(MESSAGE)) {
+            StorageResponseError::InvalidInput(message) => assert!(message.contains(MESSAGE)),
             error => panic!("unexpected error: {error:?}"),
         }
     }
