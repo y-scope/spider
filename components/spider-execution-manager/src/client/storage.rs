@@ -25,12 +25,6 @@ pub enum StorageResponseError {
     #[error("cache stale: {0}")]
     CacheStale(String),
 
-    /// The target job no longer exists in storage (e.g. its resource group was deleted). The
-    /// operation is a benign no-op: callers should drop the associated task assignment and
-    /// continue, not retry or bail out.
-    #[error("job gone: {0}")]
-    JobGone(String),
-
     /// Connection lost, request timeout, or wire-format serialization failure. Callers may back off
     /// and retry.
     #[error("transport error: {0}")]
@@ -69,7 +63,6 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::StaleSession`] if `session_id` no longer matches storage's current
     ///   session.
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the registration.
-    /// * [`StorageResponseError::JobGone`] if the target job no longer exists in storage.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
     async fn register_task_instance(
@@ -99,7 +92,6 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::StaleSession`] if `session_id` no longer matches storage's current
     ///   session.
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the report.
-    /// * [`StorageResponseError::JobGone`] if the target job no longer exists in storage.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
     /// * [`StorageResponseError::InvalidInput`] if `serialized_outputs` is `Some` for a commit or
@@ -132,7 +124,6 @@ pub trait StorageClient: Send + Sync {
     /// * [`StorageResponseError::StaleSession`] if `session_id` no longer matches storage's current
     ///   session.
     /// * [`StorageResponseError::CacheStale`] if storage's job cache rejected the report.
-    /// * [`StorageResponseError::JobGone`] if the target job no longer exists in storage.
     /// * [`StorageResponseError::Transport`] if the connection was lost or timed out.
     /// * [`StorageResponseError::Server`] if storage returned an otherwise-uncategorized error.
     async fn report_task_failure(

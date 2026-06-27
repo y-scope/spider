@@ -1,8 +1,11 @@
 //! gRPC-backed [`SchedulerClient`] implementation.
 
+use std::num::NonZeroUsize;
+
 use async_trait::async_trait;
 use spider_core::types::{id::ExecutionManagerId, scheduler::TaskAssignmentRecord};
 use spider_proto_rust::scheduler::{self, scheduler_service_client::SchedulerServiceClient};
+use spider_utils::grpc::client::ConnectionPool;
 use tonic::transport::{Channel, Endpoint};
 
 use crate::client::{SchedulerClient, SchedulerError, SchedulerResponse};
@@ -10,11 +13,11 @@ use crate::client::{SchedulerClient, SchedulerError, SchedulerResponse};
 /// gRPC-backed [`SchedulerClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcSchedulerClient {
-    client: SchedulerServiceClient<Channel>,
+    connection_pool: ConnectionPool<SchedulerServiceClient<Channel>>,
 }
 
 impl GrpcSchedulerClient {
-    /// Connects to the scheduler gRPC endpoint.
+    /// Connects a pool of `pool_size` connections to the scheduler gRPC endpoint.
     ///
     /// # Returns
     ///
@@ -25,11 +28,17 @@ impl GrpcSchedulerClient {
     /// Returns an error if:
     ///
     /// * [`SchedulerError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint) -> Result<Self, SchedulerError> {
-        SchedulerServiceClient::connect(endpoint)
-            .await
-            .map(|client| Self { client })
-            .map_err(to_transport_error)
+    pub async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+    ) -> Result<Self, SchedulerError> {
+        let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
+            SchedulerServiceClient::new(channel)
+        })
+        .await
+        .map_err(to_transport_error)?;
+
+        Ok(Self { connection_pool })
     }
 }
 
@@ -43,8 +52,8 @@ impl SchedulerClient for GrpcSchedulerClient {
     ) -> Result<SchedulerResponse, SchedulerError> {
         loop {
             let response = self
-                .client
-                .clone()
+                .connection_pool
+                .get_client()
                 .next_task(scheduler::NextTaskRequest {
                     execution_manager_id: em_id.get(),
                     prev_assignment: prev_assignment.map(Into::into),
@@ -63,8 +72,8 @@ impl SchedulerClient for GrpcSchedulerClient {
     }
 
     async fn heartbeat(&self, em_id: ExecutionManagerId) -> Result<(), SchedulerError> {
-        self.client
-            .clone()
+        self.connection_pool
+            .get_client()
             .heartbeat(scheduler::HeartbeatRequest {
                 execution_manager_id: em_id.get(),
             })
@@ -79,8 +88,8 @@ impl SchedulerClient for GrpcSchedulerClient {
         prev_assignments: Vec<TaskAssignmentRecord>,
     ) {
         if let Err(error) = self
-            .client
-            .clone()
+            .connection_pool
+            .get_client()
             .shutdown(scheduler::ShutdownRequest {
                 execution_manager_id: em_id.get(),
                 prev_assignments: prev_assignments.into_iter().map(Into::into).collect(),

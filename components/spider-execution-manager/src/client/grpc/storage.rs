@@ -3,6 +3,8 @@
 //! Wraps the generated [`TaskInstanceManagementServiceClient`] and adapts its protobuf
 //! request/response types to the transport-agnostic [`StorageClient`] trait.
 
+use std::num::NonZeroUsize;
+
 use async_trait::async_trait;
 use spider_core::types::{
     id::{ExecutionManagerId, JobId, SessionId, TaskId, TaskInstanceId},
@@ -12,6 +14,7 @@ use spider_proto_rust::{
     common,
     storage::{self, task_instance_management_service_client::TaskInstanceManagementServiceClient},
 };
+use spider_utils::grpc::client::ConnectionPool;
 use tonic::{
     Code,
     Status,
@@ -23,11 +26,11 @@ use crate::client::storage::{StorageClient, StorageResponseError};
 /// gRPC-backed [`StorageClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcStorageClient {
-    client: TaskInstanceManagementServiceClient<Channel>,
+    connection_pool: ConnectionPool<TaskInstanceManagementServiceClient<Channel>>,
 }
 
 impl GrpcStorageClient {
-    /// Connects to the storage gRPC endpoint.
+    /// Connects a pool of `pool_size` connections to the storage gRPC endpoint.
     ///
     /// # Returns
     ///
@@ -38,11 +41,17 @@ impl GrpcStorageClient {
     /// Returns an error if:
     ///
     /// * [`StorageResponseError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint) -> Result<Self, StorageResponseError> {
-        TaskInstanceManagementServiceClient::connect(endpoint)
-            .await
-            .map(|client| Self { client })
-            .map_err(to_transport_error)
+    pub async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+    ) -> Result<Self, StorageResponseError> {
+        let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
+            TaskInstanceManagementServiceClient::new(channel)
+        })
+        .await
+        .map_err(to_transport_error)?;
+
+        Ok(Self { connection_pool })
     }
 }
 
@@ -62,8 +71,8 @@ impl StorageClient for GrpcStorageClient {
             session_id,
         };
         let response = self
-            .client
-            .clone()
+            .connection_pool
+            .get_client()
             .register_task_instance(request)
             .await
             .map_err(|status| status_to_error(&status))?
@@ -95,8 +104,8 @@ impl StorageClient for GrpcStorageClient {
             serialized_outputs: serialized_outputs.unwrap_or_default(),
             task_instance_id,
         };
-        self.client
-            .clone()
+        self.connection_pool
+            .get_client()
             .report_task_success(request)
             .await
             .map_err(|status| status_to_error(&status))?;
@@ -120,8 +129,8 @@ impl StorageClient for GrpcStorageClient {
             error_message,
             task_instance_id,
         };
-        self.client
-            .clone()
+        self.connection_pool
+            .get_client()
             .report_task_failure(request)
             .await
             .map_err(|status| status_to_error(&status))?;
@@ -135,17 +144,17 @@ impl StorageClient for GrpcStorageClient {
 ///
 /// The [`StorageResponseError`] for `status`'s code:
 ///
-/// * [`StorageResponseError::StaleSession`] for `UNAVAILABLE`.
+/// * [`StorageResponseError::StaleSession`] for `NOT_FOUND`.
 /// * [`StorageResponseError::CacheStale`] for `FAILED_PRECONDITION`.
-/// * [`StorageResponseError::JobGone`] for `NOT_FOUND`.
 /// * [`StorageResponseError::InvalidInput`] for `INVALID_ARGUMENT`.
+/// * [`StorageResponseError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
 /// * [`StorageResponseError::Server`] for any other code.
 fn status_to_error(status: &Status) -> StorageResponseError {
     match status.code() {
-        Code::Unavailable => StorageResponseError::StaleSession(status.message().to_owned()),
+        Code::NotFound => StorageResponseError::StaleSession(status.message().to_owned()),
         Code::FailedPrecondition => StorageResponseError::CacheStale(status.message().to_owned()),
-        Code::NotFound => StorageResponseError::JobGone(status.message().to_owned()),
         Code::InvalidArgument => StorageResponseError::InvalidInput(status.message().to_owned()),
+        Code::Unavailable => to_transport_error(status.message()),
         _ => StorageResponseError::Server(status.message().to_owned()),
     }
 }
@@ -164,27 +173,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_maps_unavailable_to_stale_session() {
-        match status_to_error(&Status::unavailable("storage session is 9")) {
+    fn status_maps_not_found_to_stale_session() {
+        match status_to_error(&Status::not_found("storage session is 9")) {
             StorageResponseError::StaleSession(message) => assert!(message.contains('9')),
             error => panic!("unexpected error: {error:?}"),
         }
     }
 
     #[test]
-    fn status_maps_invalid_argument_to_invalid_input() {
-        match status_to_error(&Status::invalid_argument("bad task id")) {
-            StorageResponseError::InvalidInput(message) => assert!(message.contains("bad task id")),
+    fn status_maps_unavailable_to_transport() {
+        const MESSAGE: &str = "connection lost";
+        match status_to_error(&Status::unavailable(MESSAGE)) {
+            StorageResponseError::Transport(message) => {
+                assert!(message.contains(MESSAGE));
+            }
             error => panic!("unexpected error: {error:?}"),
         }
     }
 
     #[test]
-    fn status_maps_not_found_to_job_gone() {
-        match status_to_error(&Status::not_found("job 7 is gone")) {
-            StorageResponseError::JobGone(message) => {
-                assert!(message.contains("job 7 is gone"), "message: {message}");
-            }
+    fn status_maps_invalid_argument_to_invalid_input() {
+        const MESSAGE: &str = "bad task id";
+        match status_to_error(&Status::invalid_argument(MESSAGE)) {
+            StorageResponseError::InvalidInput(message) => assert!(message.contains(MESSAGE)),
             error => panic!("unexpected error: {error:?}"),
         }
     }
