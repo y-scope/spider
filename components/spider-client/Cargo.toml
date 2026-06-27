@@ -1,0 +1,19 @@
+[package]
+name = "spider-client"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "spider_client"
+path = "src/lib.rs"
+
+[dependencies]
+spider-core = { path = "../spider-core" }
+spider-proto-rust = { path = "../spider-proto-rust" }
+spider-utils = { path = "../spider-utils" }
+thiserror = "2.0.18"
+tonic = "0.12.3"
+
+[dev-dependencies]
+anyhow = "1.0.102"
+tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread"] }

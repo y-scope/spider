@@ -1982,6 +1982,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "spider-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "spider-core",
+ "spider-proto-rust",
+ "spider-utils",
+ "thiserror",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
 name = "spider-core"
 version = "0.1.0"
 dependencies = [
