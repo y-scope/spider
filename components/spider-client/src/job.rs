@@ -335,15 +335,10 @@ mod tests {
         JobOrchestrationService,
         JobOrchestrationServiceServer,
     };
-    use tokio::net::TcpListener;
-    use tonic::{
-        Request,
-        Response,
-        Status,
-        transport::{Server, server::TcpIncoming},
-    };
+    use tonic::{Request, Response, Status, transport::Server};
 
     use super::*;
+    use crate::test_utils::{MockResponse, bind_ephemeral};
 
     /// Tracks how many times each `JobOrchestrationService` RPC was invoked.
     ///
@@ -356,12 +351,6 @@ mod tests {
         get_job_state: AtomicU64,
         get_job_outputs: AtomicU64,
         get_job_error: AtomicU64,
-    }
-
-    /// The canned response a mock RPC returns: either a success value or a gRPC [`Status`] error.
-    enum MockResponse<T> {
-        Success(T),
-        Error(Status),
     }
 
     /// In-process mock [`JobOrchestrationService`] with configurable per-RPC responses and call
@@ -489,10 +478,7 @@ mod tests {
     async fn serve(
         mock: MockJobService,
     ) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let incoming =
-            TcpIncoming::from_listener(listener, true, None).map_err(anyhow::Error::msg)?;
+        let (addr, incoming) = bind_ephemeral().await?;
         let join = tokio::spawn(async move {
             Server::builder()
                 .add_service(JobOrchestrationServiceServer::new(mock))

@@ -128,15 +128,10 @@ mod tests {
         ResourceGroupManagementService,
         ResourceGroupManagementServiceServer,
     };
-    use tokio::net::TcpListener;
-    use tonic::{
-        Request,
-        Response,
-        Status,
-        transport::{Server, server::TcpIncoming},
-    };
+    use tonic::{Request, Response, Status, transport::Server};
 
     use super::*;
+    use crate::test_utils::{MockResponse, bind_ephemeral};
 
     /// Tracks how many times each `ResourceGroupManagementService` RPC was invoked.
     ///
@@ -145,12 +140,6 @@ mod tests {
     struct CallCounts {
         add_resource_group: AtomicU64,
         verify_resource_group: AtomicU64,
-    }
-
-    /// The canned response a mock RPC returns: either a success value or a gRPC [`Status`] error.
-    enum MockResponse<T> {
-        Success(T),
-        Error(Status),
     }
 
     /// In-process mock [`ResourceGroupManagementService`] with configurable per-RPC responses and
@@ -219,10 +208,7 @@ mod tests {
     async fn serve(
         mock: MockResourceGroupService,
     ) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let incoming =
-            TcpIncoming::from_listener(listener, true, None).map_err(anyhow::Error::msg)?;
+        let (addr, incoming) = bind_ephemeral().await?;
         let join = tokio::spawn(async move {
             Server::builder()
                 .add_service(ResourceGroupManagementServiceServer::new(mock))

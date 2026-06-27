@@ -22,3 +22,6 @@ pub mod resource_group;
 pub use client::SpiderClient;
 pub use job::JobOrchestrationClient;
 pub use resource_group::ResourceGroupManagementClient;
+
+#[cfg(test)]
+mod test_utils;
