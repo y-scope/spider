@@ -75,12 +75,13 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `UNAVAILABLE` for a fatal cache-internal error (the service will restart).
+    /// * `INTERNAL` for:
+    ///   * A fatal cache-internal error (the service will restart).
+    ///   * Any other (database or otherwise unexpected) error.
     /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
     /// * `NOT_FOUND` for a missing job.
     /// * `FAILED_PRECONDITION` for operations on an invalid job state.
     /// * `INVALID_ARGUMENT` for a malformed task graph, inputs, or request.
-    /// * `INTERNAL` for any other (database or otherwise unexpected) error.
     pub fn job_orchestration_service_error_handler(
         &self,
         error: StorageServerError,
@@ -96,7 +97,7 @@ impl<
                     "Internal error in the cache layer. Cancelling service."
                 );
                 self.cancellation_token.cancel();
-                Status::unavailable("storage service unavailable")
+                Status::internal("storage service unavailable")
             }
 
             StorageServerError::Db(db_error) => match &db_error {
@@ -182,7 +183,7 @@ impl<
     /// * `INTERNAL` for:
     ///   * A fatal cache-internal error (the service will restart).
     ///   * Any other unexpected error (the service will restart).
-    /// * `UNAVAILABLE` for a request issued from a stale session.
+    /// * `NOT_FOUND` for a request issued from a stale session.
     /// * `FAILED_PRECONDITION` for a request issued against a stale cache state.
     /// * `INVALID_ARGUMENT` for malformed inputs or a malformed request.
     pub fn task_instance_management_service_error_handler(
@@ -210,7 +211,7 @@ impl<
                     tag,
                     "The request was issued from a stale session."
                 );
-                Status::unavailable(format!(
+                Status::not_found(format!(
                     "stale session; current storage session is {storage_session}"
                 ))
             }
