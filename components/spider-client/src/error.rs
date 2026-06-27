@@ -86,10 +86,6 @@ pub(crate) fn job_status_to_error(status: &Status, job_id: JobId) -> ClientError
 ///   group, or an invalid password).
 /// * [`ClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
 /// * [`ClientError::Server`] for any other code (including `NOT_FOUND` and `INTERNAL`).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "called by resource_group methods in task 5")
-)]
 pub(crate) fn resource_group_status_to_error(status: &Status) -> ClientError {
     match status.code() {
         Code::FailedPrecondition => ClientError::InvalidJobState(status.message().to_owned()),

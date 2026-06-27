@@ -27,10 +27,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct SpiderClient {
     job_orchestration: JobOrchestrationClient,
-    #[expect(
-        dead_code,
-        reason = "read by delegating resource_group methods in task 5"
-    )]
     resource_group: ResourceGroupManagementClient,
 }
 
@@ -143,6 +139,47 @@ impl SpiderClient {
     /// See [`JobOrchestrationClient::get_job_error`].
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
         self.job_orchestration.get_job_error(job_id).await
+    }
+
+    /// Registers an external resource group and returns its server-assigned id. Delegates to
+    /// [`ResourceGroupManagementClient::add_resource_group`].
+    ///
+    /// # Returns
+    ///
+    /// The [`ResourceGroupId`] the storage server assigned to the registered resource group on
+    /// success.
+    ///
+    /// # Errors
+    ///
+    /// See [`ResourceGroupManagementClient::add_resource_group`].
+    pub async fn add_resource_group(
+        &self,
+        external_resource_group_id: String,
+        password: Vec<u8>,
+    ) -> Result<ResourceGroupId, ClientError> {
+        self.resource_group
+            .add_resource_group(external_resource_group_id, password)
+            .await
+    }
+
+    /// Verifies a resource group's password. Delegates to
+    /// [`ResourceGroupManagementClient::verify_resource_group`].
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// See [`ResourceGroupManagementClient::verify_resource_group`].
+    pub async fn verify_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: Vec<u8>,
+    ) -> Result<(), ClientError> {
+        self.resource_group
+            .verify_resource_group(resource_group_id, password)
+            .await
     }
 }
 
