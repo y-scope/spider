@@ -6,13 +6,14 @@ use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, SessionId};
 use spider_proto_rust::storage::{
     self,
-    execution_manager_liveness_error,
     execution_manager_liveness_service_client::ExecutionManagerLivenessServiceClient,
-    register_execution_manager_response,
-    update_execution_manager_heartbeat_response,
 };
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::transport::{Channel, Endpoint};
+use tonic::{
+    Code,
+    Status,
+    transport::{Channel, Endpoint},
+};
 
 use crate::client::liveness::{LivenessClient, LivenessResponseError, RegistrationResponse};
 
@@ -59,7 +60,7 @@ impl LivenessClient for GrpcLivenessClient {
             .get_client()
             .register_execution_manager(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| status_to_error(&status))?
             .into_inner();
 
         register_response_to_result(response)
@@ -77,28 +78,27 @@ impl LivenessClient for GrpcLivenessClient {
             .get_client()
             .update_execution_manager_heartbeat(request)
             .await
-            .map_err(to_transport_error)?
+            .map_err(|status| status_to_error(&status))?
             .into_inner();
 
         heartbeat_response_to_result(response)
     }
 }
 
-impl From<storage::ExecutionManagerLivenessError> for LivenessResponseError {
-    fn from(error: storage::ExecutionManagerLivenessError) -> Self {
-        match execution_manager_liveness_error::ErrCode::try_from(error.err_code) {
-            Ok(execution_manager_liveness_error::ErrCode::MarkedDead) => Self::MarkedDead,
-            Ok(execution_manager_liveness_error::ErrCode::InvalidInput) => {
-                Self::IllegalId(error.message)
-            }
-            Ok(
-                execution_manager_liveness_error::ErrCode::Server
-                | execution_manager_liveness_error::ErrCode::Unspecified,
-            ) => Self::Transport(error.message),
-            Err(error) => Self::Transport(format!(
-                "unknown execution manager liveness error kind: {error}"
-            )),
-        }
+/// Maps an execution-manager-liveness gRPC [`Status`] to a [`LivenessResponseError`].
+///
+/// # Returns
+///
+/// The [`LivenessResponseError`] for `status`'s code:
+///
+/// * [`LivenessResponseError::MarkedDead`] for `FAILED_PRECONDITION`.
+/// * [`LivenessResponseError::IllegalId`] for `INVALID_ARGUMENT`.
+/// * [`LivenessResponseError::Transport`] for any other code.
+fn status_to_error(status: &Status) -> LivenessResponseError {
+    match status.code() {
+        Code::FailedPrecondition => LivenessResponseError::MarkedDead,
+        Code::InvalidArgument => LivenessResponseError::IllegalId(status.message().to_owned()),
+        _ => LivenessResponseError::Transport(status.message().to_owned()),
     }
 }
 
@@ -109,16 +109,20 @@ impl From<storage::ExecutionManagerLivenessError> for LivenessResponseError {
 fn register_response_to_result(
     response: storage::RegisterExecutionManagerResponse,
 ) -> Result<RegistrationResponse, LivenessResponseError> {
-    match response.result {
-        Some(register_execution_manager_response::Result::Registration(registration)) => {
+    match response.registration {
+        Some(registration) => {
+            if registration.session_id == 0 {
+                return Err(LivenessResponseError::Transport(
+                    "register execution manager response carried a zero session id".to_owned(),
+                ));
+            }
             Ok(RegistrationResponse {
                 em_id: ExecutionManagerId::from(registration.execution_manager_id),
                 session_id: registration.session_id,
             })
         }
-        Some(register_execution_manager_response::Result::Error(error)) => Err(error.into()),
         None => Err(LivenessResponseError::Transport(
-            "register execution manager response missing result".to_owned(),
+            "register execution manager response missing registration".to_owned(),
         )),
     }
 }
@@ -130,17 +134,13 @@ fn register_response_to_result(
 fn heartbeat_response_to_result(
     response: storage::UpdateExecutionManagerHeartbeatResponse,
 ) -> Result<SessionId, LivenessResponseError> {
-    match response.result {
-        Some(update_execution_manager_heartbeat_response::Result::SessionId(session_id)) => {
-            Ok(session_id)
-        }
-        Some(update_execution_manager_heartbeat_response::Result::Error(error)) => {
-            Err(error.into())
-        }
-        None => Err(LivenessResponseError::Transport(
-            "update execution manager heartbeat response missing result".to_owned(),
-        )),
+    let session_id = response.session_id;
+    if session_id == 0 {
+        return Err(LivenessResponseError::Transport(
+            "update execution manager heartbeat response carried a zero session id".to_owned(),
+        ));
     }
+    Ok(session_id)
 }
 
 /// Converts a displayable transport-layer error into [`LivenessResponseError::Transport`].
@@ -165,12 +165,10 @@ mod tests {
         const EM_ID: ExecutionManagerId = ExecutionManagerId::from(5);
 
         let response = storage::RegisterExecutionManagerResponse {
-            result: Some(register_execution_manager_response::Result::Registration(
-                storage::ExecutionManagerRegistration {
-                    execution_manager_id: EM_ID.get(),
-                    session_id: SESSION_ID,
-                },
-            )),
+            registration: Some(storage::ExecutionManagerRegistration {
+                execution_manager_id: EM_ID.get(),
+                session_id: SESSION_ID,
+            }),
         };
 
         let registration = register_response_to_result(response)
@@ -186,13 +184,36 @@ mod tests {
     }
 
     #[test]
+    fn register_response_to_result_rejects_missing_registration() {
+        let response = storage::RegisterExecutionManagerResponse { registration: None };
+
+        assert!(matches!(
+            register_response_to_result(response),
+            Err(LivenessResponseError::Transport(_))
+        ));
+    }
+
+    #[test]
+    fn register_response_to_result_rejects_zero_session_id() {
+        let response = storage::RegisterExecutionManagerResponse {
+            registration: Some(storage::ExecutionManagerRegistration {
+                execution_manager_id: 5,
+                session_id: 0,
+            }),
+        };
+
+        assert!(matches!(
+            register_response_to_result(response),
+            Err(LivenessResponseError::Transport(_))
+        ));
+    }
+
+    #[test]
     fn heartbeat_response_to_result_returns_session_id() {
         const SESSION_ID: SessionId = 9;
 
         let response = storage::UpdateExecutionManagerHeartbeatResponse {
-            result: Some(
-                update_execution_manager_heartbeat_response::Result::SessionId(SESSION_ID),
-            ),
+            session_id: SESSION_ID,
         };
 
         let session_id = heartbeat_response_to_result(response)
@@ -202,19 +223,43 @@ mod tests {
     }
 
     #[test]
-    fn liveness_storage_error_maps_invalid_input_to_illegal_id() {
+    fn heartbeat_response_to_result_rejects_zero_session_id() {
+        let response = storage::UpdateExecutionManagerHeartbeatResponse { session_id: 0 };
+
+        assert!(matches!(
+            heartbeat_response_to_result(response),
+            Err(LivenessResponseError::Transport(_))
+        ));
+    }
+
+    #[test]
+    fn status_maps_failed_precondition_to_marked_dead() {
+        let status = tonic::Status::failed_precondition("already dead");
+
+        assert!(matches!(
+            status_to_error(&status),
+            LivenessResponseError::MarkedDead
+        ));
+    }
+
+    #[test]
+    fn status_maps_invalid_argument_to_illegal_id() {
         const ERROR_MSG: &str = "bad em id";
+        let status = tonic::Status::invalid_argument(ERROR_MSG);
 
-        let error = storage::ExecutionManagerLivenessError {
-            err_code: execution_manager_liveness_error::ErrCode::InvalidInput.into(),
-            message: ERROR_MSG.to_owned(),
-        };
-
-        match LivenessResponseError::from(error) {
-            LivenessResponseError::IllegalId(message) => {
-                assert_eq!(message, ERROR_MSG);
-            }
-            error => panic!("unexpected liveness response error: {error:?}"),
+        match status_to_error(&status) {
+            LivenessResponseError::IllegalId(message) => assert_eq!(message, ERROR_MSG),
+            error => panic!("unexpected liveness status mapping: {error:?}"),
         }
+    }
+
+    #[test]
+    fn status_maps_other_codes_to_transport() {
+        let status = tonic::Status::internal("boom");
+
+        assert!(matches!(
+            status_to_error(&status),
+            LivenessResponseError::Transport(_)
+        ));
     }
 }
