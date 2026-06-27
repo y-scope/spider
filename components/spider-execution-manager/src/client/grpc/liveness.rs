@@ -1,6 +1,6 @@
 //! gRPC-backed [`LivenessClient`] implementation.
 
-use std::net::IpAddr;
+use std::{net::IpAddr, num::NonZeroUsize};
 
 use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, SessionId};
@@ -8,6 +8,7 @@ use spider_proto_rust::storage::{
     self,
     execution_manager_liveness_service_client::ExecutionManagerLivenessServiceClient,
 };
+use spider_utils::grpc::client::ConnectionPool;
 use tonic::{
     Code,
     Status,
@@ -19,11 +20,11 @@ use crate::client::liveness::{LivenessClient, LivenessResponseError, Registratio
 /// gRPC-backed [`LivenessClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcLivenessClient {
-    client: ExecutionManagerLivenessServiceClient<Channel>,
+    connection_pool: ConnectionPool<ExecutionManagerLivenessServiceClient<Channel>>,
 }
 
 impl GrpcLivenessClient {
-    /// Connects to the storage gRPC endpoint.
+    /// Connects a pool of `pool_size` connections to the liveness gRPC endpoint.
     ///
     /// # Returns
     ///
@@ -34,11 +35,17 @@ impl GrpcLivenessClient {
     /// Returns an error if:
     ///
     /// * [`LivenessResponseError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint) -> Result<Self, LivenessResponseError> {
-        ExecutionManagerLivenessServiceClient::connect(endpoint)
-            .await
-            .map(|client| Self { client })
-            .map_err(to_transport_error)
+    pub async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+    ) -> Result<Self, LivenessResponseError> {
+        let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
+            ExecutionManagerLivenessServiceClient::new(channel)
+        })
+        .await
+        .map_err(to_transport_error)?;
+
+        Ok(Self { connection_pool })
     }
 }
 
@@ -49,8 +56,8 @@ impl LivenessClient for GrpcLivenessClient {
             ip_address: ip.to_string(),
         };
         let response = self
-            .client
-            .clone()
+            .connection_pool
+            .get_client()
             .register_execution_manager(request)
             .await
             .map_err(|status| status_to_error(&status))?
@@ -67,8 +74,8 @@ impl LivenessClient for GrpcLivenessClient {
             execution_manager_id: em_id.get(),
         };
         let response = self
-            .client
-            .clone()
+            .connection_pool
+            .get_client()
             .update_execution_manager_heartbeat(request)
             .await
             .map_err(|status| status_to_error(&status))?
