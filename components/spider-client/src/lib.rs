@@ -10,8 +10,15 @@
 //!   [`SpiderClient::get_job_outputs`], [`SpiderClient::get_job_error`].
 //! * Resource group operations: [`SpiderClient::add_resource_group`],
 //!   [`SpiderClient::verify_resource_group`].
+//!
+//! Each service is also available as a standalone client — [`JobOrchestrationClient`] and
+//! [`ResourceGroupManagementClient`] — for callers who need only one of the two.
 
 pub mod client;
 pub mod error;
 pub mod job;
 pub mod resource_group;
+
+pub use client::SpiderClient;
+pub use job::JobOrchestrationClient;
+pub use resource_group::ResourceGroupManagementClient;

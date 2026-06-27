@@ -104,6 +104,20 @@ pub(crate) fn resource_group_status_to_error(status: &Status) -> ClientError {
     }
 }
 
+/// Converts a displayable transport-layer error into [`ClientError::Transport`].
+///
+/// Used by the `connect` methods of [`crate::client::SpiderClient`],
+/// [`crate::job::JobOrchestrationClient`],
+/// and [`crate::resource_group::ResourceGroupManagementClient`] to fold `spider_utils::grpc::Error`
+/// into [`ClientError`].
+///
+/// # Returns
+///
+/// A [`ClientError::Transport`] containing `error`'s display string.
+pub(crate) fn to_transport_error(error: impl std::fmt::Display) -> ClientError {
+    ClientError::Transport(error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
