@@ -1986,6 +1986,7 @@ name = "spider-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "spider-core",
  "spider-proto-rust",
  "spider-utils",

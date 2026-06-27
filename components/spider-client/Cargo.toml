@@ -16,4 +16,5 @@ tonic = "0.12.3"
 
 [dev-dependencies]
 anyhow = "1.0.102"
+async-trait = "0.1.89"
 tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread"] }

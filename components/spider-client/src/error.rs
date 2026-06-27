@@ -63,10 +63,6 @@ pub enum ClientError {
 /// * [`ClientError::Unauthenticated`] for `UNAUTHENTICATED`.
 /// * [`ClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
 /// * [`ClientError::Server`] for any other code.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "called by job methods in task 4")
-)]
 pub(crate) fn job_status_to_error(status: &Status, job_id: JobId) -> ClientError {
     match status.code() {
         Code::NotFound => ClientError::JobNotFound(job_id),
