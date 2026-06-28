@@ -125,7 +125,7 @@ impl<
     ///
     /// * Forwards [`LivenessClient::register`]'s return values on failure.
     /// * Forwards [`ProcessPool::new`]'s return values on failure.
-    pub async fn create<LivenessClientType: LivenessClient + 'static>(
+    pub async fn create<LivenessClientType: LivenessClient + Clone + 'static>(
         scheduler_client: SchedulerClientType,
         storage_client: StorageClientType,
         liveness_client: LivenessClientType,

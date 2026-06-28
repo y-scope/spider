@@ -56,7 +56,7 @@ impl LivenessHandle {
 ///
 /// * A handle for sending commands to the actor.
 /// * The spawned task's [`JoinHandle`].
-pub fn spawn<LivenessClientType: LivenessClient + 'static>(
+pub fn spawn<LivenessClientType: LivenessClient + Clone + 'static>(
     em_id: ExecutionManagerId,
     client: LivenessClientType,
     session_tracker: SessionTracker,
@@ -82,7 +82,7 @@ pub fn spawn<LivenessClientType: LivenessClient + 'static>(
 const COMMAND_CHANNEL_CAP: usize = 16;
 
 /// The actor's owned state. Lives entirely inside the spawned task.
-struct LivenessActor<LivenessClientType: LivenessClient> {
+struct LivenessActor<LivenessClientType: LivenessClient + Clone> {
     em_id: ExecutionManagerId,
     client: LivenessClientType,
     session_tracker: SessionTracker,
@@ -91,7 +91,7 @@ struct LivenessActor<LivenessClientType: LivenessClient> {
     interval: Interval,
 }
 
-impl<LivenessClientType: LivenessClient> LivenessActor<LivenessClientType> {
+impl<LivenessClientType: LivenessClient + Clone> LivenessActor<LivenessClientType> {
     /// Drives the actor until cancellation or the command channel closes.
     async fn run(mut self) {
         loop {
