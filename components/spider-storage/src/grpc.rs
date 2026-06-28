@@ -241,9 +241,8 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `UNAVAILABLE` when the ready-queue channel is closed (the inbound queue can no longer
-    ///   yield entries).
-    /// * `INTERNAL` for a fatal cache-internal error (the service will restart) or any other
+    /// * `INTERNAL` when the ready-queue channel is closed (the inbound queue can no longer yield
+    ///   entries), for a fatal cache-internal error (the service will restart), or for any other
     ///   unexpected failure.
     pub fn inbound_queue_service_error_handler(
         &self,
@@ -260,7 +259,7 @@ impl<
                     tag,
                     "Inbound queue channel is closed."
                 );
-                Status::unavailable("inbound queue is closed")
+                Status::internal("inbound queue is closed")
             }
 
             StorageServerError::Cache(CacheError::Internal(e)) => {
@@ -405,7 +404,7 @@ impl<
     /// Shared by every service error handler's `Cache(CacheError::Internal)` arm. A fatal
     /// cache-internal error is unrecoverable, so the whole storage service is cancelled to avoid
     /// cache corruption. It is reported as `INTERNAL` rather than `UNAVAILABLE`, which is reserved
-    /// for transport-level unavailability such as a dropped connection or a closed inbound queue.
+    /// for transport-level unavailability such as a dropped connection.
     ///
     /// # Returns
     ///
