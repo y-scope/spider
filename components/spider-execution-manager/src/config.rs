@@ -1,4 +1,9 @@
-use std::{net::IpAddr, num::NonZeroUsize, path::PathBuf, time::Duration};
+use std::{
+    net::IpAddr,
+    num::{NonZeroU64, NonZeroUsize},
+    path::PathBuf,
+    time::Duration,
+};
 
 use serde::Deserialize;
 use spider_utils::config::EndpointConfig;
@@ -23,6 +28,8 @@ pub struct Config {
     pub task_executor: TaskExecutorConfig,
 
     /// The number of connections each gRPC client pool eagerly establishes.
+    ///
+    /// Must be greater than zero.
     pub connection_pool_size: NonZeroUsize,
 
     /// How long, in milliseconds, the scheduler is asked to block each polling request before
@@ -40,9 +47,11 @@ impl Config {
     pub fn runtime_config(&self) -> RuntimeConfig {
         RuntimeConfig {
             em_ip: self.host,
-            heartbeat_interval: Duration::from_secs(self.liveness.storage_heartbeat_interval_sec),
+            heartbeat_interval: Duration::from_secs(
+                self.liveness.storage_heartbeat_interval_sec.get(),
+            ),
             scheduler_heartbeat_interval: Duration::from_secs(
-                self.liveness.scheduler_heartbeat_interval_sec,
+                self.liveness.scheduler_heartbeat_interval_sec.get(),
             ),
             scheduler_poll_wait_ms: self.scheduler_poll_wait_ms,
             executor_binary_path: self.task_executor.bin_path.clone(),
@@ -54,11 +63,15 @@ impl Config {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LivenessConfig {
-    /// The interval, in seconds, between liveness heartbeats sent to storage.
-    pub storage_heartbeat_interval_sec: u64,
+    /// The interval, in seconds, between liveness heartbeats sent to the storage.
+    ///
+    /// Must be greater than zero.
+    pub storage_heartbeat_interval_sec: NonZeroU64,
 
     /// The interval, in seconds, between scheduler heartbeats sent to the scheduler.
-    pub scheduler_heartbeat_interval_sec: u64,
+    ///
+    /// Must be greater than zero.
+    pub scheduler_heartbeat_interval_sec: NonZeroU64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
