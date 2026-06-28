@@ -81,7 +81,7 @@ impl LivenessClient for GrpcLivenessClient {
             .map_err(|status| status_to_error(&status))?
             .into_inner();
 
-        heartbeat_response_to_result(response)
+        Ok(heartbeat_response_to_result(response))
     }
 }
 
@@ -109,38 +109,24 @@ fn status_to_error(status: &Status) -> LivenessResponseError {
 fn register_response_to_result(
     response: storage::RegisterExecutionManagerResponse,
 ) -> Result<RegistrationResponse, LivenessResponseError> {
-    match response.registration {
-        Some(registration) => {
-            if registration.session_id == 0 {
-                return Err(LivenessResponseError::Transport(
-                    "register execution manager response carried a zero session id".to_owned(),
-                ));
-            }
-            Ok(RegistrationResponse {
-                em_id: ExecutionManagerId::from(registration.execution_manager_id),
-                session_id: registration.session_id,
-            })
-        }
-        None => Err(LivenessResponseError::Transport(
+    let registration = response.registration.ok_or_else(|| {
+        LivenessResponseError::Transport(
             "register execution manager response missing registration".to_owned(),
-        )),
-    }
+        )
+    })?;
+    Ok(RegistrationResponse {
+        em_id: ExecutionManagerId::from(registration.execution_manager_id),
+        session_id: registration.session_id,
+    })
 }
 
 /// # Returns
 ///
-/// [`storage::UpdateExecutionManagerHeartbeatResponse`] converted into
-/// [`Result<SessionId, LivenessResponseError>`].
-fn heartbeat_response_to_result(
+/// The [`SessionId`] carried by `response`.
+const fn heartbeat_response_to_result(
     response: storage::UpdateExecutionManagerHeartbeatResponse,
-) -> Result<SessionId, LivenessResponseError> {
-    let session_id = response.session_id;
-    if session_id == 0 {
-        return Err(LivenessResponseError::Transport(
-            "update execution manager heartbeat response carried a zero session id".to_owned(),
-        ));
-    }
-    Ok(session_id)
+) -> SessionId {
+    response.session_id
 }
 
 /// Converts a displayable transport-layer error into [`LivenessResponseError::Transport`].
@@ -194,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn register_response_to_result_rejects_zero_session_id() {
+    fn register_response_to_result_accepts_zero_session_id() {
         let response = storage::RegisterExecutionManagerResponse {
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: 5,
@@ -202,10 +188,10 @@ mod tests {
             }),
         };
 
-        assert!(matches!(
-            register_response_to_result(response),
-            Err(LivenessResponseError::Transport(_))
-        ));
+        let registration = register_response_to_result(response)
+            .expect("registration response conversion should succeed");
+
+        assert_eq!(registration.session_id, 0);
     }
 
     #[test]
@@ -216,20 +202,16 @@ mod tests {
             session_id: SESSION_ID,
         };
 
-        let session_id = heartbeat_response_to_result(response)
-            .expect("heartbeat response conversion should succeed");
+        let session_id = heartbeat_response_to_result(response);
 
         assert_eq!(session_id, SESSION_ID);
     }
 
     #[test]
-    fn heartbeat_response_to_result_rejects_zero_session_id() {
+    fn heartbeat_response_to_result_accepts_zero_session_id() {
         let response = storage::UpdateExecutionManagerHeartbeatResponse { session_id: 0 };
 
-        assert!(matches!(
-            heartbeat_response_to_result(response),
-            Err(LivenessResponseError::Transport(_))
-        ));
+        assert_eq!(heartbeat_response_to_result(response), 0);
     }
 
     #[test]
