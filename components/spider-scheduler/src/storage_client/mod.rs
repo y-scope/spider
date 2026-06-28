@@ -133,10 +133,9 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageClientError::InboundClosed`] if the inbound queue is closed and can no longer
-    ///   yield entries.
-    /// * [`StorageClientError::Server`] if the storage server returns an error.
-    /// * [`StorageClientError::Transport`] if the storage transport failed or returned malformed
+    /// * [`StorageClientError::Server`] if the inbound queue is closed and can no longer yield
+    ///   entries, or the storage server returns another error.
+    /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
     ///   data.
     async fn resend_ready_tasks(&self) -> Result<(), StorageClientError>;
 }
