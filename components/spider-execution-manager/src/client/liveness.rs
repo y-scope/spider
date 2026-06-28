@@ -3,7 +3,7 @@
 //! The execution manager registers itself with storage at boot, then sends a periodic heartbeat.
 //! Each heartbeat both keeps the EM marked alive and returns storage's current session id.
 
-use std::net::IpAddr;
+use std::{net::IpAddr, sync::Arc};
 
 use async_trait::async_trait;
 use spider_core::types::id::{ExecutionManagerId, SessionId};
@@ -76,4 +76,18 @@ pub trait LivenessClient: Send + Sync {
         &self,
         em_id: ExecutionManagerId,
     ) -> Result<SessionId, LivenessResponseError>;
+}
+
+#[async_trait]
+impl<LivenessClientType: LivenessClient + ?Sized> LivenessClient for Arc<LivenessClientType> {
+    async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError> {
+        (**self).register(ip).await
+    }
+
+    async fn heartbeat(
+        &self,
+        em_id: ExecutionManagerId,
+    ) -> Result<SessionId, LivenessResponseError> {
+        (**self).heartbeat(em_id).await
+    }
 }

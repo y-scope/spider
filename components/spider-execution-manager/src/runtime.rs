@@ -1,6 +1,6 @@
 //! Runtime — the execution manager's main loop.
 
-use std::{collections::VecDeque, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::IpAddr, path::PathBuf, time::Duration};
 
 use spider_core::{
     session::SessionTracker,
@@ -128,7 +128,7 @@ impl<
     pub async fn create<LivenessClientType: LivenessClient + 'static>(
         scheduler_client: SchedulerClientType,
         storage_client: StorageClientType,
-        liveness_client: Arc<LivenessClientType>,
+        liveness_client: LivenessClientType,
         config: RuntimeConfig,
     ) -> Result<(Self, CancellationToken), RuntimeError> {
         let registration = liveness_client.register(config.em_ip).await?;

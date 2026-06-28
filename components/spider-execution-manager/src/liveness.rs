@@ -7,7 +7,7 @@
 //! 2. An [`mpsc`] command channel from the rest of the runtime.
 //! 3. A [`CancellationToken`] that the runtime flips on shutdown.
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use spider_core::{session::SessionTracker, types::id::ExecutionManagerId};
 use tokio::{
@@ -58,7 +58,7 @@ impl LivenessHandle {
 /// * The spawned task's [`JoinHandle`].
 pub fn spawn<LivenessClientType: LivenessClient + 'static>(
     em_id: ExecutionManagerId,
-    client: Arc<LivenessClientType>,
+    client: LivenessClientType,
     session_tracker: SessionTracker,
     cancellation_token: CancellationToken,
     heartbeat_interval: Duration,
@@ -84,7 +84,7 @@ const COMMAND_CHANNEL_CAP: usize = 16;
 /// The actor's owned state. Lives entirely inside the spawned task.
 struct LivenessActor<LivenessClientType: LivenessClient> {
     em_id: ExecutionManagerId,
-    client: Arc<LivenessClientType>,
+    client: LivenessClientType,
     session_tracker: SessionTracker,
     cmd_receiver: mpsc::Receiver<LivenessCommand>,
     cancellation_token: CancellationToken,

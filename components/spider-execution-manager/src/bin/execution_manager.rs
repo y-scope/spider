@@ -1,6 +1,6 @@
 //! Command-line entrypoint for the execution manager.
 
-use std::{error::Error, path::PathBuf, sync::Arc};
+use std::{error::Error, path::PathBuf};
 
 use clap::Parser;
 use spider_execution_manager::{
@@ -39,10 +39,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .inspect_err(
             |error| tracing::error!(error = % error, "Failed to connect to storage gRPC service."),
         )?;
-    let liveness_client = Arc::new(
-        GrpcLivenessClient::connect(storage_endpoint, pool_size).await.
-            inspect_err(|error|
-                tracing::error!(error = % error, "Failed to connect to liveness gRPC service."))?);
+    let liveness_client = GrpcLivenessClient::connect(storage_endpoint, pool_size)
+        .await
+        .inspect_err(
+            |error| tracing::error!(error = % error, "Failed to connect to liveness gRPC service."),
+        )?;
     let scheduler_client = GrpcSchedulerClient::connect(scheduler_endpoint, pool_size).await.inspect_err(|error| tracing::error!(error = % error, "Failed to connect to scheduler gRPC service."))?;
 
     let (runtime, cancellation_token) = Runtime::create(
