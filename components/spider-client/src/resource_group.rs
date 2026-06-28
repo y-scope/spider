@@ -124,9 +124,12 @@ mod tests {
     };
 
     use async_trait::async_trait;
-    use spider_proto_rust::storage::resource_group_management_service_server::{
-        ResourceGroupManagementService,
-        ResourceGroupManagementServiceServer,
+    use spider_proto_rust::{
+        common::Void,
+        storage::resource_group_management_service_server::{
+            ResourceGroupManagementService,
+            ResourceGroupManagementServiceServer,
+        },
     };
     use tonic::{Request, Response, Status, transport::Server};
 
@@ -187,14 +190,12 @@ mod tests {
         async fn verify_resource_group(
             &self,
             _request: Request<storage::VerifyResourceGroupRequest>,
-        ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
+        ) -> Result<Response<Void>, Status> {
             self.counts
                 .verify_resource_group
                 .fetch_add(1, Ordering::SeqCst);
             match &self.verify_resource_group {
-                MockResponse::Success(()) => {
-                    Ok(Response::new(storage::ResourceGroupOperationResponse {}))
-                }
+                MockResponse::Success(()) => Ok(Response::new(Void {})),
                 MockResponse::Error(status) => Err(status.clone()),
             }
         }
@@ -205,10 +206,10 @@ mod tests {
     /// # Returns
     ///
     /// The bound socket address and the spawned server task handle on success.
-    async fn serve(
+    fn serve(
         mock: MockResourceGroupService,
     ) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
-        let (addr, incoming) = bind_ephemeral().await?;
+        let (addr, incoming) = bind_ephemeral()?;
         let join = tokio::spawn(async move {
             Server::builder()
                 .add_service(ResourceGroupManagementServiceServer::new(mock))
@@ -247,7 +248,7 @@ mod tests {
             add_resource_group: MockResponse::Success(EXPECTED_RG_ID),
             ..MockResourceGroupService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let resource_group_id = connect_client(addr)
             .await?
             .add_resource_group("rg-1".to_owned(), vec![1, 2, 3])
@@ -262,7 +263,7 @@ mod tests {
     async fn verify_resource_group_returns_ok_on_success() -> anyhow::Result<()> {
         let counts = Arc::new(CallCounts::default());
         let mock = MockResourceGroupService::new(counts.clone());
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         connect_client(addr)
             .await?
             .verify_resource_group(ResourceGroupId::from(7), vec![1, 2, 3])
@@ -279,7 +280,7 @@ mod tests {
             add_resource_group: MockResponse::Error(Status::unauthenticated("invalid password")),
             ..MockResourceGroupService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
@@ -302,7 +303,7 @@ mod tests {
             add_resource_group: MockResponse::Error(Status::invalid_argument("bad external id")),
             ..MockResourceGroupService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
@@ -325,7 +326,7 @@ mod tests {
             verify_resource_group: MockResponse::Error(Status::unavailable("connection lost")),
             ..MockResourceGroupService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?

@@ -15,8 +15,8 @@ service JobOrchestrationService {
 
 service TaskInstanceManagementService {
   rpc RegisterTaskInstance(RegisterTaskInstanceRequest) returns (RegisterTaskInstanceResponse);
-  rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (TaskInstanceOperationResponse);
-  rpc ReportTaskFailure(ReportTaskFailureRequest) returns (TaskInstanceOperationResponse);
+  rpc ReportTaskSuccess(ReportTaskSuccessRequest) returns (common.Void);
+  rpc ReportTaskFailure(ReportTaskFailureRequest) returns (common.Void);
 }
 
 service InboundQueueService {
@@ -27,7 +27,7 @@ service InboundQueueService {
 
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
-  rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (ResourceGroupOperationResponse);
+  rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (common.Void);
 }
 
 service ExecutionManagerLivenessService {
@@ -215,7 +215,3 @@ enum JobState {
   FAILED = 6;
   CANCELLED = 7;
 }
-
-message TaskInstanceOperationResponse {}
-
-message ResourceGroupOperationResponse {}

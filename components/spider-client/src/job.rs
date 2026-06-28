@@ -475,10 +475,8 @@ mod tests {
     /// # Returns
     ///
     /// The bound socket address and the spawned server task handle on success.
-    async fn serve(
-        mock: MockJobService,
-    ) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
-        let (addr, incoming) = bind_ephemeral().await?;
+    fn serve(mock: MockJobService) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+        let (addr, incoming) = bind_ephemeral()?;
         let join = tokio::spawn(async move {
             Server::builder()
                 .add_service(JobOrchestrationServiceServer::new(mock))
@@ -517,7 +515,7 @@ mod tests {
             register_job: MockResponse::Success(EXPECTED_JOB_ID),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let job_id = connect_client(addr)
             .await?
             .submit_job(
@@ -539,7 +537,7 @@ mod tests {
             start_job: MockResponse::Success(storage::JobState::Running),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let state = connect_client(addr)
             .await?
             .start_job(JobId::from(7))
@@ -557,7 +555,7 @@ mod tests {
             cancel_job: MockResponse::Success(storage::JobState::Cancelled),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let state = connect_client(addr)
             .await?
             .cancel_job(JobId::from(8))
@@ -575,7 +573,7 @@ mod tests {
             get_job_state: MockResponse::Success(storage::JobState::Succeeded),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let state = connect_client(addr)
             .await?
             .get_job_state(JobId::from(9))
@@ -594,7 +592,7 @@ mod tests {
             get_job_outputs: MockResponse::Success(outputs.clone()),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let received = connect_client(addr)
             .await?
             .get_job_outputs(JobId::from(11))
@@ -613,7 +611,7 @@ mod tests {
             get_job_error: MockResponse::Success(MESSAGE.to_owned()),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
         let message = connect_client(addr)
             .await?
             .get_job_error(JobId::from(12))
@@ -631,7 +629,7 @@ mod tests {
             register_job: MockResponse::Error(Status::invalid_argument("bad task graph")),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
@@ -658,7 +656,7 @@ mod tests {
             register_job: MockResponse::Error(Status::unauthenticated("invalid resource group")),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
@@ -686,7 +684,7 @@ mod tests {
             get_job_state: MockResponse::Error(Status::not_found("job not found")),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr).await?.get_job_state(job_id).await {
             Err(ClientError::JobNotFound(returned_id)) => assert_eq!(returned_id, job_id),
@@ -703,7 +701,7 @@ mod tests {
             start_job: MockResponse::Error(Status::failed_precondition("job is running")),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr).await?.start_job(JobId::from(14)).await {
             Err(ClientError::InvalidJobState(message)) => {
@@ -722,7 +720,7 @@ mod tests {
             get_job_state: MockResponse::Error(Status::unavailable("connection lost")),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
@@ -743,7 +741,7 @@ mod tests {
             get_job_state: MockResponse::Error(Status::internal("internal error")),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
@@ -764,7 +762,7 @@ mod tests {
             get_job_state: MockResponse::Success(storage::JobState::Unspecified),
             ..MockJobService::new(counts.clone())
         };
-        let (addr, _join) = serve(mock).await?;
+        let (addr, _join) = serve(mock)?;
 
         match connect_client(addr)
             .await?
