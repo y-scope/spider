@@ -200,6 +200,13 @@ impl<
         Ok((runtime, cancellation_token))
     }
 
+    /// # Returns
+    ///
+    /// The ID of the registered execution manager.
+    pub const fn get_em_id(&self) -> ExecutionManagerId {
+        self.em_id
+    }
+
     /// Runs the main loop until the runtime is cancelled, then tears it down.
     ///
     /// # Returns

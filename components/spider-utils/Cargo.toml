@@ -18,3 +18,4 @@ tracing-subscriber = {
   default-features = false,
   features = ["env-filter", "fmt", "json"]
 }
+yaml_serde = "0.10.4"
