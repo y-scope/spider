@@ -67,14 +67,11 @@ fn main() {
     }
     fs::create_dir_all(&out_dir).expect("failed to create output dir for generated code");
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(true)
         .build_server(true)
         .out_dir(&out_dir)
-        .compile_protos(
-            spider_proto_sources.as_ref(),
-            &[spider_proto_root.as_path()],
-        )
+        .compile_protos(spider_proto_sources.as_ref(), &[spider_proto_root])
         .inspect_err(|e| eprintln!("Failed to compile `spider-proto`: {e:?}"))
         .expect("proto compilation failed");
 
