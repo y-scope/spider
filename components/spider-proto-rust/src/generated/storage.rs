@@ -42,18 +42,8 @@ pub struct PollReadyTasksRequest {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PollReadyTasksResponse {
-    #[prost(oneof = "poll_ready_tasks_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<poll_ready_tasks_response::Result>,
-}
-/// Nested message and enum types in `PollReadyTasksResponse`.
-pub mod poll_ready_tasks_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Tasks(super::ReadyTasks),
-        #[prost(message, tag = "2")]
-        Error(super::InboundQueueResponseError),
-    }
+    #[prost(message, optional, tag = "1")]
+    pub tasks: ::core::option::Option<ReadyTasks>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadyTasks {
@@ -148,23 +138,11 @@ pub struct AddResourceGroupRequest {
     pub external_resource_group_id: ::prost::alloc::string::String,
     #[prost(bytes = "vec", tag = "2")]
     pub password: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "3")]
-    pub session_id: u64,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ResourceGroupIdResponse {
-    #[prost(oneof = "resource_group_id_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<resource_group_id_response::Result>,
-}
-/// Nested message and enum types in `ResourceGroupIdResponse`.
-pub mod resource_group_id_response {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(uint64, tag = "1")]
-        ResourceGroupId(u64),
-        #[prost(message, tag = "2")]
-        Error(super::ResourceGroupManagementError),
-    }
+    #[prost(uint64, tag = "1")]
+    pub resource_group_id: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct VerifyResourceGroupRequest {
@@ -172,8 +150,6 @@ pub struct VerifyResourceGroupRequest {
     pub resource_group_id: u64,
     #[prost(bytes = "vec", tag = "2")]
     pub password: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "3")]
-    pub session_id: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterExecutionManagerRequest {
@@ -192,40 +168,15 @@ pub struct ExecutionManagerRegistration {
     #[prost(uint64, tag = "2")]
     pub session_id: u64,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterExecutionManagerResponse {
-    #[prost(oneof = "register_execution_manager_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<register_execution_manager_response::Result>,
+    #[prost(message, optional, tag = "1")]
+    pub registration: ::core::option::Option<ExecutionManagerRegistration>,
 }
-/// Nested message and enum types in `RegisterExecutionManagerResponse`.
-pub mod register_execution_manager_response {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Registration(super::ExecutionManagerRegistration),
-        #[prost(message, tag = "2")]
-        Error(super::ExecutionManagerLivenessError),
-    }
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UpdateExecutionManagerHeartbeatResponse {
-    #[prost(
-        oneof = "update_execution_manager_heartbeat_response::Result",
-        tags = "1, 2"
-    )]
-    pub result: ::core::option::Option<
-        update_execution_manager_heartbeat_response::Result,
-    >,
-}
-/// Nested message and enum types in `UpdateExecutionManagerHeartbeatResponse`.
-pub mod update_execution_manager_heartbeat_response {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(uint64, tag = "1")]
-        SessionId(u64),
-        #[prost(message, tag = "2")]
-        Error(super::ExecutionManagerLivenessError),
-    }
+    #[prost(uint64, tag = "1")]
+    pub session_id: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterSchedulerRequest {
@@ -241,20 +192,10 @@ pub struct SchedulerRegistration {
     #[prost(uint64, tag = "2")]
     pub session_id: u64,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterSchedulerResponse {
-    #[prost(oneof = "register_scheduler_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<register_scheduler_response::Result>,
-}
-/// Nested message and enum types in `RegisterSchedulerResponse`.
-pub mod register_scheduler_response {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Registration(super::SchedulerRegistration),
-        #[prost(message, tag = "2")]
-        Error(super::SchedulerRegistrationError),
-    }
+    #[prost(message, optional, tag = "1")]
+    pub registration: ::core::option::Option<SchedulerRegistration>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Scheduler {
@@ -272,244 +213,13 @@ pub struct SchedulerRegistrations {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetSchedulersResponse {
-    #[prost(oneof = "get_schedulers_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<get_schedulers_response::Result>,
-}
-/// Nested message and enum types in `GetSchedulersResponse`.
-pub mod get_schedulers_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Schedulers(super::SchedulerRegistrations),
-        #[prost(message, tag = "2")]
-        Error(super::SchedulerRegistrationError),
-    }
+    #[prost(message, optional, tag = "1")]
+    pub schedulers: ::core::option::Option<SchedulerRegistrations>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetSessionResponse {
     #[prost(uint64, tag = "1")]
     pub session_id: u64,
-}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct TaskInstanceOperationResponse {}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ResourceGroupOperationResponse {
-    #[prost(oneof = "resource_group_operation_response::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<resource_group_operation_response::Result>,
-}
-/// Nested message and enum types in `ResourceGroupOperationResponse`.
-pub mod resource_group_operation_response {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Ok(super::super::common::Void),
-        #[prost(message, tag = "2")]
-        Error(super::ResourceGroupManagementError),
-    }
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct InboundQueueResponseError {
-    #[prost(enumeration = "inbound_queue_response_error::ErrCode", tag = "1")]
-    pub err_code: i32,
-    #[prost(string, tag = "2")]
-    pub message: ::prost::alloc::string::String,
-}
-/// Nested message and enum types in `InboundQueueResponseError`.
-pub mod inbound_queue_response_error {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum ErrCode {
-        Unspecified = 0,
-        InboundClosed = 1,
-        Server = 2,
-        InvalidInput = 3,
-    }
-    impl ErrCode {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
-                Self::InboundClosed => "INBOUND_CLOSED",
-                Self::Server => "SERVER",
-                Self::InvalidInput => "INVALID_INPUT",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
-                "INBOUND_CLOSED" => Some(Self::InboundClosed),
-                "SERVER" => Some(Self::Server),
-                "INVALID_INPUT" => Some(Self::InvalidInput),
-                _ => None,
-            }
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ResourceGroupManagementError {
-    #[prost(enumeration = "resource_group_management_error::ErrCode", tag = "1")]
-    pub err_code: i32,
-    #[prost(string, tag = "2")]
-    pub message: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "3")]
-    pub storage_session: u64,
-}
-/// Nested message and enum types in `ResourceGroupManagementError`.
-pub mod resource_group_management_error {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum ErrCode {
-        Unspecified = 0,
-        StaleSession = 1,
-        Server = 2,
-        InvalidInput = 3,
-    }
-    impl ErrCode {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
-                Self::StaleSession => "STALE_SESSION",
-                Self::Server => "SERVER",
-                Self::InvalidInput => "INVALID_INPUT",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
-                "STALE_SESSION" => Some(Self::StaleSession),
-                "SERVER" => Some(Self::Server),
-                "INVALID_INPUT" => Some(Self::InvalidInput),
-                _ => None,
-            }
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ExecutionManagerLivenessError {
-    #[prost(enumeration = "execution_manager_liveness_error::ErrCode", tag = "1")]
-    pub err_code: i32,
-    #[prost(string, tag = "2")]
-    pub message: ::prost::alloc::string::String,
-}
-/// Nested message and enum types in `ExecutionManagerLivenessError`.
-pub mod execution_manager_liveness_error {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum ErrCode {
-        Unspecified = 0,
-        MarkedDead = 1,
-        InvalidInput = 2,
-        Server = 3,
-    }
-    impl ErrCode {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
-                Self::MarkedDead => "MARKED_DEAD",
-                Self::InvalidInput => "INVALID_INPUT",
-                Self::Server => "SERVER",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
-                "MARKED_DEAD" => Some(Self::MarkedDead),
-                "INVALID_INPUT" => Some(Self::InvalidInput),
-                "SERVER" => Some(Self::Server),
-                _ => None,
-            }
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct SchedulerRegistrationError {
-    #[prost(enumeration = "scheduler_registration_error::ErrCode", tag = "1")]
-    pub err_code: i32,
-    #[prost(string, tag = "2")]
-    pub message: ::prost::alloc::string::String,
-}
-/// Nested message and enum types in `SchedulerRegistrationError`.
-pub mod scheduler_registration_error {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum ErrCode {
-        Unspecified = 0,
-        Server = 1,
-    }
-    impl ErrCode {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::Unspecified => "ERR_CODE_UNSPECIFIED",
-                Self::Server => "SERVER",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "ERR_CODE_UNSPECIFIED" => Some(Self::Unspecified),
-                "SERVER" => Some(Self::Server),
-                _ => None,
-            }
-        }
-    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1389,7 +1099,7 @@ pub mod task_instance_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ReportTaskSuccessRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -1418,7 +1128,7 @@ pub mod task_instance_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ReportTaskFailureRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -1469,14 +1179,14 @@ pub mod task_instance_management_service_server {
             &self,
             request: tonic::Request<super::ReportTaskSuccessRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
         async fn report_task_failure(
             &self,
             request: tonic::Request<super::ReportTaskFailureRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -1617,7 +1327,7 @@ pub mod task_instance_management_service_server {
                         T: TaskInstanceManagementService,
                     > tonic::server::UnaryService<super::ReportTaskSuccessRequest>
                     for ReportTaskSuccessSvc<T> {
-                        type Response = super::TaskInstanceOperationResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -1668,7 +1378,7 @@ pub mod task_instance_management_service_server {
                         T: TaskInstanceManagementService,
                     > tonic::server::UnaryService<super::ReportTaskFailureRequest>
                     for ReportTaskFailureSvc<T> {
-                        type Response = super::TaskInstanceOperationResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2351,7 +2061,7 @@ pub mod resource_group_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::VerifyResourceGroupRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ResourceGroupOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -2402,7 +2112,7 @@ pub mod resource_group_management_service_server {
             &self,
             request: tonic::Request<super::VerifyResourceGroupRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ResourceGroupOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -2543,7 +2253,7 @@ pub mod resource_group_management_service_server {
                         T: ResourceGroupManagementService,
                     > tonic::server::UnaryService<super::VerifyResourceGroupRequest>
                     for VerifyResourceGroupSvc<T> {
-                        type Response = super::ResourceGroupOperationResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
