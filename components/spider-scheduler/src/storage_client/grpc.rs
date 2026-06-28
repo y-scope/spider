@@ -142,12 +142,13 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
 ///
 /// The [`StorageClientError`] for `status`'s code:
 ///
-/// * [`StorageClientError::InboundClosed`] for `UNAVAILABLE`.
+/// * [`StorageClientError::Transport`] for `UNAVAILABLE` (a network-level failure).
 /// * [`StorageClientError::InvalidInput`] for `INVALID_ARGUMENT`.
-/// * [`StorageClientError::Server`] for any other code.
+/// * [`StorageClientError::Server`] for any other code (including `INTERNAL`, which the storage
+///   server sends when the inbound queue is closed).
 fn inbound_status_to_error(status: &Status) -> StorageClientError {
     match status.code() {
-        Code::Unavailable => StorageClientError::InboundClosed,
+        Code::Unavailable => to_transport_error(status.message()),
         Code::InvalidArgument => to_invalid_input_error(status.message()),
         _ => StorageClientError::Server(status.message().to_owned()),
     }
@@ -338,13 +339,14 @@ mod tests {
     }
 
     #[test]
-    fn inbound_status_maps_unavailable_to_inbound_closed() {
-        let status = tonic::Status::unavailable("inbound queue is closed");
+    fn inbound_status_maps_unavailable_to_transport() {
+        const MESSAGE: &str = "inbound queue is closed";
+        let status = tonic::Status::unavailable(MESSAGE);
 
-        assert!(matches!(
-            inbound_status_to_error(&status),
-            StorageClientError::InboundClosed
-        ));
+        match inbound_status_to_error(&status) {
+            StorageClientError::Transport(message) => assert_eq!(message, MESSAGE),
+            error => panic!("unexpected inbound status mapping: {error:?}"),
+        }
     }
 
     #[test]
