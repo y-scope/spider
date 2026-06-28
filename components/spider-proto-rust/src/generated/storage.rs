@@ -221,10 +221,6 @@ pub struct GetSessionResponse {
     #[prost(uint64, tag = "1")]
     pub session_id: u64,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct TaskInstanceOperationResponse {}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ResourceGroupOperationResponse {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum JobState {
@@ -642,7 +638,7 @@ pub mod task_instance_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ReportTaskSuccessRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -671,7 +667,7 @@ pub mod task_instance_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ReportTaskFailureRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -1001,7 +997,7 @@ pub mod resource_group_management_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::VerifyResourceGroupRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ResourceGroupOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -1938,14 +1934,14 @@ pub mod task_instance_management_service_server {
             &self,
             request: tonic::Request<super::ReportTaskSuccessRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
         async fn report_task_failure(
             &self,
             request: tonic::Request<super::ReportTaskFailureRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::TaskInstanceOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -2086,7 +2082,7 @@ pub mod task_instance_management_service_server {
                         T: TaskInstanceManagementService,
                     > tonic::server::UnaryService<super::ReportTaskSuccessRequest>
                     for ReportTaskSuccessSvc<T> {
-                        type Response = super::TaskInstanceOperationResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2137,7 +2133,7 @@ pub mod task_instance_management_service_server {
                         T: TaskInstanceManagementService,
                     > tonic::server::UnaryService<super::ReportTaskFailureRequest>
                     for ReportTaskFailureSvc<T> {
-                        type Response = super::TaskInstanceOperationResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2537,7 +2533,7 @@ pub mod resource_group_management_service_server {
             &self,
             request: tonic::Request<super::VerifyResourceGroupRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ResourceGroupOperationResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -2678,7 +2674,7 @@ pub mod resource_group_management_service_server {
                         T: ResourceGroupManagementService,
                     > tonic::server::UnaryService<super::VerifyResourceGroupRequest>
                     for VerifyResourceGroupSvc<T> {
-                        type Response = super::ResourceGroupOperationResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
