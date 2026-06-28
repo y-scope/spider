@@ -1964,7 +1964,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
- "yaml_serde",
 ]
 
 [[package]]
@@ -2026,7 +2025,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
- "yaml_serde",
 ]
 
 [[package]]

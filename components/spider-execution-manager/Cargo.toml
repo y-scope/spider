@@ -45,4 +45,3 @@ tokio = {
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 tonic = "0.14.6"
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
-yaml_serde = "0.10.4"
