@@ -8,11 +8,12 @@ name = "spider_proto_rust"
 path = "src/lib.rs"
 
 [dependencies]
-prost = "0.13.5"
+prost = "0.14.4"
 spider-core = { path = "../spider-core" }
 thiserror = "2.0.18"
-tonic = "0.12.3"
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-prost-build = "0.14.6"

@@ -610,7 +610,7 @@ impl<
     async fn report_task_success(
         &self,
         request: Request<storage::ReportTaskSuccessRequest>,
-    ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
+    ) -> Result<Response<common::Void>, Status> {
         let (session_id, job_id, task_id, task_instance_id, serialized_outputs) =
             request.into_inner().unpack()?;
         tracing::info!(
@@ -648,13 +648,13 @@ impl<
             self.task_instance_management_service_error_handler(error, "report_task_success")
         })?;
 
-        Ok(Response::new(storage::TaskInstanceOperationResponse {}))
+        Ok(Response::new(common::Void {}))
     }
 
     async fn report_task_failure(
         &self,
         request: Request<storage::ReportTaskFailureRequest>,
-    ) -> Result<Response<storage::TaskInstanceOperationResponse>, Status> {
+    ) -> Result<Response<common::Void>, Status> {
         let (session_id, job_id, task_id, task_instance_id, error_message) =
             request.into_inner().unpack()?;
         tracing::info!(
@@ -672,7 +672,7 @@ impl<
             .map_err(|error| {
                 self.task_instance_management_service_error_handler(error, "report_task_failure")
             })?;
-        Ok(Response::new(storage::TaskInstanceOperationResponse {}))
+        Ok(Response::new(common::Void {}))
     }
 }
 
@@ -782,7 +782,7 @@ impl<
     async fn verify_resource_group(
         &self,
         request: Request<storage::VerifyResourceGroupRequest>,
-    ) -> Result<Response<storage::ResourceGroupOperationResponse>, Status> {
+    ) -> Result<Response<common::Void>, Status> {
         let (rg_id, password) = request.into_inner().unpack()?;
         tracing::info!(
             rg_id = rg_id.get(),
@@ -794,7 +794,7 @@ impl<
             .map_err(|error| {
                 self.resource_group_management_service_error_handler(error, "verify_resource_group")
             })?;
-        Ok(Response::new(storage::ResourceGroupOperationResponse {}))
+        Ok(Response::new(common::Void {}))
     }
 }
 
