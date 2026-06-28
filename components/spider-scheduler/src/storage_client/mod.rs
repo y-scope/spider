@@ -39,8 +39,10 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageClientError::InboundClosed`] if the regular-task lane is closed and can no longer
-    ///   yield entries.
+    /// * [`StorageClientError::Server`] if the regular-task lane is closed and can no longer yield
+    ///   entries, or the storage server returns another error.
+    /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
+    ///   data.
     async fn poll_ready(
         &self,
         max_items: usize,
@@ -65,8 +67,10 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageClientError::InboundClosed`] if the commit-task lane is closed and can no longer
-    ///   yield entries.
+    /// * [`StorageClientError::Server`] if the commit-task lane is closed and can no longer yield
+    ///   entries, or the storage server returns another error.
+    /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
+    ///   data.
     async fn poll_commit_ready(
         &self,
         max_items: usize,
@@ -91,8 +95,10 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageClientError::InboundClosed`] if the cleanup-task lane is closed and can no longer
-    ///   yield entries.
+    /// * [`StorageClientError::Server`] if the cleanup-task lane is closed and can no longer yield
+    ///   entries, or the storage server returns another error.
+    /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
+    ///   data.
     async fn poll_cleanup_ready(
         &self,
         max_items: usize,

@@ -5,10 +5,6 @@ use spider_core::types::id::{JobId, SessionId};
 /// Errors returned by [`crate::storage_client::SchedulerStorageClient`] operations.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageClientError {
-    /// The inbound queue is closed and can no longer yield ready entries.
-    #[error("inbound queue is closed")]
-    InboundClosed,
-
     /// No job with the requested identifier exists.
     #[error("job not found: {0:?}")]
     JobNotFound(JobId),
