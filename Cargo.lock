@@ -1964,8 +1964,10 @@ dependencies = [
  "async-trait",
  "bincode",
  "bytes",
+ "clap",
  "futures-util",
  "rmp-serde",
+ "serde",
  "spider-core",
  "spider-proto-rust",
  "spider-task-executor",
@@ -2037,7 +2039,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
- "yaml_serde",
 ]
 
 [[package]]
@@ -2092,6 +2093,7 @@ dependencies = [
  "tonic",
  "tracing-appender",
  "tracing-subscriber",
+ "yaml_serde",
 ]
 
 [[package]]
