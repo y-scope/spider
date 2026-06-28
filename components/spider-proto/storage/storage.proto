@@ -23,7 +23,7 @@ service InboundQueueService {
   rpc PollReadyTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCommitTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCleanupTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
-  rpc ResendReadyTasks(ResendReadyTasksRequest) returns (ResendReadyTasksResponse);
+  rpc ResendReadyTasks(common.Void) returns (common.Void);
 }
 
 service ResourceGroupManagementService {
@@ -93,10 +93,6 @@ message ReadyTask {
   uint64 job_id = 2;
   common.TaskId task_id = 3;
 }
-
-message ResendReadyTasksRequest {}
-
-message ResendReadyTasksResponse {}
 
 message RegisterTaskInstanceRequest {
   uint64 job_id = 1;

@@ -62,10 +62,6 @@ pub struct ReadyTask {
     pub task_id: ::core::option::Option<super::common::TaskId>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ResendReadyTasksRequest {}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ResendReadyTasksResponse {}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterTaskInstanceRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
@@ -1648,9 +1644,9 @@ pub mod inbound_queue_service_client {
         }
         pub async fn resend_ready_tasks(
             &mut self,
-            request: impl tonic::IntoRequest<super::ResendReadyTasksRequest>,
+            request: impl tonic::IntoRequest<super::super::common::Void>,
         ) -> std::result::Result<
-            tonic::Response<super::ResendReadyTasksResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         > {
             self.inner
@@ -1710,9 +1706,9 @@ pub mod inbound_queue_service_server {
         >;
         async fn resend_ready_tasks(
             &self,
-            request: tonic::Request<super::ResendReadyTasksRequest>,
+            request: tonic::Request<super::super::common::Void>,
         ) -> std::result::Result<
-            tonic::Response<super::ResendReadyTasksResponse>,
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -1944,16 +1940,16 @@ pub mod inbound_queue_service_server {
                     struct ResendReadyTasksSvc<T: InboundQueueService>(pub Arc<T>);
                     impl<
                         T: InboundQueueService,
-                    > tonic::server::UnaryService<super::ResendReadyTasksRequest>
+                    > tonic::server::UnaryService<super::super::common::Void>
                     for ResendReadyTasksSvc<T> {
-                        type Response = super::ResendReadyTasksResponse;
+                        type Response = super::super::common::Void;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ResendReadyTasksRequest>,
+                            request: tonic::Request<super::super::common::Void>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

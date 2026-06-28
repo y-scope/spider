@@ -754,13 +754,13 @@ impl<
 
     async fn resend_ready_tasks(
         &self,
-        _request: Request<storage::ResendReadyTasksRequest>,
-    ) -> Result<Response<storage::ResendReadyTasksResponse>, Status> {
+        _request: Request<common::Void>,
+    ) -> Result<Response<common::Void>, Status> {
         tracing::info!("Resend ready tasks request received.");
         self.inner.resend_ready_tasks().await.map_err(|error| {
             self.inbound_queue_service_error_handler(error, "resend_ready_tasks")
         })?;
-        Ok(Response::new(storage::ResendReadyTasksResponse {}))
+        Ok(Response::new(common::Void {}))
     }
 }
 
@@ -1294,7 +1294,7 @@ mod tests {
     async fn resend_ready_tasks_succeeds() -> anyhow::Result<()> {
         let service = create_grpc_service();
         service
-            .resend_ready_tasks(Request::new(storage::ResendReadyTasksRequest {}))
+            .resend_ready_tasks(Request::new(common::Void {}))
             .await?;
         Ok(())
     }
