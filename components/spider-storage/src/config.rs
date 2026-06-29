@@ -1,8 +1,7 @@
-use std::{fs::File, io, net::IpAddr, path::Path};
+use std::net::IpAddr;
 
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::state::runtime::RuntimeConfig;
 
@@ -20,37 +19,6 @@ pub struct ServerConfig {
 
     /// Configuration for the storage runtime.
     pub runtime: RuntimeConfig,
-}
-
-impl ServerConfig {
-    /// Loads a [`ServerConfig`] from the YAML file at the given path.
-    ///
-    /// # Returns
-    ///
-    /// The parsed [`ServerConfig`] on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`yaml_serde::from_reader`]'s return values on failure.
-    pub fn from_yaml_file(path: &Path) -> Result<Self, ConfigError> {
-        let file = File::open(path)?;
-        let config = yaml_serde::from_reader(file)?;
-        Ok(config)
-    }
-}
-
-/// Errors returned while loading a [`ServerConfig`].
-#[derive(Debug, Error)]
-pub enum ConfigError {
-    /// Forwards an error from opening the configuration file.
-    #[error("failed to open config file: {0}")]
-    Io(#[from] io::Error),
-
-    /// Forwards an error from deserializing the YAML configuration.
-    #[error("failed to parse config file: {0}")]
-    Parse(#[from] yaml_serde::Error),
 }
 
 /// Configuration parameters for connecting to the database.
