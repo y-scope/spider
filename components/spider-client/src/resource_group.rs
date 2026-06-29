@@ -159,6 +159,11 @@ mod tests {
 
     impl MockResourceGroupService {
         /// Builds a mock whose every RPC succeeds with a benign default value.
+        ///
+        /// # Returns
+        ///
+        /// A newly created [`MockResourceGroupService`] with benign default responses for every
+        /// RPC.
         fn new(counts: Arc<CallCounts>) -> Self {
             Self {
                 counts,

@@ -115,7 +115,6 @@ impl JobOrchestrationClient {
     ///
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
     /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows starting.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
     /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
     /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
     ///   server reports an unrecognized job state.
@@ -147,7 +146,6 @@ impl JobOrchestrationClient {
     ///
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
     /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows cancellation.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
     /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
     /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
     ///   server reports an unrecognized job state.
@@ -209,6 +207,7 @@ impl JobOrchestrationClient {
     /// Returns an error if:
     ///
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
+    /// * [`ClientError::InvalidJobState`] if the job has not yet succeeded.
     /// * [`ClientError::Deserialization`] if the returned outputs cannot be decompressed or
     ///   unframed.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
@@ -240,6 +239,7 @@ impl JobOrchestrationClient {
     /// Returns an error if:
     ///
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
+    /// * [`ClientError::InvalidJobState`] if the job has not yet failed.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
@@ -376,6 +376,10 @@ mod tests {
 
     impl MockJobService {
         /// Builds a mock whose every RPC succeeds with a benign default value.
+        ///
+        /// # Returns
+        ///
+        /// A newly created [`MockJobService`] with benign default responses for every RPC.
         fn new(counts: Arc<CallCounts>) -> Self {
             Self {
                 counts,

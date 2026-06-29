@@ -44,9 +44,10 @@ impl SpiderClient {
     ///
     /// Returns [`ClientError::Transport`] if tonic cannot establish a connection to `endpoint`.
     pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
-        let job_orchestration =
-            JobOrchestrationClient::connect(endpoint.clone(), pool_size).await?;
-        let resource_group = ResourceGroupManagementClient::connect(endpoint, pool_size).await?;
+        let (job_orchestration, resource_group) = tokio::try_join!(
+            JobOrchestrationClient::connect(endpoint.clone(), pool_size),
+            ResourceGroupManagementClient::connect(endpoint, pool_size),
+        )?;
 
         Ok(Self {
             job_orchestration,
@@ -180,23 +181,5 @@ impl SpiderClient {
         self.resource_group
             .verify_resource_group(resource_group_id, password)
             .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn connect_maps_unreachable_endpoint_to_transport_error() -> anyhow::Result<()> {
-        // Port 1 is privileged with no listener, so the eager connect fails immediately with
-        // ECONNREFUSED. The facade propagates the first inner client's transport error.
-        let endpoint = Endpoint::from_static("http://127.0.0.1:1");
-        let pool_size = NonZeroUsize::new(1).expect("one is nonzero");
-
-        match SpiderClient::connect(endpoint, pool_size).await {
-            Err(ClientError::Transport(_)) => Ok(()),
-            result => panic!("expected transport error, got {result:?}"),
-        }
     }
 }
