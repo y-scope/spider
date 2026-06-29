@@ -14,8 +14,7 @@ use tonic::transport::Endpoint;
 
 use crate::{
     error::ClientError,
-    job::JobOrchestrationClient,
-    resource_group::ResourceGroupManagementClient,
+    grpc::{job::JobOrchestrationClient, resource_group::ResourceGroupManagementClient},
 };
 
 /// User-facing client for the Spider storage gRPC services.

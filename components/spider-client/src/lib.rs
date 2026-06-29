@@ -16,9 +16,6 @@
 
 pub mod client;
 pub mod error;
-pub mod job;
-pub mod resource_group;
+pub(crate) mod grpc;
 
 pub use client::SpiderClient;
-pub use job::JobOrchestrationClient;
-pub use resource_group::ResourceGroupManagementClient;

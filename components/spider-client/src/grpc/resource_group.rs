@@ -34,7 +34,10 @@ impl ResourceGroupManagementClient {
     /// # Errors
     ///
     /// Returns [`ClientError::Transport`] if tonic cannot establish a connection to `endpoint`.
-    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
+    pub(crate) async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+    ) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             ResourceGroupManagementServiceClient::new(channel)
         })
@@ -60,7 +63,7 @@ impl ResourceGroupManagementClient {
     ///   invalid.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn add_resource_group(
+    pub(crate) async fn add_resource_group(
         &self,
         external_resource_group_id: String,
         password: Vec<u8>,
@@ -95,7 +98,7 @@ impl ResourceGroupManagementClient {
     ///   invalid.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn verify_resource_group(
+    pub(crate) async fn verify_resource_group(
         &self,
         resource_group_id: ResourceGroupId,
         password: Vec<u8>,

@@ -46,7 +46,10 @@ impl JobOrchestrationClient {
     /// # Errors
     ///
     /// Returns [`ClientError::Transport`] if tonic cannot establish a connection to `endpoint`.
-    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
+    pub(crate) async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+    ) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             JobOrchestrationServiceClient::new(channel)
         })
@@ -77,7 +80,7 @@ impl JobOrchestrationClient {
     /// A freshly registered job has no id yet, so the server-reported `NOT_FOUND` and
     /// `FAILED_PRECONDITION` codes (which a job id would otherwise attach) cannot arise for
     /// registration and are folded into [`ClientError::Server`].
-    pub async fn submit_job(
+    pub(crate) async fn submit_job(
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: &TaskGraph,
@@ -119,7 +122,7 @@ impl JobOrchestrationClient {
     /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
     ///   server reports an unrecognized job state.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
+    pub(crate) async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -150,7 +153,7 @@ impl JobOrchestrationClient {
     /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
     ///   server reports an unrecognized job state.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
+    pub(crate) async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -180,7 +183,7 @@ impl JobOrchestrationClient {
     /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
     ///   server reports an unrecognized job state.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
+    pub(crate) async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -212,7 +215,10 @@ impl JobOrchestrationClient {
     ///   unframed.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn get_job_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, ClientError> {
+    pub(crate) async fn get_job_outputs(
+        &self,
+        job_id: JobId,
+    ) -> Result<Vec<TaskOutput>, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -242,7 +248,7 @@ impl JobOrchestrationClient {
     /// * [`ClientError::InvalidJobState`] if the job has not yet failed.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
-    pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
+    pub(crate) async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
