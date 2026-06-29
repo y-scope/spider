@@ -36,13 +36,15 @@ pub mod core_impl;
 pub mod dispatch_queue;
 pub mod error;
 pub mod execution_manager_registry;
+pub mod service;
 pub mod storage_client;
 pub mod types;
 
 pub use crate::{
     core::SchedulerCore,
     dispatch_queue::{DispatchQueueSink, DispatchQueueSource},
-    error::{SchedulerError, StorageClientError},
+    error::{SchedulerError, SchedulerServiceError, StorageClientError},
+    service::SchedulerServiceState,
     storage_client::{GrpcSchedulerStorageClient, SchedulerStorageClient},
     types::{InboundEntry, TaskAssignment},
 };
