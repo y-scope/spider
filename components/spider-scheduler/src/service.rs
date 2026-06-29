@@ -22,10 +22,6 @@ use crate::{
 
 /// The execution-manager-facing scheduler service.
 ///
-/// Sits between the dispatch queue and the execution manager registry, turning execution-manager
-/// requests into registry bookkeeping. The service stamps every assignment it hands out with the
-/// scheduler's own identifier, captured at registration time.
-///
 /// # Type Parameters
 ///
 /// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
@@ -131,10 +127,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
 
     /// Signals that an execution manager is shutting down.
     ///
-    /// Each assignment in `prev_assignments` is acknowledged as completed best-effort: a missing
-    /// assignment or execution manager is logged and skipped so teardown still proceeds. The
-    /// execution manager is then marked dead, which reschedules any assignments still outstanding
-    /// against it.
+    /// Marks the execution manager as dead in the registry.
     ///
     /// # Parameters
     ///
