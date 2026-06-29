@@ -954,8 +954,10 @@ impl<
 ///
 /// # Type Parameters
 ///
-/// * `TaskKindType` - The kind of ready-queue task (`ReadyTask`, `CommitTask`, or `CleanupTask`)
-///   carried by each entry.
+/// * `TaskKindType` - The kind of ready-queue task carried by each entry
+///   ([`spider_core::task::TaskIndex`] for the regular lane,
+///   [`crate::ready_queue::CommitTaskMarker`] for the commit lane, or
+///   [`crate::ready_queue::CleanupTaskMarker`] for the cleanup lane).
 ///
 /// # Arguments
 ///
