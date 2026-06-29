@@ -1,6 +1,6 @@
 //! Runtime — the execution manager's main loop.
 
-use std::{collections::VecDeque, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::IpAddr, path::PathBuf, time::Duration};
 
 use spider_core::{
     session::SessionTracker,
@@ -125,10 +125,10 @@ impl<
     ///
     /// * Forwards [`LivenessClient::register`]'s return values on failure.
     /// * Forwards [`ProcessPool::new`]'s return values on failure.
-    pub async fn create<LivenessClientType: LivenessClient + 'static>(
+    pub async fn create<LivenessClientType: LivenessClient + Clone + 'static>(
         scheduler_client: SchedulerClientType,
         storage_client: StorageClientType,
-        liveness_client: Arc<LivenessClientType>,
+        liveness_client: LivenessClientType,
         config: RuntimeConfig,
     ) -> Result<(Self, CancellationToken), RuntimeError> {
         let registration = liveness_client.register(config.em_ip).await?;
@@ -198,6 +198,13 @@ impl<
             _cancel_guard: cancel_guard,
         };
         Ok((runtime, cancellation_token))
+    }
+
+    /// # Returns
+    ///
+    /// The ID of the registered execution manager.
+    pub const fn get_em_id(&self) -> ExecutionManagerId {
+        self.em_id
     }
 
     /// Runs the main loop until the runtime is cancelled, then tears it down.

@@ -154,10 +154,9 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
 ///
 /// The [`StorageClientError`] for `status`'s code:
 ///
-/// * [`StorageClientError::Transport`] for `UNAVAILABLE` (a network-level failure).
+/// * [`StorageClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
 /// * [`StorageClientError::InvalidInput`] for `INVALID_ARGUMENT`.
-/// * [`StorageClientError::Server`] for any other code (including `INTERNAL`, which the storage
-///   server sends when the inbound queue is closed).
+/// * [`StorageClientError::Server`] for any other code.
 fn inbound_status_to_error(status: &Status) -> StorageClientError {
     match status.code() {
         Code::Unavailable => to_transport_error(status.message()),
