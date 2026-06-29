@@ -147,6 +147,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
 #[cfg(test)]
 mod tests {
     use std::{
+        num::NonZeroU64,
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -282,8 +283,9 @@ mod tests {
         CancellationToken,
     ) {
         let config = ExecutionManagerRegistryConfig {
-            dead_em_cutoff_sec: 3600,
-            liveness_tracking_interval_ms: 60_000,
+            dead_em_cutoff_sec: NonZeroU64::new(3600).expect("the cutoff should be non-zero"),
+            liveness_tracking_interval_ms: NonZeroU64::new(60_000)
+                .expect("the interval should be non-zero"),
         };
         let cancellation_token = CancellationToken::new();
         let (reschedule_queue_sender, reschedule_queue_receiver) = mpsc::unbounded_channel();
@@ -291,8 +293,7 @@ mod tests {
             &config,
             cancellation_token.clone(),
             reschedule_queue_sender,
-        )
-        .expect("the registry should be constructed successfully");
+        );
         (registry, reschedule_queue_receiver, cancellation_token)
     }
 
