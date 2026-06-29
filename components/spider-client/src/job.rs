@@ -147,6 +147,7 @@ impl JobOrchestrationClient {
     ///
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
     /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows cancellation.
+    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
     /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
     /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
     ///   server reports an unrecognized job state.
