@@ -67,13 +67,6 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     /// queue, waiting up to `wait_time` for one to arrive, and records the assignment against the
     /// execution manager in the registry before returning it.
     ///
-    /// # Parameters
-    ///
-    /// * `em_id` - The identity of the calling execution manager.
-    /// * `prev_assignment` - The last assignment produced by this scheduler that the execution
-    ///   manager has successfully consumed, or [`None`] if no previous assignment exists.
-    /// * `wait_time` - The maximum duration to wait for an assignment to become available.
-    ///
     /// # Returns
     ///
     /// A tuple on success, containing:
@@ -112,10 +105,6 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     ///
     /// Registers the execution manager if this is its first heartbeat.
     ///
-    /// # Parameters
-    ///
-    /// * `em_id` - The identity of the calling execution manager.
-    ///
     /// # Errors
     ///
     /// This method does not currently return an error. The [`Result`] return type is retained for a
@@ -127,13 +116,8 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
 
     /// Signals that an execution manager is shutting down.
     ///
-    /// Marks the execution manager as dead in the registry.
-    ///
-    /// # Parameters
-    ///
-    /// * `em_id` - The identity of the calling execution manager.
-    /// * `prev_assignments` - The assignments produced by this scheduler that the execution manager
-    ///   has successfully consumed.
+    /// Each assignment in `prev_assignments` is acknowledged as completed best-effort, then the
+    /// execution manager is marked as dead in the registry.
     ///
     /// # Errors
     ///
@@ -163,6 +147,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
 #[cfg(test)]
 mod tests {
     use std::{
+        num::NonZeroU64,
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -298,8 +283,9 @@ mod tests {
         CancellationToken,
     ) {
         let config = ExecutionManagerRegistryConfig {
-            dead_em_cutoff_sec: 3600,
-            liveness_tracking_interval_ms: 60_000,
+            dead_em_cutoff_sec: NonZeroU64::new(3600).expect("the cutoff should be non-zero"),
+            liveness_tracking_interval_ms: NonZeroU64::new(60_000)
+                .expect("the interval should be non-zero"),
         };
         let cancellation_token = CancellationToken::new();
         let (reschedule_queue_sender, reschedule_queue_receiver) = mpsc::unbounded_channel();
@@ -307,8 +293,7 @@ mod tests {
             &config,
             cancellation_token.clone(),
             reschedule_queue_sender,
-        )
-        .expect("the registry should be constructed successfully");
+        );
         (registry, reschedule_queue_receiver, cancellation_token)
     }
 
