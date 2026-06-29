@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    num::{NonZeroU64, NonZeroUsize},
     sync::{
         Arc,
         Mutex,
@@ -180,13 +181,15 @@ fn make_config(
     dispatch_queue_capacity: usize,
 ) -> RoundRobinConfig {
     RoundRobinConfig {
-        active_job_queue_capacity,
-        dispatch_queue_capacity,
-        ready_task_capacity: 16_384,
-        commit_ready_task_capacity: 16,
-        cleanup_ready_task_capacity: 16,
+        active_job_queue_capacity: NonZeroUsize::new(active_job_queue_capacity)
+            .expect("the active job queue capacity should be non-zero"),
+        dispatch_queue_capacity: NonZeroUsize::new(dispatch_queue_capacity)
+            .expect("the dispatch queue capacity should be non-zero"),
+        ready_task_capacity: NonZeroUsize::new(16_384).expect("16384 is non-zero"),
+        commit_ready_task_capacity: NonZeroUsize::new(16).expect("16 is non-zero"),
+        cleanup_ready_task_capacity: NonZeroUsize::new(16).expect("16 is non-zero"),
         storage_poll_timeout_ms: 10,
-        tick_interval_ms: 1,
+        tick_interval_ms: NonZeroU64::new(1).expect("1 is non-zero"),
         finalizing_job_expiration_timeout_sec: 6 * 60 * 60,
     }
 }
@@ -249,7 +252,7 @@ fn make_finalizing_batch(jobs: &[(JobId, ResourceGroupId)], task_id: TaskId) -> 
         .collect()
 }
 
-/// Validates the given config and spawns the scheduler's public run loop as a background task.
+/// Spawns the scheduler's public run loop as a background task.
 ///
 /// # Returns
 ///
@@ -257,10 +260,6 @@ fn make_finalizing_batch(jobs: &[(JobId, ResourceGroupId)], task_id: TaskId) -> 
 ///
 /// * The join handle yielding the scheduler's exit result.
 /// * The cancellation token that stops the scheduler.
-///
-/// # Panics
-///
-/// Panics if the given config fails validation.
 fn spawn_scheduler(
     config: RoundRobinConfig,
     storage_client: MockStorageClient,
@@ -269,7 +268,7 @@ fn spawn_scheduler(
     tokio::task::JoinHandle<Result<(), SchedulerError>>,
     CancellationToken,
 ) {
-    let core = config.make_core().expect("config validation failed");
+    let core = config.make_core();
     let cancellation_token = CancellationToken::new();
     let scheduler_token = cancellation_token.clone();
     let handle = tokio::spawn(async move {
@@ -422,45 +421,6 @@ fn assert_round_robin_property(
 
     for &(job_id, _) in jobs {
         assert_eq!(next_task_indices.get(&job_id).copied(), Some(tasks_per_job));
-    }
-}
-
-#[test]
-fn zero_capacity_configs_are_rejected() {
-    let try_make_core =
-        |config: RoundRobinConfig| config.make_core::<MockStorageClient, DispatchQueueWriter>();
-
-    assert!(try_make_core(make_config(2, 2)).is_ok());
-
-    let zeroed_configs = [
-        RoundRobinConfig {
-            active_job_queue_capacity: 0,
-            ..make_config(2, 2)
-        },
-        RoundRobinConfig {
-            dispatch_queue_capacity: 0,
-            ..make_config(2, 2)
-        },
-        RoundRobinConfig {
-            ready_task_capacity: 0,
-            ..make_config(2, 2)
-        },
-        RoundRobinConfig {
-            commit_ready_task_capacity: 0,
-            ..make_config(2, 2)
-        },
-        RoundRobinConfig {
-            cleanup_ready_task_capacity: 0,
-            ..make_config(2, 2)
-        },
-    ];
-    for config in zeroed_configs {
-        let result = try_make_core(config);
-        assert!(
-            matches!(result, Err(SchedulerError::InvalidConfig(_))),
-            "expected InvalidConfig, got {:?}",
-            result.err(),
-        );
     }
 }
 
