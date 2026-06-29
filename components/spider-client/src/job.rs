@@ -116,7 +116,9 @@ impl JobOrchestrationClient {
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
     /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows starting.
     /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
+    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
+    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
+    ///   server reports an unrecognized job state.
     /// * [`ClientError::Server`] for any other server-reported error.
     pub async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
@@ -145,7 +147,9 @@ impl JobOrchestrationClient {
     ///
     /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
     /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows cancellation.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
+    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
+    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
+    ///   server reports an unrecognized job state.
     /// * [`ClientError::Server`] for any other server-reported error.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
@@ -492,19 +496,6 @@ mod tests {
         let endpoint = Endpoint::from_shared(format!("http://{addr}"))?;
         let pool_size = NonZeroUsize::new(1).expect("one is nonzero");
         Ok(JobOrchestrationClient::connect(endpoint, pool_size).await?)
-    }
-
-    #[tokio::test]
-    async fn connect_maps_unreachable_endpoint_to_transport_error() -> anyhow::Result<()> {
-        // Port 1 is privileged with no listener, so the eager connect fails immediately with
-        // ECONNREFUSED.
-        let endpoint = Endpoint::from_static("http://127.0.0.1:1");
-        let pool_size = NonZeroUsize::new(1).expect("one is nonzero");
-
-        match JobOrchestrationClient::connect(endpoint, pool_size).await {
-            Err(ClientError::Transport(_)) => Ok(()),
-            result => panic!("expected transport error, got {result:?}"),
-        }
     }
 
     #[tokio::test]

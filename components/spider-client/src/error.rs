@@ -80,15 +80,14 @@ pub(crate) fn job_status_to_error(status: &Status, job_id: JobId) -> ClientError
 ///
 /// The [`ClientError`] for `status`'s code:
 ///
-/// * [`ClientError::InvalidJobState`] for `FAILED_PRECONDITION`.
 /// * [`ClientError::InvalidArgument`] for `INVALID_ARGUMENT`.
 /// * [`ClientError::Unauthenticated`] for `UNAUTHENTICATED` (an unknown or unauthorized resource
 ///   group, or an invalid password).
 /// * [`ClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
-/// * [`ClientError::Server`] for any other code (including `NOT_FOUND` and `INTERNAL`).
+/// * [`ClientError::Server`] for any other code (including `NOT_FOUND`, `FAILED_PRECONDITION`, and
+///   `INTERNAL`).
 pub(crate) fn resource_group_status_to_error(status: &Status) -> ClientError {
     match status.code() {
-        Code::FailedPrecondition => ClientError::InvalidJobState(status.message().to_owned()),
         Code::InvalidArgument => ClientError::InvalidArgument(status.message().to_owned()),
         Code::Unauthenticated => ClientError::Unauthenticated(status.message().to_owned()),
         Code::Unavailable => ClientError::Transport(status.message().to_owned()),
@@ -151,6 +150,14 @@ mod tests {
     fn resource_group_status_maps_not_found_to_server() {
         match resource_group_status_to_error(&Status::not_found("unexpected")) {
             ClientError::Server(message) => assert!(message.contains("unexpected")),
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn resource_group_status_maps_failed_precondition_to_server() {
+        match resource_group_status_to_error(&Status::failed_precondition("precondition")) {
+            ClientError::Server(message) => assert!(message.contains("precondition")),
             error => panic!("unexpected error: {error:?}"),
         }
     }

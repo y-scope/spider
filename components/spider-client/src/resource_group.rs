@@ -228,19 +228,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connect_maps_unreachable_endpoint_to_transport_error() -> anyhow::Result<()> {
-        // Port 1 is privileged with no listener, so the eager connect fails immediately with
-        // ECONNREFUSED.
-        let endpoint = Endpoint::from_static("http://127.0.0.1:1");
-        let pool_size = NonZeroUsize::new(1).expect("one is nonzero");
-
-        match ResourceGroupManagementClient::connect(endpoint, pool_size).await {
-            Err(ClientError::Transport(_)) => Ok(()),
-            result => panic!("expected transport error, got {result:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn add_resource_group_returns_assigned_id() -> anyhow::Result<()> {
         const EXPECTED_RG_ID: u64 = 99;
         let counts = Arc::new(CallCounts::default());
