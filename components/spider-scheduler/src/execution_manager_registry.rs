@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, hash_map::Entry},
+    num::NonZeroU64,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -23,45 +24,24 @@ pub enum ExecutionManagerRegistryError {
 
     #[error("execution manager not found: {0}")]
     EmNotFound(ExecutionManagerId),
-
-    #[error("invalid config: {0}")]
-    InvalidConfig(String),
 }
 
 #[derive(Clone, Deserialize)]
 pub struct ExecutionManagerRegistryConfig {
     /// The time, in seconds, that an execution manager is considered dead without receiving any
     /// heartbeat.
-    pub dead_em_cutoff_sec: u64,
+    pub dead_em_cutoff_sec: NonZeroU64,
 
     /// The time interval, in milliseconds, between liveness checks.
-    pub liveness_tracking_interval_ms: u64,
+    pub liveness_tracking_interval_ms: NonZeroU64,
 }
 
 impl Default for ExecutionManagerRegistryConfig {
     fn default() -> Self {
         Self {
-            dead_em_cutoff_sec: 30,
-            liveness_tracking_interval_ms: 1000,
+            dead_em_cutoff_sec: NonZeroU64::new(30).expect("30 is non-zero"),
+            liveness_tracking_interval_ms: NonZeroU64::new(1000).expect("1000 is non-zero"),
         }
-    }
-}
-
-impl ExecutionManagerRegistryConfig {
-    /// Validates the configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`ExecutionManagerRegistryError::InvalidConfig`] if `dead_em_cutoff_sec` is 0.
-    fn validate(&self) -> Result<(), ExecutionManagerRegistryError> {
-        if self.dead_em_cutoff_sec == 0 {
-            return Err(ExecutionManagerRegistryError::InvalidConfig(
-                "dead_em_cutoff_sec must be greater than 0".to_string(),
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -76,23 +56,17 @@ impl ExecutionManagerRegistry {
     ///
     /// # Returns
     ///
-    /// The newly created execution manager registry on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`ExecutionManagerRegistryConfig::validate`]'s return values on failure.
+    /// The newly created execution manager registry.
+    #[must_use]
     pub fn new(
         config: &ExecutionManagerRegistryConfig,
         cancellation_token: CancellationToken,
         reschedule_queue_sender: UnboundedSender<TaskAssignment>,
-    ) -> Result<Self, ExecutionManagerRegistryError> {
-        config.validate()?;
-        let dead_em_cutoff = Duration::from_secs(config.dead_em_cutoff_sec);
+    ) -> Self {
+        let dead_em_cutoff = Duration::from_secs(config.dead_em_cutoff_sec.get());
         let liveness_tracking_interval =
-            Duration::from_millis(config.liveness_tracking_interval_ms);
-        Ok(Self {
+            Duration::from_millis(config.liveness_tracking_interval_ms.get());
+        Self {
             inner: Arc::new(ExecutionManagerRegistryInner {
                 em_table: RwLock::new(HashMap::new()),
                 cancellation_token,
@@ -100,7 +74,7 @@ impl ExecutionManagerRegistry {
                 liveness_tracking_interval,
                 reschedule_queue_sender,
             }),
-        })
+        }
     }
 
     /// Assigns a task to an execution manager.
@@ -418,8 +392,10 @@ mod tests {
         CancellationToken,
     ) {
         let config = ExecutionManagerRegistryConfig {
-            dead_em_cutoff_sec,
-            liveness_tracking_interval_ms,
+            dead_em_cutoff_sec: NonZeroU64::new(dead_em_cutoff_sec)
+                .expect("the cutoff should be non-zero"),
+            liveness_tracking_interval_ms: NonZeroU64::new(liveness_tracking_interval_ms)
+                .expect("the interval should be non-zero"),
         };
         let cancellation_token = CancellationToken::new();
         let (reschedule_queue_sender, reschedule_queue_receiver) = mpsc::unbounded_channel();
@@ -427,8 +403,7 @@ mod tests {
             &config,
             cancellation_token.clone(),
             reschedule_queue_sender,
-        )
-        .expect("the registry should be constructed successfully");
+        );
         (registry, reschedule_queue_receiver, cancellation_token)
     }
 
