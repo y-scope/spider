@@ -12,9 +12,5 @@ spider-core = { path = "../spider-core" }
 spider-proto-rust = { path = "../spider-proto-rust" }
 spider-utils = { path = "../spider-utils" }
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["macros"] }
 tonic = "0.14.6"
-
-[dev-dependencies]
-anyhow = "1.0.102"
-async-trait = "0.1.89"
