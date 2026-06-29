@@ -3,6 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    num::{NonZeroU64, NonZeroUsize},
     time::{Duration, Instant},
 };
 
@@ -28,36 +29,26 @@ use crate::{
 pub struct RoundRobinConfig {
     /// The capacity of the active job queue. The scheduler will make task assignments from these
     /// jobs in a round-robin manner.
-    ///
-    /// Must be greater than 0.
-    pub active_job_queue_capacity: usize,
+    pub active_job_queue_capacity: NonZeroUsize,
 
     /// The capacity of the dispatch queue.
-    ///
-    /// Must be greater than 0.
-    pub dispatch_queue_capacity: usize,
+    pub dispatch_queue_capacity: NonZeroUsize,
 
     /// The capacity of the total pending ready tasks buffered in the scheduler.
-    ///
-    /// Must be greater than 0.
-    pub ready_task_capacity: usize,
+    pub ready_task_capacity: NonZeroUsize,
 
     /// The capacity of the total pending commit-ready tasks buffered in the scheduler.
-    ///
-    /// Must be greater than 0.
-    pub commit_ready_task_capacity: usize,
+    pub commit_ready_task_capacity: NonZeroUsize,
 
     /// The capacity of the total pending cleanup-ready tasks buffered in the scheduler.
-    ///
-    /// Must be greater than 0.
-    pub cleanup_ready_task_capacity: usize,
+    pub cleanup_ready_task_capacity: NonZeroUsize,
 
     /// The maximum time (in milliseconds) that the scheduler will wait for the storage server to
     /// fill the inbound-queue reading request.
     pub storage_poll_timeout_ms: u64,
 
     /// The time (in milliseconds) that the scheduler will spend on each tick.
-    pub tick_interval_ms: u64,
+    pub tick_interval_ms: NonZeroU64,
 
     /// The time (in seconds) that a job may remain in the finalizing state before the scheduler
     /// retires it.
@@ -65,7 +56,7 @@ pub struct RoundRobinConfig {
 }
 
 impl RoundRobinConfig {
-    /// Validates the configuration and creates a ready-to-run scheduler core from it.
+    /// Creates a ready-to-run scheduler core from the configuration.
     ///
     /// # Type Parameters
     ///
@@ -74,59 +65,18 @@ impl RoundRobinConfig {
     ///
     /// # Returns
     ///
-    /// A newly created round-robin scheduler core on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`SchedulerError::InvalidConfig`] if any of the following configuration entries is 0:
-    ///   * `active_job_queue_capacity`
-    ///   * `dispatch_queue_capacity`
-    ///   * `ready_task_capacity`
-    ///   * `commit_ready_task_capacity`
-    ///   * `cleanup_ready_task_capacity`
-    pub fn make_core<
+    /// A newly created round-robin scheduler core.
+    #[must_use]
+    pub const fn make_core<
         SchedulerStorageClientType: SchedulerStorageClient + 'static,
         DispatchQueueSinkType: DispatchQueueSink,
     >(
         self,
-    ) -> Result<RoundRobinCore<SchedulerStorageClientType, DispatchQueueSinkType>, SchedulerError>
-    {
-        if self.active_job_queue_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`active_job_queue_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if self.dispatch_queue_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`dispatch_queue_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if self.ready_task_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`ready_task_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if self.commit_ready_task_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`commit_ready_task_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        if self.cleanup_ready_task_capacity == 0 {
-            return Err(SchedulerError::InvalidConfig(
-                "`cleanup_ready_task_capacity` must be greater than 0".to_string(),
-            ));
-        }
-
-        Ok(RoundRobinCore {
+    ) -> RoundRobinCore<SchedulerStorageClientType, DispatchQueueSinkType> {
+        RoundRobinCore {
             config: self,
             _marker: std::marker::PhantomData,
-        })
+        }
     }
 }
 
@@ -258,8 +208,7 @@ impl<
 {
     /// Factory function.
     ///
-    /// Creates a [`RoundRobin`] scheduler from the given config. The config must have been
-    /// validated through [`RoundRobinConfig::make_core`].
+    /// Creates a [`RoundRobin`] scheduler from the given config.
     ///
     /// # Returns
     ///
@@ -272,16 +221,16 @@ impl<
         cancellation_token: CancellationToken,
         config: RoundRobinConfig,
     ) -> Self {
-        let buffered_tasks = HashSet::with_capacity(config.ready_task_capacity);
-        let active_jobs = HashMap::with_capacity(config.active_job_queue_capacity);
-        let rr_queue = Self::new_round_robin_queue(config.active_job_queue_capacity);
+        let buffered_tasks = HashSet::with_capacity(config.ready_task_capacity.get());
+        let active_jobs = HashMap::with_capacity(config.active_job_queue_capacity.get());
+        let rr_queue = Self::new_round_robin_queue(config.active_job_queue_capacity.get());
         let rr_cursor = 0;
-        let pending_jobs = HashMap::with_capacity(config.active_job_queue_capacity);
-        let pending_job_queue = VecDeque::with_capacity(config.active_job_queue_capacity);
-        let commit_ready_jobs = VecDeque::with_capacity(config.commit_ready_task_capacity);
-        let cleanup_ready_jobs = VecDeque::with_capacity(config.cleanup_ready_task_capacity);
+        let pending_jobs = HashMap::with_capacity(config.active_job_queue_capacity.get());
+        let pending_job_queue = VecDeque::with_capacity(config.active_job_queue_capacity.get());
+        let commit_ready_jobs = VecDeque::with_capacity(config.commit_ready_task_capacity.get());
+        let cleanup_ready_jobs = VecDeque::with_capacity(config.cleanup_ready_task_capacity.get());
         let finalizing_jobs = HashSet::with_capacity(
-            config.commit_ready_task_capacity + config.cleanup_ready_task_capacity,
+            config.commit_ready_task_capacity.get() + config.cleanup_ready_task_capacity.get(),
         );
         let finalizing_job_queue = VecDeque::new();
         let inbound_queue_reader = AsyncInboundQueueReader::new(storage_client);
@@ -348,7 +297,7 @@ impl<
             init_session_id = self.storage_session_id,
             "Round-robin scheduler started."
         );
-        let tick_interval = Duration::from_millis(self.config.tick_interval_ms);
+        let tick_interval = Duration::from_millis(self.config.tick_interval_ms.get());
         loop {
             let now = tokio::time::Instant::now();
             let cancellation_token = self.cancellation_token.clone();
@@ -385,7 +334,7 @@ impl<
         self.finalizing_jobs.clear();
         self.finalizing_job_queue.clear();
 
-        self.rr_queue = Self::new_round_robin_queue(self.config.active_job_queue_capacity);
+        self.rr_queue = Self::new_round_robin_queue(self.config.active_job_queue_capacity.get());
         self.rr_cursor = 0;
     }
 
@@ -658,7 +607,7 @@ impl<
                 continue;
             }
 
-            if self.active_jobs.len() < self.config.active_job_queue_capacity {
+            if self.active_jobs.len() < self.config.active_job_queue_capacity.get() {
                 tracing::info!(
                     job_id = ? inbound_entry.job_id,
                     "New job received. Placing in active job queue."
@@ -750,6 +699,7 @@ impl<
         let dispatch_slots = self
             .config
             .dispatch_queue_capacity
+            .get()
             .saturating_sub(self.sink.size());
         let mut remaining_dispatch_slots = dispatch_slots;
         'fill_dispatch_queue: while remaining_dispatch_slots > 0 && !self.buffered_tasks.is_empty()
@@ -785,7 +735,7 @@ impl<
                     remaining_dispatch_slots -= 1;
                 }
                 RoundRobinSlot::CommitReady => {
-                    for _ in 0..self.config.active_job_queue_capacity {
+                    for _ in 0..self.config.active_job_queue_capacity.get() {
                         if remaining_dispatch_slots == 0 {
                             break 'fill_dispatch_queue;
                         }
@@ -852,12 +802,14 @@ impl<
         let max_commit_ready_entries = self
             .config
             .commit_ready_task_capacity
+            .get()
             .saturating_sub(num_commit_ready_tasks);
         let max_cleanup_ready_entries = self
             .config
             .cleanup_ready_task_capacity
+            .get()
             .saturating_sub(num_cleanup_ready_tasks);
-        let max_ready_entries = self.config.ready_task_capacity.saturating_sub(
+        let max_ready_entries = self.config.ready_task_capacity.get().saturating_sub(
             self.buffered_tasks.len() - num_commit_ready_tasks - num_cleanup_ready_tasks,
         );
 
