@@ -6,7 +6,7 @@
 //! is generic over its dispatch source so the runtime can drive it with the real dispatch queue in
 //! production or a mock in tests, while the [`ExecutionManagerRegistry`] is shared by value.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use spider_core::types::{
     id::{ExecutionManagerId, SchedulerId, SessionId},
@@ -22,14 +22,16 @@ use crate::{
 
 /// The execution-manager-facing scheduler service.
 ///
+/// Wraps [`SchedulerServiceStateInner`] in an [`Arc`] so the per-request and per-connection clones
+/// the gRPC layer makes are cheap reference-count bumps rather than deep copies of the underlying
+/// state.
+///
 /// # Type Parameters
 ///
 /// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
 #[derive(Clone)]
 pub struct SchedulerServiceState<DispatchQueueSourceType: DispatchQueueSource> {
-    dispatch_source: DispatchQueueSourceType,
-    registry: ExecutionManagerRegistry,
-    scheduler_id: SchedulerId,
+    inner: Arc<SchedulerServiceStateInner<DispatchQueueSourceType>>,
 }
 
 impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<DispatchQueueSourceType> {
@@ -40,15 +42,17 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     /// A new [`SchedulerServiceState`] that drains `dispatch_source`, tracks assignments in
     /// `registry`, and stamps `scheduler_id` onto every assignment it hands out.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         dispatch_source: DispatchQueueSourceType,
         registry: ExecutionManagerRegistry,
         scheduler_id: SchedulerId,
     ) -> Self {
         Self {
-            dispatch_source,
-            registry,
-            scheduler_id,
+            inner: Arc::new(SchedulerServiceStateInner {
+                dispatch_source,
+                registry,
+                scheduler_id,
+            }),
         }
     }
 
@@ -56,8 +60,8 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     ///
     /// The scheduler identifier this service stamps onto every assignment it hands out.
     #[must_use]
-    pub const fn scheduler_id(&self) -> SchedulerId {
-        self.scheduler_id
+    pub fn scheduler_id(&self) -> SchedulerId {
+        self.inner.scheduler_id
     }
 
     /// Hands the next task assignment to an execution manager.
@@ -90,12 +94,12 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
         wait_time: Duration,
     ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerServiceError> {
         if let Some(prev) = prev_assignment {
-            self.registry.complete(em_id, prev.id).await?;
+            self.inner.registry.complete(em_id, prev.id).await?;
         }
-        match self.dispatch_source.dequeue(wait_time).await? {
+        match self.inner.dispatch_source.dequeue(wait_time).await? {
             None => Ok(None),
             Some((session_id, assignment)) => {
-                self.registry.assign(em_id, assignment).await;
+                self.inner.registry.assign(em_id, assignment).await;
                 Ok(Some((session_id, assignment)))
             }
         }
@@ -110,7 +114,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     /// This method does not currently return an error. The [`Result`] return type is retained for a
     /// uniform service surface alongside [`Self::next_task`] and [`Self::shutdown`].
     pub async fn heartbeat(&self, em_id: ExecutionManagerId) -> Result<(), SchedulerServiceError> {
-        self.registry.update_heartbeat(em_id).await;
+        self.inner.registry.update_heartbeat(em_id).await;
         Ok(())
     }
 
@@ -130,7 +134,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
         prev_assignments: Vec<TaskAssignmentRecord>,
     ) -> Result<(), SchedulerServiceError> {
         for prev in prev_assignments {
-            if let Err(error) = self.registry.complete(em_id, prev.id).await {
+            if let Err(error) = self.inner.registry.complete(em_id, prev.id).await {
                 tracing::warn!(
                     em_id = %em_id,
                     error = %error,
@@ -139,9 +143,20 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
                 );
             }
         }
-        self.registry.mark_as_dead(em_id).await?;
+        self.inner.registry.mark_as_dead(em_id).await?;
         Ok(())
     }
+}
+
+/// The shared inner state of [`SchedulerServiceState`].
+///
+/// # Type Parameters
+///
+/// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
+struct SchedulerServiceStateInner<DispatchQueueSourceType: DispatchQueueSource> {
+    dispatch_source: DispatchQueueSourceType,
+    registry: ExecutionManagerRegistry,
+    scheduler_id: SchedulerId,
 }
 
 #[cfg(test)]
