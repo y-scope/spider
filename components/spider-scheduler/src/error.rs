@@ -2,6 +2,8 @@
 
 use spider_core::types::id::{JobId, SessionId};
 
+use crate::execution_manager_registry::ExecutionManagerRegistryError;
+
 /// Errors returned by [`crate::storage_client::SchedulerStorageClient`] operations.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageClientError {
@@ -52,4 +54,16 @@ pub enum SchedulerError {
 
     #[error(transparent)]
     SystemTime(#[from] std::time::SystemTimeError),
+}
+
+/// Errors returned by [`crate::service::SchedulerServiceState`] operations.
+#[derive(Debug, thiserror::Error)]
+pub enum SchedulerServiceError {
+    /// Forwarded from the dispatch queue or the scheduler core.
+    #[error(transparent)]
+    Scheduler(#[from] SchedulerError),
+
+    /// Forwarded from the execution manager registry.
+    #[error(transparent)]
+    EMRegistry(#[from] ExecutionManagerRegistryError),
 }
