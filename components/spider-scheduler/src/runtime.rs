@@ -24,7 +24,7 @@ use crate::{
 };
 
 /// Runtime configuration for the scheduler service.
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeConfig {
     /// The scheduler core configuration that selects and configures the scheduling algorithm.
     pub scheduler_config: SchedulerConfig,

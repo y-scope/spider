@@ -44,7 +44,7 @@ pub mod storage_client;
 pub mod types;
 
 pub use crate::{
-    config::SchedulerConfig,
+    config::{SchedulerConfig, ServerConfig},
     core::SchedulerCore,
     dispatch_queue::{
         DispatchQueueReader,
