@@ -31,21 +31,30 @@
 //!   └───────────────────┘
 //! ```
 
+pub mod config;
 pub mod core;
 pub mod core_impl;
 pub mod dispatch_queue;
 pub mod error;
 pub mod execution_manager_registry;
 pub mod grpc;
+pub mod runtime;
 pub mod service;
 pub mod storage_client;
 pub mod types;
 
 pub use crate::{
+    config::SchedulerConfig,
     core::SchedulerCore,
-    dispatch_queue::{DispatchQueueSink, DispatchQueueSource},
-    error::{SchedulerError, SchedulerServiceError, StorageClientError},
+    dispatch_queue::{
+        DispatchQueueReader,
+        DispatchQueueSink,
+        DispatchQueueSource,
+        DispatchQueueWriter,
+    },
+    error::{SchedulerError, SchedulerRuntimeError, SchedulerServiceError, StorageClientError},
     grpc::GrpcSchedulerService,
+    runtime::{Runtime, RuntimeConfig, create_runtime},
     service::SchedulerServiceState,
     storage_client::{GrpcSchedulerStorageClient, SchedulerStorageClient},
     types::{InboundEntry, TaskAssignment},

@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The configuration of the round-robin scheduler core.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RoundRobinConfig {
     /// The capacity of the active job queue. The scheduler will make task assignments from these
     /// jobs in a round-robin manner.
@@ -108,7 +108,7 @@ impl<
     type StorageClient = SchedulerStorageClientType;
 
     async fn run(
-        self,
+        self: Box<Self>,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
         id_issuer: TaskAssignmentIdIssuer,

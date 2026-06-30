@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    types::id::{JobId, SessionId},
+    types::id::{JobId, SchedulerId, SessionId},
 };
 
 use crate::{error::StorageClientError, types::InboundEntry};
@@ -21,6 +21,31 @@ pub use grpc::GrpcSchedulerStorageClient;
 /// a real storage client in production or a mock in tests.
 #[async_trait]
 pub trait SchedulerStorageClient: Send + Sync + Clone {
+    /// Registers this scheduler with the storage service, advertising the endpoint execution
+    /// managers should reach it on.
+    ///
+    /// # Parameters
+    ///
+    /// * `ip_address` - The IP address this scheduler is reachable on.
+    /// * `port` - The port this scheduler is reachable on.
+    ///
+    /// # Returns
+    ///
+    /// The scheduler identifier assigned by the storage service on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageClientError::Server`] if the storage service returns an error.
+    /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
+    ///   data.
+    async fn register(
+        &self,
+        ip_address: std::net::IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, StorageClientError>;
+
     /// Polls the regular-task lane of the storage-owned inbound queue for ready tasks.
     ///
     /// # Parameters
