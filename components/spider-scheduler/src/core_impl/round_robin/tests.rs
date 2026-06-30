@@ -15,7 +15,7 @@ use anyhow::bail;
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    types::id::{JobId, ResourceGroupId, SessionId, TaskId},
+    types::id::{JobId, ResourceGroupId, SchedulerId, SessionId, TaskId},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -143,6 +143,14 @@ impl MockStorageClient {
 
 #[async_trait]
 impl SchedulerStorageClient for MockStorageClient {
+    async fn register(
+        &self,
+        _ip_address: std::net::IpAddr,
+        _port: u16,
+    ) -> Result<SchedulerId, StorageClientError> {
+        Ok(SchedulerId::from(0))
+    }
+
     async fn poll_ready(
         &self,
         max_items: usize,
@@ -268,7 +276,7 @@ fn spawn_scheduler(
     tokio::task::JoinHandle<Result<(), SchedulerError>>,
     CancellationToken,
 ) {
-    let core = config.make_core();
+    let core = Box::new(config.make_core());
     let cancellation_token = CancellationToken::new();
     let scheduler_token = cancellation_token.clone();
     let handle = tokio::spawn(async move {

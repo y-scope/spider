@@ -5,12 +5,13 @@ use std::{num::NonZeroUsize, time::Duration};
 use async_trait::async_trait;
 use spider_core::{
     job::JobState,
-    types::id::{JobId, ResourceGroupId, SessionId, TaskId},
+    types::id::{JobId, ResourceGroupId, SchedulerId, SessionId, TaskId},
 };
 use spider_proto_rust::storage::{
     self,
     inbound_queue_service_client::InboundQueueServiceClient,
     job_orchestration_service_client::JobOrchestrationServiceClient,
+    scheduler_registration_service_client::SchedulerRegistrationServiceClient,
 };
 use spider_utils::grpc::client::ConnectionPool;
 use tonic::{
@@ -28,8 +29,9 @@ use crate::{
 /// gRPC-backed [`SchedulerStorageClient`] implementation.
 #[derive(Debug, Clone)]
 pub struct GrpcSchedulerStorageClient {
-    inbound_queue_connection_pool: ConnectionPool<InboundQueueServiceClient<Channel>>,
-    job_orchestration_connection_pool: ConnectionPool<JobOrchestrationServiceClient<Channel>>,
+    inbound_queue: ConnectionPool<InboundQueueServiceClient<Channel>>,
+    job_orchestration: ConnectionPool<JobOrchestrationServiceClient<Channel>>,
+    scheduler_registration: ConnectionPool<SchedulerRegistrationServiceClient<Channel>>,
 }
 
 impl GrpcSchedulerStorageClient {
@@ -48,28 +50,56 @@ impl GrpcSchedulerStorageClient {
         endpoint: Endpoint,
         pool_size: NonZeroUsize,
     ) -> Result<Self, StorageClientError> {
-        let inbound_queue_connection_pool =
-            ConnectionPool::connect(endpoint.clone(), pool_size, |channel| {
-                InboundQueueServiceClient::new(channel)
-            })
-            .await
-            .map_err(to_transport_error)?;
-        let job_orchestration_connection_pool =
-            ConnectionPool::connect(endpoint, pool_size, |channel| {
-                JobOrchestrationServiceClient::new(channel)
-            })
-            .await
-            .map_err(to_transport_error)?;
+        let inbound_queue = ConnectionPool::connect(endpoint.clone(), pool_size, |channel| {
+            InboundQueueServiceClient::new(channel)
+        })
+        .await
+        .map_err(to_transport_error)?;
+        let job_orchestration = ConnectionPool::connect(endpoint.clone(), pool_size, |channel| {
+            JobOrchestrationServiceClient::new(channel)
+        })
+        .await
+        .map_err(to_transport_error)?;
+        let scheduler_registration = ConnectionPool::connect(endpoint, pool_size, |channel| {
+            SchedulerRegistrationServiceClient::new(channel)
+        })
+        .await
+        .map_err(to_transport_error)?;
 
         Ok(Self {
-            inbound_queue_connection_pool,
-            job_orchestration_connection_pool,
+            inbound_queue,
+            job_orchestration,
+            scheduler_registration,
         })
     }
 }
 
 #[async_trait]
 impl SchedulerStorageClient for GrpcSchedulerStorageClient {
+    async fn register(
+        &self,
+        ip_address: std::net::IpAddr,
+        port: u16,
+    ) -> Result<SchedulerId, StorageClientError> {
+        let request = storage::RegisterSchedulerRequest {
+            ip_address: ip_address.to_string(),
+            port: u32::from(port),
+        };
+        let response = self
+            .scheduler_registration
+            .get_client()
+            .register_scheduler(request)
+            .await
+            .map_err(|status| StorageClientError::Server(status.message().to_owned()))?
+            .into_inner();
+        let registration = response.registration.ok_or_else(|| {
+            StorageClientError::Transport(
+                "register scheduler response missing `registration` message".to_owned(),
+            )
+        })?;
+        Ok(SchedulerId::from(registration.scheduler_id))
+    }
+
     async fn poll_ready(
         &self,
         max_items: usize,
@@ -77,7 +107,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
         let request = poll_ready_tasks_request(max_items, wait)?;
         let response = self
-            .inbound_queue_connection_pool
+            .inbound_queue
             .get_client()
             .poll_ready_tasks(request)
             .await
@@ -93,7 +123,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
         let request = poll_ready_tasks_request(max_items, wait)?;
         let response = self
-            .inbound_queue_connection_pool
+            .inbound_queue
             .get_client()
             .poll_ready_commit_tasks(request)
             .await
@@ -109,7 +139,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
     ) -> Result<(SessionId, Vec<InboundEntry>), StorageClientError> {
         let request = poll_ready_tasks_request(max_items, wait)?;
         let response = self
-            .inbound_queue_connection_pool
+            .inbound_queue
             .get_client()
             .poll_ready_cleanup_tasks(request)
             .await
@@ -123,7 +153,7 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             job_id: job_id.get(),
         };
         let response = self
-            .job_orchestration_connection_pool
+            .job_orchestration
             .get_client()
             .get_job_state(request)
             .await
