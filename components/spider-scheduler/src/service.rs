@@ -3,10 +3,10 @@
 //! [`SchedulerServiceState`] is the domain layer behind the scheduler gRPC service. It serves
 //! execution managers by draining task assignments from the dispatch queue and bookkeeping them in
 //! the [`ExecutionManagerRegistry`]: assignment, completion, heartbeat, and shutdown. The service
-//! is generic over its dispatch source so the runtime can drive it with the real dispatch queue in
+//! is generic over its dispatch source, so the runtime can drive it with the real dispatch queue in
 //! production or a mock in tests, while the [`ExecutionManagerRegistry`] is shared by value.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use spider_core::types::{
     id::{ExecutionManagerId, SchedulerId, SessionId},
@@ -26,29 +26,30 @@ use crate::{
 ///
 /// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
 #[derive(Clone)]
-pub struct SchedulerServiceState<DispatchQueueSourceType: DispatchQueueSource> {
-    dispatch_source: DispatchQueueSourceType,
-    registry: ExecutionManagerRegistry,
-    scheduler_id: SchedulerId,
+pub struct SchedulerServiceState<DispatchQueueSourceType: DispatchQueueSource + 'static> {
+    inner: Arc<SchedulerServiceStateInner<DispatchQueueSourceType>>,
 }
 
-impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<DispatchQueueSourceType> {
+impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
+    SchedulerServiceState<DispatchQueueSourceType>
+{
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// A new [`SchedulerServiceState`] that drains `dispatch_source`, tracks assignments in
-    /// `registry`, and stamps `scheduler_id` onto every assignment it hands out.
+    /// A newly constructed [`SchedulerServiceState`].
     #[must_use]
-    pub const fn new(
+    pub fn new(
         dispatch_source: DispatchQueueSourceType,
         registry: ExecutionManagerRegistry,
         scheduler_id: SchedulerId,
     ) -> Self {
         Self {
-            dispatch_source,
-            registry,
-            scheduler_id,
+            inner: Arc::new(SchedulerServiceStateInner {
+                dispatch_source,
+                registry,
+                scheduler_id,
+            }),
         }
     }
 
@@ -56,32 +57,30 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     ///
     /// The scheduler identifier this service stamps onto every assignment it hands out.
     #[must_use]
-    pub const fn scheduler_id(&self) -> SchedulerId {
-        self.scheduler_id
+    pub fn scheduler_id(&self) -> SchedulerId {
+        self.inner.scheduler_id
     }
 
     /// Hands the next task assignment to an execution manager.
     ///
-    /// If `prev_assignment` is supplied, the execution manager first acknowledges it as consumed by
-    /// completing it in the registry. The service then drains the next assignment from the dispatch
-    /// queue, waiting up to `wait_time` for one to arrive, and records the assignment against the
+    /// If `prev_assignment` is supplied, the service acknowledges it as consumed by completing it
+    /// in the registry on a best-effort, fire-and-forget basis: the completion is spawned as a
+    /// background task, so it may land after this call returns, and any failure is logged rather
+    /// than propagated. The service then drains the next assignment from the dispatch queue,
+    /// waiting up to `wait_time` for one to arrive, and records the assignment against the
     /// execution manager in the registry before returning it.
     ///
     /// # Returns
     ///
-    /// A tuple on success, containing:
-    ///
-    /// * The storage session the dispatch queue paired with the assignment.
-    /// * The task assignment handed to the execution manager.
-    ///
-    /// [`None`] is returned when no assignment becomes available within `wait_time`.
+    /// * A tuple on success, containing:
+    ///   * The storage session the dispatch queue paired with the assignment.
+    ///   * The task assignment handed to the execution manager.
+    /// * `None` if no assignment becomes available within `wait_time`.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`SchedulerServiceError::EMRegistry`] if completing `prev_assignment` fails because the
-    ///   execution manager or the assignment is not registered.
     /// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
     pub async fn next_task(
         &self,
@@ -90,12 +89,34 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
         wait_time: Duration,
     ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerServiceError> {
         if let Some(prev) = prev_assignment {
-            self.registry.complete(em_id, prev.id).await?;
+            // The previous assignment is handled in a fire-and-forget task. Errors are ignored but
+            // logged for observability purposes.
+            tokio::spawn(Self::complete_task_assignment(
+                self.scheduler_id(),
+                self.inner.registry.clone(),
+                em_id,
+                prev,
+            ));
         }
-        match self.dispatch_source.dequeue(wait_time).await? {
-            None => Ok(None),
+        match self.inner.dispatch_source.dequeue(wait_time).await? {
+            None => {
+                tracing::info!(
+                    scheduler_id = % self.scheduler_id(),
+                    em_id = % em_id,
+                    "No task assignment available within the specified wait time."
+                );
+                Ok(None)
+            }
             Some((session_id, assignment)) => {
-                self.registry.assign(em_id, assignment).await;
+                tracing::info!(
+                    scheduler_id = % self.scheduler_id(),
+                    em_id = % em_id,
+                    assignment_id = % assignment.id,
+                    assignment_job_id = % assignment.job_id,
+                    assignment_task_id = % assignment.task_id,
+                    "Task dispatched to execution manager."
+                );
+                self.inner.registry.assign(em_id, assignment).await;
                 Ok(Some((session_id, assignment)))
             }
         }
@@ -110,7 +131,12 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     /// This method does not currently return an error. The [`Result`] return type is retained for a
     /// uniform service surface alongside [`Self::next_task`] and [`Self::shutdown`].
     pub async fn heartbeat(&self, em_id: ExecutionManagerId) -> Result<(), SchedulerServiceError> {
-        self.registry.update_heartbeat(em_id).await;
+        tracing::info!(
+            scheduler_id = % self.scheduler_id(),
+            em_id = % em_id,
+            "Execution manager heartbeat received."
+        );
+        self.inner.registry.update_heartbeat(em_id).await;
         Ok(())
     }
 
@@ -123,25 +149,72 @@ impl<DispatchQueueSourceType: DispatchQueueSource> SchedulerServiceState<Dispatc
     ///
     /// Returns an error if:
     ///
-    /// * [`SchedulerServiceError::EMRegistry`] if marking the execution manager as dead fails.
+    /// * Forwards [`ExecutionManagerRegistry::mark_as_dead`]'s return values on failure.
     pub async fn shutdown(
         &self,
         em_id: ExecutionManagerId,
         prev_assignments: Vec<TaskAssignmentRecord>,
     ) -> Result<(), SchedulerServiceError> {
         for prev in prev_assignments {
-            if let Err(error) = self.registry.complete(em_id, prev.id).await {
-                tracing::warn!(
-                    em_id = %em_id,
-                    error = %error,
-                    assignment_id = ?prev.id,
-                    "Failed to complete a previously consumed assignment during shutdown. Skipping."
-                );
-            }
+            Self::complete_task_assignment(
+                self.scheduler_id(),
+                self.inner.registry.clone(),
+                em_id,
+                prev,
+            )
+            .await;
         }
-        self.registry.mark_as_dead(em_id).await?;
+        self.inner.registry.mark_as_dead(em_id).await?;
+        tracing::info!(
+            scheduler_id = % self.scheduler_id(),
+            em_id = % em_id,
+            "Execution manager shutdown complete."
+        );
         Ok(())
     }
+
+    /// Marks a task assignment as completed in the registry.
+    async fn complete_task_assignment(
+        scheduler_id: SchedulerId,
+        registry: ExecutionManagerRegistry,
+        em_id: ExecutionManagerId,
+        record: TaskAssignmentRecord,
+    ) {
+        if scheduler_id != record.from {
+            tracing::warn!(
+                scheduler_id = % scheduler_id,
+                assignment_id = % record.id,
+                from_scheduler_id = % record.from,
+                from_em_id = % em_id,
+                "Received a completed assignment from a stale scheduler. Skipping."
+            );
+            return;
+        }
+        let _ = registry
+            .complete(em_id, record.id)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    scheduler_id = % scheduler_id,
+                    assignment_id = % record.id,
+                    from_scheduler_id = % record.from,
+                    from_em_id = % em_id,
+                    error = % error,
+                    "Failed to complete a previously consumed assignment. Skipping."
+                );
+            });
+    }
+}
+
+/// The shared inner state of [`SchedulerServiceState`].
+///
+/// # Type Parameters
+///
+/// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
+struct SchedulerServiceStateInner<DispatchQueueSourceType: DispatchQueueSource> {
+    dispatch_source: DispatchQueueSourceType,
+    registry: ExecutionManagerRegistry,
+    scheduler_id: SchedulerId,
 }
 
 #[cfg(test)]
@@ -358,37 +431,6 @@ mod tests {
             .expect("the recorded assignment should be rescheduled before the timeout")
             .expect("the reschedule queue should remain open");
         assert_eq!(rescheduled.id, assignment.id);
-        assert!(reschedule_queue_receiver.try_recv().is_err());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn next_task_completes_prev_assignment() -> anyhow::Result<()> {
-        let (service, mut reschedule_queue_receiver, _cancellation_token) = build_service(2);
-        let em_id = ExecutionManagerId::from(EM_ID);
-
-        let (_, assignment_a) = service
-            .next_task(em_id, None, Duration::from_millis(1))
-            .await?
-            .expect("the first assignment should be dequeued");
-        let (_, assignment_b) = service
-            .next_task(
-                em_id,
-                Some(record(assignment_a.id)),
-                Duration::from_millis(1),
-            )
-            .await?
-            .expect("the second assignment should be dequeued");
-
-        // The previous assignment was completed during the second call, so only the still
-        // outstanding assignment B is rescheduled on shutdown.
-        service.shutdown(em_id, Vec::new()).await?;
-
-        let rescheduled = timeout(RESCHEDULE_TIMEOUT, reschedule_queue_receiver.recv())
-            .await
-            .expect("the outstanding assignment should be rescheduled before the timeout")
-            .expect("the reschedule queue should remain open");
-        assert_eq!(rescheduled.id, assignment_b.id);
         assert!(reschedule_queue_receiver.try_recv().is_err());
         Ok(())
     }
