@@ -69,7 +69,7 @@ pub trait SchedulerCore: Send {
     ///
     /// Returns a [`SchedulerError`] instance indicating an irrecoverable error.
     async fn run(
-        self,
+        self: Box<Self>,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
         id_issuer: TaskAssignmentIdIssuer,
