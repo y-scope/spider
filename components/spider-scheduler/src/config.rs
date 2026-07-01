@@ -16,10 +16,9 @@ use crate::{
 
 /// Top-level configuration for the scheduler gRPC server.
 ///
-/// Pairs the storage endpoint the scheduler registers with and polls against the
-/// [`RuntimeConfig`] used to build the scheduler runtime. The runtime's `host` and `port` double as
-/// the gRPC server's listening address: they are advertised to the storage service during
-/// registration, which is the address execution managers reach the scheduler on.
+/// Wraps the scheduler [`RuntimeConfig`] (which also supplies the gRPC listen `host`/`port`) and
+/// adds the storage endpoint and connection-pool size that [`crate::create_runtime`] deliberately
+/// leaves out, since it receives the storage client as a parameter.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ServerConfig {
     /// The storage gRPC endpoint the scheduler registers with and polls for ready tasks.
@@ -28,7 +27,7 @@ pub struct ServerConfig {
     /// The number of connections per pool used to reach the storage service.
     pub storage_connection_pool_size: NonZeroUsize,
 
-    /// Configuration for the scheduler runtime.
+    /// The scheduler runtime configuration (also supplies the gRPC listen host/port).
     pub runtime: RuntimeConfig,
 }
 

@@ -90,7 +90,10 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             .get_client()
             .register_scheduler(request)
             .await
-            .map_err(|status| StorageClientError::Server(status.message().to_owned()))?
+            .map_err(|status| match status.code() {
+                Code::Unavailable => to_transport_error(status.message()),
+                _ => StorageClientError::Server(status.message().to_owned()),
+            })?
             .into_inner();
         let registration = response.registration.ok_or_else(|| {
             StorageClientError::Transport(
