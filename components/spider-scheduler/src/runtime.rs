@@ -1,10 +1,9 @@
 //! The scheduler runtime.
 //!
-//! Mirroring the storage runtime, this module registers the scheduler with the storage service,
-//! wires the scheduler core to a freshly created dispatch queue, and spawns the core's scheduling
-//! loop as a background coroutine alongside the execution manager registry. The resulting
-//! [`Runtime`] owns the spawned coroutine and is responsible for cancelling and joining it on
-//! shutdown.
+//! This module registers the scheduler with the storage service, wires the scheduler core to a
+//! freshly created dispatch queue, and spawns the core's scheduling loop as a background coroutine
+//! alongside the execution manager registry. The resulting [`Runtime`] owns the spawned coroutine
+//! and is responsible for cancelling and joining it on shutdown.
 
 use std::time::Duration;
 
@@ -27,11 +26,11 @@ use crate::{
 #[derive(Deserialize)]
 pub struct RuntimeConfig {
     /// The scheduler core configuration that selects and configures the scheduling algorithm.
-    pub scheduler_config: SchedulerConfig,
+    pub scheduler: SchedulerConfig,
 
     /// The execution manager registry configuration.
     #[serde(default)]
-    pub execution_manager_registry_config: ExecutionManagerRegistryConfig,
+    pub em_registry: ExecutionManagerRegistryConfig,
 
     /// The IP address this scheduler advertises to the storage service during registration.
     pub host: std::net::IpAddr,
@@ -47,7 +46,7 @@ pub struct RuntimeConfig {
 /// Runtime state for the scheduler service.
 pub struct Runtime {
     core_join_handle: tokio::task::JoinHandle<Result<(), SchedulerError>>,
-    reschedule_queue_receiver: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
+    _reschedule_queue_receiver: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
     cancellation_token: CancellationToken,
     stop_timeout: Duration,
 }
@@ -56,8 +55,7 @@ impl Runtime {
     /// Stops the runtime.
     ///
     /// The scheduler core coroutine is cancelled and joined. The core's error, if any, is logged
-    /// and will not be returned through this method. Any task assignments still buffered in the
-    /// reschedule queue are drained and dropped.
+    /// and will not be returned through this method.
     ///
     /// # Errors
     ///
@@ -65,7 +63,7 @@ impl Runtime {
     ///
     /// * [`SchedulerRuntimeError::Stopping`] if the scheduler core does not stop before the
     ///   configured timeout.
-    pub async fn stop(mut self) -> Result<(), SchedulerRuntimeError> {
+    pub async fn stop(self) -> Result<(), SchedulerRuntimeError> {
         self.cancellation_token.cancel();
 
         let join_result = tokio::time::timeout(self.stop_timeout, self.core_join_handle)
@@ -85,27 +83,14 @@ impl Runtime {
             }
         }
 
-        // The reschedule queue is reserved for future re-injection wiring; for now, drain and drop
-        // any assignments still buffered at shutdown.
-        let mut num_dropped_assignments = 0;
-        while let Ok(_assignment) = self.reschedule_queue_receiver.try_recv() {
-            num_dropped_assignments += 1;
-        }
-        if num_dropped_assignments > 0 {
-            tracing::warn!(
-                num_assignments = num_dropped_assignments,
-                "Dropped rescheduled task assignments on shutdown."
-            );
-        }
-
         Ok(())
     }
 }
 
 /// Creates a scheduler runtime from the given configuration and storage client.
 ///
-/// Registers this scheduler with the storage service, wires the scheduler core to a freshly
-/// created dispatch queue, and starts the core's scheduling loop as a background coroutine.
+/// Registers this scheduler with the storage service, wires the scheduler core to a freshly created
+/// dispatch queue, and starts the core's scheduling loop as a background coroutine.
 ///
 /// # Type Parameters
 ///
@@ -117,7 +102,7 @@ impl Runtime {
 ///
 /// * The newly created runtime instance.
 /// * The execution-manager-facing scheduler service, built over the dispatch queue reader.
-/// * The runtime's cancellation token, for cancelling the runtime on error.
+/// * The runtime's cancellation token for cancelling the runtime on error.
 ///
 /// # Errors
 ///
@@ -141,8 +126,8 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
     tracing::info!(scheduler_id = % scheduler_id, "Scheduler registered with storage.");
 
     let RuntimeConfig {
-        scheduler_config,
-        execution_manager_registry_config,
+        scheduler: scheduler_config,
+        em_registry: execution_manager_registry_config,
         stop_timeout_sec,
         ..
     } = config;
@@ -156,12 +141,9 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
         cancellation_token.clone(),
         reschedule_queue_sender,
     );
-
     let (dispatch_queue_writer, dispatch_queue_reader) =
         create_dispatch_queue(dispatch_queue_capacity.get(), SessionId::default());
-
     let service = SchedulerServiceState::new(dispatch_queue_reader, registry, scheduler_id);
-
     let core = scheduler_config.make_core::<SchedulerStorageClientType, DispatchQueueWriter>();
 
     let core_join_handle = tokio::spawn(core.run(
@@ -173,7 +155,7 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
 
     let runtime = Runtime {
         core_join_handle,
-        reschedule_queue_receiver,
+        _reschedule_queue_receiver: reschedule_queue_receiver,
         cancellation_token: cancellation_token.clone(),
         stop_timeout: Duration::from_secs(stop_timeout_sec),
     };
@@ -260,7 +242,7 @@ mod tests {
     /// A [`RuntimeConfig`] with a small round-robin core and the given stop timeout.
     fn make_runtime_config(stop_timeout_sec: u64) -> RuntimeConfig {
         RuntimeConfig {
-            scheduler_config: SchedulerConfig::RoundRobin(RoundRobinConfig {
+            scheduler: SchedulerConfig::RoundRobin(RoundRobinConfig {
                 active_job_queue_capacity: NonZeroUsize::new(4).expect("4 is non-zero"),
                 dispatch_queue_capacity: NonZeroUsize::new(8).expect("8 is non-zero"),
                 ready_task_capacity: NonZeroUsize::new(64).expect("64 is non-zero"),
@@ -270,7 +252,7 @@ mod tests {
                 tick_interval_ms: NonZeroU64::new(1).expect("1 is non-zero"),
                 finalizing_job_expiration_timeout_sec: 60,
             }),
-            execution_manager_registry_config: ExecutionManagerRegistryConfig::default(),
+            em_registry: ExecutionManagerRegistryConfig::default(),
             host: IpAddr::V4(Ipv4Addr::LOCALHOST),
             port: 0,
             stop_timeout_sec,
@@ -290,7 +272,7 @@ mod tests {
             tokio::sync::mpsc::unbounded_channel();
         Runtime {
             core_join_handle: core_task,
-            reschedule_queue_receiver,
+            _reschedule_queue_receiver: reschedule_queue_receiver,
             cancellation_token,
             stop_timeout: Duration::from_secs(stop_timeout_sec),
         }
