@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "components/spider-client",
   "components/spider-core",
   "components/spider-derive",
   "components/spider-execution-manager",
@@ -20,6 +21,7 @@ members = [
   "tests/huntsman/test-utils",
 ]
 default-members = [
+  "components/spider-client",
   "components/spider-core",
   "components/spider-derive",
   "components/spider-execution-manager",
