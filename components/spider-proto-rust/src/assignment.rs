@@ -24,6 +24,15 @@ impl From<TaskAssignmentRecord> for ProtoTaskAssignmentRecord {
     }
 }
 
+impl From<ProtoTaskAssignmentRecord> for TaskAssignmentRecord {
+    fn from(record: ProtoTaskAssignmentRecord) -> Self {
+        Self {
+            id: TaskAssignmentId::from(record.id),
+            from: SchedulerId::from(record.from),
+        }
+    }
+}
+
 impl TryFrom<NextTaskResponse> for Option<SchedulerResponse> {
     type Error = Error;
 
@@ -65,6 +74,14 @@ mod tests {
 
         assert_eq!(record.id, 7);
         assert_eq!(record.from, 9);
+    }
+
+    #[test]
+    fn protocol_assignment_record_converts_to_core() {
+        let record = TaskAssignmentRecord::from(ProtoTaskAssignmentRecord { id: 7, from: 9 });
+
+        assert_eq!(record.id, TaskAssignmentId::from(7));
+        assert_eq!(record.from, SchedulerId::from(9));
     }
 
     #[test]

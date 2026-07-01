@@ -1,13 +1,35 @@
-//! The scheduler core configuration that selects and configures the scheduling algorithm.
+//! Scheduler configuration: the top-level server configuration and the scheduler core configuration
+//! that selects the scheduling algorithm.
+
+use std::num::NonZeroUsize;
 
 use serde::Deserialize;
+use spider_utils::config::EndpointConfig;
 
 use crate::{
     core::SchedulerCore,
     core_impl::RoundRobinConfig,
     dispatch_queue::DispatchQueueSink,
+    runtime::RuntimeConfig,
     storage_client::SchedulerStorageClient,
 };
+
+/// Top-level configuration for the scheduler gRPC server.
+///
+/// Wraps the scheduler [`RuntimeConfig`] (which also supplies the gRPC listen `host`/`port`) and
+/// adds the storage endpoint and connection-pool size that [`crate::create_runtime`] deliberately
+/// leaves out, since it receives the storage client as a parameter.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ServerConfig {
+    /// The storage gRPC endpoint the scheduler registers with and polls for ready tasks.
+    pub storage_endpoint: EndpointConfig,
+
+    /// The number of connections per pool used to reach the storage service.
+    pub storage_connection_pool_size: NonZeroUsize,
+
+    /// The scheduler runtime configuration (also supplies the gRPC listen host/port).
+    pub runtime: RuntimeConfig,
+}
 
 /// The configuration that selects and configures the scheduler core's scheduling algorithm.
 #[derive(Clone, Debug, Deserialize)]
