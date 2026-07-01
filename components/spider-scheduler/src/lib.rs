@@ -53,7 +53,6 @@ pub use crate::{
         DispatchQueueWriter,
     },
     error::{SchedulerError, SchedulerRuntimeError, SchedulerServiceError, StorageClientError},
-    grpc::GrpcSchedulerService,
     runtime::{Runtime, RuntimeConfig, create_runtime},
     service::SchedulerServiceState,
     storage_client::{GrpcSchedulerStorageClient, SchedulerStorageClient},

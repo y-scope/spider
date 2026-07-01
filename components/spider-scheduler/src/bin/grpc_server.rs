@@ -5,10 +5,10 @@ use std::{error::Error, net::SocketAddr, path::PathBuf};
 use clap::Parser;
 use spider_proto_rust::scheduler::scheduler_service_server::SchedulerServiceServer;
 use spider_scheduler::{
-    GrpcSchedulerService,
     GrpcSchedulerStorageClient,
     ServerConfig,
     create_runtime,
+    grpc::GrpcSchedulerService,
 };
 use spider_utils::{config::YamlConfig, logging::set_up_logging};
 use tokio::select;

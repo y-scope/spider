@@ -72,11 +72,11 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `UNAVAILABLE` when the dispatching queue is closed (the scheduler is shutting down).
     /// * `NOT_FOUND` for an unknown execution manager or task assignment.
     /// * `FAILED_PRECONDITION` for an invalid storage session.
-    /// * `INTERNAL` for a fatal internal error (the service will be cancelled) and any other
-    ///   otherwise unexpected error.
+    /// * `INTERNAL` when the dispatching queue is closed (the scheduler is shutting down), for a
+    ///   fatal internal error (the service will be cancelled), and any other otherwise unexpected
+    ///   error.
     pub fn service_error_handler(&self, error: SchedulerServiceError, tag: &'static str) -> Status {
         const SERVICE_NAME: &str = "Scheduler";
         match error {
@@ -87,7 +87,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
                     tag,
                     "Dispatch queue is closed."
                 );
-                Status::unavailable("scheduler is shutting down")
+                Status::internal("scheduler is shutting down")
             }
 
             SchedulerServiceError::Scheduler(SchedulerError::InvalidSessionId(session_id)) => {
