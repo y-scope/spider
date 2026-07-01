@@ -39,12 +39,14 @@ use crate::{
 /// * `DispatchQueueSourceType` - The reader side of the dispatching queue the underlying service
 ///   drains.
 #[derive(Clone)]
-pub struct GrpcSchedulerService<DispatchQueueSourceType: DispatchQueueSource> {
+pub struct GrpcSchedulerService<DispatchQueueSourceType: DispatchQueueSource + 'static> {
     inner: SchedulerServiceState<DispatchQueueSourceType>,
     cancellation_token: CancellationToken,
 }
 
-impl<DispatchQueueSourceType: DispatchQueueSource> GrpcSchedulerService<DispatchQueueSourceType> {
+impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
+    GrpcSchedulerService<DispatchQueueSourceType>
+{
     /// Factory function.
     ///
     /// # Returns
