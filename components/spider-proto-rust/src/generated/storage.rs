@@ -152,6 +152,13 @@ pub struct VerifyResourceGroupRequest {
     pub password: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteResourceGroupRequest {
+    #[prost(uint64, tag = "1")]
+    pub resource_group_id: u64,
+    #[prost(bytes = "vec", tag = "2")]
+    pub password: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterExecutionManagerRequest {
     #[prost(string, tag = "1")]
     pub ip_address: ::prost::alloc::string::String,
@@ -1635,6 +1642,32 @@ pub mod inbound_queue_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn resend_ready_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::super::common::Void>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.InboundQueueService/ResendReadyTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("storage.InboundQueueService", "ResendReadyTasks"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -1669,6 +1702,13 @@ pub mod inbound_queue_service_server {
             request: tonic::Request<super::PollReadyTasksRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PollReadyTasksResponse>,
+            tonic::Status,
+        >;
+        async fn resend_ready_tasks(
+            &self,
+            request: tonic::Request<super::super::common::Void>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
             tonic::Status,
         >;
     }
@@ -1895,6 +1935,55 @@ pub mod inbound_queue_service_server {
                     };
                     Box::pin(fut)
                 }
+                "/storage.InboundQueueService/ResendReadyTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct ResendReadyTasksSvc<T: InboundQueueService>(pub Arc<T>);
+                    impl<
+                        T: InboundQueueService,
+                    > tonic::server::UnaryService<super::super::common::Void>
+                    for ResendReadyTasksSvc<T> {
+                        type Response = super::super::common::Void;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::super::common::Void>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as InboundQueueService>::resend_ready_tasks(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ResendReadyTasksSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 _ => {
                     Box::pin(async move {
                         let mut response = http::Response::new(
@@ -2086,6 +2175,35 @@ pub mod resource_group_management_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn delete_resource_group(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DeleteResourceGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.ResourceGroupManagementService/DeleteResourceGroup",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.ResourceGroupManagementService",
+                        "DeleteResourceGroup",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -2111,6 +2229,13 @@ pub mod resource_group_management_service_server {
         async fn verify_resource_group(
             &self,
             request: tonic::Request<super::VerifyResourceGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::super::common::Void>,
+            tonic::Status,
+        >;
+        async fn delete_resource_group(
+            &self,
+            request: tonic::Request<super::DeleteResourceGroupRequest>,
         ) -> std::result::Result<
             tonic::Response<super::super::common::Void>,
             tonic::Status,
@@ -2280,6 +2405,57 @@ pub mod resource_group_management_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = VerifyResourceGroupSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.ResourceGroupManagementService/DeleteResourceGroup" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeleteResourceGroupSvc<T: ResourceGroupManagementService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ResourceGroupManagementService,
+                    > tonic::server::UnaryService<super::DeleteResourceGroupRequest>
+                    for DeleteResourceGroupSvc<T> {
+                        type Response = super::super::common::Void;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DeleteResourceGroupRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ResourceGroupManagementService>::delete_resource_group(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = DeleteResourceGroupSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -23,11 +23,13 @@ service InboundQueueService {
   rpc PollReadyTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCommitTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCleanupTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc ResendReadyTasks(common.Void) returns (common.Void);
 }
 
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
   rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (common.Void);
+  rpc DeleteResourceGroup(DeleteResourceGroupRequest) returns (common.Void);
 }
 
 service ExecutionManagerLivenessService {
@@ -148,6 +150,11 @@ message ResourceGroupIdResponse {
 }
 
 message VerifyResourceGroupRequest {
+  uint64 resource_group_id = 1;
+  bytes password = 2;
+}
+
+message DeleteResourceGroupRequest {
   uint64 resource_group_id = 1;
   bytes password = 2;
 }

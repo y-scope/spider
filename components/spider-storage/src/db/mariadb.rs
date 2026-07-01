@@ -464,8 +464,41 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         }
     }
 
-    async fn delete(&self, _resource_group_id: ResourceGroupId) -> Result<(), DbError> {
-        todo!("not implemented")
+    async fn delete(&self, resource_group_id: ResourceGroupId) -> Result<(), DbError> {
+        const SELECT_FOR_UPDATE_QUERY: &str = formatcp!(
+            "SELECT `id` FROM `{table}` WHERE `id` = ? FOR UPDATE;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+        const DELETE_JOBS_QUERY: &str = formatcp!(
+            "DELETE FROM `{table}` WHERE `resource_group_id` = ?;",
+            table = JOBS_TABLE_NAME,
+        );
+        const DELETE_RESOURCE_GROUP_QUERY: &str = formatcp!(
+            "DELETE FROM `{table}` WHERE `id` = ?;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+
+        let mut tx = self.pool.begin().await?;
+
+        let Some(_): Option<ResourceGroupId> = sqlx::query_scalar(SELECT_FOR_UPDATE_QUERY)
+            .bind(resource_group_id)
+            .fetch_optional(&mut *tx)
+            .await?
+        else {
+            return Err(DbError::ResourceGroupNotFound(resource_group_id));
+        };
+
+        sqlx::query(DELETE_JOBS_QUERY)
+            .bind(resource_group_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(DELETE_RESOURCE_GROUP_QUERY)
+            .bind(resource_group_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 }
 

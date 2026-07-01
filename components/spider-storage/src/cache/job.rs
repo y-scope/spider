@@ -200,6 +200,12 @@ impl<
         self.inner.id
     }
 
+    /// Returns the resource group that owns this job.
+    #[must_use]
+    pub fn resource_group_id(&self) -> ResourceGroupId {
+        self.inner.owner_id
+    }
+
     /// # Returns
     ///
     /// The current job state.

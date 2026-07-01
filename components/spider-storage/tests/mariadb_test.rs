@@ -617,6 +617,46 @@ async fn test_verify_nonexistent_resource_group() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
+async fn test_delete_resource_group_removes_group_and_its_jobs() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (graph, inputs) = single_task_graph();
+    let job_submission = create_validated_submission(graph, inputs);
+    let job_id = storage
+        .register(rg_id, &job_submission)
+        .await
+        .expect("register should succeed");
+
+    storage.delete(rg_id).await.expect("delete should succeed");
+
+    let verify_result = storage.verify(rg_id, b"test-password").await;
+    assert!(
+        matches!(verify_result, Err(DbError::ResourceGroupNotFound(_))),
+        "verify should fail after the resource group is deleted, got {verify_result:?}"
+    );
+
+    let job_state_result = storage.get_state(job_id).await;
+    assert!(
+        matches!(job_state_result, Err(DbError::JobNotFound(_))),
+        "the resource group's jobs should be removed, got {job_state_result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_delete_nonexistent_resource_group() {
+    let storage = create_mariadb_connector().await;
+    let fake_rg_id = ResourceGroupId::random();
+
+    let result = storage.delete(fake_rg_id).await;
+    assert!(
+        matches!(result, Err(DbError::ResourceGroupNotFound(_))),
+        "expected ResourceGroupNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
 async fn test_start_job_not_found() {
     let storage = create_mariadb_connector().await;
     let fake_job_id = JobId::random();
