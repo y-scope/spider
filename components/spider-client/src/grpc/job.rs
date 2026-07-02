@@ -22,15 +22,9 @@ use tonic::{
     transport::{Channel, Endpoint},
 };
 
-use crate::error::{ClientError, job_status_to_error, to_transport_error};
+use crate::error::{ClientError, to_transport_error};
 
 /// gRPC client for the storage server's job-orchestration service.
-///
-/// Holds a round-robin pool of connections and exposes the job-lifecycle methods (submit, start,
-/// cancel, get state, get outputs, get error). Build one with [`JobOrchestrationClient::connect`].
-/// [`crate::client::SpiderClient`] wraps one of these alongside a
-/// [`crate::resource_group::ResourceGroupManagementClient`] for callers who need both services
-/// behind a single handle.
 #[derive(Debug, Clone)]
 pub struct JobOrchestrationClient {
     connection_pool: ConnectionPool<JobOrchestrationServiceClient<Channel>>,
@@ -45,11 +39,10 @@ impl JobOrchestrationClient {
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError::Transport`] if tonic cannot establish a connection to `endpoint`.
-    pub(crate) async fn connect(
-        endpoint: Endpoint,
-        pool_size: NonZeroUsize,
-    ) -> Result<Self, ClientError> {
+    /// Returns an error if:
+    ///
+    /// * [`StorageResponseError::Transport`] if tonic cannot create or connect to the endpoint.
+    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             JobOrchestrationServiceClient::new(channel)
         })
@@ -70,17 +63,10 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::Serialization`] if the task graph or inputs cannot be serialized or
-    ///   compressed.
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the task graph or inputs.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    ///
-    /// A freshly registered job has no id yet, so the server-reported `NOT_FOUND` and
-    /// `FAILED_PRECONDITION` codes (which a job id would otherwise attach) cannot arise for
-    /// registration and are folded into [`ClientError::Server`].
-    pub(crate) async fn submit_job(
+    /// * Forwards [`TaskGraph::to_zstd_compressed_json`]'s return values on failure as
+    ///   [`ClientError::Serialization`].
+    /// * Forwards [`JobOrchestrationServiceClient::register_job`]'s status on failure.
+    pub async fn submit_job(
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: &TaskGraph,
@@ -100,7 +86,7 @@ impl JobOrchestrationClient {
             .get_client()
             .register_job(request)
             .await
-            .map_err(|status| submit_status_to_error(&status))?
+            .map_err(|status| job_status_to_error(&status))?
             .into_inner();
 
         Ok(JobId::from(response.job_id))
@@ -116,13 +102,9 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows starting.
-    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
-    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
-    ///   server reports an unrecognized job state.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
+    /// * Forwards [`JobOrchestrationServiceClient::start_job`]'s status on failure.
+    /// * Forwards [`job_state_response_to_result`]'s return values on failure.
+    pub async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -131,7 +113,7 @@ impl JobOrchestrationClient {
             .get_client()
             .start_job(request)
             .await
-            .map_err(|status| job_status_to_error(&status, job_id))?
+            .map_err(|status| job_status_to_error(&status))?
             .into_inner();
 
         job_state_response_to_result(response)
@@ -147,13 +129,9 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job is not in a state that allows cancellation.
-    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
-    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
-    ///   server reports an unrecognized job state.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
+    /// * Forwards [`JobOrchestrationServiceClient::cancel_job`]'s status on failure.
+    /// * Forwards [`job_state_response_to_result`]'s return values on failure.
+    pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -162,7 +140,7 @@ impl JobOrchestrationClient {
             .get_client()
             .cancel_job(request)
             .await
-            .map_err(|status| job_status_to_error(&status, job_id))?
+            .map_err(|status| job_status_to_error(&status))?
             .into_inner();
 
         job_state_response_to_result(response)
@@ -178,12 +156,9 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
-    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
-    ///   server reports an unrecognized job state.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
+    /// * Forwards [`JobOrchestrationServiceClient::get_job_state`]'s status on failure.
+    /// * Forwards [`job_state_response_to_result`]'s return values on failure.
+    pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -192,7 +167,7 @@ impl JobOrchestrationClient {
             .get_client()
             .get_job_state(request)
             .await
-            .map_err(|status| job_status_to_error(&status, job_id))?
+            .map_err(|status| job_status_to_error(&status))?
             .into_inner();
 
         job_state_response_to_result(response)
@@ -209,16 +184,10 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job has not yet succeeded.
-    /// * [`ClientError::Deserialization`] if the returned outputs cannot be decompressed or
-    ///   unframed.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn get_job_outputs(
-        &self,
-        job_id: JobId,
-    ) -> Result<Vec<TaskOutput>, ClientError> {
+    /// * Forwards [`SerializedTaskOutputs::deserialize_from_raw`]'s return values on failure as
+    ///   [`ClientError::Deserialization`].
+    /// * Forwards [`JobOrchestrationServiceClient::get_job_outputs`]'s status on failure.
+    pub async fn get_job_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -227,7 +196,7 @@ impl JobOrchestrationClient {
             .get_client()
             .get_job_outputs(request)
             .await
-            .map_err(|status| job_status_to_error(&status, job_id))?
+            .map_err(|status| job_status_to_error(&status))?
             .into_inner();
 
         SerializedTaskOutputs::deserialize_from_raw(&response.serialized_outputs)
@@ -244,11 +213,8 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
-    /// * [`ClientError::InvalidJobState`] if the job has not yet failed.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
+    /// * Forwards [`JobOrchestrationServiceClient::get_job_error`]'s status on failure.
+    pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
@@ -257,14 +223,15 @@ impl JobOrchestrationClient {
             .get_client()
             .get_job_error(request)
             .await
-            .map_err(|status| job_status_to_error(&status, job_id))?
+            .map_err(|status| job_status_to_error(&status))?
             .into_inner();
 
         Ok(response.error_message)
     }
 }
 
-/// Serializes and zstd-compresses a job's task inputs for the `RegisterJob` request.
+/// Serializes and zstd-compresses a job's task inputs for the
+/// [`JobOrchestrationServiceClient::register_job`] request.
 ///
 /// # Returns
 ///
@@ -272,8 +239,10 @@ impl JobOrchestrationClient {
 ///
 /// # Errors
 ///
-/// Returns [`ClientError::Serialization`] if an input cannot be framed or the wire buffer cannot
-/// be compressed.
+/// Returns an error if:
+///
+/// * [`ClientError::Serialization`] if an input cannot be framed or the wire buffer cannot be
+///   compressed.
 fn serialize_inputs(inputs: Vec<TaskInput>) -> Result<Vec<u8>, ClientError> {
     let mut serializer = TaskInputsSerializer::new();
     for input in inputs {
@@ -285,30 +254,7 @@ fn serialize_inputs(inputs: Vec<TaskInput>) -> Result<Vec<u8>, ClientError> {
         .map_err(|error| ClientError::Serialization(error.to_string()))
 }
 
-/// Converts a `RegisterJob` gRPC [`Status`] to a [`ClientError`].
-///
-/// Registration has no job id yet, so the `NOT_FOUND` and `FAILED_PRECONDITION` codes that
-/// [`job_status_to_error`] would attach a job id to cannot arise here and fall back to
-/// [`ClientError::Server`]. The remaining arms match [`job_status_to_error`].
-///
-/// # Returns
-///
-/// The [`ClientError`] for `status`'s code:
-///
-/// * [`ClientError::InvalidArgument`] for `INVALID_ARGUMENT`.
-/// * [`ClientError::Unauthenticated`] for `UNAUTHENTICATED`.
-/// * [`ClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
-/// * [`ClientError::Server`] for any other code.
-fn submit_status_to_error(status: &Status) -> ClientError {
-    match status.code() {
-        Code::InvalidArgument => ClientError::InvalidArgument(status.message().to_owned()),
-        Code::Unauthenticated => ClientError::Unauthenticated(status.message().to_owned()),
-        Code::Unavailable => ClientError::Transport(status.message().to_owned()),
-        _ => ClientError::Server(status.message().to_owned()),
-    }
-}
-
-/// Converts a `JobStateResponse` into a [`JobState`].
+/// Converts a [`storage::JobStateResponse`] into a [`JobState`].
 ///
 /// # Returns
 ///
@@ -329,4 +275,27 @@ fn job_state_response_to_result(
         ProtoError::JobStateUnspecified => ClientError::UnspecifiedJobState,
         other => ClientError::Transport(other.to_string()),
     })
+}
+
+/// Maps a job-orchestration gRPC [`Status`] to a [`ClientError`].
+///
+/// # Returns
+///
+/// The [`ClientError`] for `status`'s code:
+///
+/// * [`ClientError::JobNotFound`] for `NOT_FOUND`.
+/// * [`ClientError::InvalidJobState`] for `FAILED_PRECONDITION`.
+/// * [`ClientError::InvalidArgument`] for `INVALID_ARGUMENT`.
+/// * [`ClientError::Unauthenticated`] for `UNAUTHENTICATED`.
+/// * [`ClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
+/// * [`ClientError::Server`] for any other code.
+fn job_status_to_error(status: &Status) -> ClientError {
+    match status.code() {
+        Code::NotFound => ClientError::JobNotFound,
+        Code::FailedPrecondition => ClientError::InvalidJobState(status.message().to_owned()),
+        Code::InvalidArgument => ClientError::InvalidArgument(status.message().to_owned()),
+        Code::Unauthenticated => ClientError::Unauthenticated(status.message().to_owned()),
+        Code::Unavailable => ClientError::Transport(status.message().to_owned()),
+        _ => ClientError::Server(status.message().to_owned()),
+    }
 }

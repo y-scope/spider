@@ -9,16 +9,15 @@ use spider_proto_rust::storage::{
     resource_group_management_service_client::ResourceGroupManagementServiceClient,
 };
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::transport::{Channel, Endpoint};
+use tonic::{
+    Code,
+    Status,
+    transport::{Channel, Endpoint},
+};
 
-use crate::error::{ClientError, resource_group_status_to_error, to_transport_error};
+use crate::error::{ClientError, to_transport_error};
 
 /// gRPC client for the storage server's resource-group-management service.
-///
-/// Holds a round-robin pool of connections and exposes the resource-group operations (add, verify).
-/// Build one with [`ResourceGroupManagementClient::connect`]. [`crate::client::SpiderClient`] wraps
-/// one of these alongside a [`crate::job::JobOrchestrationClient`] for callers who need both
-/// services behind a single handle.
 #[derive(Debug, Clone)]
 pub struct ResourceGroupManagementClient {
     connection_pool: ConnectionPool<ResourceGroupManagementServiceClient<Channel>>,
@@ -33,11 +32,10 @@ impl ResourceGroupManagementClient {
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError::Transport`] if tonic cannot establish a connection to `endpoint`.
-    pub(crate) async fn connect(
-        endpoint: Endpoint,
-        pool_size: NonZeroUsize,
-    ) -> Result<Self, ClientError> {
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
+    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             ResourceGroupManagementServiceClient::new(channel)
         })
@@ -58,12 +56,8 @@ impl ResourceGroupManagementClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or the password is
-    ///   invalid.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn add_resource_group(
+    /// * Forwards [`ResourceGroupManagementServiceClient::add_resource_group`]'s status on failure.
+    pub async fn add_resource_group(
         &self,
         external_resource_group_id: String,
         password: Vec<u8>,
@@ -93,12 +87,9 @@ impl ResourceGroupManagementClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
-    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or the password is
-    ///   invalid.
-    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
-    /// * [`ClientError::Server`] for any other server-reported error.
-    pub(crate) async fn verify_resource_group(
+    /// * Forwards [`ResourceGroupManagementServiceClient::verify_resource_group`]'s status on
+    ///   failure.
+    pub async fn verify_resource_group(
         &self,
         resource_group_id: ResourceGroupId,
         password: Vec<u8>,
@@ -113,5 +104,25 @@ impl ResourceGroupManagementClient {
             .await
             .map_err(|status| resource_group_status_to_error(&status))?;
         Ok(())
+    }
+}
+
+/// Maps a resource-group-management gRPC [`Status`] to a [`ClientError`].
+///
+/// # Returns
+///
+/// The [`ClientError`] for `status`'s code:
+///
+/// * [`ClientError::InvalidArgument`] for `INVALID_ARGUMENT`.
+/// * [`ClientError::Unauthenticated`] for `UNAUTHENTICATED` (an unknown or unauthorized resource
+///   group, or an invalid password).
+/// * [`ClientError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
+/// * [`ClientError::Server`] for any other code.
+fn resource_group_status_to_error(status: &Status) -> ClientError {
+    match status.code() {
+        Code::InvalidArgument => ClientError::InvalidArgument(status.message().to_owned()),
+        Code::Unauthenticated => ClientError::Unauthenticated(status.message().to_owned()),
+        Code::Unavailable => ClientError::Transport(status.message().to_owned()),
+        _ => ClientError::Server(status.message().to_owned()),
     }
 }
