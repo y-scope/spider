@@ -25,9 +25,10 @@ binary_dir: "build/rust-targets/release"
 # Created if missing; lives under the gitignored `build/` tree so artifacts are not committed.
 run_dir: "build/spider-run"
 
-# Directory of compiled task libraries exposed to task executors. Executors loads a package when a
-# task referencing it runs.
-package_dir: "build/package/"
+# Directory where `task build:packages` stages compiled task libraries as
+# `<package>/lib<package>.so`. Task executors dlopen a package from here when a task referencing it
+# runs. Run `task build:packages` before launching the stack so referenced packages are staged.
+package_dir: "build/tdl_packages/"
 
 # MariaDB container settings. Feeds both the container start (run.py -> mariadb/start.py) and the
 # storage service's `db_config`. The storage service creates its own tables on connect, so no

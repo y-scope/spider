@@ -842,6 +842,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "huntsman-complex-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "huntsman-complex-types",
+ "rmp-serde",
+ "spider-client",
+ "spider-core",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
 name = "huntsman-complex-types"
 version = "0.1.0"
 dependencies = [

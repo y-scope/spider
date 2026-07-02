@@ -44,6 +44,27 @@ tasks:
       . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
       cargo build --release --all-features
 
+  # Builds the workspace, then stages the compiled task libraries (cdylibs) into the on-disk layout
+  # the task executor dlopens: `${G_TDL_PACKAGES_DIR}/<package_name>/lib<package_name>.so`. Run this
+  # before launching the stack with `run.py` so task executors can resolve packages referenced by
+  # submitted jobs.
+  packages:
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
+      G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
+    deps:
+      - "toolchains:rust"
+    cmd: |-
+      . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+      cargo build --release --workspace --all-features
+      mkdir -p "{{.G_TDL_PACKAGES_DIR}}/complex" \
+               "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks"
+      cp "{{.G_RUST_RELEASE_DIR}}/libhuntsman_complex.so" \
+         "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
+      cp "{{.G_RUST_RELEASE_DIR}}/libintegration_test_tasks.so" \
+         "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks/libintegration_test_tasks.so"
+
   tdl-generate-parsers:
     vars:
       CHECKSUM_FILE: "{{.G_BUILD_DIR}}/{{.TASK}}.md5"

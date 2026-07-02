@@ -15,6 +15,17 @@ install step beyond [uv] itself.
 
   The binaries land in `build/rust-targets/release/` (the workspace's `CARGO_TARGET_DIR`). The
   run script fails fast if any required binary is missing.
+* The compiled task libraries must be staged so task executors can `dlopen` them. From the repo
+  root:
+
+  ```shell
+  task build:packages
+  ```
+
+  This builds the workspace and copies each task library into
+  `build/tdl_packages/<package>/lib<package>.so` (the `package_dir` configured in `spider.yaml`).
+  Run it after `task build:rust`. It is only needed when the jobs you submit reference a task
+  package (e.g. the `complex` package used by the example client below).
 * [Docker] must be runnable by your user (used to start the MariaDB container).
 
 ## Configuration
@@ -100,6 +111,36 @@ uv run --script tools/scripts/stack/run.py --teardown
 * `em-logs/<em_id>-<executor_id>.log` -- per task-executor subprocess logs.
 
 This directory lives under the gitignored `build/` tree, so none of it is committed.
+
+## Example: a layered task graph with `huntsman-complex-client`
+
+`examples/huntsman/complex/client` is a small client binary that builds a "neural-network-shaped"
+task graph out of the `complex` package's `complex::add` task and runs it against a live stack. The
+graph has `--level` layers of `--width` tasks each: layer 0 takes its two inputs from the graph
+inputs, and every inner task adds two outputs from the previous layer. Tasks within a layer are
+independent, so `--width` controls how much parallelism the scheduler can exploit. After the job
+finishes, the client decodes the final layer's outputs and checks them against an in-process
+simulation of the same DAG, so a successful run proves the stack executed the graph correctly.
+
+The binary is built by `task build:packages` (which builds the whole workspace, including the
+example crates) and lands in `build/rust-targets/release/huntsman-complex-client`. Run it against a
+stack that is already up. In one shell, start the stack with enough workers to run a layer in
+parallel:
+
+```shell
+uv run --script tools/scripts/stack/run.py --workers 16
+```
+
+In another shell, once the stack reports it is up, run the client:
+
+```shell
+build/rust-targets/release/huntsman-complex-client --level 10 --width 16
+```
+
+A width-16 graph keeps all 16 execution managers busy within each layer. On success the client
+prints that every final-layer output matched the local simulation. Defaults are `--level 10` and
+`--width 4`; pass `--help` for the full flag list. This example was validated with `--workers 16`
+and `--width 16`.
 
 ## Notes
 
