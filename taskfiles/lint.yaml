@@ -169,7 +169,8 @@ tasks:
           .github/ \
           docs/ \
           taskfile.yaml \
-          taskfiles/
+          taskfiles/ \
+          tools/scripts/stack/
 
   toml-check:
     cmds:

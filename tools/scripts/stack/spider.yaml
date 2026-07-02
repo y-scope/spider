@@ -1,0 +1,108 @@
+# Global Spider stack configuration -- single source of truth.
+#
+# `tools/scripts/stack/generate.py` derives the three per-service configs consumed by each Rust
+# binary (`gen-storage.yaml`, `gen-scheduler.yaml`, `gen-em.yaml`) from this file; `run.py` calls
+# generate.py at launch and passes each generated file to its binary via `--config`. Edit this
+# file to configure the stack; do not edit the generated files.
+#
+# Paths are resolved relative to the current working directory the stack is launched from. The
+# defaults below assume that is the repository root.
+#
+# Shared values (MariaDB, gRPC endpoints, binary/run/package paths) are defined once here. Each
+# per-service section lists every knob for that binary; the ones with `#[serde(default)]` in the
+# Rust schema are commented out so serde applies its own defaults. Uncomment and edit to override.
+
+# Number of execution-manager workers to launch. Each execution manager runs one task-executor at
+# a time, so increase this to run more tasks in parallel.
+workers: 2
+
+# Directory containing the built release binaries. Must already exist (run `task build:rust`
+# first; output goes to the workspace CARGO_TARGET_DIR, `build/rust-targets`). run.py fails fast
+# if any required binary is missing.
+binary_dir: "build/rust-targets/release"
+
+# Directory for runtime artifacts (per-service logs, per-executor logs, generated configs).
+# Created if missing; lives under the gitignored `build/` tree so artifacts are not committed.
+run_dir: "build/spider-run"
+
+# Directory of compiled task libraries exposed to task executors. Executors loads a package when a
+# task referencing it runs.
+package_dir: "build/package/"
+
+# MariaDB container settings. Feeds both the container start (run.py -> mariadb/start.py) and the
+# storage service's `db_config`. The storage service creates its own tables on connect, so no
+# schema initialization is performed.
+mariadb:
+  name: "mariadb-spider-dev"
+  host: "127.0.0.1"
+  port: 3306
+  username: "spider-user"
+  password: "spider-password"
+  database: "spider-db"
+
+# Shared gRPC endpoints. The storage service listens on `storage_endpoint` (the scheduler and the
+# execution managers connect to it); the scheduler listens on `scheduler_endpoint` (the execution
+# managers connect to it). Each per-service config derives its listen address and its client
+# targets from these.
+storage_endpoint:
+  host: "127.0.0.1"
+  port: 50051
+scheduler_endpoint:
+  host: "127.0.0.1"
+  port: 50052
+
+# --- storage (spider_storage_grpc_server) ---------------------------------------------
+# listen host/port <- storage_endpoint; db_config <- mariadb (+ storage.max_connections). The
+# three sub-configs below have `#[serde(default)]`; they are commented out so serde applies its
+# own defaults. Uncomment to override.
+storage:
+  max_connections: 10
+  # ready_queue_config:
+  #   task_capacity: 1024
+  #   commit_capacity: 256
+  #   cleanup_capacity: 256
+  # task_instance_pool_config:
+  #   execution_manager_stale_cutoff_sec: 30
+  #   gc_interval_sec: 5
+  #   message_channel_capacity: 1024
+  # job_cache_gc_config:
+  #   terminated_job_retention_sec: 300
+  #   gc_interval_sec: 10
+
+# --- scheduler (spider_scheduler_grpc_server) -----------------------------------------
+# storage_endpoint <- shared; runtime.host/port <- scheduler_endpoint. `em_registry` and
+# `stop_timeout_sec` have `#[serde(default)]`; commented out.
+#
+# NOTE: `runtime.scheduler` is a serde externally-tagged enum. The `yaml_serde` crate used by the
+# server deserializes such enums using a YAML `!tag`, so the round-robin variant is written as
+# `!round_robin`, not as a plain `{ round_robin: { ... } }` map.
+scheduler:
+  storage_connection_pool_size: 4
+  runtime:
+    # em_registry:
+    #   dead_em_cutoff_sec: 60
+    #   liveness_tracking_interval_ms: 1000
+    # stop_timeout_sec: 30
+    scheduler: !round_robin
+      active_job_queue_capacity: 64
+      dispatch_queue_capacity: 256
+      ready_task_capacity: 1024
+      commit_ready_task_capacity: 256
+      cleanup_ready_task_capacity: 256
+      storage_poll_timeout_ms: 1000
+      tick_interval_ms: 10
+      finalizing_job_expiration_timeout_sec: 300
+
+# --- execution_manager (spider_execution_manager) -------------------------------------
+# storage/scheduler client endpoints <- shared; task_executor.bin_path <- binary_dir +
+# "/spider-task-executor"; task_executor.log_dir <- run_dir + "/em-logs"; task_executor.package_dir
+# <- shared package_dir. This config has no `#[serde(default)]` fields -- every field is required.
+# The same generated config is reused by every execution-manager worker; workers self-differentiate
+# by a generated execution-manager ID, so identical configs do not collide.
+execution_manager:
+  host: "127.0.0.1"
+  connection_pool_size: 4
+  scheduler_poll_wait_ms: 1000
+  liveness:
+    storage_heartbeat_interval_sec: 5
+    scheduler_heartbeat_interval_sec: 5
