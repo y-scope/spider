@@ -104,6 +104,35 @@ impl ResourceGroupManagementClient {
             .map_err(|status| resource_group_status_to_error(&status))?;
         Ok(())
     }
+
+    /// Deletes a resource group after verifying its password.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success — the storage server's response is empty, so success is implicit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagementServiceClient::delete_resource_group`]'s status on
+    ///   failure.
+    pub async fn delete_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: Vec<u8>,
+    ) -> Result<(), ClientError> {
+        let request = storage::DeleteResourceGroupRequest {
+            resource_group_id: resource_group_id.get(),
+            password,
+        };
+        self.connection_pool
+            .get_client()
+            .delete_resource_group(request)
+            .await
+            .map_err(|status| resource_group_status_to_error(&status))?;
+        Ok(())
+    }
 }
 
 /// Maps a resource-group-management gRPC [`Status`] to a [`ClientError`].

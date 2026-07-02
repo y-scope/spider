@@ -224,4 +224,29 @@ impl SpiderClient {
             .verify_resource_group(resource_group_id, password)
             .await
     }
+
+    /// Deletes a resource group after verifying its password.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
+    /// * [`ClientError::Unauthenticated`] if the resource group is unknown or the password is
+    ///   invalid.
+    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
+    /// * [`ClientError::Server`] for any other server-reported error.
+    pub async fn delete_resource_group(
+        &self,
+        resource_group_id: ResourceGroupId,
+        password: Vec<u8>,
+    ) -> Result<(), ClientError> {
+        self.resource_group
+            .delete_resource_group(resource_group_id, password)
+            .await
+    }
 }
