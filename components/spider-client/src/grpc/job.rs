@@ -40,7 +40,7 @@ impl JobOrchestrationClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageResponseError::Transport`] if tonic cannot create or connect to the endpoint.
+    /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
     pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             JobOrchestrationServiceClient::new(channel)
