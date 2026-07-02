@@ -49,6 +49,18 @@ pub enum SchedulerError {
     SystemTime(#[from] std::time::SystemTimeError),
 }
 
+/// Errors returned by the scheduler runtime.
+#[derive(Debug, thiserror::Error)]
+pub enum SchedulerRuntimeError {
+    /// Forwarded from the storage client during scheduler registration.
+    #[error(transparent)]
+    StorageClient(#[from] StorageClientError),
+
+    /// A background task did not stop before the configured timeout.
+    #[error("scheduler runtime stop timed out: {0}")]
+    Stopping(String),
+}
+
 /// Errors returned by [`crate::service::SchedulerServiceState`] operations.
 #[derive(Debug, thiserror::Error)]
 pub enum SchedulerServiceError {
