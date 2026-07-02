@@ -21,6 +21,7 @@ use tonic::{
     Status,
     transport::{Channel, Endpoint},
 };
+
 use crate::error::{ClientError, to_transport_error};
 
 /// gRPC client for the storage server's job-orchestration service.
