@@ -1,4 +1,4 @@
-//! [`JobOrchestrationClient`] — gRPC client for the storage job-orchestration service.
+//! gRPC client implementation wrapping [`JobOrchestrationServiceClient`].
 
 use std::num::NonZeroUsize;
 
@@ -21,7 +21,6 @@ use tonic::{
     Status,
     transport::{Channel, Endpoint},
 };
-
 use crate::error::{ClientError, to_transport_error};
 
 /// gRPC client for the storage server's job-orchestration service.

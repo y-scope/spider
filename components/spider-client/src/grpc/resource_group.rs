@@ -1,5 +1,4 @@
-//! [`ResourceGroupManagementClient`] — gRPC client for the storage resource-group-management
-//! service.
+//! gRPC client implementation wrapping [`ResourceGroupManagementServiceClient`].
 
 use std::num::NonZeroUsize;
 
