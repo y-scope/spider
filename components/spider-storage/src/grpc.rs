@@ -408,7 +408,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// `Status::internal("storage service unavailable")`.
+    /// An `INTERNAL` [`Status`] carrying the message `"storage service unavailable"`.
     fn fatal_internal_status(
         &self,
         service_name: &'static str,
@@ -433,7 +433,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// `Status::internal("internal error")`.
+    /// An `INTERNAL` [`Status`] carrying the message `"internal error"`.
     fn unexpected_internal_status(
         &self,
         service_name: &'static str,
