@@ -172,11 +172,20 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
             .next_task(em_id, prev_assignment, wait_time)
             .await
         {
-            Ok(Some((session_id, assignment))) => Ok(Response::new(make_next_task_response(
-                assignment,
-                self.inner.scheduler_id(),
-                session_id,
-            ))),
+            Ok(Some((session_id, assignment))) => {
+                // Benchmark instrumentation: the log timestamp marks when the scheduler dispatches
+                // this task assignment to an execution manager.
+                tracing::info!(
+                    job_id = assignment.job_id.get(),
+                    task_id = ? assignment.task_id,
+                    "Dispatched a task assignment to an execution manager."
+                );
+                Ok(Response::new(make_next_task_response(
+                    assignment,
+                    self.inner.scheduler_id(),
+                    session_id,
+                )))
+            }
             Ok(None) => Ok(Response::new(NextTaskResponse {
                 result: Some(next_task_response::Result::NoTask(common::Void {})),
             })),

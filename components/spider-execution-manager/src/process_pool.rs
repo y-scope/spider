@@ -228,6 +228,13 @@ impl ProcessPool {
             .stdout(Stdio::piped())
             .stderr(Stdio::from(log_file))
             .kill_on_drop(true);
+        // Propagate the execution manager's `RUST_LOG` to the executor so both the executor's own
+        // tracing subscriber and the dlopened TDL package's (package-local) subscriber honor the
+        // same log level. `Command` inherits the parent environment, but forwarding explicitly
+        // keeps the filter reproducible regardless of how the executor is spawned.
+        if let Ok(rust_log) = std::env::var("RUST_LOG") {
+            command.env("RUST_LOG", rust_log);
+        }
         let mut child = command.spawn()?;
         let stdin = child
             .stdin

@@ -1,6 +1,11 @@
 //! Runtime — the execution manager's main loop.
 
-use std::{collections::VecDeque, net::IpAddr, path::PathBuf, time::Duration};
+use std::{
+    collections::VecDeque,
+    net::IpAddr,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use spider_core::{
     session::SessionTracker,
@@ -271,8 +276,13 @@ impl<
     ///
     /// * Forwards [`Self::register_task_instance`]'s return values on failure.
     /// * Forwards [`ProcessPool::execute`]'s return values on failure.
+    // The benchmark timing instrumentation pushes this event loop one line past the pedantic
+    // limit; the loop reads as a single linear pipeline and is not worth splitting.
+    #[allow(clippy::too_many_lines)]
     async fn main_loop(&mut self) -> Result<(), RuntimeError> {
         loop {
+            // Benchmark: time the scheduler poll (logged below only when a task is returned).
+            let next_task_start = Instant::now();
             let response = tokio::select! {
                 biased;
                 () = self.cancellation_token.cancelled() => return Ok(()),
@@ -292,6 +302,7 @@ impl<
             };
 
             tracing::info!(
+                scheduler_next_task_us = elapsed_us(next_task_start),
                 bundle_session = response.session_id,
                 job_id = ? response.task_assignment.job_id,
                 task_id = ? response.task_assignment.task_id,
@@ -331,6 +342,8 @@ impl<
                 resource_group_id: response.task_assignment.resource_group_id,
                 ctx: execution_context,
             };
+            // Benchmark: time the EM-side task-executor round-trip (includes the clp-s subprocess).
+            let execute_start = Instant::now();
             let outcome = self
                 .process_pool
                 .execute(request, hard_timeout)
@@ -343,6 +356,12 @@ impl<
                         "Process pool failed to dispatch task. Bailing out."
                     );
                 })?;
+            tracing::info!(
+                task_executor_execute_us = elapsed_us(execute_start),
+                job_id = ? response.task_assignment.job_id,
+                task_id = ? response.task_assignment.task_id,
+                "Task executor returned an outcome."
+            );
 
             let current_session = self.session_tracker.current();
             if response.session_id < current_session {
@@ -396,6 +415,8 @@ impl<
         &mut self,
         response: SchedulerResponse,
     ) -> Result<Option<ExecutionContext>, RuntimeError> {
+        // Benchmark instrumentation: time the register-task-instance gRPC call to storage.
+        let register_start = Instant::now();
         let register_result = tokio::select! {
             biased;
             () = self.cancellation_token.cancelled() => return Ok(None),
@@ -409,6 +430,12 @@ impl<
 
         match register_result {
             Ok(execution_context) => {
+                tracing::info!(
+                    register_task_instance_us = elapsed_us(register_start),
+                    job_id = ? response.task_assignment.job_id,
+                    task_id = ? response.task_assignment.task_id,
+                    "Registered task instance with storage."
+                );
                 self.mark_consume(&response);
                 Ok(Some(execution_context))
             }
@@ -456,6 +483,15 @@ impl<
             response.scheduler_id,
         ));
     }
+}
+
+/// Benchmark instrumentation helper: microseconds elapsed since `start`, saturating on overflow.
+///
+/// # Returns
+///
+/// The elapsed time since `start` in microseconds, clamped to [`u64::MAX`].
+fn elapsed_us(start: Instant) -> u64 {
+    u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
 /// Identifies a single task-instance attempt that an outcome report belongs to.
