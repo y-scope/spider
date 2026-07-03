@@ -191,17 +191,24 @@ def _generate_configs(global_config: Path, run_dir: Path) -> None:
     logger.info("Generated per-service configs in %s.", run_dir)
 
 
-def _launch(role: str, args: list[str], log_file: Path) -> subprocess.Popen:
+def _launch(role: str, args: list[str], log_file: Path, log_level: str) -> subprocess.Popen:
     """Launches a service process in a new session and tees its stderr to a log file."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
     # Truncate per launch so each run's log reflects only the current attempt, not stale output
     # from earlier failed runs.
     log = log_file.open("wb")
+    # The Rust services read their log level from RUST_LOG; inject the resolved level so the stack
+    # is observable without forcing the caller to set the env var. Any value already present in
+    # os.environ is overwritten -- the config/CLI value is the single source of truth. The
+    # task-executor child processes inherit this env from their execution manager, so the level
+    # propagates to every binary in the stack.
+    env = {**os.environ, "RUST_LOG": log_level}
     proc = subprocess.Popen(
         args,
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=env,
     )
     _procs.append((role, proc))
     logger.info("Started %s (pid %d): %s", role, proc.pid, " ".join(args))
@@ -241,8 +248,8 @@ def _on_signal(_signum: int, _frame: object) -> None:
     _exit_event.set()
 
 
-def main() -> int:
-    """Main."""
+def _parse_args() -> argparse.Namespace:
+    """Builds and parses the command-line arguments for the stack runner."""
     parser = argparse.ArgumentParser(description="Run the Spider stack.")
     parser.add_argument(
         "--config",
@@ -255,6 +262,12 @@ def main() -> int:
         type=int,
         default=None,
         help="Override the worker count from the config",
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=None,
+        help="Override the RUST_LOG level from the config (e.g. info, debug)",
     )
     parser.add_argument(
         "--skip-mariadb",
@@ -272,12 +285,19 @@ def main() -> int:
         default=30.0,
         help="Seconds to wait for each service to become ready (default: %(default)s)",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main() -> int:
+    """Main."""
+    args = _parse_args()
 
     global_config = _resolve(args.config)
     config = _load_yaml(global_config)
     mariadb = config["mariadb"]
     workers = args.workers if args.workers is not None else config["workers"]
+    log_level = args.log_level if args.log_level is not None else config.get("log_level", "info")
+    logger.info("Log level: %s", log_level)
     binary_dir = _resolve(config["binary_dir"])
     run_dir = _resolve(config["run_dir"])
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -297,7 +317,7 @@ def main() -> int:
         "--config",
         str(storage_cfg_path),
     ]
-    _launch("storage", storage_args, run_dir / "storage.log")
+    _launch("storage", storage_args, run_dir / "storage.log", log_level)
     if not _wait_for_port(
         str(storage_endpoint["host"]),
         storage_endpoint["port"],
@@ -313,7 +333,7 @@ def main() -> int:
         "--config",
         str(scheduler_cfg_path),
     ]
-    _launch("scheduler", scheduler_args, run_dir / "scheduler.log")
+    _launch("scheduler", scheduler_args, run_dir / "scheduler.log", log_level)
     if not _wait_for_port(
         str(scheduler_endpoint["host"]),
         scheduler_endpoint["port"],
@@ -330,7 +350,7 @@ def main() -> int:
         str(em_cfg_path),
     ]
     for i in range(workers):
-        _launch(f"em-{i}", em_args, run_dir / f"em-{i}.log")
+        _launch(f"em-{i}", em_args, run_dir / f"em-{i}.log", log_level)
         # Give each EM a moment to register before launching the next, so the scheduler
         # sees them arrive in order.
         time.sleep(1.0)

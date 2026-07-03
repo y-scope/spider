@@ -16,6 +16,11 @@
 # a time, so increase this to run more tasks in parallel.
 workers: 2
 
+# Log level for every Rust service in the stack (storage, scheduler, execution managers, and the
+# task-executors they spawn). Forwarded to each binary as RUST_LOG, so any tracing filter syntax is
+# accepted (e.g. `info`, `debug`, `spider_scheduler=debug,info`). Override per run with --log-level.
+log_level: "info"
+
 # Directory containing the built release binaries. Must already exist (run `task build:rust`
 # first; output goes to the workspace CARGO_TARGET_DIR, `build/rust-targets`). run.py fails fast
 # if any required binary is missing.
