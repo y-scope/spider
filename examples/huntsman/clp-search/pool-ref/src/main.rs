@@ -23,6 +23,7 @@ use std::{
 
 use anyhow::{Context, anyhow};
 use clap::Parser;
+use rand::seq::SliceRandom;
 use tokio::{process::Command, sync::Semaphore, task::JoinSet};
 
 /// Environment variable that overrides the `clp-s` binary path.
@@ -159,6 +160,14 @@ fn prepare_outputs(
 ///
 /// Returns an error if:
 ///
+/// # Returns
+///
+/// The wall-clock duration of the `clp-s` subprocess on success (for execution-time analysis).
+///
+/// # Errors
+///
+/// Returns an error if:
+///
 /// * The output file cannot be created.
 /// * The `clp-s` process cannot be spawned or waited on.
 /// * The `clp-s` process exits with a non-success status.
@@ -167,7 +176,7 @@ async fn search_archive(
     archive_path: &Path,
     query: &str,
     output_path: &Path,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Duration> {
     let output_file = File::create(output_path).with_context(|| {
         format!(
             "failed to create output file `{}` for archive `{}`",
@@ -176,6 +185,8 @@ async fn search_archive(
         )
     })?;
 
+    // Time only the `clp-s` subprocess, matching the Spider task's `clp_s_elapsed_us` metric.
+    let clp_s_start = Instant::now();
     let child = Command::new(clp_s_bin)
         .arg("s")
         .arg(archive_path)
@@ -196,9 +207,10 @@ async fn search_archive(
             archive_path.display()
         )
     })?;
+    let clp_s_elapsed = clp_s_start.elapsed();
 
     if output.status.success() {
-        return Ok(());
+        return Ok(clp_s_elapsed);
     }
 
     Err(anyhow!(
@@ -217,6 +229,10 @@ async fn search_archive(
 /// of all archives are collected so a single failed archive does not abort the others (mirroring
 /// how a failed Spider job is only reported once all tasks settle).
 ///
+/// # Returns
+///
+/// The per-archive `clp-s` subprocess durations (in completion order) on success.
+///
 /// # Errors
 ///
 /// Returns an error if:
@@ -229,7 +245,7 @@ async fn run_pool(
     archives: &[PathBuf],
     output_paths: &[PathBuf],
     pool_size: usize,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<Duration>> {
     let semaphore = Arc::new(Semaphore::new(pool_size));
     let clp_s_bin = Arc::new(clp_s_bin);
     let query = Arc::new(query);
@@ -251,16 +267,17 @@ async fn run_pool(
     }
 
     let mut failures = Vec::new();
+    let mut clp_s_times = Vec::with_capacity(archives.len());
     while let Some(joined) = join_set.join_next().await {
         match joined {
-            Ok(Ok(())) => {}
+            Ok(Ok(elapsed)) => clp_s_times.push(elapsed),
             Ok(Err(error)) => failures.push(format!("{error:#}")),
             Err(join_error) => failures.push(format!("a search task panicked: {join_error}")),
         }
     }
 
     if failures.is_empty() {
-        return Ok(());
+        return Ok(clp_s_times);
     }
 
     for failure in &failures {
@@ -270,6 +287,29 @@ async fn run_pool(
         "the pool run failed: {} archive(s) failed",
         failures.len()
     ))
+}
+
+/// Prints summary statistics of the per-archive `clp-s` execution times to STDERR.
+///
+/// Reports count, total, mean, median, min, max, and p95 (all in milliseconds) so the pool's
+/// `clp-s` execution distribution can be compared against Spider's `clp_s_elapsed_us` metric.
+fn print_clp_s_stats(times: &[Duration]) {
+    if times.is_empty() {
+        return;
+    }
+    let mut ms: Vec<f64> = times.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
+    ms.sort_by(f64::total_cmp);
+    let n = ms.len();
+    let sum: f64 = ms.iter().sum();
+    let mean = sum / f64::from(u32::try_from(n).unwrap_or(u32::MAX));
+    eprintln!(
+        "[clp_s] n={n} sum={sum:.1}ms mean={mean:.3}ms median={:.3}ms min={:.3}ms max={:.3}ms \
+         p95={:.3}ms",
+        ms[n / 2],
+        ms[0],
+        ms[n - 1],
+        ms[(n * 95) / 100],
+    );
 }
 
 /// Prints a single labeled phase-timing line to STDERR, in milliseconds.
@@ -320,7 +360,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let phase_start = Instant::now();
-    let archives = discover_archives(&cli.input)?;
+    let mut archives = discover_archives(&cli.input)?;
+    // Randomize archive order so heavy archives are spread across the pool instead of clustering
+    // (matches the Spider client's shuffle, keeping the two comparable).
+    archives.shuffle(&mut rand::rng());
     let discovery_duration = phase_start.elapsed();
 
     let phase_start = Instant::now();
@@ -342,7 +385,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let phase_start = Instant::now();
-    run_pool(
+    let clp_s_times = run_pool(
         clp_s_bin,
         cli.query.clone(),
         &archives,
@@ -351,6 +394,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     let spider_execution_duration = phase_start.elapsed();
+    print_clp_s_stats(&clp_s_times);
 
     let phase_start = Instant::now();
     for output_path in &output_paths {

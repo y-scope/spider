@@ -15,3 +15,9 @@ spider-tdl = {
   path = "../../../../components/spider-tdl",
   features = ["derive"]
 }
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tracing-subscriber = {
+  version = "0.3.23",
+  default-features = false,
+  features = ["env-filter", "fmt", "json"]
+}

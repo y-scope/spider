@@ -838,6 +838,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "rand 0.9.4",
  "rmp-serde",
  "spider-client",
  "spider-core",
@@ -851,6 +852,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "rand 0.9.4",
  "tokio",
 ]
 
@@ -860,6 +862,8 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "spider-tdl",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

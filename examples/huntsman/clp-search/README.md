@@ -59,6 +59,13 @@ build/rust-targets/release/huntsman-clp-search-client \
 | `--endpoint`   | `http://127.0.0.1:50051`              | Spider storage gRPC endpoint.                                  |
 | `--pool-size`  | `4`                                   | `SpiderClient` gRPC connection-pool size.                      |
 | `--output-dir` | `build/spider-run/clp-search-results` | Base dir; each run creates a unique `run-<nanos>` subdir.      |
+| `--no-shuffle` | off (archives are shuffled)           | Submit archives in sorted order instead of shuffling them.     |
+
+By default the client **shuffles** the archive order before submission, so heavy archives are spread
+across workers rather than concentrated on one straggler. For a cheap query whose per-task cost is
+uniform this mostly adds run-to-run variance (the assignment is random each run), so pass
+`--no-shuffle` for reproducible measurements; keep the shuffle when tasks are expensive and a sorted
+order would systematically pile heavy archives onto a few workers.
 
 **Output convention:** search results (JSONL) go to **stdout**; the submit line and the per-phase
 timing breakdown go to **stderr**. So `client ... > results.jsonl` captures just the results.
@@ -66,7 +73,8 @@ timing breakdown go to **stderr**. So `client ... > results.jsonl` captures just
 ## How the client works
 
 1. **Discover archives** — every immediate subdirectory of `--input`, canonicalized to an absolute
-   path and sorted by name (deterministic task order).
+   path and sorted by name, then shuffled (unless `--no-shuffle`) to randomize task-to-worker
+   assignment.
 2. **Prepare outputs + graph** — create a unique run directory and assign each archive a unique
    output file `<run-dir>/<index>-<archive-name>.jsonl` (tasks never share an output path). Build a
    **flat** `TaskGraph`: one `clp_search::search` task per archive, each with three graph inputs
@@ -102,6 +110,30 @@ overhead. Run it exactly like the client but without `--endpoint`:
 build/rust-targets/release/clp-search-pool-ref \
   --input ~/dev/clp/build/clp-package/var/data/archives/default --query '*NonDFS*'
 ```
+
+The pool-ref also prints a `[clp_s]` line to stderr with the per-archive `clp-s` execution
+distribution (count/sum/mean/median/min/max/p95), directly comparable to Spider's `clp_s_elapsed_us`
+metric below — useful for separating `clp-s` execution cost (and CPU contention) from Spider's
+coordination overhead.
+
+## Benchmark metrics
+
+Beyond the client's own stderr phase breakdown (`query_processing` / `spider_execution` /
+`post_processing`, with `submit_job` and `start_job` timed separately, and a
+`client_job_start_epoch_us` line for the scheduling-overhead calc), the stack emits per-task metrics
+as structured JSON logs when it runs at `info` (set `log_level: "info"` in `spider.yaml`, or
+`RUST_LOG=info`). Collect them from `build/spider-run/`:
+
+| Metric (JSON field) | Where | Meaning |
+|---------------------|-------|---------|
+| `scheduler_next_task_us`     | `em-*.log`             | EM time to fetch a task from the scheduler (excl. the first, idle long-poll). |
+| `register_task_instance_us`  | `em-*.log`             | EM time to register the task instance in storage. |
+| `task_executor_execute_us`   | `em-*.log`             | EM-side task-executor round-trip (includes `clp-s`). |
+| `clp_s_elapsed_us`           | `em-logs/<em>-<x>.log` | `clp-s` subprocess wall time, measured inside the task. |
+| `Dispatched a task assignment` (log timestamp) | `scheduler.log` | When the scheduler handed a task to an EM. |
+
+Aggregate by filtering log lines on `job_id`. Scheduling overhead per job = the scheduler's first
+dispatch timestamp minus the client's `client_job_start_epoch_us`.
 
 ## Notes
 

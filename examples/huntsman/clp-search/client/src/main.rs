@@ -18,6 +18,7 @@ use std::{
 
 use anyhow::{Context, anyhow};
 use clap::Parser;
+use rand::seq::SliceRandom;
 use spider_client::SpiderClient;
 use spider_core::{
     job::JobState,
@@ -60,6 +61,10 @@ struct Cli {
         default_value = "build/spider-run/clp-search-results"
     )]
     output_dir: PathBuf,
+
+    /// Process archives in sorted order instead of shuffling them before submission.
+    #[arg(long)]
+    no_shuffle: bool,
 }
 
 /// Discovers the CLP archives directly under `input`.
@@ -256,7 +261,8 @@ struct PhaseTimings {
     discovery: Duration,
     graph_and_inputs: Duration,
     connect_and_resource_group: Duration,
-    submit_and_start: Duration,
+    submit_job: Duration,
+    start_job: Duration,
     spider_execution: Duration,
     post_processing: Duration,
     total: Duration,
@@ -272,14 +278,16 @@ impl PhaseTimings {
         let query_processing = self.discovery
             + self.graph_and_inputs
             + self.connect_and_resource_group
-            + self.submit_and_start;
+            + self.submit_job
+            + self.start_job;
         print_timing("discovery", self.discovery);
         print_timing("graph_and_inputs", self.graph_and_inputs);
         print_timing(
             "connect_and_resource_group",
             self.connect_and_resource_group,
         );
-        print_timing("submit_and_start", self.submit_and_start);
+        print_timing("submit_job (register)", self.submit_job);
+        print_timing("start_job", self.start_job);
         print_timing("spider_execution", self.spider_execution);
         print_timing("post_processing", self.post_processing);
         print_timing("== query_processing", query_processing);
@@ -289,6 +297,10 @@ impl PhaseTimings {
     }
 }
 
+// A linear benchmark pipeline (discover -> submit -> poll -> read) with inline phase timing; the
+// `--no-shuffle` branch pushes it one line past the pedantic limit, but splitting it would hurt
+// readability more than help.
+#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -297,7 +309,11 @@ async fn main() -> anyhow::Result<()> {
     let pool_size = NonZeroUsize::new(cli.pool_size).context("--pool-size must be >= 1")?;
 
     let phase_start = Instant::now();
-    let archives = discover_archives(&cli.input)?;
+    let mut archives = discover_archives(&cli.input)?;
+    if !cli.no_shuffle {
+        // Shuffle so heavy archives spread across workers instead of concentrating on a straggler.
+        archives.shuffle(&mut rand::rng());
+    }
     let discovery_duration = phase_start.elapsed();
 
     // Use a unique run id per run so repeated runs do not collide, both for the output directory
@@ -334,8 +350,22 @@ async fn main() -> anyhow::Result<()> {
         .submit_job(resource_group_id, &graph, task_inputs)
         .await
         .context("submit_job")?;
+    let submit_job_duration = phase_start.elapsed();
+
+    let phase_start = Instant::now();
     client.start_job(job_id).await.context("start_job")?;
-    let submit_and_start_duration = phase_start.elapsed();
+    let start_job_duration = phase_start.elapsed();
+
+    // Client-side wall-clock (epoch microseconds) at the moment the job is started. The scheduling
+    // overhead is the scheduler's first-task-dispatch timestamp minus this value.
+    let client_job_start_epoch_us = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock before UNIX epoch")?
+        .as_micros();
+    eprintln!(
+        "[metric] client_job_start_epoch_us={client_job_start_epoch_us} job_id={}",
+        job_id.get()
+    );
 
     eprintln!(
         "Submitted CLP search job: archives={}, tasks={}, query={:?}, job_id={}",
@@ -376,7 +406,8 @@ async fn main() -> anyhow::Result<()> {
         discovery: discovery_duration,
         graph_and_inputs: graph_and_inputs_duration,
         connect_and_resource_group: connect_and_resource_group_duration,
-        submit_and_start: submit_and_start_duration,
+        submit_job: submit_job_duration,
+        start_job: start_job_duration,
         spider_execution: spider_execution_duration,
         post_processing: post_processing_duration,
         total: start.elapsed(),
