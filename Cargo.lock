@@ -894,6 +894,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "huntsman-nn-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rmp-serde",
+ "spider-client",
+ "spider-core",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
+name = "huntsman-nn-bench-tasks"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "spider-tdl",
+]
+
+[[package]]
 name = "hyper"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

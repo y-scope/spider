@@ -18,6 +18,8 @@ members = [
   "examples/huntsman/complex/client",
   "examples/huntsman/complex/tasks",
   "examples/huntsman/complex/types",
+  "examples/huntsman/nn/client",
+  "examples/huntsman/nn/tasks",
   "tests/huntsman/em-runtime",
   "tests/huntsman/integration-test-tasks",
   "tests/huntsman/task-executor",
