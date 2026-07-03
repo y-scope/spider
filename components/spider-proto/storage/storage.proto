@@ -23,6 +23,7 @@ service InboundQueueService {
   rpc PollReadyTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCommitTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
   rpc PollReadyCleanupTasks(PollReadyTasksRequest) returns (PollReadyTasksResponse);
+  rpc ResendReadyTasks(common.Void) returns (common.Void);
 }
 
 service ResourceGroupManagementService {
