@@ -343,10 +343,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const DELETE_BATCH_SIZE: usize = 1000;
 
-        const SELECT_QUERY: &str = formatcp!(
+        const SELECT_CANDIDATES_QUERY: &str = formatcp!(
             "SELECT `id` FROM `{table}` WHERE `state` IN \
              ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
-             INTERVAL ? SECOND LIMIT {DELETE_BATCH_SIZE} FOR UPDATE;",
+             INTERVAL ? SECOND LIMIT {DELETE_BATCH_SIZE};",
             table = JOBS_TABLE_NAME,
             succeeded_state = JobState::Succeeded.as_str(),
             failed_state = JobState::Failed.as_str(),
@@ -357,28 +357,53 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         let mut tx = self.pool.begin().await?;
 
         loop {
-            let job_id_batch: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
+            let candidate_ids: Vec<JobId> = sqlx::query_scalar(SELECT_CANDIDATES_QUERY)
                 .bind(expire_after_sec)
                 .fetch_all(&mut *tx)
                 .await?;
 
-            if job_id_batch.is_empty() {
+            if candidate_ids.is_empty() {
                 break;
             }
 
-            let placeholders = std::iter::repeat_n("?", job_id_batch.len())
+            let placeholders = std::iter::repeat_n("?", candidate_ids.len())
                 .collect::<Vec<_>>()
                 .join(",");
-            let delete_query =
-                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
-
-            let mut query = sqlx::query(&delete_query);
-            for job_id in &job_id_batch {
-                query = query.bind(job_id);
+            let select_for_update_query = format!(
+                "SELECT `id` FROM `{table}` FORCE INDEX (PRIMARY) WHERE `id` IN ({placeholders}) \
+                 AND `state` IN ('{succeeded_state}','{failed_state}','{cancelled_state}') AND \
+                 `ended_at` < NOW() - INTERVAL ? SECOND ORDER BY `id` FOR UPDATE;",
+                table = JOBS_TABLE_NAME,
+                succeeded_state = JobState::Succeeded.as_str(),
+                failed_state = JobState::Failed.as_str(),
+                cancelled_state = JobState::Cancelled.as_str(),
+            );
+            let mut select_query = sqlx::query_scalar::<_, JobId>(&select_for_update_query);
+            for job_id in &candidate_ids {
+                select_query = select_query.bind(job_id);
             }
-            query.execute(&mut *tx).await?;
+            let confirmed_ids: Vec<JobId> = select_query
+                .bind(expire_after_sec)
+                .fetch_all(&mut *tx)
+                .await?;
 
-            deleted_job_ids.extend(job_id_batch);
+            if !confirmed_ids.is_empty() {
+                let placeholders = std::iter::repeat_n("?", confirmed_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let delete_query =
+                    format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
+                let mut delete_query = sqlx::query(&delete_query);
+                for job_id in &confirmed_ids {
+                    delete_query = delete_query.bind(job_id);
+                }
+                delete_query.execute(&mut *tx).await?;
+                deleted_job_ids.extend(confirmed_ids);
+            }
+
+            if candidate_ids.len() < DELETE_BATCH_SIZE {
+                break;
+            }
         }
 
         tx.commit().await?;
@@ -558,21 +583,46 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     ) -> Result<Vec<ExecutionManagerId>, DbError> {
         const UPDATE_BATCH_SIZE: usize = 1000;
 
-        const SELECT_QUERY: &str = formatcp!(
+        const SELECT_CANDIDATES_QUERY: &str = formatcp!(
             "SELECT `id` FROM `{table}` WHERE `state` = '{alive_state}' AND `last_heartbeat_at` < \
-             CURRENT_TIMESTAMP - INTERVAL ? SECOND FOR UPDATE;",
+             CURRENT_TIMESTAMP - INTERVAL ? SECOND ORDER BY `id`;",
             table = EXECUTION_MANAGERS_TABLE_NAME,
             alive_state = ExecutionManagerState::Alive.as_str(),
         );
 
         let mut tx = self.pool.begin().await?;
-        let execution_manager_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_QUERY)
+        let candidate_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_CANDIDATES_QUERY)
             .bind(stale_after_sec)
             .fetch_all(&mut *tx)
             .await?;
 
-        for execution_manager_id_batch in execution_manager_ids.chunks(UPDATE_BATCH_SIZE) {
-            let placeholders = std::iter::repeat_n("?", execution_manager_id_batch.len())
+        let mut dead_ids: Vec<ExecutionManagerId> = Vec::with_capacity(candidate_ids.len());
+        for candidate_batch in candidate_ids.chunks(UPDATE_BATCH_SIZE) {
+            let placeholders = std::iter::repeat_n("?", candidate_batch.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let select_for_update_query = format!(
+                "SELECT `id` FROM `{table}` FORCE INDEX (PRIMARY) WHERE `id` IN ({placeholders}) \
+                 AND `state` = '{alive_state}' AND `last_heartbeat_at` < CURRENT_TIMESTAMP - \
+                 INTERVAL ? SECOND ORDER BY `id` FOR UPDATE;",
+                table = EXECUTION_MANAGERS_TABLE_NAME,
+                alive_state = ExecutionManagerState::Alive.as_str(),
+            );
+            let mut select_query =
+                sqlx::query_scalar::<_, ExecutionManagerId>(&select_for_update_query);
+            for execution_manager_id in candidate_batch {
+                select_query = select_query.bind(execution_manager_id);
+            }
+            let confirmed_ids: Vec<ExecutionManagerId> = select_query
+                .bind(stale_after_sec)
+                .fetch_all(&mut *tx)
+                .await?;
+
+            if confirmed_ids.is_empty() {
+                continue;
+            }
+
+            let placeholders = std::iter::repeat_n("?", confirmed_ids.len())
                 .collect::<Vec<_>>()
                 .join(",");
             let update_query = format!(
@@ -580,15 +630,17 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
                  `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN ({placeholders})",
                 dead_state = ExecutionManagerState::Dead.as_str(),
             );
-            let mut query = sqlx::query(&update_query);
-            for execution_manager_id in execution_manager_id_batch {
-                query = query.bind(execution_manager_id);
+            let mut update_query = sqlx::query(&update_query);
+            for execution_manager_id in &confirmed_ids {
+                update_query = update_query.bind(execution_manager_id);
             }
-            query.execute(&mut *tx).await?;
+            update_query.execute(&mut *tx).await?;
+
+            dead_ids.extend(confirmed_ids);
         }
 
         tx.commit().await?;
-        Ok(execution_manager_ids)
+        Ok(dead_ids)
     }
 }
 
