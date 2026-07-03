@@ -14,7 +14,7 @@
 
 # Number of execution-manager workers to launch. Each execution manager runs one task-executor at
 # a time, so increase this to run more tasks in parallel.
-workers: 2
+workers: 16
 
 # Directory containing the built release binaries. Must already exist (run `task build:rust`
 # first; output goes to the workspace CARGO_TARGET_DIR, `build/rust-targets`). run.py fails fast
@@ -57,7 +57,7 @@ scheduler_endpoint:
 # three sub-configs below have `#[serde(default)]`; they are commented out so serde applies its
 # own defaults. Uncomment to override.
 storage:
-  max_connections: 10
+  max_connections: 64
   # ready_queue_config:
   #   task_capacity: 1024
   #   commit_capacity: 256
@@ -86,8 +86,8 @@ scheduler:
     # stop_timeout_sec: 30
     scheduler: !round_robin
       active_job_queue_capacity: 64
-      dispatch_queue_capacity: 256
-      ready_task_capacity: 1024
+      dispatch_queue_capacity: 32
+      ready_task_capacity: 65536
       commit_ready_task_capacity: 256
       cleanup_ready_task_capacity: 256
       storage_poll_timeout_ms: 1000
