@@ -7,11 +7,14 @@ use spider_core::{
     job::JobState,
     types::id::{JobId, ResourceGroupId, SchedulerId, SessionId, TaskId},
 };
-use spider_proto_rust::storage::{
-    self,
-    inbound_queue_service_client::InboundQueueServiceClient,
-    job_orchestration_service_client::JobOrchestrationServiceClient,
-    scheduler_registration_service_client::SchedulerRegistrationServiceClient,
+use spider_proto_rust::{
+    common,
+    storage::{
+        self,
+        inbound_queue_service_client::InboundQueueServiceClient,
+        job_orchestration_service_client::JobOrchestrationServiceClient,
+        scheduler_registration_service_client::SchedulerRegistrationServiceClient,
+    },
 };
 use spider_utils::grpc::client::ConnectionPool;
 use tonic::{
@@ -166,6 +169,15 @@ impl SchedulerStorageClient for GrpcSchedulerStorageClient {
             })?
             .into_inner();
         job_state_response_to_result(response)
+    }
+
+    async fn resend_ready_tasks(&self) -> Result<(), StorageClientError> {
+        self.inbound_queue
+            .get_client()
+            .resend_ready_tasks(common::Void {})
+            .await
+            .map_err(|status| inbound_status_to_error(&status))?;
+        Ok(())
     }
 }
 

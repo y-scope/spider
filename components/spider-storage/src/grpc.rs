@@ -750,6 +750,17 @@ impl<
             })),
         }))
     }
+
+    async fn resend_ready_tasks(
+        &self,
+        _request: Request<common::Void>,
+    ) -> Result<Response<common::Void>, Status> {
+        tracing::info!("Resend ready tasks request received.");
+        self.inner.resend_ready_tasks().await.map_err(|error| {
+            self.inbound_queue_service_error_handler(error, "resend_ready_tasks")
+        })?;
+        Ok(Response::new(common::Void {}))
+    }
 }
 
 #[async_trait]

@@ -145,4 +145,15 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     /// * [`StorageClientError::Server`] if the storage server returns an error.
     /// * [`StorageClientError::Transport`] if the storage server returns malformed data.
     async fn job_state(&self, job_id: JobId) -> Result<JobState, StorageClientError>;
+
+    /// Resends ready tasks for all jobs in the cache to the ready queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageClientError::Server`] if the storage server returns an error.
+    /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
+    ///   data.
+    async fn resend_ready_tasks(&self) -> Result<(), StorageClientError>;
 }
