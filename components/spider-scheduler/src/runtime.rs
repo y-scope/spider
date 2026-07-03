@@ -125,6 +125,8 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
     let scheduler_id = storage_client.register(config.host, config.port).await?;
     tracing::info!(scheduler_id = % scheduler_id, "Scheduler registered with storage.");
 
+    storage_client.resend_ready_tasks().await?;
+
     let RuntimeConfig {
         scheduler: scheduler_config,
         em_registry: execution_manager_registry_config,
