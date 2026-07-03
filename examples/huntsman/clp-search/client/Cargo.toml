@@ -1,0 +1,18 @@
+[package]
+name = "huntsman-clp-search-client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "huntsman-clp-search-client"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+clap = { version = "4.6.1", features = ["derive"] }
+rmp-serde = "1.3.1"
+spider-client = { path = "../../../../components/spider-client" }
+spider-core = { path = "../../../../components/spider-core" }
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
+tonic = "0.14.6"

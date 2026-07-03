@@ -1,0 +1,17 @@
+[package]
+name = "huntsman-clp-search-tasks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+name = "clp_search"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+spider-tdl = {
+  path = "../../../../components/spider-tdl",
+  features = ["derive"]
+}

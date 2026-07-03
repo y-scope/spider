@@ -59,11 +59,14 @@ tasks:
       . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
       cargo build --release --workspace --all-features
       mkdir -p "{{.G_TDL_PACKAGES_DIR}}/complex" \
-               "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks"
+               "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks" \
+               "{{.G_TDL_PACKAGES_DIR}}/clp_search"
       cp "{{.G_RUST_RELEASE_DIR}}/libhuntsman_complex.so" \
          "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
       cp "{{.G_RUST_RELEASE_DIR}}/libintegration_test_tasks.so" \
          "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks/libintegration_test_tasks.so"
+      cp "{{.G_RUST_RELEASE_DIR}}/libclp_search.so" \
+         "{{.G_TDL_PACKAGES_DIR}}/clp_search/libclp_search.so"
 
   tdl-generate-parsers:
     vars:

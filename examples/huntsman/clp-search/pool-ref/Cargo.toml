@@ -1,0 +1,14 @@
+[package]
+name = "huntsman-clp-search-pool-ref"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "clp-search-pool-ref"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+clap = { version = "4.6.1", features = ["derive"] }
+tokio = { version = "1.50.0", features = ["macros", "process", "rt-multi-thread", "sync"] }
