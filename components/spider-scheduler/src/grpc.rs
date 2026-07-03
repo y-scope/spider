@@ -82,7 +82,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
         match error {
             SchedulerServiceError::Scheduler(SchedulerError::DispatchQueueClosed) => {
                 tracing::warn!(
-                    error = %error,
+                    error = % error,
                     service = SERVICE_NAME,
                     tag,
                     "Dispatch queue is closed."
@@ -92,7 +92,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
 
             SchedulerServiceError::Scheduler(SchedulerError::InvalidSessionId(session_id)) => {
                 tracing::warn!(
-                    error = %error,
+                    error = % error,
                     service = SERVICE_NAME,
                     tag,
                     session_id,
@@ -103,10 +103,10 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
 
             SchedulerServiceError::EMRegistry(ExecutionManagerRegistryError::EmNotFound(em_id)) => {
                 tracing::warn!(
-                    error = %error,
+                    error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    em_id = %em_id,
+                    em_id = % em_id,
                     "Execution manager not found."
                 );
                 Status::not_found("execution manager not found")
@@ -116,11 +116,11 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
                 ExecutionManagerRegistryError::TaskAssignmentNotFound(em_id, assignment_id),
             ) => {
                 tracing::warn!(
-                    error = %error,
+                    error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    em_id = %em_id,
-                    assignment_id = %assignment_id,
+                    em_id = % em_id,
+                    assignment_id = % assignment_id,
                     "Task assignment not found."
                 );
                 Status::not_found("task assignment not found")
@@ -128,7 +128,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
 
             SchedulerServiceError::Scheduler(SchedulerError::Internal(e)) => {
                 tracing::error!(
-                    error = %e,
+                    error = % e,
                     service = SERVICE_NAME,
                     tag,
                     "Internal error. Cancelling service."
@@ -139,7 +139,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
 
             error => {
                 tracing::error!(
-                    error = %error,
+                    error = % error,
                     service = SERVICE_NAME,
                     tag,
                     "Unexpected internal error."
