@@ -63,6 +63,12 @@ launched from. The defaults assume that is the repository root.
 To run more tasks in parallel, increase the worker count -- each execution manager runs one
 task-executor at a time. Either edit `workers:` in `spider.yaml` or pass `--workers`.
 
+The log level for every Rust service in the stack (storage, scheduler, execution managers, and the
+task-executors they spawn) is controlled by `log_level:` in `spider.yaml`. It is forwarded to each
+binary as `RUST_LOG`, so any `tracing` filter syntax is accepted -- e.g. `info`, `debug`, or
+`spider_scheduler=debug,info` to raise one component while keeping the rest at `info`. Either edit
+`log_level:` in `spider.yaml` or pass `--log-level`.
+
 > **Note:** `spider.yaml` writes the round-robin scheduler as `!round_robin` (a YAML tag), not as
 > a `{ round_robin: { ... } }` map. The `yaml_serde` crate the server uses deserializes serde
 > externally-tagged enums this way; a plain map will fail to parse. `generate.py` registers a
@@ -85,9 +91,54 @@ Useful flags:
 |---------------------|-----------------------------|------------------------------------------------------------------|
 | `--config`          | `tools/scripts/stack/spider.yaml` | Path to the global stack config.                          |
 | `--workers N`       | from config                 | Override the execution-manager worker count.                     |
+| `--log-level L`     | from config (`info`)        | Override the RUST_LOG level (e.g. `info`, `debug`).               |
 | `--skip-mariadb`    | off                         | Assume MariaDB is already running; do not start it.             |
 | `--teardown`        | off                         | Also stop the MariaDB container when the run ends.              |
 | `--start-timeout S` | `30`                        | Seconds to wait for each service to become ready.                |
+
+## Running workers on separate nodes
+
+`tools/scripts/stack/run_em.py` launches only execution-manager workers from the global config --
+no MariaDB, storage, or scheduler. Use it to run task-executor workers on a node separate from the
+storage/scheduler services (e.g. when distributing workers across multiple nodes). The storage and
+scheduler services must already be running on the scheduler node -- start them there with
+`run.py --workers 0` (or any worker count, if that node should also run workers):
+
+```shell
+# On the scheduler/storage node:
+uv run --script tools/scripts/stack/run.py --workers 0
+
+# On each worker node:
+uv run --script tools/scripts/stack/run_em.py
+```
+
+`run_em.py` reads the same `spider.yaml`, calls `generate.py` to derive `gen-em.yaml` (the
+storage/scheduler configs generate.py also writes are unused on a worker node), and launches the
+configured number of execution managers. Each EM spawns a task-executor and registers with the
+scheduler at `scheduler_endpoint`. Workers self-differentiate by a generated execution-manager ID,
+so launching several EMs from one config on one node does not collide.
+
+For multi-node deployments, edit `spider.yaml` on each worker node so that:
+
+* `storage_endpoint` and `scheduler_endpoint` point at the scheduler/storage node (not `127.0.0.1`).
+* `execution_manager.host` is this worker node's reachable IP (it is advertised to the
+  scheduler/storage as the EM's own address).
+
+The scheduler must listen on an address reachable from the worker nodes -- set
+`scheduler_endpoint.host` on the scheduler node to its external IP (or `0.0.0.0`), not `127.0.0.1`.
+
+Useful flags:
+
+| Flag                | Default                     | Description                                                      |
+|---------------------|-----------------------------|------------------------------------------------------------------|
+| `--config`          | `tools/scripts/stack/spider.yaml` | Path to the global stack config.                          |
+| `--workers N`       | from config                 | Override the execution-manager worker count.                     |
+| `--log-level L`     | from config (`info`)        | Override the RUST_LOG level (e.g. `info`, `debug`).               |
+
+Press `Ctrl-C` (or send `SIGTERM`) to stop the workers. They are torn down in reverse launch
+order; any that do not exit in time are `SIGKILL`ed. Per-worker logs land in the same
+`build/spider-run/` layout as `run.py` -- `em-<i>.log` per worker and `em-logs/<em_id>-<executor_id>.log`
+per task-executor.
 
 ## Stopping
 

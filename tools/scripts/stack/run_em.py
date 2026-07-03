@@ -3,22 +3,25 @@
 # dependencies = ["pyyaml>=6.0"]
 # ///
 """
-Run the Spider stack: MariaDB, storage, scheduler, and N execution managers.
+Run Spider execution-manager workers only.
 
-Services are launched in dependency order (storage -> scheduler -> execution managers), and each
-is waited on until it accepts connections before the next is started. The script then supervises
-the services in the foreground.
+Used to run task-executor workers on a node separate from the storage/scheduler services (e.g. when
+distributing workers across multiple nodes). Launches the configured number of execution managers
+from the global stack config; each spawns a task-executor and registers with the scheduler at
+``scheduler_endpoint``. The storage and scheduler services must already be running -- start them
+on the scheduler node via ``run.py`` first.
 
-Per-service configs are generated from a single global config (``spider.yaml``) by ``generate.py``
-at launch and written into ``run_dir``; each binary is then passed its generated file via
-``--config``.
+The per-service EM config is generated from the global config by ``generate.py`` at launch (only
+``gen-em.yaml`` is consumed here; the storage/scheduler configs it also writes are unused on a
+worker node). Ctrl-C / SIGTERM tears down the workers in reverse launch order.
 
-Ctrl-C / SIGTERM tears down the services in reverse order. MariaDB is left running by default so
-database state persists across run cycles; pass ``--teardown`` to also stop the MariaDB container
-when the run ends.
+For multi-node deployments, point the global config's ``storage_endpoint``/``scheduler_endpoint``
+at the scheduler/storage node and set ``execution_manager.host`` to this node's reachable IP before
+running this script. Workers self-differentiate by a generated execution-manager ID, so launching
+several EMs from one config on one node does not collide.
 
-The Rust binaries must already be built -- run ``task build:rust`` first. The script fails fast
-if any required binary is missing.
+The Rust binaries must already be built -- run ``task build:rust`` first. The script fails fast if
+any required binary is missing.
 """
 
 import argparse
@@ -26,7 +29,6 @@ import contextlib
 import logging
 import os
 import signal
-import socket
 import subprocess
 import sys
 import threading
@@ -39,17 +41,12 @@ import yaml
 # installation method.
 _uv_executable = "uv"
 
-# The MariaDB helper scripts live next to this script (under tools/scripts/mariadb), so locate
-# them relative to this file rather than the current working directory.
-_MARIADB_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "mariadb"
-
 # generate.py lives next to this script and derives the per-service configs from the global
 # config; locate it relative to this file rather than the current working directory.
 _STACK_SCRIPTS_DIR = Path(__file__).resolve().parent
 
+# Only the execution manager and the task-executor it spawns are needed on a worker node.
 _REQUIRED_BINARIES = (
-    "spider_storage_grpc_server",
-    "spider_scheduler_grpc_server",
     "spider_execution_manager",
     "spider-task-executor",
 )
@@ -86,25 +83,6 @@ def _load_yaml(path: Path) -> dict:
         return yaml.load(file, Loader=yaml.SafeLoader)
 
 
-def _port_open(host: str, port: int) -> bool:
-    """Returns whether ``host:port`` currently accepts a TCP connection."""
-    try:
-        with socket.create_connection((host, port), timeout=1.0):
-            return True
-    except OSError:
-        return False
-
-
-def _wait_for_port(host: str, port: int, timeout: float) -> bool:
-    """Blocks until ``host:port`` accepts a TCP connection or ``timeout`` elapses."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _port_open(host, port):
-            return True
-        time.sleep(0.5)
-    return False
-
-
 def _check_binaries(binary_dir: Path) -> None:
     """Fails fast if any required release binary is missing."""
     missing = [name for name in _REQUIRED_BINARIES if not (binary_dir / name).exists()]
@@ -117,61 +95,13 @@ def _check_binaries(binary_dir: Path) -> None:
         sys.exit(1)
 
 
-def _ensure_mariadb(mariadb: dict, skip: bool) -> None:
-    """
-    Starts the MariaDB container if it is not already running.
-
-    The container creates the configured database on first start; the storage service creates
-    its own tables on connect, so no schema initialization is needed here.
-    """
-    if skip:
-        logger.info("Skipping MariaDB startup (--skip-mariadb).")
-        return
-
-    common_args = [
-        "--port",
-        str(mariadb["port"]),
-        "--username",
-        mariadb["username"],
-        "--password",
-        mariadb["password"],
-        "--database",
-        mariadb["database"],
-    ]
-
-    start_cmd = [
-        _uv_executable,
-        "run",
-        "--script",
-        str(_MARIADB_SCRIPTS_DIR / "start.py"),
-        "--name",
-        mariadb["name"],
-        *common_args,
-    ]
-    result = subprocess.run(start_cmd, check=False)
-    # mariadb/start.py returns 1 when the container already exists; treat that as success.
-    if result.returncode == 1:
-        logger.info("MariaDB container %s already running.", mariadb["name"])
-    elif result.returncode != 0:
-        logger.error("Failed to start MariaDB container (exit %d).", result.returncode)
-        sys.exit(1)
-    logger.info("MariaDB is ready.")
-
-
-def _stop_mariadb(name: str) -> None:
-    """Stops the MariaDB container via the existing mariadb script."""
-    result = subprocess.run(
-        [_uv_executable, "run", "--script", str(_MARIADB_SCRIPTS_DIR / "stop.py"), "--name", name],
-        check=False,
-    )
-    if result.returncode != 0:
-        logger.error("MariaDB stop script exited with code %d.", result.returncode)
-    else:
-        logger.info("MariaDB container stopped.")
-
-
 def _generate_configs(global_config: Path, run_dir: Path) -> None:
-    """Run ``generate.py`` to materialize the per-service configs into ``run_dir``."""
+    """
+    Run ``generate.py`` to materialize the per-service configs into ``run_dir``.
+
+    Only ``gen-em.yaml`` is consumed here; generate.py also writes the storage/scheduler configs,
+    which are harmless on a worker node.
+    """
     result = subprocess.run(
         [
             _uv_executable,
@@ -215,8 +145,8 @@ def _launch(role: str, args: list[str], log_file: Path, log_level: str) -> subpr
     return proc
 
 
-def _teardown(mariadb: dict, stop_mariadb: bool) -> None:
-    """SIGTERMs every running service in reverse launch order, then SIGKILLs stragglers."""
+def _teardown() -> None:
+    """SIGTERMs every running worker in reverse launch order, then SIGKILLs stragglers."""
     for role, proc in reversed(_procs):
         if proc.poll() is not None:
             continue
@@ -235,12 +165,7 @@ def _teardown(mariadb: dict, stop_mariadb: bool) -> None:
             logger.warning("%s did not exit in time; sending SIGKILL.", role)
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    logger.info("All services stopped.")
-
-    if stop_mariadb:
-        _stop_mariadb(mariadb["name"])
-    else:
-        logger.info("Leaving MariaDB running. Pass --teardown to stop it on exit.")
+    logger.info("All workers stopped.")
 
 
 def _on_signal(_signum: int, _frame: object) -> None:
@@ -249,8 +174,8 @@ def _on_signal(_signum: int, _frame: object) -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    """Builds and parses the command-line arguments for the stack runner."""
-    parser = argparse.ArgumentParser(description="Run the Spider stack.")
+    """Builds and parses the command-line arguments for the worker launcher."""
+    parser = argparse.ArgumentParser(description="Run Spider execution-manager workers only.")
     parser.add_argument(
         "--config",
         type=str,
@@ -269,22 +194,6 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Override the RUST_LOG level from the config (e.g. info, debug)",
     )
-    parser.add_argument(
-        "--skip-mariadb",
-        action="store_true",
-        help="Assume MariaDB is already running and initialized; do not start it",
-    )
-    parser.add_argument(
-        "--teardown",
-        action="store_true",
-        help="Also stop the MariaDB container when the run ends",
-    )
-    parser.add_argument(
-        "--start-timeout",
-        type=float,
-        default=30.0,
-        help="Seconds to wait for each service to become ready (default: %(default)s)",
-    )
     return parser.parse_args()
 
 
@@ -294,56 +203,17 @@ def main() -> int:
 
     global_config = _resolve(args.config)
     config = _load_yaml(global_config)
-    mariadb = config["mariadb"]
     workers = args.workers if args.workers is not None else config["workers"]
     log_level = args.log_level if args.log_level is not None else config.get("log_level", "info")
     logger.info("Log level: %s", log_level)
     binary_dir = _resolve(config["binary_dir"])
     run_dir = _resolve(config["run_dir"])
     run_dir.mkdir(parents=True, exist_ok=True)
-    storage_endpoint = config["storage_endpoint"]
-    scheduler_endpoint = config["scheduler_endpoint"]
 
     _check_binaries(binary_dir)
     _generate_configs(global_config, run_dir)
-    _ensure_mariadb(mariadb, args.skip_mariadb)
 
-    storage_cfg_path = run_dir / "gen-storage.yaml"
-    scheduler_cfg_path = run_dir / "gen-scheduler.yaml"
     em_cfg_path = run_dir / "gen-em.yaml"
-
-    storage_args = [
-        str(binary_dir / "spider_storage_grpc_server"),
-        "--config",
-        str(storage_cfg_path),
-    ]
-    _launch("storage", storage_args, run_dir / "storage.log", log_level)
-    if not _wait_for_port(
-        str(storage_endpoint["host"]),
-        storage_endpoint["port"],
-        args.start_timeout,
-    ):
-        logger.error("Storage did not become ready in %ss.", args.start_timeout)
-        _teardown(mariadb, args.teardown)
-        return 1
-    logger.info("Storage is ready.")
-
-    scheduler_args = [
-        str(binary_dir / "spider_scheduler_grpc_server"),
-        "--config",
-        str(scheduler_cfg_path),
-    ]
-    _launch("scheduler", scheduler_args, run_dir / "scheduler.log", log_level)
-    if not _wait_for_port(
-        str(scheduler_endpoint["host"]),
-        scheduler_endpoint["port"],
-        args.start_timeout,
-    ):
-        logger.error("Scheduler did not become ready in %ss.", args.start_timeout)
-        _teardown(mariadb, args.teardown)
-        return 1
-    logger.info("Scheduler is ready.")
-
     em_args = [
         str(binary_dir / "spider_execution_manager"),
         "--config",
@@ -355,7 +225,7 @@ def main() -> int:
         # sees them arrive in order.
         time.sleep(1.0)
     logger.info("Launched %d execution-manager worker(s).", workers)
-    logger.info("Stack is up. Press Ctrl-C to stop.")
+    logger.info("Workers are up. Press Ctrl-C to stop.")
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
@@ -367,7 +237,7 @@ def main() -> int:
                     return 1
             _exit_event.wait(1.0)
     finally:
-        _teardown(mariadb, args.teardown)
+        _teardown()
     return 0
 
 
