@@ -1,10 +1,7 @@
 //! gRPC service adapters for the storage runtime.
 
 use async_trait::async_trait;
-use spider_core::types::{
-    id::{SessionId, TaskId},
-    io::SerializedTaskOutputs,
-};
+use spider_core::types::{id::TaskId, io::SerializedTaskOutputs};
 use spider_proto_rust::{
     common,
     storage::{
@@ -155,7 +152,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -228,7 +225,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error, true),
         }
     }
 
@@ -241,33 +238,17 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `INTERNAL` when the ready-queue channel is closed (the inbound queue can no longer yield
-    ///   entries), for a fatal cache-internal error (the service will restart), or for any other
-    ///   unexpected failure.
+    /// * `INTERNAL` for any failure happened on the server side. This method should never fail
+    ///   under the service's assumption.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn inbound_queue_service_error_handler(
         &self,
         error: StorageServerError,
         tag: &'static str,
     ) -> Status {
         const SERVICE_NAME: &str = "InboundQueue";
-        match error {
-            StorageServerError::Cache(CacheError::Internal(
-                InternalError::ReadyQueueChannelClosed,
-            )) => {
-                tracing::warn!(
-                    service = SERVICE_NAME,
-                    tag,
-                    "Inbound queue channel is closed."
-                );
-                Status::internal("inbound queue is closed")
-            }
-
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
-            }
-
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
-        }
+        self.unexpected_internal_status(SERVICE_NAME, tag, &error, false)
     }
 
     /// Error handler for resource group management service errors.
@@ -317,7 +298,7 @@ impl<
                 self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -366,7 +347,7 @@ impl<
                 self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -395,16 +376,11 @@ impl<
                 self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
     /// Logs a fatal cache-internal error, cancels the service, and returns an `INTERNAL` status.
-    ///
-    /// Shared by every service error handler's `Cache(CacheError::Internal)` arm. A fatal
-    /// cache-internal error is unrecoverable, so the whole storage service is cancelled to avoid
-    /// cache corruption. It is reported as `INTERNAL` rather than `UNAVAILABLE`, which is reserved
-    /// for transport-level unavailability such as a dropped connection.
     ///
     /// # Returns
     ///
@@ -427,9 +403,7 @@ impl<
 
     /// Logs an unexpected error, cancels the service, and returns an `INTERNAL` status.
     ///
-    /// Shared by every service error handler for the catch-all fallback arm. An unmapped error is
-    /// treated as unrecoverable, so the whole storage service is cancelled to avoid cache
-    /// corruption.
+    /// If `is_fatal` flag is raised, the service cancellation token will be fired.
     ///
     /// # Returns
     ///
@@ -439,6 +413,7 @@ impl<
         service_name: &'static str,
         tag: &'static str,
         error: &StorageServerError,
+        is_fatal: bool,
     ) -> Status {
         tracing::error!(
             error = % error,
@@ -446,8 +421,46 @@ impl<
             tag,
             "Unexpected internal error. Cancelling service to avoid cache corruption."
         );
-        self.cancellation_token.cancel();
+        if is_fatal {
+            self.cancellation_token.cancel();
+        }
         Status::internal("internal error")
+    }
+
+    /// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `TaskKindType` - The kind of ready-queue task carried by each entry:
+    ///   * [`spider_core::task::TaskIndex`] for the regular lane.
+    ///   * [`crate::ready_queue::CommitTaskMarker`] for the commit lane.
+    ///   * [`crate::ready_queue::CleanupTaskMarker`] for the cleanup lane.
+    ///
+    /// # Returns
+    ///
+    /// A [`storage::ReadyTasks`] carrying the storage session and the flattened ready tasks.
+    fn build_ready_tasks<TaskKindType>(
+        &self,
+        entries: Vec<ReadyQueueEntry<TaskKindType>>,
+        to_task_id: impl Fn(TaskKindType) -> common::TaskId,
+    ) -> storage::ReadyTasks {
+        let tasks = entries
+            .into_iter()
+            .map(|entry| {
+                let resource_group_id = entry.resource_group_id.get();
+                let job_id = entry.job_id.get();
+                let task_id = to_task_id(entry.task_kind);
+                storage::ReadyTask {
+                    resource_group_id,
+                    job_id,
+                    task_id: Some(task_id),
+                }
+            })
+            .collect();
+        storage::ReadyTasks {
+            session_id: self.inner.session_id(),
+            tasks,
+        }
     }
 }
 
@@ -688,18 +701,16 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let (max_items, wait) = request.into_inner().unpack()?;
-        tracing::info!(max_items, ? wait, "Poll ready tasks request received.");
+        tracing::info!(max_items, "Poll ready tasks request received.");
         let entries = self
             .inner
             .poll_ready_tasks(max_items, wait)
             .await
             .map_err(|error| self.inbound_queue_service_error_handler(error, "poll_ready_tasks"))?;
         Ok(Response::new(storage::PollReadyTasksResponse {
-            tasks: Some(build_ready_tasks(
-                self.inner.session_id(),
-                entries,
-                |task_index| common::TaskId::from(TaskId::Index(task_index)),
-            )),
+            tasks: Some(self.build_ready_tasks(entries, |task_index| {
+                common::TaskId::from(TaskId::Index(task_index))
+            })),
         }))
     }
 
@@ -708,11 +719,7 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let (max_items, wait) = request.into_inner().unpack()?;
-        tracing::info!(
-            max_items,
-            ? wait,
-            "Poll ready commit tasks request received."
-        );
+        tracing::info!(max_items, "Poll ready commit tasks request received.");
         let entries = self
             .inner
             .poll_commit_ready_tasks(max_items, wait)
@@ -721,9 +728,7 @@ impl<
                 self.inbound_queue_service_error_handler(error, "poll_ready_commit_tasks")
             })?;
         Ok(Response::new(storage::PollReadyTasksResponse {
-            tasks: Some(build_ready_tasks(self.inner.session_id(), entries, |_| {
-                common::TaskId::from(TaskId::Commit)
-            })),
+            tasks: Some(self.build_ready_tasks(entries, |_| common::TaskId::from(TaskId::Commit))),
         }))
     }
 
@@ -732,11 +737,7 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let (max_items, wait) = request.into_inner().unpack()?;
-        tracing::info!(
-            max_items,
-            ? wait,
-            "Poll ready cleanup tasks request received."
-        );
+        tracing::info!(max_items, "Poll ready cleanup tasks request received.");
         let entries = self
             .inner
             .poll_cleanup_ready_tasks(max_items, wait)
@@ -745,9 +746,7 @@ impl<
                 self.inbound_queue_service_error_handler(error, "poll_ready_cleanup_tasks")
             })?;
         Ok(Response::new(storage::PollReadyTasksResponse {
-            tasks: Some(build_ready_tasks(self.inner.session_id(), entries, |_| {
-                common::TaskId::from(TaskId::Cleanup)
-            })),
+            tasks: Some(self.build_ready_tasks(entries, |_| common::TaskId::from(TaskId::Cleanup))),
         }))
     }
 
@@ -930,43 +929,6 @@ impl<
         tracing::info!(session_id, "Get session request received.");
         Ok(Response::new(storage::GetSessionResponse { session_id }))
     }
-}
-
-/// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
-///
-/// # Type Parameters
-///
-/// * `TaskKindType` - The kind of ready-queue task carried by each entry
-///   ([`spider_core::task::TaskIndex`] for the regular lane,
-///   [`crate::ready_queue::CommitTaskMarker`] for the commit lane, or
-///   [`crate::ready_queue::CleanupTaskMarker`] for the cleanup lane).
-///
-/// # Arguments
-///
-/// * `to_task_id` - Converts each entry's lane-specific task kind into its protobuf task ID.
-///
-/// # Returns
-///
-/// A [`storage::ReadyTasks`] carrying the storage session and the flattened ready tasks.
-fn build_ready_tasks<TaskKindType>(
-    session_id: SessionId,
-    entries: Vec<ReadyQueueEntry<TaskKindType>>,
-    to_task_id: impl Fn(TaskKindType) -> common::TaskId,
-) -> storage::ReadyTasks {
-    let tasks = entries
-        .into_iter()
-        .map(|entry| {
-            let resource_group_id = entry.resource_group_id.get();
-            let job_id = entry.job_id.get();
-            let task_id = to_task_id(entry.task_kind);
-            storage::ReadyTask {
-                resource_group_id,
-                job_id,
-                task_id: Some(task_id),
-            }
-        })
-        .collect();
-    storage::ReadyTasks { session_id, tasks }
 }
 
 /// # Returns
