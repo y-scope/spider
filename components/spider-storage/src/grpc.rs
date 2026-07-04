@@ -152,7 +152,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -225,7 +225,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error, true),
         }
     }
 
@@ -248,7 +248,7 @@ impl<
         tag: &'static str,
     ) -> Status {
         const SERVICE_NAME: &str = "InboundQueue";
-        self.unexpected_internal_status(SERVICE_NAME, tag, &error)
+        self.unexpected_internal_status(SERVICE_NAME, tag, &error, false)
     }
 
     /// Error handler for resource group management service errors.
@@ -298,7 +298,7 @@ impl<
                 self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -347,7 +347,7 @@ impl<
                 self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -376,7 +376,7 @@ impl<
                 self.fatal_internal_status(SERVICE_NAME, tag, &e)
             }
 
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error),
+            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -403,6 +403,8 @@ impl<
 
     /// Logs an unexpected error, cancels the service, and returns an `INTERNAL` status.
     ///
+    /// If `is_fatal` flag is raised, the service cancellation token will be fired.
+    ///
     /// # Returns
     ///
     /// An `INTERNAL` [`Status`] carrying the message `"internal error"`.
@@ -411,6 +413,7 @@ impl<
         service_name: &'static str,
         tag: &'static str,
         error: &StorageServerError,
+        is_fatal: bool,
     ) -> Status {
         tracing::error!(
             error = % error,
@@ -418,7 +421,9 @@ impl<
             tag,
             "Unexpected internal error. Cancelling service to avoid cache corruption."
         );
-        self.cancellation_token.cancel();
+        if is_fatal {
+            self.cancellation_token.cancel();
+        }
         Status::internal("internal error")
     }
 
