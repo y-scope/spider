@@ -12,7 +12,14 @@ use crate::{
     config::DatabaseConfig,
     db::{DbStorage, MariaDbStorageConnector, SessionManagement},
     ready_queue::{ReadyQueueConfig, ReadyQueueSender, ReadyQueueSenderHandle, create_ready_queue},
-    state::{JobCache, JobCacheGcConfig, ServiceState, StorageServerError, create_job_cache_gc},
+    state::{
+        JobCache,
+        JobCacheGcConfig,
+        ServiceState,
+        ServiceStateParams,
+        StorageServerError,
+        create_job_cache_gc,
+    },
     task_instance_pool::{
         TaskInstancePoolConfig,
         TaskInstancePoolConnector,
@@ -41,9 +48,9 @@ pub struct RuntimeConfig {
 /// * `DbConnectorType` - The database connector type.
 /// * `TaskInstancePoolConnectorType` - The task instance pool connector type.
 pub struct Runtime<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     service_state:
         ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
@@ -54,9 +61,9 @@ pub struct Runtime<
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > Runtime<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Stops the runtime.
@@ -172,7 +179,7 @@ pub async fn create_runtime(
         &config.job_cache_gc_config,
     )
     .map_err(CacheError::from)?;
-    let service_state = ServiceState::new(
+    let service_state = ServiceState::new(ServiceStateParams {
         db,
         session_id,
         job_cache,
@@ -180,7 +187,8 @@ pub async fn create_runtime(
         ready_queue_receiver,
         task_instance_pool_connector,
         job_cache_gc_handle,
-    );
+        cancellation_token: cancellation_token.clone(),
+    });
 
     Ok((
         Runtime {
@@ -257,6 +265,7 @@ mod tests {
         state::{
             JobCache,
             ServiceState,
+            ServiceStateParams,
             StorageServerError,
             test_utils::{MockDbConnector, MockTaskInstancePoolConnector},
         },
@@ -281,15 +290,16 @@ mod tests {
             &JobCacheGcConfig::default(),
         )
         .expect("job cache GC creation");
-        let service_state = ServiceState::new(
+        let service_state = ServiceState::new(ServiceStateParams {
             db,
             session_id,
             job_cache,
-            sender,
-            receiver,
-            MockTaskInstancePoolConnector,
+            ready_queue_sender: sender,
+            ready_queue_receiver: receiver,
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle,
-        );
+            cancellation_token: cancellation_token.clone(),
+        });
 
         // Wired with a real job cache GC task, which should always be terminated without errors.
         Runtime {
