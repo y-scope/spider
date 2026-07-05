@@ -78,7 +78,7 @@ impl<
     /// * `INTERNAL` for:
     ///   * A fatal cache-internal error (the service will restart).
     ///   * Any other (database or otherwise unexpected) error.
-    /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group, or a wrong password.
+    /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
     /// * `NOT_FOUND` for a missing job.
     /// * `FAILED_PRECONDITION` for operations on an invalid job state.
     /// * `INVALID_ARGUMENT` for a malformed task graph, inputs, or request.
@@ -247,7 +247,7 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `UNAUTHENTICATED` for an unknown resource group or a wrong password.
+    /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
     /// * `ALREADY_EXISTS` for a duplicate external resource group ID.
     /// * `INTERNAL` for:
     ///   * A fatal cache-internal error (the service will restart).
