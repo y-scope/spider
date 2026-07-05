@@ -22,7 +22,7 @@ use tonic::{Request, Response, Status};
 use crate::{
     cache::error::CacheError,
     db::{DbError, DbStorage},
-    ready_queue::ReadyQueueSender,
+    ready_queue::{ReadyQueueEntry, ReadyQueueSender},
     state::{ServiceState, StorageServerError},
     task_instance_pool::TaskInstancePoolConnector,
 };
@@ -89,55 +89,39 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "JobOrchestration";
         match error {
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
+            error @ StorageServerError::Db(
+                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_),
+            ) => {
+                tracing::warn!(
+                    error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    "Internal error in the cache layer. Cancelling service."
+                    "Invalid resource group."
                 );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
+                Status::unauthenticated("invalid resource group")
             }
 
-            StorageServerError::Db(db_error) => match &db_error {
-                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_) => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Invalid resource group."
-                    );
-                    Status::unauthenticated("invalid resource group")
-                }
-                DbError::JobNotFound(_) => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Job not found."
-                    );
-                    Status::not_found("job not found")
-                }
-                DbError::InvalidJobStateTransition { .. } | DbError::UnexpectedJobState { .. } => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Invalid job state."
-                    );
-                    Status::failed_precondition(db_error.to_string())
-                }
-                _ => {
-                    tracing::error!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "DB operation failed."
-                    );
-                    Status::internal("internal error")
-                }
-            },
+            error @ StorageServerError::Db(DbError::JobNotFound(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Job not found."
+                );
+                Status::not_found("job not found")
+            }
+
+            error @ StorageServerError::Db(
+                DbError::InvalidJobStateTransition { .. } | DbError::UnexpectedJobState { .. },
+            ) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Invalid job state."
+                );
+                Status::failed_precondition(error.to_string())
+            }
 
             StorageServerError::JobNotFound(_) => {
                 tracing::warn!(
@@ -159,15 +143,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => {
-                tracing::error!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Unexpected internal error."
-                );
-                Status::internal("internal error")
-            }
+            _ => self.default_error_handler(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -193,17 +169,6 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "TaskInstanceManagement";
         match error {
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                tracing::error!(
-                    error = % e,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Internal error in the cache layer. Cancelling service."
-                );
-                self.cancellation_token.cancel();
-                Status::internal("storage service unavailable")
-            }
-
             StorageServerError::StaleSession(storage_session) => {
                 tracing::warn!(
                     storage_session,
@@ -247,16 +212,225 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => {
-                tracing::error!(
+            _ => self.default_error_handler(SERVICE_NAME, tag, &error, true),
+        }
+    }
+
+    /// Error handler for inbound queue service errors.
+    ///
+    /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
+    /// client. The errors are logged for observability.
+    ///
+    /// # Returns
+    ///
+    /// The [`Status`] to send to the client:
+    ///
+    /// * `INTERNAL` for any failure happened on the server side. This method should never fail
+    ///   under the service's assumption.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn inbound_queue_service_error_handler(
+        &self,
+        error: StorageServerError,
+        tag: &'static str,
+    ) -> Status {
+        const SERVICE_NAME: &str = "InboundQueue";
+        self.default_error_handler(SERVICE_NAME, tag, &error, false)
+    }
+
+    /// Error handler for resource group management service errors.
+    ///
+    /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
+    /// client. The errors are logged for observability.
+    ///
+    /// # Returns
+    ///
+    /// The [`Status`] to send to the client:
+    ///
+    /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
+    /// * `ALREADY_EXISTS` for a duplicate external resource group ID.
+    /// * `INTERNAL` for:
+    ///   * A fatal cache-internal error (the service will restart).
+    ///   * Any other unexpected failure.
+    pub fn resource_group_management_service_error_handler(
+        &self,
+        error: StorageServerError,
+        tag: &'static str,
+    ) -> Status {
+        const SERVICE_NAME: &str = "ResourceGroupManagement";
+        match error {
+            error @ StorageServerError::Db(
+                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_),
+            ) => {
+                tracing::warn!(
                     error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    "Unexpected internal error. Cancelling service to avoid cache corruption."
+                    "Invalid resource group."
+                );
+                Status::unauthenticated("invalid resource group")
+            }
+
+            error @ StorageServerError::Db(DbError::ResourceGroupAlreadyExists(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Resource group already exists."
+                );
+                Status::already_exists(error.to_string())
+            }
+
+            error => self.default_error_handler(SERVICE_NAME, tag, &error, false),
+        }
+    }
+
+    /// Error handler for execution manager liveness service errors.
+    ///
+    /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
+    /// client. The errors are logged for observability.
+    ///
+    /// # Returns
+    ///
+    /// The [`Status`] to send to the client:
+    ///
+    /// * `FAILED_PRECONDITION` when the execution manager has already been reaped.
+    /// * `INVALID_ARGUMENT` for an illegal execution manager ID.
+    /// * `INTERNAL` for:
+    ///   * A fatal cache-internal error (the service will restart).
+    ///   * Any other unexpected failure.
+    pub fn execution_manager_liveness_service_error_handler(
+        &self,
+        error: StorageServerError,
+        tag: &'static str,
+    ) -> Status {
+        const SERVICE_NAME: &str = "ExecutionManagerLiveness";
+        match error {
+            error @ StorageServerError::Db(DbError::ExecutionManagerAlreadyDead(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Execution manager already marked dead."
+                );
+                Status::failed_precondition(error.to_string())
+            }
+
+            error @ StorageServerError::Db(DbError::IllegalExecutionManagerId(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Illegal execution manager ID."
+                );
+                Status::invalid_argument(error.to_string())
+            }
+
+            error => self.default_error_handler(SERVICE_NAME, tag, &error, false),
+        }
+    }
+
+    /// Handles generic storage server errors.
+    ///
+    /// This handler maps every [`StorageServerError`] to an `INTERNAL` [`Status`] with a generic
+    /// error message. Errors are treated as fatal, and the storage service is cancelled in any of
+    /// the following cases:
+    ///
+    /// * The error is [`CacheError::Internal`].
+    /// * The error is [`DbError::CorruptedDbState`].
+    /// * `strict_mode` is enabled.
+    ///
+    /// Non-fatal errors are logged as warnings. Fatal errors are logged as errors before
+    /// cancellation.
+    ///
+    /// # Returns
+    ///
+    /// An `INTERNAL` [`Status`] with a generic storage service error message.
+    #[must_use]
+    fn default_error_handler(
+        &self,
+        service: &'static str,
+        tag: &'static str,
+        error: &StorageServerError,
+        strict_mode: bool,
+    ) -> Status {
+        match error {
+            StorageServerError::Cache(CacheError::Internal(e)) => {
+                tracing::error!(
+                    error = % e,
+                    service,
+                    tag,
+                    "Internal error in the cache layer. Cancelling service."
                 );
                 self.cancellation_token.cancel();
-                Status::internal("internal error")
             }
+
+            StorageServerError::Db(DbError::CorruptedDbState(e)) => {
+                tracing::error!(
+                    error = % e,
+                    service,
+                    tag,
+                    "Internal error in the database layer. Cancelling service."
+                );
+                self.cancellation_token.cancel();
+            }
+
+            e => {
+                if strict_mode {
+                    tracing::error!(
+                        error = % e,
+                        service,
+                        tag,
+                        "Unexpected internal error. Cancelling service."
+                    );
+                    self.cancellation_token.cancel();
+                } else {
+                    tracing::warn!(
+                        error = % e,
+                        service,
+                        tag,
+                        "Unexpected internal error."
+                    );
+                }
+            }
+        }
+
+        Status::internal("storage service internal error")
+    }
+
+    /// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `TaskKindType` - The kind of ready-queue task carried by each entry:
+    ///   * [`spider_core::task::TaskIndex`] for the regular lane.
+    ///   * [`crate::ready_queue::CommitTaskMarker`] for the commit lane.
+    ///   * [`crate::ready_queue::CleanupTaskMarker`] for the cleanup lane.
+    ///
+    /// # Returns
+    ///
+    /// A [`storage::ReadyTasks`] carrying the storage session and the flattened ready tasks.
+    fn build_ready_tasks<TaskKindType>(
+        &self,
+        entries: Vec<ReadyQueueEntry<TaskKindType>>,
+        to_task_id: impl Fn(TaskKindType) -> common::TaskId,
+    ) -> storage::ReadyTasks {
+        let tasks = entries
+            .into_iter()
+            .map(|entry| {
+                let resource_group_id = entry.resource_group_id.get();
+                let job_id = entry.job_id.get();
+                let task_id = to_task_id(entry.task_kind);
+                storage::ReadyTask {
+                    resource_group_id,
+                    job_id,
+                    task_id: Some(task_id),
+                }
+            })
+            .collect();
+        storage::ReadyTasks {
+            session_id: self.inner.session_id(),
+            tasks,
         }
     }
 }
@@ -495,23 +669,56 @@ impl<
 {
     async fn poll_ready_tasks(
         &self,
-        _request: Request<storage::PollReadyTasksRequest>,
+        request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
-        todo!("Not implemented")
+        let (max_items, wait) = request.into_inner().unpack()?;
+        tracing::info!(max_items, "Poll ready tasks request received.");
+        let entries = self
+            .inner
+            .poll_ready_tasks(max_items, wait)
+            .await
+            .map_err(|error| self.inbound_queue_service_error_handler(error, "poll_ready_tasks"))?;
+        Ok(Response::new(storage::PollReadyTasksResponse {
+            tasks: Some(self.build_ready_tasks(entries, |task_index| {
+                common::TaskId::from(TaskId::Index(task_index))
+            })),
+        }))
     }
 
     async fn poll_ready_commit_tasks(
         &self,
-        _request: Request<storage::PollReadyTasksRequest>,
+        request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
-        todo!("Not implemented")
+        let (max_items, wait) = request.into_inner().unpack()?;
+        tracing::info!(max_items, "Poll ready commit tasks request received.");
+        let entries = self
+            .inner
+            .poll_commit_ready_tasks(max_items, wait)
+            .await
+            .map_err(|error| {
+                self.inbound_queue_service_error_handler(error, "poll_ready_commit_tasks")
+            })?;
+        Ok(Response::new(storage::PollReadyTasksResponse {
+            tasks: Some(self.build_ready_tasks(entries, |_| common::TaskId::from(TaskId::Commit))),
+        }))
     }
 
     async fn poll_ready_cleanup_tasks(
         &self,
-        _request: Request<storage::PollReadyTasksRequest>,
+        request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
-        todo!("Not implemented")
+        let (max_items, wait) = request.into_inner().unpack()?;
+        tracing::info!(max_items, "Poll ready cleanup tasks request received.");
+        let entries = self
+            .inner
+            .poll_cleanup_ready_tasks(max_items, wait)
+            .await
+            .map_err(|error| {
+                self.inbound_queue_service_error_handler(error, "poll_ready_cleanup_tasks")
+            })?;
+        Ok(Response::new(storage::PollReadyTasksResponse {
+            tasks: Some(self.build_ready_tasks(entries, |_| common::TaskId::from(TaskId::Cleanup))),
+        }))
     }
 }
 
@@ -525,16 +732,38 @@ impl<
 {
     async fn add_resource_group(
         &self,
-        _request: Request<storage::AddResourceGroupRequest>,
+        request: Request<storage::AddResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupIdResponse>, Status> {
-        todo!("Not implemented")
+        let (external_id, password) = request.into_inner().unpack()?;
+        tracing::info!(external_id = % external_id, "Add resource group request received.");
+        let rg_id = self
+            .inner
+            .add_resource_group(external_id, password)
+            .await
+            .map_err(|error| {
+                self.resource_group_management_service_error_handler(error, "add_resource_group")
+            })?;
+        Ok(Response::new(storage::ResourceGroupIdResponse {
+            resource_group_id: rg_id.get(),
+        }))
     }
 
     async fn verify_resource_group(
         &self,
-        _request: Request<storage::VerifyResourceGroupRequest>,
+        request: Request<storage::VerifyResourceGroupRequest>,
     ) -> Result<Response<common::Void>, Status> {
-        todo!("Not implemented")
+        let (rg_id, password) = request.into_inner().unpack()?;
+        tracing::info!(
+            rg_id = rg_id.get(),
+            "Verify resource group request received."
+        );
+        self.inner
+            .verify_resource_group(rg_id, &password)
+            .await
+            .map_err(|error| {
+                self.resource_group_management_service_error_handler(error, "verify_resource_group")
+            })?;
+        Ok(Response::new(common::Void {}))
     }
 }
 
@@ -548,16 +777,51 @@ impl<
 {
     async fn register_execution_manager(
         &self,
-        _request: Request<storage::RegisterExecutionManagerRequest>,
+        request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
-        todo!("Not implemented")
+        let ip_address = request.into_inner().unpack()?;
+        tracing::info!(% ip_address, "Execution manager registration request received.");
+        let em_id = self
+            .inner
+            .register_execution_manager(ip_address)
+            .await
+            .map_err(|error| {
+                self.execution_manager_liveness_service_error_handler(
+                    error,
+                    "register_execution_manager",
+                )
+            })?;
+        Ok(Response::new(storage::RegisterExecutionManagerResponse {
+            registration: Some(storage::ExecutionManagerRegistration {
+                execution_manager_id: em_id.get(),
+                session_id: self.inner.session_id(),
+            }),
+        }))
     }
 
     async fn update_execution_manager_heartbeat(
         &self,
-        _request: Request<storage::ExecutionManagerIdRequest>,
+        request: Request<storage::ExecutionManagerIdRequest>,
     ) -> Result<Response<storage::UpdateExecutionManagerHeartbeatResponse>, Status> {
-        todo!("Not implemented")
+        let em_id = request.into_inner().unpack()?;
+        tracing::info!(
+            em_id = em_id.get(),
+            "Execution manager heartbeat request received."
+        );
+        self.inner
+            .update_execution_manager_heartbeat(em_id)
+            .await
+            .map_err(|error| {
+                self.execution_manager_liveness_service_error_handler(
+                    error,
+                    "update_execution_manager_heartbeat",
+                )
+            })?;
+        Ok(Response::new(
+            storage::UpdateExecutionManagerHeartbeatResponse {
+                session_id: self.inner.session_id(),
+            },
+        ))
     }
 }
 
@@ -596,7 +860,9 @@ impl<
         &self,
         _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSessionResponse>, Status> {
-        todo!("Not implemented")
+        let session_id = self.inner.session_id();
+        tracing::info!(session_id, "Get session request received.");
+        Ok(Response::new(storage::GetSessionResponse { session_id }))
     }
 }
 

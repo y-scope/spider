@@ -5,6 +5,7 @@ pub mod error;
 pub mod id;
 pub mod io;
 pub mod job;
+pub mod scheduler_registration;
 pub mod unpack;
 
 #[allow(clippy::all, clippy::nursery, clippy::pedantic)]

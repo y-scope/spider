@@ -11,13 +11,6 @@ pub enum StorageClientError {
     #[error("job not found: {0:?}")]
     JobNotFound(JobId),
 
-    /// The scheduler's storage session is stale.
-    #[error("stale storage session: {storage_session:?}")]
-    StaleSession {
-        /// Storage's current session ID.
-        storage_session: SessionId,
-    },
-
     /// The storage server returned an invalid input error.
     #[error("invalid storage request: {0}")]
     InvalidInput(String),
