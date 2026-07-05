@@ -11,4 +11,4 @@ pub use runtime::{Runtime, create_runtime};
 pub use service::ServiceState;
 
 #[cfg(test)]
-pub mod test_utils;
+mod test_utils;
