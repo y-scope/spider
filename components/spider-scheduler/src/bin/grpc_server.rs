@@ -27,21 +27,33 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let _log_guard = set_up_logging();
     let cli = Cli::parse();
-    let server_config = ServerConfig::from_yaml_file(&cli.config)?;
+    let server_config = ServerConfig::from_yaml_file(&cli.config)
+        .inspect_err(|error| tracing::error!(error = % error, "Failed to load configuration."))?;
     let listen_addr = SocketAddr::new(server_config.runtime.host, server_config.runtime.port);
 
+    let storage_endpoint = server_config.storage_endpoint.endpoint().inspect_err(
+        |error| tracing::error!(error = % error, "Failed to parse storage endpoint."),
+    )?;
+
     let storage_client = GrpcSchedulerStorageClient::connect(
-        server_config.storage_endpoint.endpoint()?,
+        storage_endpoint,
         server_config.storage_connection_pool_size,
     )
-    .await?;
+    .await
+    .inspect_err(|error| {
+        tracing::error!(error = % error, "Failed to connect to storage gRPC service.");
+    })?;
 
     let (runtime, service, cancellation_token) =
-        create_runtime(server_config.runtime, storage_client).await?;
+        create_runtime(server_config.runtime, storage_client)
+            .await
+            .inspect_err(|error| {
+                tracing::error!(error = % error, "Failed to create scheduler runtime.");
+            })?;
     let grpc_service = GrpcSchedulerService::new(service, cancellation_token.clone());
     tracing::info!(listen_addr = % listen_addr, "Starting scheduler gRPC server.");
 
-    let serve_result = Server::builder()
+    Server::builder()
         .add_service(SchedulerServiceServer::new(grpc_service))
         .serve_with_shutdown(listen_addr, async move {
             select! {
@@ -52,14 +64,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if let Err(error) = result {
                         tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
                     }
+                    tracing::info!("Received Ctrl-C. Shutting down scheduler gRPC server.");
                     cancellation_token.cancel();
                 }
             }
         })
-        .await;
+        .await
+        .inspect_err(
+            |error| tracing::error!(error = % error, "Scheduler gRPC server exited on error."),
+        )?;
 
-    let stop_result = runtime.stop().await;
-    serve_result?;
-    stop_result?;
+    let () = runtime.stop().await.inspect_err(
+        |error| tracing::error!(error = % error, "Failed to stop scheduler runtime."),
+    )?;
     Ok(())
 }
