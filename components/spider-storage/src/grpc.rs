@@ -837,14 +837,14 @@ impl<
         &self,
         _request: Request<storage::RegisterSchedulerRequest>,
     ) -> Result<Response<storage::RegisterSchedulerResponse>, Status> {
-        todo!("unimplemented")
+        todo!("Not implemented")
     }
 
     async fn get_schedulers(
         &self,
         _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
-        todo!("unimplemented")
+        todo!("Not implemented")
     }
 }
 
