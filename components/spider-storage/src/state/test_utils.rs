@@ -79,6 +79,7 @@ pub struct MockDbConnector {
     pub next_resource_group_id: Arc<AtomicUsize>,
     pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
     pub next_execution_manager_id: Arc<AtomicUsize>,
+    pub next_scheduler_id: Arc<AtomicUsize>,
     pub session_id: SessionId,
 }
 
@@ -92,6 +93,7 @@ impl Default for MockDbConnector {
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
             execution_managers: Arc::new(DashMap::new()),
             next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
+            next_scheduler_id: Arc::new(AtomicUsize::new(1)),
             session_id: 0,
         }
     }
@@ -260,7 +262,8 @@ impl SchedulerRegistrationManagement for MockDbConnector {
         _ip_address: IpAddr,
         _port: u16,
     ) -> Result<SchedulerId, DbError> {
-        unreachable!("not implemented for mock connector")
+        let counter = self.next_scheduler_id.fetch_add(1, Ordering::Relaxed);
+        Ok(SchedulerId::from(counter as u64))
     }
 
     async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {

@@ -6,6 +6,7 @@ use spider_proto_rust::{
     common,
     storage::{
         self,
+        SchedulerRegistration,
         execution_manager_liveness_service_server::ExecutionManagerLivenessService,
         inbound_queue_service_server::InboundQueueService,
         job_orchestration_service_server::JobOrchestrationService,
@@ -36,18 +37,18 @@ use crate::{
 /// * `TaskInstancePoolConnectorType` - The task instance pool connector type.
 #[derive(Clone)]
 pub struct GrpcServiceState<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     inner: ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     cancellation_token: CancellationToken,
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Factory function.
@@ -328,6 +329,27 @@ impl<
 
             error => self.default_error_handler(SERVICE_NAME, tag, &error, false),
         }
+    }
+
+    /// Error handler for scheduler registration service errors.
+    ///
+    /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
+    /// client. The errors are logged for observability.
+    ///
+    /// # Returns
+    ///
+    /// The [`Status`] to send to the client:
+    ///
+    /// * `INTERNAL` for any failure happened on the server side.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    fn scheduler_registration_service_error_handler(
+        &self,
+        error: StorageServerError,
+        tag: &'static str,
+    ) -> Status {
+        const SERVICE_NAME: &str = "SchedulerRegistration";
+        self.default_error_handler(SERVICE_NAME, tag, &error, false)
     }
 
     /// Handles generic storage server errors.
@@ -835,16 +857,30 @@ impl<
 {
     async fn register_scheduler(
         &self,
-        _request: Request<storage::RegisterSchedulerRequest>,
+        request: Request<storage::RegisterSchedulerRequest>,
     ) -> Result<Response<storage::RegisterSchedulerResponse>, Status> {
-        todo!("Not implemented")
+        let (ip_addr, port) = request.into_inner().unpack()?;
+        tracing::info!(% ip_addr, port, "Scheduler registration request received.");
+        let scheduler_id = self
+            .inner
+            .register_scheduler(ip_addr, port)
+            .await
+            .map_err(|error| {
+                self.scheduler_registration_service_error_handler(error, "register_scheduler")
+            })?;
+        Ok(Response::new(storage::RegisterSchedulerResponse {
+            registration: Some(SchedulerRegistration {
+                scheduler_id: scheduler_id.get(),
+                session_id: self.inner.session_id(),
+            }),
+        }))
     }
 
     async fn get_schedulers(
         &self,
         _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
-        todo!("Not implemented")
+        Err(Status::unimplemented("not implemented"))
     }
 }
 
