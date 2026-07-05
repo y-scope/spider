@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
 
 use crate::{
-    cache::error::{CacheError, InternalError},
+    cache::error::CacheError,
     db::{DbError, DbStorage},
     ready_queue::{ReadyQueueEntry, ReadyQueueSender},
     state::{ServiceState, StorageServerError},
@@ -89,48 +89,39 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "JobOrchestration";
         match error {
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
+            error @ StorageServerError::Db(
+                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_),
+            ) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Invalid resource group."
+                );
+                Status::unauthenticated("invalid resource group")
             }
 
-            StorageServerError::Db(db_error) => match &db_error {
-                DbError::ResourceGroupNotFound(_) | DbError::InvalidPassword(_) => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Invalid resource group."
-                    );
-                    Status::unauthenticated("invalid resource group")
-                }
-                DbError::JobNotFound(_) => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Job not found."
-                    );
-                    Status::not_found("job not found")
-                }
-                DbError::InvalidJobStateTransition { .. } | DbError::UnexpectedJobState { .. } => {
-                    tracing::warn!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "Invalid job state."
-                    );
-                    Status::failed_precondition(db_error.to_string())
-                }
-                _ => {
-                    tracing::error!(
-                        error = % db_error,
-                        service = SERVICE_NAME,
-                        tag,
-                        "DB operation failed."
-                    );
-                    Status::internal("internal error")
-                }
-            },
+            error @ StorageServerError::Db(DbError::JobNotFound(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Job not found."
+                );
+                Status::not_found("job not found")
+            }
+
+            error @ StorageServerError::Db(
+                DbError::InvalidJobStateTransition { .. } | DbError::UnexpectedJobState { .. },
+            ) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Invalid job state."
+                );
+                Status::failed_precondition(error.to_string())
+            }
 
             StorageServerError::JobNotFound(_) => {
                 tracing::warn!(
@@ -152,7 +143,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
+            _ => self.default_error_handler(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -178,10 +169,6 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "TaskInstanceManagement";
         match error {
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
-            }
-
             StorageServerError::StaleSession(storage_session) => {
                 tracing::warn!(
                     storage_session,
@@ -225,7 +212,7 @@ impl<
                 Status::invalid_argument(error.to_string())
             }
 
-            _ => self.unexpected_internal_status(SERVICE_NAME, tag, &error, true),
+            _ => self.default_error_handler(SERVICE_NAME, tag, &error, true),
         }
     }
 
@@ -248,7 +235,7 @@ impl<
         tag: &'static str,
     ) -> Status {
         const SERVICE_NAME: &str = "InboundQueue";
-        self.unexpected_internal_status(SERVICE_NAME, tag, &error, false)
+        self.default_error_handler(SERVICE_NAME, tag, &error, false)
     }
 
     /// Error handler for resource group management service errors.
@@ -294,11 +281,7 @@ impl<
                 Status::already_exists(error.to_string())
             }
 
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
-            }
-
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
+            error => self.default_error_handler(SERVICE_NAME, tag, &error, false),
         }
     }
 
@@ -338,93 +321,81 @@ impl<
                     error = % error,
                     service = SERVICE_NAME,
                     tag,
-                    "Illegal execution manager id."
+                    "Illegal execution manager ID."
                 );
                 Status::invalid_argument(error.to_string())
             }
 
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
-            }
-
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
+            error => self.default_error_handler(SERVICE_NAME, tag, &error, false),
         }
     }
 
-    /// Error handler for scheduler registration service errors.
+    /// Handles generic storage server errors.
     ///
-    /// This function maps the given [`StorageServerError`] to a [`Status`] that can be sent to the
-    /// client. The errors are logged for observability.
+    /// This handler maps every [`StorageServerError`] to an `INTERNAL` [`Status`] with a generic
+    /// error message. Errors are treated as fatal, and the storage service is cancelled in any of
+    /// the following cases:
+    ///
+    /// * The error is [`CacheError::Internal`].
+    /// * The error is [`DbError::CorruptedDbState`].
+    /// * `strict_mode` is enabled.
+    ///
+    /// Non-fatal errors are logged as warnings. Fatal errors are logged as errors before
+    /// cancellation.
     ///
     /// # Returns
     ///
-    /// The [`Status`] to send to the client:
-    ///
-    /// * `INTERNAL` for:
-    ///   * A fatal cache-internal error (the service will restart).
-    ///   * Any other failure; scheduler registration currently has no caller-visible error
-    ///     classification beyond a generic server error.
+    /// An `INTERNAL` [`Status`] with a generic storage service error message.
     #[must_use]
-    pub fn scheduler_registration_service_error_handler(
+    fn default_error_handler(
         &self,
-        error: StorageServerError,
-        tag: &'static str,
-    ) -> Status {
-        const SERVICE_NAME: &str = "SchedulerRegistration";
-        match error {
-            StorageServerError::Cache(CacheError::Internal(e)) => {
-                self.fatal_internal_status(SERVICE_NAME, tag, &e)
-            }
-
-            error => self.unexpected_internal_status(SERVICE_NAME, tag, &error, false),
-        }
-    }
-
-    /// Logs a fatal cache-internal error, cancels the service, and returns an `INTERNAL` status.
-    ///
-    /// # Returns
-    ///
-    /// An `INTERNAL` [`Status`] carrying the message `"storage service unavailable"`.
-    fn fatal_internal_status(
-        &self,
-        service_name: &'static str,
-        tag: &'static str,
-        error: &InternalError,
-    ) -> Status {
-        tracing::error!(
-            error = % error,
-            service = service_name,
-            tag,
-            "Internal error in the cache layer. Cancelling service."
-        );
-        self.cancellation_token.cancel();
-        Status::internal("storage service unavailable")
-    }
-
-    /// Logs an unexpected error, cancels the service, and returns an `INTERNAL` status.
-    ///
-    /// If `is_fatal` flag is raised, the service cancellation token will be fired.
-    ///
-    /// # Returns
-    ///
-    /// An `INTERNAL` [`Status`] carrying the message `"internal error"`.
-    fn unexpected_internal_status(
-        &self,
-        service_name: &'static str,
+        service: &'static str,
         tag: &'static str,
         error: &StorageServerError,
-        is_fatal: bool,
+        strict_mode: bool,
     ) -> Status {
-        tracing::error!(
-            error = % error,
-            service = service_name,
-            tag,
-            "Unexpected internal error. Cancelling service to avoid cache corruption."
-        );
-        if is_fatal {
-            self.cancellation_token.cancel();
+        match error {
+            StorageServerError::Cache(CacheError::Internal(e)) => {
+                tracing::error!(
+                    error = % e,
+                    service,
+                    tag,
+                    "Internal error in the cache layer. Cancelling service."
+                );
+                self.cancellation_token.cancel();
+            }
+
+            StorageServerError::Db(DbError::CorruptedDbState(e)) => {
+                tracing::error!(
+                    error = % e,
+                    service,
+                    tag,
+                    "Internal error in the database layer. Cancelling service."
+                );
+                self.cancellation_token.cancel();
+            }
+
+            e => {
+                if strict_mode {
+                    tracing::error!(
+                        error = % e,
+                        service,
+                        tag,
+                        "Unexpected internal error. Cancelling service."
+                    );
+                    self.cancellation_token.cancel();
+                } else {
+                    tracing::warn!(
+                        error = % e,
+                        service,
+                        tag,
+                        "Unexpected internal error."
+                    );
+                }
+            }
         }
-        Status::internal("internal error")
+
+        Status::internal("storage service internal error")
     }
 
     /// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
@@ -864,41 +835,16 @@ impl<
 {
     async fn register_scheduler(
         &self,
-        request: Request<storage::RegisterSchedulerRequest>,
+        _request: Request<storage::RegisterSchedulerRequest>,
     ) -> Result<Response<storage::RegisterSchedulerResponse>, Status> {
-        let (ip_address, port) = request.into_inner().unpack()?;
-        tracing::info!(% ip_address, port, "Scheduler registration request received.");
-        let scheduler_id = self
-            .inner
-            .register_scheduler(ip_address, port)
-            .await
-            .map_err(|error| {
-                self.scheduler_registration_service_error_handler(error, "register_scheduler")
-            })?;
-        Ok(Response::new(storage::RegisterSchedulerResponse {
-            registration: Some(storage::SchedulerRegistration {
-                scheduler_id: scheduler_id.get(),
-                session_id: self.inner.session_id(),
-            }),
-        }))
+        todo!("unimplemented")
     }
 
     async fn get_schedulers(
         &self,
         _request: Request<common::Void>,
     ) -> Result<Response<storage::GetSchedulersResponse>, Status> {
-        tracing::info!("Get schedulers request received.");
-        let schedulers = self.inner.get_schedulers().await.map_err(|error| {
-            self.scheduler_registration_service_error_handler(error, "get_schedulers")
-        })?;
-        Ok(Response::new(storage::GetSchedulersResponse {
-            schedulers: Some(storage::SchedulerRegistrations {
-                schedulers: schedulers
-                    .into_iter()
-                    .map(storage::Scheduler::from)
-                    .collect(),
-            }),
-        }))
+        todo!("unimplemented")
     }
 }
 
