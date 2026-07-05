@@ -18,6 +18,7 @@ use spider_core::{
     },
 };
 use spider_tdl::error::TdlError;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     cache::{
@@ -37,6 +38,30 @@ use crate::{
     task_instance_pool::TaskInstancePoolConnector,
 };
 
+/// Bundle of constructor parameters for [`ServiceState::new`].
+///
+/// This is a work-around for silencing the ` clippy::too_many_arguments ` warning.
+///
+/// # Type Parameters
+///
+/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `DbConnectorType` - The type of the DB-layer connector.
+/// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
+pub struct ServiceStateParams<
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
+> {
+    pub db: DbConnectorType,
+    pub session_id: SessionId,
+    pub job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    pub ready_queue_sender: ReadyQueueSenderType,
+    pub ready_queue_receiver: ReadyQueueReceiverHandle,
+    pub task_instance_pool_connector: TaskInstancePoolConnectorType,
+    pub job_cache_gc_handle: JobCacheGcHandle,
+    pub cancellation_token: CancellationToken,
+}
+
 /// Per-request service state providing access to the storage layer.
 ///
 /// Internally wraps a single [`Arc`] around [`ServiceStateInner`] so that cloning is cheap (one
@@ -49,9 +74,9 @@ use crate::{
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 #[derive(Clone)]
 pub struct ServiceState<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     inner: Arc<
         ServiceStateInner<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
@@ -59,9 +84,9 @@ pub struct ServiceState<
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Factory function.
@@ -71,14 +96,22 @@ impl<
     /// A newly created [`ServiceState`] that notifies the GC actor when cached jobs terminate.
     #[must_use]
     pub fn new(
-        db: DbConnectorType,
-        session_id: SessionId,
-        job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        ready_queue_sender: ReadyQueueSenderType,
-        ready_queue_receiver: ReadyQueueReceiverHandle,
-        task_instance_pool_connector: TaskInstancePoolConnectorType,
-        job_cache_gc_handle: JobCacheGcHandle,
+        params: ServiceStateParams<
+            ReadyQueueSenderType,
+            DbConnectorType,
+            TaskInstancePoolConnectorType,
+        >,
     ) -> Self {
+        let ServiceStateParams {
+            db,
+            session_id,
+            job_cache,
+            ready_queue_sender,
+            ready_queue_receiver,
+            task_instance_pool_connector,
+            job_cache_gc_handle,
+            cancellation_token,
+        } = params;
         Self {
             inner: Arc::new(ServiceStateInner {
                 db,
@@ -88,6 +121,8 @@ impl<
                 ready_queue_receiver,
                 task_instance_pool_connector,
                 job_cache_gc_handle,
+                has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
+                cancellation_token,
             }),
         }
     }
@@ -654,9 +689,13 @@ impl<
         Ok(())
     }
 
-    /// Registers the scheduler.
+    /// Registers a scheduler.
     ///
-    /// Registering a scheduler invalidates any previously registered scheduler.
+    /// Scheduler registration is mutually exclusive: only one registration request can be processed
+    /// at a time. Registering a scheduler invalidates any scheduler that was previously registered.
+    ///
+    /// If this replaces an existing scheduler, all ready tasks are re-enqueued in a background task
+    /// so they become visible in the inbound queue for the newly registered scheduler.
     ///
     /// # Returns
     ///
@@ -673,6 +712,8 @@ impl<
         ip_address: IpAddr,
         port: u16,
     ) -> Result<SchedulerId, StorageServerError> {
+        let mut has_previous_scheduler_connection =
+            self.inner.has_previous_scheduler_connection.lock().await;
         let scheduler_id = self.inner.db.register_scheduler(ip_address, port).await?;
         tracing::info!(
             scheduler_id = ? scheduler_id,
@@ -680,6 +721,26 @@ impl<
             port,
             "Scheduler registered.",
         );
+        if *has_previous_scheduler_connection {
+            tracing::info!(
+                "Previous scheduler connection has been invalidated. Resending all ready-tasks in \
+                 a background task."
+            );
+            let job_cache = self.inner.job_cache.clone();
+            let cancellation_token = self.inner.cancellation_token.clone();
+            tokio::spawn(async move {
+                if let Err(e) = job_cache.resend_ready_tasks().await {
+                    tracing::error!(
+                        error = % e,
+                        "Failed to resend ready-tasks after scheduler registration. Cancelling the \
+                         service."
+                    );
+                    cancellation_token.cancel();
+                }
+            });
+        }
+        *has_previous_scheduler_connection = true;
+        drop(has_previous_scheduler_connection);
         Ok(scheduler_id)
     }
 
@@ -733,9 +794,9 @@ impl<
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 struct ServiceStateInner<
-    ReadyQueueSenderType: ReadyQueueSender,
-    DbConnectorType: DbStorage,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    DbConnectorType: DbStorage + 'static,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     db: DbConnectorType,
     session_id: SessionId,
@@ -744,6 +805,8 @@ struct ServiceStateInner<
     ready_queue_receiver: ReadyQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
     job_cache_gc_handle: JobCacheGcHandle,
+    has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
+    cancellation_token: CancellationToken,
 }
 
 #[cfg(test)]
@@ -798,15 +861,16 @@ mod tests {
         db: MockDbConnector,
         session_id: SessionId,
     ) -> TestServiceState {
-        TestServiceState::new(
+        TestServiceState::new(ServiceStateParams {
             db,
             session_id,
-            JobCache::new(),
-            MockReadyQueueSender,
-            create_ready_queue_receiver(),
-            MockTaskInstancePoolConnector,
-            JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
-        )
+            job_cache: JobCache::new(),
+            ready_queue_sender: MockReadyQueueSender,
+            ready_queue_receiver: create_ready_queue_receiver(),
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
+            cancellation_token: CancellationToken::new(),
+        })
     }
 
     fn create_ready_queue_receiver() -> ReadyQueueReceiverHandle {
@@ -827,15 +891,16 @@ mod tests {
         use crate::ready_queue::{ReadyQueueConfig, create_ready_queue};
         let (sender, receiver) =
             create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
-        let service = TestServiceStateWithReadyQueue::new(
+        let service = TestServiceStateWithReadyQueue::new(ServiceStateParams {
             db,
-            0,
-            JobCache::new(),
-            sender.clone(),
-            receiver,
-            MockTaskInstancePoolConnector,
-            JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
-        );
+            session_id: 0,
+            job_cache: JobCache::new(),
+            ready_queue_sender: sender.clone(),
+            ready_queue_receiver: receiver,
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
+            cancellation_token: CancellationToken::new(),
+        });
         (service, sender)
     }
 
@@ -1367,15 +1432,16 @@ mod tests {
     #[tokio::test]
     async fn cancel_job_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let service = TestServiceState::new(
-            MockDbConnector::default(),
-            TEST_SESSION_ID,
-            JobCache::new(),
-            MockReadyQueueSender,
-            create_ready_queue_receiver(),
-            MockTaskInstancePoolConnector,
-            JobCacheGcHandle::new(sender),
-        );
+        let service = TestServiceState::new(ServiceStateParams {
+            db: MockDbConnector::default(),
+            session_id: TEST_SESSION_ID,
+            job_cache: JobCache::new(),
+            ready_queue_sender: MockReadyQueueSender,
+            ready_queue_receiver: create_ready_queue_receiver(),
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            job_cache_gc_handle: JobCacheGcHandle::new(sender),
+            cancellation_token: CancellationToken::new(),
+        });
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
         service.inner.job_cache.insert(jcb).await?;
@@ -1393,15 +1459,16 @@ mod tests {
     #[tokio::test]
     async fn succeed_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let service = TestServiceState::new(
-            MockDbConnector::default(),
-            TEST_SESSION_ID,
-            JobCache::new(),
-            MockReadyQueueSender,
-            create_ready_queue_receiver(),
-            MockTaskInstancePoolConnector,
-            JobCacheGcHandle::new(sender),
-        );
+        let service = TestServiceState::new(ServiceStateParams {
+            db: MockDbConnector::default(),
+            session_id: TEST_SESSION_ID,
+            job_cache: JobCache::new(),
+            ready_queue_sender: MockReadyQueueSender,
+            ready_queue_receiver: create_ready_queue_receiver(),
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            job_cache_gc_handle: JobCacheGcHandle::new(sender),
+            cancellation_token: CancellationToken::new(),
+        });
         let (compressed_serialized_task_graph, compressed_serialized_inputs) =
             create_test_job_submission();
         let job_id = service
@@ -1442,15 +1509,16 @@ mod tests {
     #[tokio::test]
     async fn fail_task_instance_enqueues_terminal_job_for_cache_gc() -> anyhow::Result<()> {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let service = TestServiceState::new(
-            MockDbConnector::default(),
-            TEST_SESSION_ID,
-            JobCache::new(),
-            MockReadyQueueSender,
-            create_ready_queue_receiver(),
-            MockTaskInstancePoolConnector,
-            JobCacheGcHandle::new(sender),
-        );
+        let service = TestServiceState::new(ServiceStateParams {
+            db: MockDbConnector::default(),
+            session_id: TEST_SESSION_ID,
+            job_cache: JobCache::new(),
+            ready_queue_sender: MockReadyQueueSender,
+            ready_queue_receiver: create_ready_queue_receiver(),
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            job_cache_gc_handle: JobCacheGcHandle::new(sender),
+            cancellation_token: CancellationToken::new(),
+        });
         let (compressed_serialized_task_graph, compressed_serialized_inputs) =
             create_test_job_submission();
         let job_id = service
@@ -1677,6 +1745,59 @@ mod tests {
                 .await
                 .is_ok()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_scheduler_resends_ready_tasks_only_when_replacing_previous_scheduler()
+    -> anyhow::Result<()> {
+        let (service, _sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+
+        let (task_graph, inputs) = create_test_job_submission();
+        let job_id = service
+            .register_job(ResourceGroupId::random(), task_graph, inputs)
+            .await?;
+        service.start_job(job_id).await?;
+
+        // Starting the job enqueues its initial ready task; drain it so the queue is empty before
+        // probing whether a registration triggers a resend.
+        let initial = service
+            .poll_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(
+            initial.len(),
+            1,
+            "starting the job should enqueue its initial ready task"
+        );
+
+        // The first registration has no previous scheduler to replace, so it must not resend.
+        service
+            .register_scheduler("127.0.0.1".parse()?, 8080)
+            .await?;
+        tokio::task::yield_now().await;
+        let after_first = service
+            .poll_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert!(
+            after_first.is_empty(),
+            "the first scheduler registration must not resend ready tasks"
+        );
+
+        // The second registration replaces the first scheduler, so it must resend ready tasks. The
+        // resend runs in a spawned background task, so yield to let it run before polling.
+        service
+            .register_scheduler("127.0.0.1".parse()?, 8081)
+            .await?;
+        tokio::task::yield_now().await;
+        let after_second = service
+            .poll_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(
+            after_second.len(),
+            1,
+            "the second scheduler registration must resend the job's ready tasks"
+        );
+        assert_eq!(after_second[0].job_id, job_id);
         Ok(())
     }
 

@@ -8,7 +8,7 @@ pub use error::StorageServerError;
 pub use job_cache::JobCache;
 pub use job_cache_gc::{JobCacheGcConfig, JobCacheGcHandle, create_job_cache_gc};
 pub use runtime::{Runtime, create_runtime};
-pub use service::ServiceState;
+pub use service::{ServiceState, ServiceStateParams};
 
 #[cfg(test)]
 mod test_utils;
