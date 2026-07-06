@@ -1,4 +1,4 @@
-//! gRPC service adapters for the storage runtime.
+//! gRPC service adapters for the storage service.
 
 use async_trait::async_trait;
 use spider_core::types::{id::TaskId, io::SerializedTaskOutputs};

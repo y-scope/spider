@@ -16,6 +16,10 @@ pub enum SchedulerError {
     #[error("transport error: {0}")]
     Transport(String),
 
+    /// The scheduler returned an error response.
+    #[error("scheduler server error: {0}")]
+    Server(String),
+
     /// The scheduler returned a malformed reply.
     #[error("protocol error: {0}")]
     Protocol(String),
@@ -46,6 +50,7 @@ pub trait SchedulerClient: Send + Sync {
     /// Returns an error if:
     ///
     /// * [`SchedulerError::Transport`] if the connection was lost or the request timed out.
+    /// * [`SchedulerError::Server`] if the scheduler returned an error response.
     /// * [`SchedulerError::Protocol`] if the scheduler returned a malformed reply.
     async fn next_task(
         &self,
@@ -63,6 +68,7 @@ pub trait SchedulerClient: Send + Sync {
     /// # Errors
     ///
     /// * [`SchedulerError::Transport`] if the connection was lost or the request timed out.
+    /// * [`SchedulerError::Server`] if the scheduler returned an error response.
     async fn heartbeat(&self, em_id: ExecutionManagerId) -> Result<(), SchedulerError>;
 
     /// Signals the scheduler that the current execution manager is shutting down.
