@@ -6,7 +6,11 @@ use async_trait::async_trait;
 use spider_core::types::{id::ExecutionManagerId, scheduler::TaskAssignmentRecord};
 use spider_proto_rust::scheduler::{self, scheduler_service_client::SchedulerServiceClient};
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::transport::{Channel, Endpoint};
+use tonic::{
+    Code,
+    Status,
+    transport::{Channel, Endpoint},
+};
 
 use crate::client::{SchedulerClient, SchedulerError, SchedulerResponse};
 
@@ -60,7 +64,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                     wait_time_ms,
                 })
                 .await
-                .map_err(to_transport_error)?
+                .map_err(|status| status_to_error(&status))?
                 .into_inner();
 
             let assignment: Option<SchedulerResponse> =
@@ -78,7 +82,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                 execution_manager_id: em_id.get(),
             })
             .await
-            .map_err(to_transport_error)?;
+            .map_err(|status| status_to_error(&status))?;
         Ok(())
     }
 
@@ -105,6 +109,21 @@ impl SchedulerClient for GrpcSchedulerClient {
     }
 }
 
+/// Maps a scheduler gRPC [`Status`] to a [`SchedulerError`].
+///
+/// # Returns
+///
+/// The [`SchedulerError`] for `status`'s code:
+///
+/// * [`SchedulerError::Transport`] for `UNAVAILABLE` (a lost or unestablished connection).
+/// * [`SchedulerError::Server`] for any other code (the scheduler returned an error response).
+fn status_to_error(status: &Status) -> SchedulerError {
+    match status.code() {
+        Code::Unavailable => to_transport_error(status.message()),
+        _ => SchedulerError::Server(status.message().to_owned()),
+    }
+}
+
 /// Converts a displayable transport-layer error into [`SchedulerError::Transport`].
 ///
 /// # Returns
@@ -121,4 +140,35 @@ fn to_transport_error(error: impl std::fmt::Display) -> SchedulerError {
 /// A [`SchedulerError::Protocol`] containing `error`'s display string.
 fn to_protocol_error(error: impl std::fmt::Display) -> SchedulerError {
     SchedulerError::Protocol(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_maps_unavailable_to_transport() {
+        const MESSAGE: &str = "connection lost";
+        match status_to_error(&Status::unavailable(MESSAGE)) {
+            SchedulerError::Transport(message) => assert!(message.contains(MESSAGE)),
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn status_maps_internal_to_server() {
+        const MESSAGE: &str = "boom";
+        match status_to_error(&Status::internal(MESSAGE)) {
+            SchedulerError::Server(message) => assert!(message.contains(MESSAGE)),
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn status_maps_not_found_to_server() {
+        match status_to_error(&Status::not_found("execution manager not found")) {
+            SchedulerError::Server(_) => {}
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
 }

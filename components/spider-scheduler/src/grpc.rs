@@ -1,10 +1,4 @@
 //! gRPC service adapter for the scheduler service.
-//!
-//! [`GrpcSchedulerService`] wraps a [`SchedulerServiceState`] and implements the generated
-//! [`SchedulerService`] trait, translating inbound protobuf requests into domain calls and mapping
-//! [`SchedulerServiceError`]s back to [`tonic::Status`]. It owns the runtime [`CancellationToken`]
-//! so a fatal internal error can cancel the scheduler runtime, mirroring the split in
-//! `spider-storage` between the domain [`SchedulerServiceState`] and its gRPC adapter.
 
 use async_trait::async_trait;
 use spider_core::types::{
@@ -72,11 +66,9 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `NOT_FOUND` for an unknown execution manager or task assignment.
-    /// * `FAILED_PRECONDITION` for an invalid storage session.
-    /// * `INTERNAL` when the dispatching queue is closed (the scheduler is shutting down), for a
-    ///   fatal internal error (the service will be cancelled), and any other otherwise unexpected
-    ///   error.
+    /// * `NOT_FOUND` for an unknown execution manager.
+    /// * `INTERNAL` for any other failure happened on the server side.
+    #[must_use]
     pub fn service_error_handler(&self, error: SchedulerServiceError, tag: &'static str) -> Status {
         const SERVICE_NAME: &str = "Scheduler";
         match error {
@@ -90,17 +82,6 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
                 Status::internal("scheduler is shutting down")
             }
 
-            SchedulerServiceError::Scheduler(SchedulerError::InvalidSessionId(session_id)) => {
-                tracing::warn!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    session_id,
-                    "Invalid session ID."
-                );
-                Status::failed_precondition(error.to_string())
-            }
-
             SchedulerServiceError::EMRegistry(ExecutionManagerRegistryError::EmNotFound(em_id)) => {
                 tracing::warn!(
                     error = % error,
@@ -110,20 +91,6 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
                     "Execution manager not found."
                 );
                 Status::not_found("execution manager not found")
-            }
-
-            SchedulerServiceError::EMRegistry(
-                ExecutionManagerRegistryError::TaskAssignmentNotFound(em_id, assignment_id),
-            ) => {
-                tracing::warn!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    em_id = % em_id,
-                    assignment_id = % assignment_id,
-                    "Task assignment not found."
-                );
-                Status::not_found("task assignment not found")
             }
 
             SchedulerServiceError::Scheduler(SchedulerError::Internal(e)) => {
@@ -162,26 +129,24 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
         &self,
         request: Request<scheduler::NextTaskRequest>,
     ) -> Result<Response<NextTaskResponse>, Status> {
-        const TAG: &str = "next_task";
-
         let (em_id, prev_assignment, wait_time) = request.into_inner().unpack()?;
-        tracing::info!(em_id = em_id.get(), "NextTask request received.");
+        tracing::info!(em_id = em_id.get(), "Task dispatching request received.");
 
-        match self
+        let dispatched = self
             .inner
             .next_task(em_id, prev_assignment, wait_time)
             .await
-        {
-            Ok(Some((session_id, assignment))) => Ok(Response::new(make_next_task_response(
-                assignment,
-                self.inner.scheduler_id(),
-                session_id,
-            ))),
-            Ok(None) => Ok(Response::new(NextTaskResponse {
+            .map_err(|error| self.service_error_handler(error, "next_task"))?;
+
+        let response = match dispatched {
+            Some((session_id, assignment)) => {
+                make_next_task_response(assignment, self.inner.scheduler_id(), session_id)
+            }
+            None => NextTaskResponse {
                 result: Some(next_task_response::Result::NoTask(common::Void {})),
-            })),
-            Err(error) => Err(self.service_error_handler(error, TAG)),
-        }
+            },
+        };
+        Ok(Response::new(response))
     }
 
     async fn heartbeat(
@@ -189,12 +154,16 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
         request: Request<scheduler::HeartbeatRequest>,
     ) -> Result<Response<common::Void>, Status> {
         let em_id = request.into_inner().unpack()?;
-        tracing::info!(em_id = em_id.get(), "Heartbeat request received.");
+        tracing::info!(
+            em_id = em_id.get(),
+            "Execution manager heartbeat request received."
+        );
 
-        match self.inner.heartbeat(em_id).await {
-            Ok(()) => Ok(Response::new(common::Void {})),
-            Err(error) => Err(self.service_error_handler(error, "heartbeat")),
-        }
+        self.inner
+            .heartbeat(em_id)
+            .await
+            .map_err(|error| self.service_error_handler(error, "heartbeat"))?;
+        Ok(Response::new(common::Void {}))
     }
 
     async fn shutdown(
@@ -202,12 +171,16 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
         request: Request<scheduler::ShutdownRequest>,
     ) -> Result<Response<common::Void>, Status> {
         let (em_id, prev_assignments) = request.into_inner().unpack()?;
-        tracing::info!(em_id = em_id.get(), "Shutdown request received.");
+        tracing::info!(
+            em_id = em_id.get(),
+            "Execution manager shutdown request received."
+        );
 
-        match self.inner.shutdown(em_id, prev_assignments).await {
-            Ok(()) => Ok(Response::new(common::Void {})),
-            Err(error) => Err(self.service_error_handler(error, "shutdown")),
-        }
+        self.inner
+            .shutdown(em_id, prev_assignments)
+            .await
+            .map_err(|error| self.service_error_handler(error, "shutdown"))?;
+        Ok(Response::new(common::Void {}))
     }
 }
 

@@ -35,14 +35,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         |error| tracing::error!(error = % error, "Failed to parse storage endpoint."),
     )?;
 
-    let storage_client = GrpcSchedulerStorageClient::connect(
-        storage_endpoint,
-        server_config.connection_pool_size,
-    )
-    .await
-    .inspect_err(|error| {
-        tracing::error!(error = % error, "Failed to connect to storage gRPC service.");
-    })?;
+    let storage_client =
+        GrpcSchedulerStorageClient::connect(storage_endpoint, server_config.connection_pool_size)
+            .await
+            .inspect_err(|error| {
+                tracing::error!(error = % error, "Failed to connect to storage gRPC service.");
+            })?;
 
     let (runtime, service, cancellation_token) =
         create_runtime(server_config.runtime, storage_client)
