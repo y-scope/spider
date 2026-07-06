@@ -37,13 +37,14 @@ pub mod core_impl;
 pub mod dispatch_queue;
 pub mod error;
 pub mod execution_manager_registry;
+pub mod grpc;
 pub mod runtime;
 pub mod service;
 pub mod storage_client;
 pub mod types;
 
 pub use crate::{
-    config::SchedulerConfig,
+    config::{SchedulerConfig, ServerConfig},
     core::SchedulerCore,
     dispatch_queue::{
         DispatchQueueReader,

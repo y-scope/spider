@@ -26,7 +26,7 @@ pub enum ExecutionManagerRegistryError {
     EmNotFound(ExecutionManagerId),
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ExecutionManagerRegistryConfig {
     /// The time, in seconds, that an execution manager is considered dead without receiving any
     /// heartbeat.

@@ -1998,6 +1998,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "async-trait",
+ "clap",
  "dashmap",
  "serde",
  "spider-core",
