@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let storage_client = GrpcSchedulerStorageClient::connect(
         storage_endpoint,
-        server_config.storage_connection_pool_size,
+        server_config.connection_pool_size,
     )
     .await
     .inspect_err(|error| {

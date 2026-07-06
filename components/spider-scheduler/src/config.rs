@@ -22,7 +22,7 @@ pub struct ServerConfig {
     /// The number of connections each gRPC client pool eagerly establishes.
     ///
     /// Must be greater than zero.
-    pub storage_connection_pool_size: NonZeroUsize,
+    pub connection_pool_size: NonZeroUsize,
 
     /// The scheduler runtime configuration (also supplies the gRPC listen host/port).
     pub runtime: RuntimeConfig,
