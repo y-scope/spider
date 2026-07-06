@@ -1,0 +1,9 @@
+[package]
+name = "huntsman-nn-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "huntsman_nn_core"
+path = "src/lib.rs"
