@@ -4,7 +4,6 @@ on:
   pull_request:
     paths: &monitored_paths
       - ".cargo/**"
-      - ".dockerignore"
       - ".github/workflows/spider-image-build.yaml"
       - ".gitmodules"
       - "Cargo.lock"
