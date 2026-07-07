@@ -1,16 +1,33 @@
 name: "spider-image-build"
 
 on:
+  pull_request:
+    paths: &monitored_paths
+      - ".cargo/**"
+      - ".dockerignore"
+      - ".github/workflows/spider-image-build.yaml"
+      - ".gitmodules"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "components/**"
+      - "taskfile.yaml"
+      - "taskfiles/**"
+      - "tools/docker/**"
+      - "tools/scripts/**"
+      - "tools/yscope-dev-utils"
   push:
     branches: ["main"]
+    paths: *monitored_paths
     tags: ["spider-huntsman-v*"]
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: "${{github.workflow}}-${{github.ref}}"
-  cancel-in-progress: true
-
-permissions: {}
+  # Cancel in-progress jobs for efficiency. Exclude the `main` branch to allow uninterrupted
+  # publishing of container images.
+  cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
 
 jobs:
   build-and-push:
@@ -26,7 +43,7 @@ jobs:
         with:
           submodules: "recursive"
 
-      - name: "Lowercase the image repository"
+      - name: "Sanitize repository name"
         id: "repo"
         run: >-
           echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
@@ -34,6 +51,7 @@ jobs:
       - uses: "docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2"  # v3.10.0
 
       - uses: "docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121"  # v4.1.0
+        if: "github.event_name != 'pull_request'"
         with:
           registry: "ghcr.io"
           username: "${{github.actor}}"
@@ -53,6 +71,6 @@ jobs:
           context: "."
           file: "tools/docker/Dockerfile"
           target: "${{matrix.service}}"
-          push: true
+          push: "${{github.event_name != 'pull_request'}}"
           tags: "${{steps.meta.outputs.tags}}"
           labels: "${{steps.meta.outputs.labels}}"
