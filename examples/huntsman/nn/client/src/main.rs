@@ -148,6 +148,10 @@ fn generate_topology(level: usize, width: usize, rng: &mut StdRng) -> Topology {
 ///
 /// Forwards [`TaskGraph::new`]'s return values on failure.
 /// Forwards [`TaskGraph::insert_task`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if an inner layer's [`Layer::wiring`] is [`None`].
 fn build_graph(width: usize, topology: &Topology) -> anyhow::Result<TaskGraph> {
     let float64 = DataTypeDescriptor::Value(ValueTypeDescriptor::float64());
     let mut graph = TaskGraph::new(None, None)?;
@@ -215,6 +219,10 @@ fn generate_graph_inputs(width: usize, rng: &mut StdRng) -> Vec<f64> {
 /// # Returns
 ///
 /// The neural network outputs.
+///
+/// # Panics
+///
+/// Panics if an inner layer's [`Layer::wiring`] is [`None`].
 fn simulate(width: usize, topology: &Topology, inputs: &[f64]) -> Vec<f64> {
     let mut layer_outputs: Vec<f64> = (0..width)
         .map(|i| {
@@ -324,7 +332,7 @@ async fn fetch_outputs(client: &SpiderClient, job_id: JobId) -> anyhow::Result<V
 fn verify_outputs(outputs: &[f64], expected: &[f64]) -> anyhow::Result<()> {
     anyhow::ensure!(
         outputs.len() == expected.len(),
-        "Expected {} graph outputs, got {}",
+        "expected {} graph outputs, got {}",
         expected.len(),
         outputs.len()
     );
