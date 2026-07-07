@@ -16,40 +16,57 @@ pub const WEIGHTS: [f64; NUM_INPUTS] = [
 /// The fixed bias added to the weighted sum before the activation.
 pub const BIAS: f64 = 0.5;
 
-/// Rectified-linear activation: `max(0.0, x)`.
+/// # Returns
+///
+/// The rectified-linear activation `max(0.0, x)`.
 #[must_use]
 pub const fn relu(x: f64) -> f64 {
     f64::max(0.0, x)
 }
 
-/// Logistic sigmoid activation: `1.0 / (1.0 + exp(-x))`.
+/// # Returns
+///
+/// The logistic sigmoid activation `1.0 / (1.0 + exp(-x))`.
 #[must_use]
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + f64::exp(-x))
 }
 
-/// Identity activation: returns its argument unchanged.
+/// # Returns
+///
+/// The identity activation `x`.
 #[must_use]
 pub const fn identity(x: f64) -> f64 {
     x
 }
 
+/// # Returns
+///
+/// The rectified-linear activation of the weighted sum of `inputs` plus [`BIAS`].
 #[must_use]
 pub fn dense_relu(inputs: &[f64; NUM_INPUTS]) -> f64 {
     relu(weighted_sum(inputs))
 }
 
+/// # Returns
+///
+/// The logistic sigmoid of the weighted sum of `inputs` plus [`BIAS`].
 #[must_use]
 pub fn dense_sigmoid(inputs: &[f64; NUM_INPUTS]) -> f64 {
     sigmoid(weighted_sum(inputs))
 }
 
+/// # Returns
+///
+/// The weighted sum of `inputs` plus [`BIAS`], unchanged by the activation.
 #[must_use]
 pub fn dense_identity(inputs: &[f64; NUM_INPUTS]) -> f64 {
     identity(weighted_sum(inputs))
 }
 
-/// Computes the pre-activation `sum(WEIGHTS[k] * inputs[k])+ BIAS`.
+/// # Returns
+///
+/// The weighted sum `sum(WEIGHTS[k] * inputs[k]) + BIAS`.
 fn weighted_sum(inputs: &[f64; NUM_INPUTS]) -> f64 {
     let mut acc = BIAS;
     for (w, x) in WEIGHTS.iter().zip(inputs.iter()) {

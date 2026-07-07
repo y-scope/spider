@@ -101,10 +101,10 @@ type Topology = Vec<Layer>;
 
 /// # Returns
 ///
-/// The topology of a random graph.
+/// The topology of a random graph. Each layer contains:
 ///
-/// For each layer, draw a random activation from [`ACTIVATIONS`] and, for each neuron,
-/// [`NUM_INPUTS`] distinct previous-layer output indices to feed it expect for layer 0.
+/// * an activation drawn from [`ACTIVATIONS`],
+/// * for each non-input neuron, a fan-in of previous-layer output indices, except for layer 0.
 ///
 /// # Panics
 ///
@@ -157,7 +157,7 @@ fn build_graph(width: usize, topology: &Topology) -> anyhow::Result<TaskGraph> {
 
     for layer in &topology[1..] {
         let mut curr_layer = Vec::with_capacity(width);
-        for task_input_sources in layer.wiring.as_ref().expect("Inner layer wiring is set") {
+        for task_input_sources in layer.wiring.as_ref().expect("inner layer wiring is set") {
             let input_sources: Vec<TaskInputOutputIndex> = task_input_sources
                 .iter()
                 .map(|&src| TaskInputOutputIndex {
@@ -213,7 +213,7 @@ fn simulate(width: usize, topology: &Topology, inputs: &[f64]) -> Vec<f64> {
         .collect();
 
     for layer in &topology[1..] {
-        let wiring = layer.wiring.as_ref().expect("Inner layer wiring is set");
+        let wiring = layer.wiring.as_ref().expect("inner layer wiring is set");
         layer_outputs = wiring
             .iter()
             .map(|sources| {
@@ -318,8 +318,8 @@ fn verify_outputs(outputs: &[f64], expected: &[f64]) -> anyhow::Result<()> {
     let mut mismatches = 0;
     for (i, (&got, &exp)) in outputs.iter().zip(expected.iter()).enumerate() {
         let diff = (got - exp).abs();
-        let tol = 1.0e-9_f64 * (1.0 + exp.abs());
-        if diff > tol {
+        let tol = 1.0e-12_f64 * (1.0 + exp.abs());
+        if !got.is_finite() || !exp.is_finite() || diff > tol {
             mismatches += 1;
             tracing::warn!(
                 output_index = i,
@@ -355,6 +355,7 @@ async fn main() -> anyhow::Result<()> {
     let client = SpiderClient::connect(endpoint, pool_size).await?;
 
     let seed = cli.seed.unwrap_or_else(rand::random::<u64>);
+    tracing::info!(seed, "Seeded the topology RNG.");
     let mut rng = StdRng::seed_from_u64(seed);
 
     let topology = generate_topology(cli.level, cli.width, &mut rng);
