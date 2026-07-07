@@ -860,8 +860,10 @@ dependencies = [
  "rmp-serde",
  "spider-client",
  "spider-core",
+ "spider-utils",
  "tokio",
  "tonic",
+ "tracing",
 ]
 
 [[package]]

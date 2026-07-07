@@ -16,5 +16,7 @@ rand = "0.9.1"
 rmp-serde = "1.3.1"
 spider-client = { path = "../../../../components/spider-client" }
 spider-core = { path = "../../../../components/spider-core" }
+spider-utils = { path = "../../../../components/spider-utils" }
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
 tonic = "0.14.6"
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }

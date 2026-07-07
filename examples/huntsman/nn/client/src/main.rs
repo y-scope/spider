@@ -27,6 +27,7 @@ use spider_core::{
     },
     types::{id::JobId, io::TaskInput},
 };
+use spider_utils::logging::set_up_logging;
 use tonic::transport::Endpoint;
 
 /// Name of the TDL package supplying the `nn::dense_*` tasks.
@@ -295,7 +296,7 @@ async fn fetch_outputs(client: &SpiderClient, job_id: JobId) -> anyhow::Result<V
         .collect()
 }
 
-/// Checks each output against the expected value, and print each mismatch.
+/// Checks each output against the expected value, and logs each mismatch.
 ///
 /// # Returns
 ///
@@ -320,10 +321,16 @@ fn verify_outputs(outputs: &[f64], expected: &[f64]) -> anyhow::Result<()> {
         let tol = 1.0e-9_f64 * (1.0 + exp.abs());
         if diff > tol {
             mismatches += 1;
-            println!("output[{i}] got={got} expected={exp}");
+            tracing::warn!(
+                output_index = i,
+                got,
+                expected = exp,
+                "Output mismatched the simulation."
+            );
         }
     }
     if mismatches == 0 {
+        tracing::info!(count = outputs.len(), "All outputs match the simulation.");
         return Ok(());
     }
     Err(anyhow!("{mismatches}/{} wrong output", outputs.len()))
@@ -331,6 +338,7 @@ fn verify_outputs(outputs: &[f64], expected: &[f64]) -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let _log_guard = set_up_logging();
     let cli = Cli::parse();
     if cli.level == 0 {
         return Err(anyhow!("level must be >= 1"));
@@ -365,25 +373,24 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("add_resource_group")?;
 
+    tracing::info!(
+        level = cli.level,
+        width = cli.width,
+        tasks = cli.level * cli.width,
+        "Submitting job.",
+    );
     let job_id = client
         .submit_job(resource_group_id, &graph, task_inputs)
         .await
         .context("submit_job")?;
+    tracing::info!(job_id = job_id.get(), "Starting job.");
     client.start_job(job_id).await.context("start_job")?;
-
-    println!(
-        "Submitted layered nn job: level={}, width={}, tasks={}, seed={}, job_id={}",
-        cli.level,
-        cli.width,
-        cli.level * cli.width,
-        seed,
-        job_id.get()
-    );
 
     let state = poll_until_terminal(&client, job_id).await?;
     match state {
         JobState::Succeeded => {
             let outputs = fetch_outputs(&client, job_id).await?;
+            tracing::info!(count = outputs.len(), "Fetched job outputs.");
             verify_outputs(&outputs, &expected)
         }
         JobState::Failed => {
