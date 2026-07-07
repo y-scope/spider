@@ -90,9 +90,9 @@ struct Layer {
     /// Activation applied to every neuron in this layer.
     activation: Activation,
     /// Wiring of previous layer's output to current layer's input.
-    /// `None` for layer 0, whose inputs come from the graph inputs.
-    /// For other layers, `wiring[i][k]` is the `k`-th previous-layer output index feeding neuron
-    /// `i`.
+    /// * [`None`] for layer 0, whose inputs come from the graph inputs.
+    /// * For other layers, `wiring[i][k]` is the `k`-th previous-layer output index feeding neuron
+    ///   `i`.
     wiring: Option<Vec<Vec<usize>>>,
 }
 
@@ -103,8 +103,11 @@ type Topology = Vec<Layer>;
 ///
 /// The topology of a random graph. Each layer contains:
 ///
-/// * an activation drawn from [`ACTIVATIONS`],
-/// * for each non-input neuron, a fan-in of previous-layer output indices, except for layer 0.
+/// * An activation drawn from [`ACTIVATIONS`],
+/// * An optional wiring:
+///   * [`None`] for layer 0.
+///   * Randomly drawn wiring for other layers, with guarantee that all previous layer's neuron has
+///     at least one output wired to this layer, so it won't become job output.
 ///
 /// # Panics
 ///
@@ -118,7 +121,17 @@ fn generate_topology(level: usize, width: usize, rng: &mut StdRng) -> Topology {
         } else {
             Some(
                 (0..width)
-                    .map(|_| index::sample(rng, width, NUM_INPUTS).into_iter().collect())
+                    .map(|i| {
+                        // Force previous-layer output `i` into neuron `i`'s fan-in so every
+                        // previous-layer task feeds at least one next-layer neuron; otherwise an
+                        // unreferenced intermediate task would surface as a job output.
+                        let mut sources: Vec<usize> =
+                            index::sample(rng, width, NUM_INPUTS).into_iter().collect();
+                        if !sources.contains(&i) {
+                            sources[rng.random_range(0..NUM_INPUTS)] = i;
+                        }
+                        sources
+                    })
                     .collect(),
             )
         };
@@ -401,6 +414,33 @@ async fn main() -> anyhow::Result<()> {
                 .context("get_job_error")?;
             Err(anyhow!("job failed: {message}"))
         }
+        JobState::Cancelled => Err(anyhow!("job cancelled")),
         other => Err(anyhow!("job ended in unexpected state {other:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inner_layer_wiring_covers_previous_layer() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let width = 50;
+        let topology = generate_topology(5, width, &mut rng);
+        for layer in &topology[1..] {
+            let wiring = layer.wiring.as_ref().expect("inner layer wiring is set");
+            let mut covered = vec![false; width];
+            for sources in wiring {
+                assert_eq!(sources.len(), NUM_INPUTS);
+                for &src in sources {
+                    covered[src] = true;
+                }
+            }
+            assert!(
+                covered.iter().all(|&c| c),
+                "uncovered previous-layer output"
+            );
+        }
     }
 }
