@@ -370,8 +370,14 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
             let placeholders = std::iter::repeat_n("?", candidate_count)
                 .collect::<Vec<_>>()
                 .join(",");
-            let delete_stmt =
-                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders});");
+            let delete_stmt = format!(
+                "DELETE FROM `{table}` WHERE `id` IN ({placeholders}) AND `state` IN \
+                 ('{succeeded_state}','{failed_state}','{cancelled_state}');",
+                table = JOBS_TABLE_NAME,
+                succeeded_state = JobState::Succeeded.as_str(),
+                failed_state = JobState::Failed.as_str(),
+                cancelled_state = JobState::Cancelled.as_str(),
+            );
             let mut delete_query = sqlx::query(&delete_stmt);
             for job_id in &candidate_ids {
                 delete_query = delete_query.bind(job_id);
@@ -380,7 +386,7 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
             if rows_affected != candidate_count as u64 {
                 return Err(DbError::CorruptedDbState(format!(
-                    "expected to delete {candidate_count} rows but only {rows_affected} rows were \
+                    "expected to delete {candidate_count} rows but only {rows_affected} rows \
                      deleted"
                 )));
             }
