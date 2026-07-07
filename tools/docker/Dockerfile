@@ -6,8 +6,6 @@ FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS builder
 
 WORKDIR /spider
 
-# Whitelist only the sources required to build the Rust ("Huntsman") binaries; the C++ and spider-py
-# components are deliberately excluded.
 COPY --link Cargo.toml Cargo.lock taskfile.yaml ./
 COPY --link .cargo ./.cargo
 COPY --link components ./components
