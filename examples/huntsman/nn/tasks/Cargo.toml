@@ -6,7 +6,7 @@ publish = false
 
 [lib]
 crate-type = ["cdylib"]
-name = "huntsman_nn"
+name = "nn"
 path = "src/lib.rs"
 
 [dependencies]
