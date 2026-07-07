@@ -366,42 +366,28 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
                 break;
             }
 
-            let placeholders = std::iter::repeat_n("?", candidate_ids.len())
+            let candidate_count = candidate_ids.len();
+            let placeholders = std::iter::repeat_n("?", candidate_count)
                 .collect::<Vec<_>>()
                 .join(",");
-            let select_for_update_stmt = format!(
-                "SELECT `id` FROM `{table}` FORCE INDEX (PRIMARY) WHERE `id` IN ({placeholders}) \
-                 AND `state` IN ('{succeeded_state}','{failed_state}','{cancelled_state}') AND \
-                 `ended_at` < NOW() - INTERVAL ? SECOND ORDER BY `id` FOR UPDATE;",
-                table = JOBS_TABLE_NAME,
-                succeeded_state = JobState::Succeeded.as_str(),
-                failed_state = JobState::Failed.as_str(),
-                cancelled_state = JobState::Cancelled.as_str(),
-            );
-            let mut select_query = sqlx::query_scalar::<_, JobId>(&select_for_update_stmt);
+            let delete_stmt =
+                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders});");
+            let mut delete_query = sqlx::query(&delete_stmt);
             for job_id in &candidate_ids {
-                select_query = select_query.bind(job_id);
+                delete_query = delete_query.bind(job_id);
             }
-            let confirmed_ids: Vec<JobId> = select_query
-                .bind(expire_after_sec)
-                .fetch_all(&mut *tx)
-                .await?;
+            let rows_affected = delete_query.execute(&mut *tx).await?.rows_affected();
 
-            if !confirmed_ids.is_empty() {
-                let placeholders = std::iter::repeat_n("?", confirmed_ids.len())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                let delete_stmt =
-                    format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders});");
-                let mut delete_query = sqlx::query(&delete_stmt);
-                for job_id in &confirmed_ids {
-                    delete_query = delete_query.bind(job_id);
-                }
-                delete_query.execute(&mut *tx).await?;
-                deleted_job_ids.extend(confirmed_ids);
+            if rows_affected != candidate_count as u64 {
+                return Err(DbError::CorruptedDbState(format!(
+                    "expected to delete {candidate_count} rows but only {rows_affected} rows were \
+                     deleted"
+                )));
             }
 
-            if candidate_ids.len() < DELETE_BATCH_SIZE {
+            deleted_job_ids.extend(candidate_ids);
+
+            if candidate_count < DELETE_BATCH_SIZE {
                 break;
             }
         }
