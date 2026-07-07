@@ -71,7 +71,7 @@ struct Cli {
     #[arg(long, default_value_t = 10)]
     level: usize,
 
-    /// Number of neurons per layer. Must be at least the neuron fan-in (25).
+    /// Number of neurons per layer. Must be at least the neuron fan-in ([`NUM_INPUTS`]).
     #[arg(long, default_value_t = 1000)]
     width: usize,
 
@@ -102,8 +102,8 @@ type Topology = Vec<Layer>;
 ///
 /// The topology of a random graph.
 ///
-/// For each layer, draw a random activation from [`ACTIVATIONS`] and, for every
-/// neuron, 25 distinct previous-layer output indices to feed it expect for layer 0.
+/// For each layer, draw a random activation from [`ACTIVATIONS`] and, for each neuron,
+/// [`NUM_INPUTS`] distinct previous-layer output indices to feed it expect for layer 0.
 ///
 /// # Panics
 ///
@@ -188,7 +188,7 @@ fn build_graph(width: usize, topology: &Topology) -> anyhow::Result<TaskGraph> {
 ///
 /// # Panics
 ///
-/// Panics if `width * 25` overflows `usize`.
+/// Panics if `width * NUM_INPUTS` overflows `usize`.
 fn generate_graph_inputs(width: usize, rng: &mut StdRng) -> Vec<f64> {
     let count = width
         .checked_mul(NUM_INPUTS)

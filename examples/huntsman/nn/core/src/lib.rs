@@ -81,13 +81,9 @@ mod tests {
 
     #[test]
     fn test_sigmoid() {
-        // sigmoid(0) = 0.5; saturates toward 1 for large positive inputs, toward 0 for large
-        // negative inputs. For large positive x, exp(-x) underflows relative to 1.0 in `f64`, so
-        // sigmoid rounds to exactly 1.0.
         assert_approx_eq(sigmoid(0.0), 0.5);
         assert_approx_eq(sigmoid(100.0), 1.0);
         assert_approx_eq(sigmoid(-100.0), 0.0);
-        // Monotonic non-decreasing across the range.
         assert!(sigmoid(-1.0) < sigmoid(0.0));
         assert!(sigmoid(0.0) < sigmoid(1.0));
     }
@@ -107,7 +103,6 @@ mod tests {
 
     #[test]
     fn test_weighted_sum_all_one_inputs() {
-        // sum_k WEIGHTS[k] = 0.01 * (1 + 2 + ... + 25) = 0.01 * 325 = 3.25; plus BIAS (0.5) = 3.75.
         let inputs = [1.0_f64; NUM_INPUTS];
         assert_approx_eq(weighted_sum(&inputs), 3.75);
     }
@@ -115,11 +110,9 @@ mod tests {
     #[test]
     fn test_dense_relu() {
         let zero = [0.0_f64; NUM_INPUTS];
-        // zero inputs -> pre-activation = BIAS = 0.5 -> relu(0.5) = 0.5.
         assert_approx_eq(dense_relu(&zero), 0.5);
 
         let ones = [1.0_f64; NUM_INPUTS];
-        // pre-activation = 3.75 -> relu(3.75) = 3.75.
         assert_approx_eq(dense_relu(&ones), 3.75);
 
         // Negative weighted sum (large negative inputs) clamps to 0 under relu.
@@ -130,26 +123,21 @@ mod tests {
     #[test]
     fn test_dense_sigmoid() {
         let zero = [0.0_f64; NUM_INPUTS];
-        // zero inputs -> pre-activation = BIAS = 0.5 -> sigmoid(0.5) = 1 / (1 + exp(-0.5)).
         assert_approx_eq(dense_sigmoid(&zero), sigmoid(BIAS));
 
         let ones = [1.0_f64; NUM_INPUTS];
-        // pre-activation = 3.75 -> sigmoid(3.75).
         assert_approx_eq(dense_sigmoid(&ones), sigmoid(3.75));
     }
 
     #[test]
     fn test_dense_identity() {
         let zero = [0.0_f64; NUM_INPUTS];
-        // zero inputs -> pre-activation = BIAS = 0.5 -> identity(0.5) = 0.5.
         assert_approx_eq(dense_identity(&zero), 0.5);
 
         let ones = [1.0_f64; NUM_INPUTS];
-        // pre-activation = 3.75 -> identity(3.75) = 3.75.
         assert_approx_eq(dense_identity(&ones), 3.75);
 
         let neg = [-1000.0_f64; NUM_INPUTS];
-        // identity preserves the (negative) pre-activation, unlike relu.
         assert_approx_eq(dense_identity(&neg), weighted_sum(&neg));
     }
 }
