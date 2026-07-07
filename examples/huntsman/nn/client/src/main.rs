@@ -38,6 +38,7 @@ const PACKAGE: &str = "nn";
 struct Activation {
     /// The `nn::dense_*` task function name.
     task_func: &'static str,
+
     /// The core `dense_*` fn.
     evaluate: fn(&[f64; NUM_INPUTS]) -> f64,
 }
@@ -89,6 +90,7 @@ struct Cli {
 struct Layer {
     /// Activation applied to every neuron in this layer.
     activation: Activation,
+
     /// Wiring of previous layer's output to current layer's input.
     /// * [`None`] for layer 0, whose inputs come from the graph inputs.
     /// * For other layers, `wiring[i][k]` is the `k`-th previous-layer output index feeding neuron
