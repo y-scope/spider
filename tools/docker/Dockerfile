@@ -1,25 +1,22 @@
 # syntax=docker/dockerfile:1
 
-ARG RUST_VERSION=1.96
-ARG DEBIAN_VERSION_CODENAME=bookworm
+ARG UBUNTU_VERSION_CODENAME=jammy
 
-FROM rust:${RUST_VERSION}-${DEBIAN_VERSION_CODENAME} AS builder
+FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS builder
 
 WORKDIR /spider
 COPY . .
 
-RUN cargo build --release \
-    --bin spider_storage_grpc_server \
-    --bin spider_scheduler_grpc_server \
-    --bin spider_execution_manager \
-    --bin spider-task-executor
+RUN tools/scripts/lib_install/ubuntu/install-dev-huntsman.sh
+RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+RUN task build:rust
 
-FROM debian:${DEBIAN_VERSION_CODENAME}-slim AS storage
-COPY --from=builder /spider/target/release/spider_storage_grpc_server /usr/local/bin/
+FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS storage
+COPY --from=builder /spider/build/rust-targets/release/spider_storage_grpc_server /usr/local/bin/
 
-FROM debian:${DEBIAN_VERSION_CODENAME}-slim AS scheduler
-COPY --from=builder /spider/target/release/spider_scheduler_grpc_server /usr/local/bin/
+FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS scheduler
+COPY --from=builder /spider/build/rust-targets/release/spider_scheduler_grpc_server /usr/local/bin/
 
-FROM debian:${DEBIAN_VERSION_CODENAME}-slim AS execution-manager-and-task-executor
-COPY --from=builder /spider/target/release/spider_execution_manager /usr/local/bin/
-COPY --from=builder /spider/target/release/spider-task-executor /usr/local/bin/
+FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS execution-manager-and-task-executor
+COPY --from=builder /spider/build/rust-targets/release/spider_execution_manager /usr/local/bin/
+COPY --from=builder /spider/build/rust-targets/release/spider-task-executor /usr/local/bin/
