@@ -14,6 +14,7 @@ members = [
   "components/spider-utils",
   "examples/huntsman/complex/tasks",
   "examples/huntsman/complex/types",
+  "examples/huntsman/nn/client",
   "examples/huntsman/nn/core",
   "examples/huntsman/nn/tasks",
   "tests/huntsman/em-runtime",
