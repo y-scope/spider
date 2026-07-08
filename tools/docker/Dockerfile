@@ -4,6 +4,8 @@ ARG UBUNTU_VERSION_CODENAME=jammy
 
 FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS builder
 
+ARG GO_TASK_VERSION=3.49.1
+
 WORKDIR /spider
 
 COPY --link Cargo.toml Cargo.lock taskfile.yaml ./
@@ -16,7 +18,8 @@ COPY --link tools/scripts ./tools/scripts
 COPY --link tools/yscope-dev-utils ./tools/yscope-dev-utils
 
 RUN tools/scripts/lib_install/ubuntu/install-dev-huntsman.sh
-RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+RUN sh -c "$(curl --fail --location --silent --show-error https://taskfile.dev/install.sh)" -- \
+    -d -b /usr/local/bin "v${GO_TASK_VERSION}"
 RUN task build:rust
 
 FROM ubuntu:${UBUNTU_VERSION_CODENAME} AS runtime-base
