@@ -9,7 +9,7 @@ name = "spider_storage"
 path = "src/lib.rs"
 
 [[bin]]
-name = "spdier-storage"
+name = "spider-storage"
 path = "src/bin/grpc_server.rs"
 
 [[test]]
