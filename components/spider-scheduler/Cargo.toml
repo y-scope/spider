@@ -8,7 +8,7 @@ name = "spider_scheduler"
 path = "src/lib.rs"
 
 [[bin]]
-name = "spider_scheduler_grpc_server"
+name = "spider-scheduler"
 path = "src/bin/grpc_server.rs"
 
 [dependencies]
