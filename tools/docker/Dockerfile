@@ -27,7 +27,7 @@ RUN useradd --create-home spider-user
 USER spider-user
 
 FROM runtime-base AS storage
-COPY --from=builder --link /spider/build/rust-targets/release/spdier-storage /usr/local/bin/
+COPY --from=builder --link /spider/build/rust-targets/release/spider-storage /usr/local/bin/
 
 FROM runtime-base AS scheduler
 COPY --from=builder --link /spider/build/rust-targets/release/spider-scheduler /usr/local/bin/
