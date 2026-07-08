@@ -3,7 +3,10 @@
 #![allow(clippy::too_many_arguments)]
 
 mod task_decl {
-    use spider_tdl::{TaskContext, TdlError, r#std::double, task};
+    use spider_tdl::TaskContext;
+    use spider_tdl::TdlError;
+    use spider_tdl::r#std::double;
+    use spider_tdl::task;
 
     #[task(name = "nn::dense_relu")]
     pub fn dense_relu(
