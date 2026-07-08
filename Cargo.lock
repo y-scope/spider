@@ -850,23 +850,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "huntsman-nn-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "huntsman-nn-core",
- "rand 0.9.4",
- "rmp-serde",
- "spider-client",
- "spider-core",
- "spider-utils",
- "tokio",
- "tonic",
- "tracing",
-]
-
-[[package]]
 name = "huntsman-nn-core"
 version = "0.1.0"
 
