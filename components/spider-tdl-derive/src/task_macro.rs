@@ -14,19 +14,19 @@
 //! See the crate-level docs of [`spider_tdl_derive`] for usage examples.
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::{
-    FnArg,
-    GenericArgument,
-    ItemFn,
-    LitStr,
-    Pat,
-    PathArguments,
-    ReturnType,
-    Token,
-    Type,
-    parse::{Parse, ParseStream},
-};
+use quote::format_ident;
+use quote::quote;
+use syn::FnArg;
+use syn::GenericArgument;
+use syn::ItemFn;
+use syn::LitStr;
+use syn::Pat;
+use syn::PathArguments;
+use syn::ReturnType;
+use syn::Token;
+use syn::Type;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
 
 /// Parsed representation of the `#[task(...)]` attribute arguments.
 pub struct TaskAttr {

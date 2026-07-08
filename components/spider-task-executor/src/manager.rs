@@ -3,14 +3,16 @@
 //! See [`TdlPackage`] for the per-library wrapper and [`TdlPackageManager`] for the top-level
 //! collection that enforces unique package names.
 
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
+use std::path::Path;
 
-use libloading::{Library, Symbol};
-use spider_tdl::{
-    TdlError,
-    Version,
-    ffi::{CByteArray, CCharArray, TaskExecutionResult},
-};
+use libloading::Library;
+use libloading::Symbol;
+use spider_tdl::TdlError;
+use spider_tdl::Version;
+use spider_tdl::ffi::CByteArray;
+use spider_tdl::ffi::CCharArray;
+use spider_tdl::ffi::TaskExecutionResult;
 
 use crate::error::ExecutorError;
 

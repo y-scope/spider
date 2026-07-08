@@ -1,28 +1,31 @@
 //! The implementation of the round-robin scheduler core. See the parent module's documentation for
 //! the scheduling policy and configuration.
 
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    num::{NonZeroU64, NonZeroUsize},
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
+use std::time::Duration;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use spider_core::types::id::{JobId, ResourceGroupId, SessionId, TaskId};
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SessionId;
+use spider_core::types::id::TaskId;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    DispatchQueueSink,
-    InboundEntry,
-    SchedulerCore,
-    SchedulerError,
-    SchedulerStorageClient,
-    StorageClientError,
-    TaskAssignment,
-    core::TaskAssignmentIdIssuer,
-};
+use crate::DispatchQueueSink;
+use crate::InboundEntry;
+use crate::SchedulerCore;
+use crate::SchedulerError;
+use crate::SchedulerStorageClient;
+use crate::StorageClientError;
+use crate::TaskAssignment;
+use crate::core::TaskAssignmentIdIssuer;
 
 /// The configuration of the round-robin scheduler core.
 #[derive(Clone, Debug, Deserialize)]

@@ -1,30 +1,26 @@
 //! gRPC service adapter for the scheduler service.
 
 use async_trait::async_trait;
-use spider_core::types::{
-    id::{SchedulerId, SessionId},
-    scheduler::TaskAssignment,
-};
-use spider_proto_rust::{
-    common,
-    scheduler::{
-        self,
-        NextTaskResponse,
-        SchedulerAssignment,
-        next_task_response,
-        scheduler_service_server::SchedulerService,
-    },
-    unpack::RequestUnpack,
-};
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
+use spider_core::types::scheduler::TaskAssignment;
+use spider_proto_rust::common;
+use spider_proto_rust::scheduler::NextTaskResponse;
+use spider_proto_rust::scheduler::SchedulerAssignment;
+use spider_proto_rust::scheduler::SchedulerService;
+use spider_proto_rust::scheduler::next_task_response;
+use spider_proto_rust::scheduler::{self};
+use spider_proto_rust::unpack::RequestUnpack;
 use tokio_util::sync::CancellationToken;
-use tonic::{Request, Response, Status};
+use tonic::Request;
+use tonic::Response;
+use tonic::Status;
 
-use crate::{
-    dispatch_queue::DispatchQueueSource,
-    error::{SchedulerError, SchedulerServiceError},
-    execution_manager_registry::ExecutionManagerRegistryError,
-    service::SchedulerServiceState,
-};
+use crate::dispatch_queue::DispatchQueueSource;
+use crate::error::SchedulerError;
+use crate::error::SchedulerServiceError;
+use crate::execution_manager_registry::ExecutionManagerRegistryError;
+use crate::service::SchedulerServiceState;
 
 /// gRPC adapter over a [`SchedulerServiceState`].
 ///

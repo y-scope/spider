@@ -4,8 +4,10 @@
 //! Splitting the types out of the cdylib lets the integration test crate depend on this rlib and
 //! reuse the canonical struct definitions instead of declaring a parallel mirror.
 
-use serde::{Deserialize, Serialize};
-use spider_tdl::r#std::{List, double};
+use serde::Deserialize;
+use serde::Serialize;
+use spider_tdl::r#std::List;
+use spider_tdl::r#std::double;
 
 /// A complex number with [`double`] components.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

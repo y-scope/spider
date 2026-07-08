@@ -11,7 +11,8 @@ mod common;
 mod scheduler;
 mod storage;
 
-use tonic::{Code, Status};
+use tonic::Code;
+use tonic::Status;
 
 /// A lightweight version of [`Status`] containing only the error code and message.
 pub struct UnpackError {

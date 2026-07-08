@@ -1,9 +1,9 @@
 use spider_core::types::io::TaskInput;
 
-use crate::cache::{
-    error::{CacheError, InternalError},
-    sync::{Reader, Writer},
-};
+use crate::cache::error::CacheError;
+use crate::cache::error::InternalError;
+use crate::cache::sync::Reader;
+use crate::cache::sync::Writer;
 
 /// Spider channel implementation placeholder.
 pub struct Channel {}

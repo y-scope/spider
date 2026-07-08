@@ -7,39 +7,39 @@
 //!
 //! All tests are `#[ignore]` so the workspace's plain `cargo test` doesn't run them.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
-use spider_core::{
-    task::{TdlContext, TimeoutPolicy},
-    types::{
-        id::{
-            ExecutionManagerId,
-            JobId,
-            ResourceGroupId,
-            SchedulerId,
-            SessionId,
-            TaskAssignmentId,
-            TaskId,
-        },
-        io::{ExecutionContext, TaskInput, TaskInputsSerializer},
-        scheduler::{TaskAssignment, TaskAssignmentRecord},
-    },
-};
-use spider_execution_manager::{
-    client::{SchedulerError, SchedulerResponse, StorageResponseError},
-    runtime::{Runtime, RuntimeConfig, RuntimeError},
-};
-use test_utils::{
-    MockLiveness,
-    MockScheduler,
-    MockStorage,
-    PACKAGE_NAME,
-    decode_single_output,
-    single_input,
-    task_executor_bin,
-    tdl_package_dir,
-};
+use spider_core::task::TdlContext;
+use spider_core::task::TimeoutPolicy;
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
+use spider_core::types::id::TaskAssignmentId;
+use spider_core::types::id::TaskId;
+use spider_core::types::io::ExecutionContext;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::scheduler::TaskAssignment;
+use spider_core::types::scheduler::TaskAssignmentRecord;
+use spider_execution_manager::client::SchedulerError;
+use spider_execution_manager::client::SchedulerResponse;
+use spider_execution_manager::client::StorageResponseError;
+use spider_execution_manager::runtime::Runtime;
+use spider_execution_manager::runtime::RuntimeConfig;
+use spider_execution_manager::runtime::RuntimeError;
+use test_utils::MockLiveness;
+use test_utils::MockScheduler;
+use test_utils::MockStorage;
+use test_utils::PACKAGE_NAME;
+use test_utils::decode_single_output;
+use test_utils::single_input;
+use test_utils::task_executor_bin;
+use test_utils::tdl_package_dir;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(100);
 const SLOW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);

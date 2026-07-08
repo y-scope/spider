@@ -1,19 +1,19 @@
 //! Conversions between protobuf task-assignment messages and their Spider core representations.
 
-use spider_core::types::{
-    id::{JobId, ResourceGroupId, SchedulerId, TaskAssignmentId, TaskId},
-    scheduler::{SchedulerResponse, TaskAssignment, TaskAssignmentRecord},
-};
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::TaskAssignmentId;
+use spider_core::types::id::TaskId;
+use spider_core::types::scheduler::SchedulerResponse;
+use spider_core::types::scheduler::TaskAssignment;
+use spider_core::types::scheduler::TaskAssignmentRecord;
 
-use crate::{
-    common,
-    error::Error,
-    scheduler::{
-        NextTaskResponse,
-        TaskAssignmentRecord as ProtoTaskAssignmentRecord,
-        next_task_response,
-    },
-};
+use crate::common;
+use crate::error::Error;
+use crate::scheduler::NextTaskResponse;
+use crate::scheduler::TaskAssignmentRecord as ProtoTaskAssignmentRecord;
+use crate::scheduler::next_task_response;
 
 impl From<TaskAssignmentRecord> for ProtoTaskAssignmentRecord {
     fn from(record: TaskAssignmentRecord) -> Self {
@@ -60,10 +60,11 @@ impl TryFrom<NextTaskResponse> for Option<SchedulerResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        common::{TaskId as ProtoTaskId, Void, task_id::Kind as ProtoTaskIdKind},
-        scheduler::{SchedulerAssignment, next_task_response},
-    };
+    use crate::common::TaskId as ProtoTaskId;
+    use crate::common::Void;
+    use crate::common::task_id::Kind as ProtoTaskIdKind;
+    use crate::scheduler::SchedulerAssignment;
+    use crate::scheduler::next_task_response;
 
     #[test]
     fn assignment_record_converts_to_protocol() {

@@ -4,12 +4,21 @@
 //! downstream TDL package would consume it: through the `spider_tdl::task` re-export, with the
 //! generated code resolving `::spider_tdl` and `::serde` as external crates.
 
-use serde::{Deserialize, Serialize};
-use spider_core::types::{
-    id::{JobId, ResourceGroupId, TaskId},
-    io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
-};
-use spider_tdl::{Task, TaskContext, TaskHandler, TaskHandlerImpl, TdlError, r#std::int32, task};
+use serde::Deserialize;
+use serde::Serialize;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskOutputsSerializer;
+use spider_tdl::Task;
+use spider_tdl::TaskContext;
+use spider_tdl::TaskHandler;
+use spider_tdl::TaskHandlerImpl;
+use spider_tdl::TdlError;
+use spider_tdl::r#std::int32;
+use spider_tdl::task;
 
 type AliasedContext = TaskContext;
 type _AliasedTdlError = TdlError;

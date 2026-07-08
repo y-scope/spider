@@ -11,13 +11,13 @@
 
 use std::time::Duration;
 
-use async_channel::{Receiver, Sender};
+use async_channel::Receiver;
+use async_channel::Sender;
 use async_trait::async_trait;
 use serde::Deserialize;
-use spider_core::{
-    task::TaskIndex,
-    types::id::{JobId, ResourceGroupId},
-};
+use spider_core::task::TaskIndex;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
 
 use crate::cache::error::InternalError;
 

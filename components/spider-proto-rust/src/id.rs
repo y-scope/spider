@@ -2,7 +2,8 @@
 
 use spider_core::types::id::TaskId;
 
-use crate::{common, error::Error};
+use crate::common;
+use crate::error::Error;
 
 impl From<TaskId> for common::TaskId {
     fn from(task_id: TaskId) -> Self {
