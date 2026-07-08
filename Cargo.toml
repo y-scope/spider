@@ -14,6 +14,7 @@ members = [
   "components/spider-utils",
   "examples/huntsman/complex/tasks",
   "examples/huntsman/complex/types",
+  "tests/huntsman/e2e",
   "tests/huntsman/em-runtime",
   "tests/huntsman/integration-test-tasks",
   "tests/huntsman/task-executor",
