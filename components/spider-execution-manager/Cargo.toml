@@ -8,7 +8,7 @@ name = "spider_execution_manager"
 path = "src/lib.rs"
 
 [[bin]]
-name = "spider_execution_manager"
+name = "spider-execution-manager"
 path = "src/bin/execution_manager.rs"
 
 [dependencies]
