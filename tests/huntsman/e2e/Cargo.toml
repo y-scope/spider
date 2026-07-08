@@ -8,5 +8,8 @@ publish = false
 anyhow = "1.0.98"
 spider-client = { path = "../../../components/spider-client" }
 spider-core = { path = "../../../components/spider-core" }
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = {
+  version = "1.52.3",
+  features = ["macros", "rt-multi-thread", "sync", "time"]
+}
 tonic = "0.14.6"
