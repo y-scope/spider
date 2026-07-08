@@ -18,17 +18,21 @@
 //! Aggregates (avg, p50, p95, p99) for each metric land in a markdown table at
 //! `${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/task_executor_overhead.md`.
 
-use std::{
-    fs::File,
-    io::Write,
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+use std::time::Duration;
+use std::time::Instant;
 
 use integration_test_tasks::INSTRUMENT_SLEEP_US;
-use spider_task_executor::protocol::{ExecutorOutcome, Response};
-use tabled::{Table, Tabled};
-use test_utils::{ExecutorHandle, decode_single_output, encode_single_input, execute_request};
+use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::Response;
+use tabled::Table;
+use tabled::Tabled;
+use test_utils::ExecutorHandle;
+use test_utils::decode_single_output;
+use test_utils::encode_single_input;
+use test_utils::execute_request;
 
 const PAYLOAD_LEN: usize = 100;
 const ITERATIONS: usize = 10;

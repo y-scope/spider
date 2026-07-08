@@ -1,13 +1,15 @@
 //! The dispatching queue that decouples the scheduler core's placement decisions from the
 //! execution-manager-facing service.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use spider_core::types::id::SessionId;
 use tokio::sync::RwLock;
 
-use crate::{error::SchedulerError, types::TaskAssignment};
+use crate::error::SchedulerError;
+use crate::types::TaskAssignment;
 
 /// The writer side of the dispatching queue used by the scheduler core.
 #[async_trait]
@@ -197,22 +199,25 @@ struct DispatchQueueReaderInner {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::Duration,
-    };
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use anyhow::Result;
-    use dashmap::{DashMap, DashSet};
-    use spider_core::types::id::{JobId, ResourceGroupId, SessionId, TaskAssignmentId, TaskId};
+    use dashmap::DashMap;
+    use dashmap::DashSet;
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::SessionId;
+    use spider_core::types::id::TaskAssignmentId;
+    use spider_core::types::id::TaskId;
     use tokio_util::task::TaskTracker;
 
     use super::*;
-    use crate::{error::SchedulerError, types::TaskAssignment};
+    use crate::error::SchedulerError;
+    use crate::types::TaskAssignment;
 
     /// Generates a [`TaskId`] backed by a module-local monotonic counter.
     ///

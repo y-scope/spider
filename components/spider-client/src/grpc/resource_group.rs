@@ -3,18 +3,16 @@
 use std::num::NonZeroUsize;
 
 use spider_core::types::id::ResourceGroupId;
-use spider_proto_rust::storage::{
-    self,
-    resource_group_management_service_client::ResourceGroupManagementServiceClient,
-};
+use spider_proto_rust::storage::ResourceGroupManagementServiceClient;
+use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::{
-    Code,
-    Status,
-    transport::{Channel, Endpoint},
-};
+use tonic::Code;
+use tonic::Status;
+use tonic::transport::Channel;
+use tonic::transport::Endpoint;
 
-use crate::error::{ClientError, to_transport_error};
+use crate::error::ClientError;
+use crate::error::to_transport_error;
 
 /// gRPC client for the storage server's resource-group-management service.
 #[derive(Debug, Clone)]

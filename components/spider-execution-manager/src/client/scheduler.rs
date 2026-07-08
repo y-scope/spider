@@ -3,10 +3,9 @@
 //! The execution manager acquires tasks from the scheduler through [`SchedulerClient`].
 
 use async_trait::async_trait;
-use spider_core::types::{
-    id::ExecutionManagerId,
-    scheduler::{SchedulerResponse, TaskAssignmentRecord},
-};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::scheduler::SchedulerResponse;
+use spider_core::types::scheduler::TaskAssignmentRecord;
 
 /// Errors returned by [`SchedulerClient::next_task`].
 #[derive(Debug, thiserror::Error)]

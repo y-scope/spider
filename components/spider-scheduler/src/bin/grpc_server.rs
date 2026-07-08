@@ -1,16 +1,17 @@
 //! Command-line entrypoint for the scheduler gRPC server.
 
-use std::{error::Error, net::SocketAddr, path::PathBuf};
+use std::error::Error;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use clap::Parser;
-use spider_proto_rust::scheduler::scheduler_service_server::SchedulerServiceServer;
-use spider_scheduler::{
-    GrpcSchedulerStorageClient,
-    ServerConfig,
-    create_runtime,
-    grpc::GrpcSchedulerService,
-};
-use spider_utils::{config::YamlConfig, logging::set_up_logging};
+use spider_proto_rust::scheduler::SchedulerServiceServer;
+use spider_scheduler::GrpcSchedulerStorageClient;
+use spider_scheduler::ServerConfig;
+use spider_scheduler::create_runtime;
+use spider_scheduler::grpc::GrpcSchedulerService;
+use spider_utils::config::YamlConfig;
+use spider_utils::logging::set_up_logging;
 use tokio::select;
 use tonic::transport::Server;
 

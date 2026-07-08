@@ -6,9 +6,11 @@
 
 use std::marker::PhantomData;
 
-use spider_core::types::io::{TaskInputsSerializer, TaskOutputsSerializer};
+use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskOutputsSerializer;
 
-use crate::{error::TdlError, task_context::TaskContext};
+use crate::error::TdlError;
+use crate::task_context::TaskContext;
 
 /// The result of executing a task through the [`TaskHandler`] interface.
 ///
@@ -168,14 +170,19 @@ fn serialize_error(err: &TdlError) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use serde::{Deserialize, Serialize};
-    use spider_core::types::{
-        id::{JobId, ResourceGroupId, TaskId},
-        io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
-    };
+    use serde::Deserialize;
+    use serde::Serialize;
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::TaskId;
+    use spider_core::types::io::TaskInput;
+    use spider_core::types::io::TaskInputsSerializer;
+    use spider_core::types::io::TaskOutputsSerializer;
 
     use super::*;
-    use crate::{error::TdlError, r#std::int32, task_context::TaskContext};
+    use crate::error::TdlError;
+    use crate::r#std::int32;
+    use crate::task_context::TaskContext;
 
     const INTENTIONAL_FAILURE: &str = "intentional failure";
 

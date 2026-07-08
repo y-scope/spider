@@ -1,7 +1,8 @@
 use std::net::IpAddr;
 
 use secrecy::SecretString;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::state::runtime::RuntimeConfig;
 

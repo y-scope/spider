@@ -1,6 +1,7 @@
 //! Errors produced while loading TDL packages or executing tasks across the FFI boundary.
 
-use spider_tdl::{TdlError, Version};
+use spider_tdl::TdlError;
+use spider_tdl::Version;
 
 /// All possible errors produced by the task executor.
 ///

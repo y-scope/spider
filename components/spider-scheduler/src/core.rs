@@ -1,15 +1,14 @@
 //! The abstract core of a Spider scheduler.
 
-use std::sync::{Arc, atomic::AtomicU64};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use async_trait::async_trait;
 use spider_core::types::id::TaskAssignmentId;
 
-use crate::{
-    dispatch_queue::DispatchQueueSink,
-    error::SchedulerError,
-    storage_client::SchedulerStorageClient,
-};
+use crate::dispatch_queue::DispatchQueueSink;
+use crate::error::SchedulerError;
+use crate::storage_client::SchedulerStorageClient;
 
 /// Single-source ID issuer for creating globally unique IDs for task assignments.
 pub struct TaskAssignmentIdIssuer {
