@@ -8,7 +8,7 @@ mod task_decl {
     use spider_tdl::r#std::double;
     use spider_tdl::task;
 
-    #[task(name = "nn::dense_relu")]
+    #[task(name = "neuron::dense_relu")]
     pub fn dense_relu(
         _ctx: TaskContext,
         x0: double,
@@ -43,7 +43,7 @@ mod task_decl {
         ]))
     }
 
-    #[task(name = "nn::dense_sigmoid")]
+    #[task(name = "neuron::dense_sigmoid")]
     pub fn dense_sigmoid(
         _ctx: TaskContext,
         x0: double,
@@ -78,7 +78,7 @@ mod task_decl {
         ]))
     }
 
-    #[task(name = "nn::dense_identity")]
+    #[task(name = "neuron::dense_identity")]
     pub fn dense_identity(
         _ctx: TaskContext,
         x0: double,

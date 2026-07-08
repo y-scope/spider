@@ -7,10 +7,10 @@
 pub const NUM_INPUTS: usize = 25;
 
 /// The fixed per-input weights, one per input position. Deterministic values calculated as
-/// (`WEIGHTS[k] = (k + 1) * 0.01`).
+/// (`WEIGHTS[k] = (k + 1) * 0.01 * (-1)^k`), alternating in sign starting positive.
 pub const WEIGHTS: [f64; NUM_INPUTS] = [
-    0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16,
-    0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25,
+    0.01, -0.02, 0.03, -0.04, 0.05, -0.06, 0.07, -0.08, 0.09, -0.10, 0.11, -0.12, 0.13, -0.14,
+    0.15, -0.16, 0.17, -0.18, 0.19, -0.20, 0.21, -0.22, 0.23, -0.24, 0.25,
 ];
 
 /// The fixed bias added to the weighted sum before the activation.
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_weighted_sum_all_one_inputs() {
         let inputs = [1.0_f64; NUM_INPUTS];
-        assert_approx_eq(weighted_sum(&inputs), 3.75);
+        assert_approx_eq(weighted_sum(&inputs), 0.63);
     }
 
     #[test]
@@ -130,7 +130,7 @@ mod tests {
         assert_approx_eq(dense_relu(&zero), 0.5);
 
         let ones = [1.0_f64; NUM_INPUTS];
-        assert_approx_eq(dense_relu(&ones), 3.75);
+        assert_approx_eq(dense_relu(&ones), 0.63);
 
         // Negative weighted sum (large negative inputs) clamps to 0 under relu.
         let neg = [-1000.0_f64; NUM_INPUTS];
@@ -143,7 +143,7 @@ mod tests {
         assert_approx_eq(dense_sigmoid(&zero), sigmoid(BIAS));
 
         let ones = [1.0_f64; NUM_INPUTS];
-        assert_approx_eq(dense_sigmoid(&ones), sigmoid(3.75));
+        assert_approx_eq(dense_sigmoid(&ones), sigmoid(0.63));
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
         assert_approx_eq(dense_identity(&zero), 0.5);
 
         let ones = [1.0_f64; NUM_INPUTS];
-        assert_approx_eq(dense_identity(&ones), 3.75);
+        assert_approx_eq(dense_identity(&ones), 0.63);
 
         let neg = [-1000.0_f64; NUM_INPUTS];
         assert_approx_eq(dense_identity(&neg), weighted_sum(&neg));
