@@ -20,9 +20,10 @@ use spider_storage::db::{
     SchedulerRegistrationManagement,
     SessionManagement,
 };
+use tokio::task::JoinSet;
 
 use super::{
-    mariadb_infra::{create_mariadb_connector, create_test_resource_group},
+    mariadb_infra::{create_mariadb_config, create_mariadb_connector, create_test_resource_group},
     task_graph_builder::{SubmittedTaskGraph, build_flat_task_graph, create_validated_submission},
 };
 
@@ -953,7 +954,7 @@ async fn test_get_dead_execution_managers_atomic() {
         .expect("first get_dead_execution_managers should succeed");
     assert!(
         dead_first.contains(&em_id),
-        "expected em_id in first dead list, got {dead_first:?}"
+        "expected {em_id} in first dead list, got {dead_first:?}"
     );
 
     // Second call should not return the same EM again.
@@ -994,6 +995,63 @@ async fn test_get_dead_execution_managers_multiple() {
             dead.contains(em_id),
             "expected em_id {em_id:?} in dead list, got {dead:?}"
         );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn test_liveness_operations_no_deadlock_under_concurrency() {
+    // Regression test for <https://github.com/y-scope/spider/issues/371>.
+    const TEST_NUM_CONCURRENT_EMS: usize = 16;
+    const TEST_NUM_DEADLOCK_ITERATIONS: usize = 10;
+    const TEST_STALE_AFTER_SEC: u64 = 1;
+
+    let mut config = create_mariadb_config();
+    config.max_connections =
+        u32::try_from(TEST_NUM_CONCURRENT_EMS).expect("EM count should fit in u32") + 4;
+    let storage = MariaDbStorageConnector::connect(&config)
+        .await
+        .expect("connect should succeed");
+    let cutoff_with_margin = Duration::from_secs(TEST_STALE_AFTER_SEC) + Duration::from_millis(100);
+
+    for iteration in 0..TEST_NUM_DEADLOCK_ITERATIONS {
+        let mut em_ids = Vec::with_capacity(TEST_NUM_CONCURRENT_EMS);
+        for _ in 0..TEST_NUM_CONCURRENT_EMS {
+            em_ids.push(register_test_em(&storage).await);
+        }
+
+        tokio::time::sleep(cutoff_with_margin).await;
+
+        // Race every heartbeat against the single get_dead on one join set. The get_dead result is
+        // mapped to `()` so all tasks share the `Result<(), DbError>` type and a single outcome
+        // check: a deadlock or any other unexpected failure surfaces as an `Err` other than
+        // `ExecutionManagerAlreadyDead`.
+        let mut join_set: JoinSet<Result<(), DbError>> = JoinSet::new();
+        for em_id in em_ids {
+            let storage = storage.clone();
+            join_set.spawn(async move { storage.update_execution_manager_heartbeat(em_id).await });
+        }
+
+        let storage = storage.clone();
+        join_set.spawn(async move {
+            storage
+                .get_dead_execution_managers(TEST_STALE_AFTER_SEC)
+                .await
+                .map(|_| ())
+        });
+
+        while let Some(joined) = join_set.join_next().await {
+            let result = joined.expect("task should not panic");
+            assert!(
+                matches!(
+                    result,
+                    Ok(()) | Err(DbError::ExecutionManagerAlreadyDead(_))
+                ),
+                "iteration {iteration}: liveness operation should succeed or find the EM already \
+                 dead, got {result:?}"
+            );
+        }
     }
 }
 
