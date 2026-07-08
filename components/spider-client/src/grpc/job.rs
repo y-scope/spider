@@ -2,27 +2,26 @@
 
 use std::num::NonZeroUsize;
 
-use spider_core::{
-    compression::encode_zstd_bytes,
-    job::JobState,
-    task::TaskGraph,
-    types::{
-        id::{JobId, ResourceGroupId},
-        io::{SerializedTaskOutputs, TaskInput, TaskInputsSerializer, TaskOutput},
-    },
-};
-use spider_proto_rust::{
-    error::Error as ProtoError,
-    storage::{self, job_orchestration_service_client::JobOrchestrationServiceClient},
-};
+use spider_core::compression::encode_zstd_bytes;
+use spider_core::job::JobState;
+use spider_core::task::TaskGraph;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::io::SerializedTaskOutputs;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskOutput;
+use spider_proto_rust::error::Error as ProtoError;
+use spider_proto_rust::storage::JobOrchestrationServiceClient;
+use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::{
-    Code,
-    Status,
-    transport::{Channel, Endpoint},
-};
+use tonic::Code;
+use tonic::Status;
+use tonic::transport::Channel;
+use tonic::transport::Endpoint;
 
-use crate::error::{ClientError, to_transport_error};
+use crate::error::ClientError;
+use crate::error::to_transport_error;
 
 /// gRPC client for the storage server's job-orchestration service.
 #[derive(Debug, Clone)]

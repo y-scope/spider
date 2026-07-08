@@ -1,19 +1,22 @@
 //! Command-line entrypoint for the storage gRPC server.
 
-use std::{error::Error, net::SocketAddr, path::PathBuf};
+use std::error::Error;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use clap::Parser;
-use spider_proto_rust::storage::{
-    execution_manager_liveness_service_server::ExecutionManagerLivenessServiceServer,
-    inbound_queue_service_server::InboundQueueServiceServer,
-    job_orchestration_service_server::JobOrchestrationServiceServer,
-    resource_group_management_service_server::ResourceGroupManagementServiceServer,
-    scheduler_registration_service_server::SchedulerRegistrationServiceServer,
-    session_management_service_server::SessionManagementServiceServer,
-    task_instance_management_service_server::TaskInstanceManagementServiceServer,
-};
-use spider_storage::{ServerConfig, grpc::GrpcServiceState, state::runtime::create_runtime};
-use spider_utils::{config::YamlConfig, logging::set_up_logging};
+use spider_proto_rust::storage::ExecutionManagerLivenessServiceServer;
+use spider_proto_rust::storage::InboundQueueServiceServer;
+use spider_proto_rust::storage::JobOrchestrationServiceServer;
+use spider_proto_rust::storage::ResourceGroupManagementServiceServer;
+use spider_proto_rust::storage::SchedulerRegistrationServiceServer;
+use spider_proto_rust::storage::SessionManagementServiceServer;
+use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
+use spider_storage::ServerConfig;
+use spider_storage::grpc::GrpcServiceState;
+use spider_storage::state::runtime::create_runtime;
+use spider_utils::config::YamlConfig;
+use spider_utils::logging::set_up_logging;
 use tokio::select;
 use tonic::transport::Server;
 

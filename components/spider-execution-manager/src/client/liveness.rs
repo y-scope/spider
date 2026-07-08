@@ -3,10 +3,12 @@
 //! The execution manager registers itself with storage at boot, then sends a periodic heartbeat.
 //! Each heartbeat both keeps the EM marked alive and returns storage's current session id.
 
-use std::{net::IpAddr, sync::Arc};
+use std::net::IpAddr;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, SessionId};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::SessionId;
 
 /// The execution manager's identity and the storage session at registration time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

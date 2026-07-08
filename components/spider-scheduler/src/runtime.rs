@@ -11,16 +11,18 @@ use serde::Deserialize;
 use spider_core::types::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    config::SchedulerConfig,
-    core::TaskAssignmentIdIssuer,
-    dispatch_queue::{DispatchQueueReader, DispatchQueueWriter, create_dispatch_queue},
-    error::{SchedulerError, SchedulerRuntimeError},
-    execution_manager_registry::{ExecutionManagerRegistry, ExecutionManagerRegistryConfig},
-    service::SchedulerServiceState,
-    storage_client::SchedulerStorageClient,
-    types::TaskAssignment,
-};
+use crate::config::SchedulerConfig;
+use crate::core::TaskAssignmentIdIssuer;
+use crate::dispatch_queue::DispatchQueueReader;
+use crate::dispatch_queue::DispatchQueueWriter;
+use crate::dispatch_queue::create_dispatch_queue;
+use crate::error::SchedulerError;
+use crate::error::SchedulerRuntimeError;
+use crate::execution_manager_registry::ExecutionManagerRegistry;
+use crate::execution_manager_registry::ExecutionManagerRegistryConfig;
+use crate::service::SchedulerServiceState;
+use crate::storage_client::SchedulerStorageClient;
+use crate::types::TaskAssignment;
 
 /// Runtime configuration for the scheduler service.
 #[derive(Clone, Debug, Deserialize)]
@@ -175,19 +177,20 @@ const fn default_stop_timeout_sec() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::{IpAddr, Ipv4Addr},
-        num::{NonZeroU64, NonZeroUsize},
-    };
+    use std::net::IpAddr;
+    use std::net::Ipv4Addr;
+    use std::num::NonZeroU64;
+    use std::num::NonZeroUsize;
 
     use async_trait::async_trait;
-    use spider_core::{
-        job::JobState,
-        types::id::{JobId, SchedulerId},
-    };
+    use spider_core::job::JobState;
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::SchedulerId;
 
     use super::*;
-    use crate::{core_impl::RoundRobinConfig, error::StorageClientError, types::InboundEntry};
+    use crate::core_impl::RoundRobinConfig;
+    use crate::error::StorageClientError;
+    use crate::types::InboundEntry;
 
     /// The scheduler identifier the mock storage client hands back from registration.
     const SCHEDULER_ID: u64 = 7;

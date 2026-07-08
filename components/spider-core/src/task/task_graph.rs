@@ -1,16 +1,22 @@
-use semver::{Version, VersionReq};
-use serde::{
-    Deserialize,
-    Serialize,
-    de::{self, MapAccess, Visitor},
-    ser::{SerializeMap, SerializeSeq, Serializer},
-};
-use strum::{AsRefStr, EnumCount, EnumIter, IntoEnumIterator};
+use semver::Version;
+use semver::VersionReq;
+use serde::Deserialize;
+use serde::Serialize;
+use serde::de::MapAccess;
+use serde::de::Visitor;
+use serde::de::{self};
+use serde::ser::SerializeMap;
+use serde::ser::SerializeSeq;
+use serde::ser::Serializer;
+use strum::AsRefStr;
+use strum::EnumCount;
+use strum::EnumIter;
+use strum::IntoEnumIterator;
 
-use crate::{
-    compression::{decode_zstd_bytes, encode_zstd_bytes},
-    task::{DataTypeDescriptor, Error},
-};
+use crate::compression::decode_zstd_bytes;
+use crate::compression::encode_zstd_bytes;
+use crate::task::DataTypeDescriptor;
+use crate::task::Error;
 
 /// A unique identifier for a task within a task graph, assigned based on insertion order.
 ///
@@ -1078,12 +1084,10 @@ mod tests {
     use std::fmt::Debug;
 
     use super::*;
-    use crate::task::{
-        DataTypeDescriptor,
-        IntTypeDescriptor,
-        MapKeyTypeDescriptor,
-        ValueTypeDescriptor,
-    };
+    use crate::task::DataTypeDescriptor;
+    use crate::task::IntTypeDescriptor;
+    use crate::task::MapKeyTypeDescriptor;
+    use crate::task::ValueTypeDescriptor;
 
     const TEST_PACKAGE: &str = "test_pkg";
 

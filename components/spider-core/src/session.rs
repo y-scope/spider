@@ -4,10 +4,9 @@
 //! execution manager and the scheduler) can observe and advance a shared view of storage's current
 //! session id.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use crate::types::id::SessionId;
 

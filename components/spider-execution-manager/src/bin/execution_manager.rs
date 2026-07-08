@@ -1,14 +1,16 @@
 //! Command-line entrypoint for the execution manager.
 
-use std::{error::Error, path::PathBuf};
+use std::error::Error;
+use std::path::PathBuf;
 
 use clap::Parser;
-use spider_execution_manager::{
-    Config,
-    client::grpc::{GrpcLivenessClient, GrpcSchedulerClient, GrpcStorageClient},
-    runtime::Runtime,
-};
-use spider_utils::{config::YamlConfig, logging::set_up_logging};
+use spider_execution_manager::Config;
+use spider_execution_manager::client::grpc::GrpcLivenessClient;
+use spider_execution_manager::client::grpc::GrpcSchedulerClient;
+use spider_execution_manager::client::grpc::GrpcStorageClient;
+use spider_execution_manager::runtime::Runtime;
+use spider_utils::config::YamlConfig;
+use spider_utils::logging::set_up_logging;
 
 /// Command-line arguments for the execution manager.
 #[derive(Debug, Parser)]

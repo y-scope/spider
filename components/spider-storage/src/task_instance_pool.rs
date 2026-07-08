@@ -13,29 +13,29 @@
 //! Internally, the pool runs as a single-owner coroutine: a tokio task owns the mutable state
 //! directly (no mutex), processing registration messages and GC timers via `tokio::select!`.
 
-use std::{
-    collections::HashSet,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::{Duration, SystemTime},
-};
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use spider_core::types::id::{ExecutionManagerId, JobId, ResourceGroupId, TaskId, TaskInstanceId};
-use tokio::{sync::mpsc, task::JoinHandle};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
+use spider_core::types::id::TaskInstanceId;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    cache::{
-        error::InternalError,
-        task::{SharedTaskControlBlock, SharedTerminationTaskControlBlock},
-    },
-    db::ExecutionManagerLivenessManagement,
-    ready_queue::ReadyQueueSender,
-};
+use crate::cache::error::InternalError;
+use crate::cache::task::SharedTaskControlBlock;
+use crate::cache::task::SharedTerminationTaskControlBlock;
+use crate::db::ExecutionManagerLivenessManagement;
+use crate::ready_queue::ReadyQueueSender;
 
 /// Configuration for a task instance pool actor.
 ///
@@ -539,30 +539,26 @@ pub fn create_task_instance_pool<
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::IpAddr,
-        time::{Duration, SystemTime},
-    };
+    use std::net::IpAddr;
+    use std::time::Duration;
+    use std::time::SystemTime;
 
     use async_trait::async_trait;
-    use spider_core::{
-        task::{
-            DataTypeDescriptor,
-            ExecutionPolicy,
-            TaskDescriptor,
-            TaskGraph as SubmittedTaskGraph,
-            TdlContext,
-            ValueTypeDescriptor,
-        },
-        types::{
-            id::{ExecutionManagerId, JobId, ResourceGroupId},
-            io::TaskInput,
-        },
-    };
+    use spider_core::task::DataTypeDescriptor;
+    use spider_core::task::ExecutionPolicy;
+    use spider_core::task::TaskDescriptor;
+    use spider_core::task::TaskGraph as SubmittedTaskGraph;
+    use spider_core::task::TdlContext;
+    use spider_core::task::ValueTypeDescriptor;
+    use spider_core::types::id::ExecutionManagerId;
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::io::TaskInput;
     use tokio::sync::Mutex;
 
     use super::*;
-    use crate::{db::DbError, job_submission::create_validated_submission};
+    use crate::db::DbError;
+    use crate::job_submission::create_validated_submission;
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
 

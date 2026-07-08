@@ -1,4 +1,6 @@
-use spider_core::{job::JobState, task::TaskState, types::id::JobId};
+use spider_core::job::JobState;
+use spider_core::task::TaskState;
+use spider_core::types::id::JobId;
 use spider_utils::wire::WireError;
 
 use crate::db::DbError;
