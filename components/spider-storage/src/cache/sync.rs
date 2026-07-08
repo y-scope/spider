@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tokio::sync::RwLock;
+use tokio::sync::RwLockReadGuard;
+use tokio::sync::RwLockWriteGuard;
 
 /// Reader-writer lock for shared data in the cache.
 pub type SharedRw<Type> = Arc<RwLock<Type>>;

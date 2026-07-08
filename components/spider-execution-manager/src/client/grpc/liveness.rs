@@ -1,21 +1,22 @@
 //! gRPC-backed [`LivenessClient`] implementation.
 
-use std::{net::IpAddr, num::NonZeroUsize};
+use std::net::IpAddr;
+use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
-use spider_core::types::id::{ExecutionManagerId, SessionId};
-use spider_proto_rust::storage::{
-    self,
-    execution_manager_liveness_service_client::ExecutionManagerLivenessServiceClient,
-};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::SessionId;
+use spider_proto_rust::storage::ExecutionManagerLivenessServiceClient;
+use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::{
-    Code,
-    Status,
-    transport::{Channel, Endpoint},
-};
+use tonic::Code;
+use tonic::Status;
+use tonic::transport::Channel;
+use tonic::transport::Endpoint;
 
-use crate::client::liveness::{LivenessClient, LivenessResponseError, RegistrationResponse};
+use crate::client::liveness::LivenessClient;
+use crate::client::liveness::LivenessResponseError;
+use crate::client::liveness::RegistrationResponse;
 
 /// gRPC-backed [`LivenessClient`] implementation.
 #[derive(Debug, Clone)]
@@ -143,7 +144,8 @@ mod tests {
     use spider_core::types::id::ExecutionManagerId;
 
     use super::*;
-    use crate::client::{LivenessResponseError, RegistrationResponse};
+    use crate::client::LivenessResponseError;
+    use crate::client::RegistrationResponse;
 
     #[test]
     fn register_response_to_result_returns_registration() {

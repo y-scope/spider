@@ -5,4 +5,5 @@ pub mod manager;
 pub mod protocol;
 
 pub use error::ExecutorError;
-pub use manager::{TdlPackage, TdlPackageManager};
+pub use manager::TdlPackage;
+pub use manager::TdlPackageManager;

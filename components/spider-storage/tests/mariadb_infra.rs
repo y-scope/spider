@@ -1,9 +1,8 @@
 use secrecy::SecretString;
 use spider_core::types::id::ResourceGroupId;
-use spider_storage::{
-    DatabaseConfig,
-    db::{MariaDbStorageConnector, ResourceGroupManagement},
-};
+use spider_storage::DatabaseConfig;
+use spider_storage::db::MariaDbStorageConnector;
+use spider_storage::db::ResourceGroupManagement;
 
 /// Creates a [`MariaDbStorageConnector`] from environment variables.
 ///

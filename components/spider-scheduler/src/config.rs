@@ -5,13 +5,11 @@ use std::num::NonZeroUsize;
 use serde::Deserialize;
 use spider_utils::config::EndpointConfig;
 
-use crate::{
-    core::SchedulerCore,
-    core_impl::RoundRobinConfig,
-    dispatch_queue::DispatchQueueSink,
-    runtime::RuntimeConfig,
-    storage_client::SchedulerStorageClient,
-};
+use crate::core::SchedulerCore;
+use crate::core_impl::RoundRobinConfig;
+use crate::dispatch_queue::DispatchQueueSink;
+use crate::runtime::RuntimeConfig;
+use crate::storage_client::SchedulerStorageClient;
 
 /// Top-level configuration for the scheduler gRPC server.
 #[derive(Clone, Debug, Deserialize)]

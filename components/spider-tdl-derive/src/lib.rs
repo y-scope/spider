@@ -7,7 +7,8 @@
 mod task_macro;
 
 use proc_macro::TokenStream;
-use syn::{ItemFn, parse_macro_input};
+use syn::ItemFn;
+use syn::parse_macro_input;
 use task_macro::TaskAttr;
 
 /// Attribute macro that transforms a function into a Spider TDL–compatible task.

@@ -3,33 +3,32 @@ use std::net::IpAddr;
 use async_trait::async_trait;
 use const_format::formatcp;
 use secrecy::ExposeSecret;
-use spider_core::{
-    job::JobState,
-    types::{
-        id::{ExecutionManagerId, JobId, ResourceGroupId, SchedulerId, SessionId},
-        io::{SerializedTaskOutputs, TaskOutput},
-        scheduler::RegisteredScheduler,
-    },
-};
+use spider_core::job::JobState;
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
+use spider_core::types::io::SerializedTaskOutputs;
+use spider_core::types::io::TaskOutput;
+use spider_core::types::scheduler::RegisteredScheduler;
 use spider_derive::MySqlEnum;
-use sqlx::{MySqlPool, mysql::MySqlDatabaseError};
+use sqlx::Connection;
+use sqlx::MySqlPool;
+use sqlx::mysql::MySqlDatabaseError;
 
-use crate::{
-    config::DatabaseConfig,
-    db::{
-        DbError,
-        DbStorage,
-        ExecutionManagerLivenessManagement,
-        ExternalJobOrchestration,
-        InternalJobOrchestration,
-        RecoverableJobContext,
-        ResourceGroupManagement,
-        SchedulerRegistrationManagement,
-        SessionManagement,
-        error::ExpectedStates,
-    },
-    job_submission::ValidatedJobSubmission,
-};
+use crate::config::DatabaseConfig;
+use crate::db::DbError;
+use crate::db::DbStorage;
+use crate::db::ExecutionManagerLivenessManagement;
+use crate::db::ExternalJobOrchestration;
+use crate::db::InternalJobOrchestration;
+use crate::db::RecoverableJobContext;
+use crate::db::ResourceGroupManagement;
+use crate::db::SchedulerRegistrationManagement;
+use crate::db::SessionManagement;
+use crate::db::error::ExpectedStates;
+use crate::job_submission::ValidatedJobSubmission;
 
 /// A cloneable storage connector for `MariaDB` database that implements Spider's DB protocols.
 #[derive(Clone)]
@@ -343,10 +342,10 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<Vec<JobId>, DbError> {
         const DELETE_BATCH_SIZE: usize = 1000;
 
-        const SELECT_QUERY: &str = formatcp!(
+        const SELECT_CANDIDATES_QUERY: &str = formatcp!(
             "SELECT `id` FROM `{table}` WHERE `state` IN \
              ('{succeeded_state}','{failed_state}','{cancelled_state}') AND `ended_at` < NOW() - \
-             INTERVAL ? SECOND LIMIT {DELETE_BATCH_SIZE} FOR UPDATE;",
+             INTERVAL ? SECOND LIMIT {DELETE_BATCH_SIZE};",
             table = JOBS_TABLE_NAME,
             succeeded_state = JobState::Succeeded.as_str(),
             failed_state = JobState::Failed.as_str(),
@@ -357,28 +356,45 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
         let mut tx = self.pool.begin().await?;
 
         loop {
-            let job_id_batch: Vec<JobId> = sqlx::query_scalar(SELECT_QUERY)
+            let candidate_ids: Vec<JobId> = sqlx::query_scalar(SELECT_CANDIDATES_QUERY)
                 .bind(expire_after_sec)
                 .fetch_all(&mut *tx)
                 .await?;
 
-            if job_id_batch.is_empty() {
+            if candidate_ids.is_empty() {
                 break;
             }
 
-            let placeholders = std::iter::repeat_n("?", job_id_batch.len())
+            let candidate_count = candidate_ids.len();
+            let placeholders = std::iter::repeat_n("?", candidate_count)
                 .collect::<Vec<_>>()
                 .join(",");
-            let delete_query =
-                format!("DELETE FROM `{JOBS_TABLE_NAME}` WHERE `id` IN ({placeholders})");
-
-            let mut query = sqlx::query(&delete_query);
-            for job_id in &job_id_batch {
-                query = query.bind(job_id);
+            let delete_stmt = format!(
+                "DELETE FROM `{table}` WHERE `id` IN ({placeholders}) AND `state` IN \
+                 ('{succeeded_state}','{failed_state}','{cancelled_state}');",
+                table = JOBS_TABLE_NAME,
+                succeeded_state = JobState::Succeeded.as_str(),
+                failed_state = JobState::Failed.as_str(),
+                cancelled_state = JobState::Cancelled.as_str(),
+            );
+            let mut delete_query = sqlx::query(&delete_stmt);
+            for job_id in &candidate_ids {
+                delete_query = delete_query.bind(job_id);
             }
-            query.execute(&mut *tx).await?;
+            let rows_affected = delete_query.execute(&mut *tx).await?.rows_affected();
 
-            deleted_job_ids.extend(job_id_batch);
+            if rows_affected != candidate_count as u64 {
+                return Err(DbError::CorruptedDbState(format!(
+                    "expected to delete {candidate_count} rows but only {rows_affected} rows \
+                     deleted"
+                )));
+            }
+
+            deleted_job_ids.extend(candidate_ids);
+
+            if candidate_count < DELETE_BATCH_SIZE {
+                break;
+            }
         }
 
         tx.commit().await?;
@@ -556,39 +572,10 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         &self,
         stale_after_sec: u64,
     ) -> Result<Vec<ExecutionManagerId>, DbError> {
-        const UPDATE_BATCH_SIZE: usize = 1000;
-
-        const SELECT_QUERY: &str = formatcp!(
-            "SELECT `id` FROM `{table}` WHERE `state` = '{alive_state}' AND `last_heartbeat_at` < \
-             CURRENT_TIMESTAMP - INTERVAL ? SECOND FOR UPDATE;",
-            table = EXECUTION_MANAGERS_TABLE_NAME,
-            alive_state = ExecutionManagerState::Alive.as_str(),
-        );
-
-        let mut tx = self.pool.begin().await?;
-        let execution_manager_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_QUERY)
-            .bind(stale_after_sec)
-            .fetch_all(&mut *tx)
-            .await?;
-
-        for execution_manager_id_batch in execution_manager_ids.chunks(UPDATE_BATCH_SIZE) {
-            let placeholders = std::iter::repeat_n("?", execution_manager_id_batch.len())
-                .collect::<Vec<_>>()
-                .join(",");
-            let update_query = format!(
-                "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET `state` = '{dead_state}', \
-                 `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN ({placeholders})",
-                dead_state = ExecutionManagerState::Dead.as_str(),
-            );
-            let mut query = sqlx::query(&update_query);
-            for execution_manager_id in execution_manager_id_batch {
-                query = query.bind(execution_manager_id);
-            }
-            query.execute(&mut *tx).await?;
-        }
-
-        tx.commit().await?;
-        Ok(execution_manager_ids)
+        run_read_committed_tx(self.pool.clone(), async move |connection| {
+            get_dead_execution_managers(connection, stale_after_sec).await
+        })
+        .await
     }
 }
 
@@ -911,4 +898,139 @@ async fn transition_job_state(
     .await?;
 
     Ok(())
+}
+
+/// Runs `tx` on a freshly acquired pooled connection whose next transaction uses the `READ
+/// COMMITTED` isolation level.
+///
+/// A `SET TRANSACTION ISOLATION LEVEL READ COMMITTED` statement is issued on the connection before
+/// `tx` runs. Because it omits `SESSION`/`GLOBAL`, it applies only to the next transaction started
+/// on that connection. `tx` is expected to begin exactly one transaction to consume the setting,
+/// and to commit or roll it back itself.
+///
+/// If `tx` returns an error, the connection is detached from the pool and closed rather than being
+/// released back into it. This ensures a failed attempt can never hand a later, unrelated borrower
+/// a connection still carrying the pending isolation change (or a half-open transaction).
+///
+/// # Type Parameters
+///
+/// * `ReturnType` - The return type of `tx`.
+/// * `TransactionType` - The type of `tx`, which is an async function that takes a mutable
+///   reference to the connection.
+///
+/// # Returns
+///
+/// The value returned by `tx` on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`sqlx::Pool::acquire`]'s return values on failure.
+/// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
+/// * Forwards `tx`'s return values on failure.
+async fn run_read_committed_tx<ReturnType, TransactionType>(
+    pool: MySqlPool,
+    tx: TransactionType,
+) -> Result<ReturnType, DbError>
+where
+    for<'connection_lifetime> TransactionType:
+        AsyncFnOnce(&'connection_lifetime mut sqlx::MySqlConnection) -> Result<ReturnType, DbError>,
+{
+    const SET_READ_COMMITTED: &str = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED";
+    let mut conn = pool.acquire().await?;
+    sqlx::query(SET_READ_COMMITTED).execute(&mut *conn).await?;
+    let result = tx(&mut *conn).await;
+    if result.is_err() {
+        let _ = conn.detach().close().await;
+    }
+    result
+}
+
+/// Marks stale execution managers dead and returns their IDs, in a transaction run on `conn`.
+///
+/// # Note
+///
+/// It is assumed that `conn` must be set to run its next transaction at the `READ COMMITTED`
+/// isolation level. Under the default `REPEATABLE REA`, the confirming `SELECT ... FOR UPDATE` can
+/// observe a row changed by a concurrent
+/// [`ExecutionManagerLivenessManagement::update_execution_manager_heartbeat`] since the
+/// transaction's read view was established and failed with a "record has changed" error (error code
+/// 1020).
+///
+/// # Returns
+///
+/// A vector of dead execution manager IDs (removed from the table) on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`sqlx::Connection::begin`]'s return values on failure.
+/// * Forwards [`sqlx::query::QueryScalar::fetch_all`]'s return values on failure.
+/// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
+/// * Forwards [`sqlx::Transaction::commit`]'s return values on failure.
+async fn get_dead_execution_managers(
+    conn: &mut sqlx::MySqlConnection,
+    stale_after_sec: u64,
+) -> Result<Vec<ExecutionManagerId>, DbError> {
+    const UPDATE_BATCH_SIZE: usize = 1000;
+
+    const SELECT_CANDIDATES_QUERY: &str = formatcp!(
+        "SELECT `id` FROM `{table}` WHERE `state` = '{alive_state}' AND `last_heartbeat_at` < \
+         CURRENT_TIMESTAMP - INTERVAL ? SECOND ORDER BY `id`;",
+        table = EXECUTION_MANAGERS_TABLE_NAME,
+        alive_state = ExecutionManagerState::Alive.as_str(),
+    );
+
+    let mut tx = Connection::begin(conn).await?;
+    let candidate_ids: Vec<ExecutionManagerId> = sqlx::query_scalar(SELECT_CANDIDATES_QUERY)
+        .bind(stale_after_sec)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    let mut dead_ids: Vec<ExecutionManagerId> = Vec::with_capacity(candidate_ids.len());
+    for candidate_batch in candidate_ids.chunks(UPDATE_BATCH_SIZE) {
+        let placeholders = std::iter::repeat_n("?", candidate_batch.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let select_for_update_stmt = format!(
+            "SELECT `id` FROM `{table}` FORCE INDEX (PRIMARY) WHERE `id` IN ({placeholders}) AND \
+             `state` = '{alive_state}' AND `last_heartbeat_at` < CURRENT_TIMESTAMP - INTERVAL ? \
+             SECOND ORDER BY `id` FOR UPDATE;",
+            table = EXECUTION_MANAGERS_TABLE_NAME,
+            alive_state = ExecutionManagerState::Alive.as_str(),
+        );
+        let mut select_query = sqlx::query_scalar::<_, ExecutionManagerId>(&select_for_update_stmt);
+        for execution_manager_id in candidate_batch {
+            select_query = select_query.bind(execution_manager_id);
+        }
+        let confirmed_ids: Vec<ExecutionManagerId> = select_query
+            .bind(stale_after_sec)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        if confirmed_ids.is_empty() {
+            continue;
+        }
+
+        let placeholders = std::iter::repeat_n("?", confirmed_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let update_stmt = format!(
+            "UPDATE `{EXECUTION_MANAGERS_TABLE_NAME}` SET `state` = '{dead_state}', \
+             `death_confirmed_at` = CURRENT_TIMESTAMP WHERE `id` IN ({placeholders});",
+            dead_state = ExecutionManagerState::Dead.as_str(),
+        );
+        let mut update_query = sqlx::query(&update_stmt);
+        for execution_manager_id in &confirmed_ids {
+            update_query = update_query.bind(execution_manager_id);
+        }
+        update_query.execute(&mut *tx).await?;
+
+        dead_ids.extend(confirmed_ids);
+    }
+
+    tx.commit().await?;
+    Ok(dead_ids)
 }

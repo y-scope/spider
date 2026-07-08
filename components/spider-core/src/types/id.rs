@@ -1,10 +1,13 @@
-use std::{
-    fmt::{Debug, Display},
-    marker::PhantomData,
-};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::marker::PhantomData;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sqlx::{Database, encode::IsNull};
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
+use sqlx::Database;
+use sqlx::encode::IsNull;
 
 use crate::task::TaskIndex;
 
@@ -224,7 +227,8 @@ pub type SignedJobId = SignedId<JobIdMarker>;
 
 #[cfg(test)]
 mod tests {
-    use super::{JobId, ResourceGroupId};
+    use super::JobId;
+    use super::ResourceGroupId;
 
     #[test]
     fn id_serializes_as_u64() {

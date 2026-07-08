@@ -3,18 +3,15 @@
 //! Each test spawns a fresh executor subprocess via [`ExecutorHandle::spawn`], exchanges one framed
 //! bincode request/response over the binary's stdin/stdout, and asserts on the result.
 
-use spider_task_executor::{
-    ExecutorError,
-    protocol::{ExecutorOutcome, Response},
-};
+use spider_task_executor::ExecutorError;
+use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::Response;
 use spider_tdl::TdlError;
-use test_utils::{
-    ExecutorHandle,
-    decode_single_output,
-    encode_no_inputs,
-    encode_single_input,
-    execute_request,
-};
+use test_utils::ExecutorHandle;
+use test_utils::decode_single_output;
+use test_utils::encode_no_inputs;
+use test_utils::encode_single_input;
+use test_utils::execute_request;
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]

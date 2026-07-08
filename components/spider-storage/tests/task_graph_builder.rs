@@ -1,19 +1,17 @@
 use anyhow::Result;
-use rand::{Rng, SeedableRng};
-use spider_core::{
-    compression::encode_zstd_bytes,
-    task::{
-        DataTypeDescriptor,
-        ExecutionPolicy,
-        TaskDescriptor,
-        TaskIndex,
-        TaskInputOutputIndex,
-        TdlContext,
-        TerminationTaskDescriptor,
-        ValueTypeDescriptor,
-    },
-    types::io::{TaskInput, TaskInputsSerializer},
-};
+use rand::Rng;
+use rand::SeedableRng;
+use spider_core::compression::encode_zstd_bytes;
+use spider_core::task::DataTypeDescriptor;
+use spider_core::task::ExecutionPolicy;
+use spider_core::task::TaskDescriptor;
+use spider_core::task::TaskIndex;
+use spider_core::task::TaskInputOutputIndex;
+use spider_core::task::TdlContext;
+use spider_core::task::TerminationTaskDescriptor;
+use spider_core::task::ValueTypeDescriptor;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskInputsSerializer;
 use spider_storage::job_submission::ValidatedJobSubmission;
 
 /// The submitted task graph type from spider-core.

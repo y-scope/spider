@@ -1,8 +1,11 @@
 //! Reference TDL package: complex-vector arithmetic.
 
 mod task_decl {
-    use huntsman_complex_types::{Complex, ComplexVec};
-    use spider_tdl::{TaskContext, TdlError, task};
+    use huntsman_complex_types::Complex;
+    use huntsman_complex_types::ComplexVec;
+    use spider_tdl::TaskContext;
+    use spider_tdl::TdlError;
+    use spider_tdl::task;
 
     #[task(name = "complex::add")]
     pub fn add(_ctx: TaskContext, a: ComplexVec, b: ComplexVec) -> Result<ComplexVec, TdlError> {

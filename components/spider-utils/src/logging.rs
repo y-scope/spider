@@ -1,6 +1,7 @@
 //! Logging setup for Spider binaries.
 
-use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
+use tracing_appender::non_blocking::NonBlockingBuilder;
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 
 /// Initializes the global tracing subscriber with JSON-formatted, non-blocking output to `stderr`.

@@ -1,11 +1,11 @@
 //! Conversions between protobuf I/O messages and their Spider core representations.
 
-use spider_core::{
-    task::{TdlContext, TimeoutPolicy},
-    types::io::ExecutionContext,
-};
+use spider_core::task::TdlContext;
+use spider_core::task::TimeoutPolicy;
+use spider_core::types::io::ExecutionContext;
 
-use crate::{error::Error, storage};
+use crate::error::Error;
+use crate::storage;
 
 impl TryFrom<storage::ExecutionContext> for ExecutionContext {
     type Error = Error;

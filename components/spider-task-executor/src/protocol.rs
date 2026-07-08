@@ -8,7 +8,8 @@
 //! stderr; how those bytes are disposed of (inherited, piped, redirected to a log file) is a choice
 //! made by whoever spawned the process.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use spider_core::task::TdlContext;
 
 /// Request from the parent process (execution manager) to the executor.
