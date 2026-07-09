@@ -9,7 +9,13 @@ service="${1:?Usage: build.sh <storage|scheduler|worker>}"
 remove_temp_file_and_prev_image() {
     rm -f "$temp_iid_file"
 
-    [[ -z "$prev_image_id" || "$prev_image_id" == "$new_image_id" ]] && return
+    if [[ -z "$new_image_id" ]]; then
+        rm -f "$iid_file"
+    elif [[ "$prev_image_id" == "$new_image_id" ]]; then
+        return
+    fi
+
+    [[ -z "$prev_image_id" ]] && return
 
     docker image inspect "$prev_image_id" >/dev/null 2>&1 || return
 
