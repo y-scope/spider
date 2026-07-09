@@ -6,19 +6,18 @@
 //! is generic over its dispatch source, so the runtime can drive it with the real dispatch queue in
 //! production or a mock in tests, while the [`ExecutionManagerRegistry`] is shared by value.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
-use spider_core::types::{
-    id::{ExecutionManagerId, SchedulerId, SessionId},
-    scheduler::TaskAssignmentRecord,
-};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
+use spider_core::types::scheduler::TaskAssignmentRecord;
 
-use crate::{
-    dispatch_queue::DispatchQueueSource,
-    error::SchedulerServiceError,
-    execution_manager_registry::ExecutionManagerRegistry,
-    types::TaskAssignment,
-};
+use crate::dispatch_queue::DispatchQueueSource;
+use crate::error::SchedulerServiceError;
+use crate::execution_manager_registry::ExecutionManagerRegistry;
+use crate::types::TaskAssignment;
 
 /// The execution-manager-facing scheduler service.
 ///
@@ -219,41 +218,32 @@ struct SchedulerServiceStateInner<DispatchQueueSourceType: DispatchQueueSource> 
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        num::NonZeroU64,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::Duration,
-    };
+    use std::num::NonZeroU64;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use async_trait::async_trait;
-    use spider_core::types::{
-        id::{
-            ExecutionManagerId,
-            JobId,
-            ResourceGroupId,
-            SchedulerId,
-            SessionId,
-            TaskAssignmentId,
-            TaskId,
-        },
-        scheduler::TaskAssignmentRecord,
-    };
-    use tokio::{
-        sync::mpsc::{self, UnboundedReceiver},
-        time::timeout,
-    };
+    use spider_core::types::id::ExecutionManagerId;
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::SchedulerId;
+    use spider_core::types::id::SessionId;
+    use spider_core::types::id::TaskAssignmentId;
+    use spider_core::types::id::TaskId;
+    use spider_core::types::scheduler::TaskAssignmentRecord;
+    use tokio::sync::mpsc::UnboundedReceiver;
+    use tokio::sync::mpsc::{self};
+    use tokio::time::timeout;
     use tokio_util::sync::CancellationToken;
 
     use super::SchedulerServiceState;
-    use crate::{
-        dispatch_queue::DispatchQueueSource,
-        error::SchedulerError,
-        execution_manager_registry::{ExecutionManagerRegistry, ExecutionManagerRegistryConfig},
-        types::TaskAssignment,
-    };
+    use crate::dispatch_queue::DispatchQueueSource;
+    use crate::error::SchedulerError;
+    use crate::execution_manager_registry::ExecutionManagerRegistry;
+    use crate::execution_manager_registry::ExecutionManagerRegistryConfig;
+    use crate::types::TaskAssignment;
 
     /// The storage session the mock dispatch source pairs with every assignment it returns.
     const SESSION_ID: SessionId = 7;

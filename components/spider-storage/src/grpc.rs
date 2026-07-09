@@ -1,32 +1,32 @@
 //! gRPC service adapters for the storage service.
 
 use async_trait::async_trait;
-use spider_core::types::{id::TaskId, io::SerializedTaskOutputs};
-use spider_proto_rust::{
-    common,
-    storage::{
-        self,
-        SchedulerRegistration,
-        execution_manager_liveness_service_server::ExecutionManagerLivenessService,
-        inbound_queue_service_server::InboundQueueService,
-        job_orchestration_service_server::JobOrchestrationService,
-        resource_group_management_service_server::ResourceGroupManagementService,
-        scheduler_registration_service_server::SchedulerRegistrationService,
-        session_management_service_server::SessionManagementService,
-        task_instance_management_service_server::TaskInstanceManagementService,
-    },
-    unpack::RequestUnpack,
-};
+use spider_core::types::id::TaskId;
+use spider_core::types::io::SerializedTaskOutputs;
+use spider_proto_rust::common;
+use spider_proto_rust::storage::ExecutionManagerLivenessService;
+use spider_proto_rust::storage::InboundQueueService;
+use spider_proto_rust::storage::JobOrchestrationService;
+use spider_proto_rust::storage::ResourceGroupManagementService;
+use spider_proto_rust::storage::SchedulerRegistration;
+use spider_proto_rust::storage::SchedulerRegistrationService;
+use spider_proto_rust::storage::SessionManagementService;
+use spider_proto_rust::storage::TaskInstanceManagementService;
+use spider_proto_rust::storage::{self};
+use spider_proto_rust::unpack::RequestUnpack;
 use tokio_util::sync::CancellationToken;
-use tonic::{Request, Response, Status};
+use tonic::Request;
+use tonic::Response;
+use tonic::Status;
 
-use crate::{
-    cache::error::CacheError,
-    db::{DbError, DbStorage},
-    ready_queue::{ReadyQueueEntry, ReadyQueueSender},
-    state::{ServiceState, StorageServerError},
-    task_instance_pool::TaskInstancePoolConnector,
-};
+use crate::cache::error::CacheError;
+use crate::db::DbError;
+use crate::db::DbStorage;
+use crate::ready_queue::ReadyQueueEntry;
+use crate::ready_queue::ReadyQueueSender;
+use crate::state::ServiceState;
+use crate::state::StorageServerError;
+use crate::task_instance_pool::TaskInstancePoolConnector;
 
 /// gRPC adapter over a storage [`ServiceState`].
 ///

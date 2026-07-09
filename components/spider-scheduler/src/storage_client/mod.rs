@@ -3,12 +3,13 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use spider_core::{
-    job::JobState,
-    types::id::{JobId, SchedulerId, SessionId},
-};
+use spider_core::job::JobState;
+use spider_core::types::id::JobId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
 
-use crate::{error::StorageClientError, types::InboundEntry};
+use crate::error::StorageClientError;
+use crate::types::InboundEntry;
 
 pub mod grpc;
 

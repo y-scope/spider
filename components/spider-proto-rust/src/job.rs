@@ -2,7 +2,8 @@
 
 use spider_core::job::JobState;
 
-use crate::{error::Error, storage};
+use crate::error::Error;
+use crate::storage;
 
 impl From<JobState> for storage::JobState {
     fn from(state: JobState) -> Self {
@@ -39,7 +40,8 @@ impl TryFrom<storage::JobState> for JobState {
 mod tests {
     use spider_core::job::JobState;
 
-    use crate::{error::Error, storage::JobState as ProtocolJobState};
+    use crate::error::Error;
+    use crate::storage::JobState as ProtocolJobState;
 
     #[test]
     fn job_state_to_protocol_converts_succeeded() {

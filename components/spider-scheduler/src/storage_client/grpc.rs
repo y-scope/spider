@@ -1,30 +1,28 @@
 //! gRPC-backed [`SchedulerStorageClient`] implementation.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::num::NonZeroUsize;
+use std::time::Duration;
 
 use async_trait::async_trait;
-use spider_core::{
-    job::JobState,
-    types::id::{JobId, ResourceGroupId, SchedulerId, SessionId, TaskId},
-};
-use spider_proto_rust::storage::{
-    self,
-    inbound_queue_service_client::InboundQueueServiceClient,
-    job_orchestration_service_client::JobOrchestrationServiceClient,
-    scheduler_registration_service_client::SchedulerRegistrationServiceClient,
-};
+use spider_core::job::JobState;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
+use spider_core::types::id::TaskId;
+use spider_proto_rust::storage::InboundQueueServiceClient;
+use spider_proto_rust::storage::JobOrchestrationServiceClient;
+use spider_proto_rust::storage::SchedulerRegistrationServiceClient;
+use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::{
-    Code,
-    Status,
-    transport::{Channel, Endpoint},
-};
+use tonic::Code;
+use tonic::Status;
+use tonic::transport::Channel;
+use tonic::transport::Endpoint;
 
-use crate::{
-    error::StorageClientError,
-    storage_client::SchedulerStorageClient,
-    types::InboundEntry,
-};
+use crate::error::StorageClientError;
+use crate::storage_client::SchedulerStorageClient;
+use crate::types::InboundEntry;
 
 /// gRPC-backed [`SchedulerStorageClient`] implementation.
 #[derive(Debug, Clone)]
@@ -301,8 +299,11 @@ fn to_invalid_input_error(error: impl std::fmt::Display) -> StorageClientError {
 
 #[cfg(test)]
 mod tests {
-    use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
-    use spider_proto_rust::{common, storage};
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::TaskId;
+    use spider_proto_rust::common;
+    use spider_proto_rust::storage;
 
     use super::*;
 

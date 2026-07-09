@@ -4,7 +4,12 @@
 //! so buffers allocated on one side can be reclaimed on the other via [`Box::into_raw`] /
 //! [`Box::from_raw`].
 
-use std::{ffi::c_char, fmt, marker::PhantomData, mem::ManuallyDrop, ops::Deref, str::Utf8Error};
+use std::ffi::c_char;
+use std::fmt;
+use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
+use std::str::Utf8Error;
 
 /// Borrowed, C-ABI-compatible view of a contiguous slice `&'borrow_lifetime [ElementType]`.
 ///

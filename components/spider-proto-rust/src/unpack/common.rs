@@ -7,7 +7,8 @@
 use spider_core::types::id::TaskId;
 use tonic::Code;
 
-use crate::{common, unpack::UnpackError};
+use crate::common;
+use crate::unpack::UnpackError;
 
 /// Converts a protobuf [`common::TaskId`] into a core [`TaskId`].
 ///

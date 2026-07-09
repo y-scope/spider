@@ -1,6 +1,7 @@
 //! The error types used in this crate.
 
-use spider_core::types::id::{JobId, SessionId};
+use spider_core::types::id::JobId;
+use spider_core::types::id::SessionId;
 
 use crate::execution_manager_registry::ExecutionManagerRegistryError;
 

@@ -6,18 +6,23 @@
 //! client so that shared scenarios run concurrently up to a configured limit while exclusive
 //! scenarios run in isolation.
 
-use std::{collections::HashMap, num::NonZeroUsize, time::Duration};
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::time::Duration;
 
 use anyhow::Context;
 use spider_client::SpiderClient;
-use spider_core::{
-    job::JobState,
-    types::id::{JobId, ResourceGroupId},
-};
-use tokio::sync::{Mutex, OnceCell, RwLock, Semaphore};
+use spider_core::job::JobState;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
+use tokio::sync::RwLock;
+use tokio::sync::Semaphore;
 use tonic::transport::Endpoint;
 
-use crate::types::{JobSubmission, TerminationResult};
+use crate::types::JobSubmission;
+use crate::types::TerminationResult;
 
 /// A process-wide harness for running end-to-end Spider job scenarios.
 pub struct SpiderTestDriver {

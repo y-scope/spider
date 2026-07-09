@@ -1,9 +1,8 @@
-use std::{
-    net::IpAddr,
-    num::{NonZeroU64, NonZeroUsize},
-    path::PathBuf,
-    time::Duration,
-};
+use std::net::IpAddr;
+use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use serde::Deserialize;
 use spider_utils::config::EndpointConfig;

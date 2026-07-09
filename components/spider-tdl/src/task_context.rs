@@ -4,7 +4,10 @@
 //! through the task executor, and deserialized inside the TDL package before being handed to the
 //! user's task function as the first parameter.
 
-use spider_core::types::id::{JobId, ResourceGroupId, TaskId, TaskInstanceId};
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
+use spider_core::types::id::TaskInstanceId;
 
 /// Runtime metadata about the current task execution.
 ///
@@ -23,7 +26,9 @@ pub struct TaskContext {
 
 #[cfg(test)]
 mod tests {
-    use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::TaskId;
 
     use super::TaskContext;
 

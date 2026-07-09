@@ -1,36 +1,39 @@
 //! Unit tests for the round-robin scheduler core.
 
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    num::{NonZeroU64, NonZeroUsize},
-    sync::{
-        Arc,
-        Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use anyhow::bail;
 use async_trait::async_trait;
-use spider_core::{
-    job::JobState,
-    types::id::{JobId, ResourceGroupId, SchedulerId, SessionId, TaskId},
-};
+use spider_core::job::JobState;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SchedulerId;
+use spider_core::types::id::SessionId;
+use spider_core::types::id::TaskId;
 use tokio_util::sync::CancellationToken;
 
-use super::{RoundRobinConfig, implementation::RoundRobin};
-use crate::{
-    DispatchQueueSource,
-    InboundEntry,
-    SchedulerCore,
-    SchedulerError,
-    SchedulerStorageClient,
-    StorageClientError,
-    TaskAssignment,
-    core::TaskAssignmentIdIssuer,
-    dispatch_queue::{DispatchQueueReader, DispatchQueueWriter, create_dispatch_queue},
-};
+use super::RoundRobinConfig;
+use super::implementation::RoundRobin;
+use crate::DispatchQueueSource;
+use crate::InboundEntry;
+use crate::SchedulerCore;
+use crate::SchedulerError;
+use crate::SchedulerStorageClient;
+use crate::StorageClientError;
+use crate::TaskAssignment;
+use crate::core::TaskAssignmentIdIssuer;
+use crate::dispatch_queue::DispatchQueueReader;
+use crate::dispatch_queue::DispatchQueueWriter;
+use crate::dispatch_queue::create_dispatch_queue;
 
 /// The session used by tests that never bump the session.
 const DEFAULT_SESSION_ID: SessionId = 0;

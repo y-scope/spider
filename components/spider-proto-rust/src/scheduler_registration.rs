@@ -18,7 +18,8 @@ impl From<RegisteredScheduler> for storage::Scheduler {
 mod tests {
     use std::net::IpAddr;
 
-    use spider_core::types::{id::SchedulerId, scheduler::RegisteredScheduler};
+    use spider_core::types::id::SchedulerId;
+    use spider_core::types::scheduler::RegisteredScheduler;
 
     use crate::storage;
 

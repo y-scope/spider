@@ -1,6 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Data, DataEnum, DeriveInput};
+use syn::Data;
+use syn::DataEnum;
+use syn::DeriveInput;
 
 pub fn derive_mysql_enum(input: &DeriveInput) -> syn::Result<TokenStream> {
     let enum_type_name = &input.ident;

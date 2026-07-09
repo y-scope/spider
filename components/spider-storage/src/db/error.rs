@@ -1,9 +1,9 @@
 use std::fmt::Display;
 
-use spider_core::{
-    job::JobState,
-    types::id::{ExecutionManagerId, JobId, ResourceGroupId},
-};
+use spider_core::job::JobState;
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {

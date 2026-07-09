@@ -32,7 +32,8 @@ pub fn decode_zstd_bytes(compressed: &[u8]) -> Result<Vec<u8>, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_zstd_bytes, encode_zstd_bytes};
+    use super::decode_zstd_bytes;
+    use super::encode_zstd_bytes;
 
     #[test]
     fn zstd_bytes_round_trip() {

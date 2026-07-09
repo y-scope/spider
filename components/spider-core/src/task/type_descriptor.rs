@@ -1,5 +1,6 @@
 use non_empty_string::NonEmptyString;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::task::Error;
 

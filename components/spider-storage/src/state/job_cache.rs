@@ -1,21 +1,17 @@
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    sync::Arc,
-};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 use spider_core::types::id::JobId;
 use tokio::sync::RwLock;
 
-use crate::{
-    cache::{
-        error::{CacheError, InternalError},
-        job::SharedJobControlBlock,
-    },
-    db::InternalJobOrchestration,
-    ready_queue::ReadyQueueSender,
-    state::StorageServerError,
-    task_instance_pool::TaskInstancePoolConnector,
-};
+use crate::cache::error::CacheError;
+use crate::cache::error::InternalError;
+use crate::cache::job::SharedJobControlBlock;
+use crate::db::InternalJobOrchestration;
+use crate::ready_queue::ReadyQueueSender;
+use crate::state::StorageServerError;
+use crate::task_instance_pool::TaskInstancePoolConnector;
 
 /// An in-memory cache for job control blocks.
 ///
@@ -157,25 +153,23 @@ type SharedJobMap<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnect
 mod tests {
     use std::sync::Arc;
 
-    use spider_core::{
-        task::{
-            DataTypeDescriptor,
-            ExecutionPolicy,
-            TaskDescriptor,
-            TaskGraph as SubmittedTaskGraph,
-            TdlContext,
-            ValueTypeDescriptor,
-        },
-        types::{id::JobId, io::TaskInput},
-    };
+    use spider_core::task::DataTypeDescriptor;
+    use spider_core::task::ExecutionPolicy;
+    use spider_core::task::TaskDescriptor;
+    use spider_core::task::TaskGraph as SubmittedTaskGraph;
+    use spider_core::task::TdlContext;
+    use spider_core::task::ValueTypeDescriptor;
+    use spider_core::types::id::JobId;
+    use spider_core::types::io::TaskInput;
 
     use super::*;
-    use crate::{
-        cache::{error::InternalError, job::SharedJobControlBlock},
-        job_submission::create_validated_submission,
-        ready_queue::ReadyQueueSender,
-        state::test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
-    };
+    use crate::cache::error::InternalError;
+    use crate::cache::job::SharedJobControlBlock;
+    use crate::job_submission::create_validated_submission;
+    use crate::ready_queue::ReadyQueueSender;
+    use crate::state::test_utils::MockDbConnector;
+    use crate::state::test_utils::MockReadyQueueSender;
+    use crate::state::test_utils::MockTaskInstancePoolConnector;
 
     async fn create_test_jcb(
         job_id: JobId,

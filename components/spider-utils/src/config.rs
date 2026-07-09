@@ -1,11 +1,11 @@
-use std::{
-    fs::File,
-    io,
-    net::{IpAddr, SocketAddr},
-    path::Path,
-};
+use std::fs::File;
+use std::io;
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::path::Path;
 
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tonic::transport::Endpoint;
 

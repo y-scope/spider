@@ -3,16 +3,19 @@
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
-use spider_core::types::{id::ExecutionManagerId, scheduler::TaskAssignmentRecord};
-use spider_proto_rust::scheduler::{self, scheduler_service_client::SchedulerServiceClient};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::scheduler::TaskAssignmentRecord;
+use spider_proto_rust::scheduler::SchedulerServiceClient;
+use spider_proto_rust::scheduler::{self};
 use spider_utils::grpc::client::ConnectionPool;
-use tonic::{
-    Code,
-    Status,
-    transport::{Channel, Endpoint},
-};
+use tonic::Code;
+use tonic::Status;
+use tonic::transport::Channel;
+use tonic::transport::Endpoint;
 
-use crate::client::{SchedulerClient, SchedulerError, SchedulerResponse};
+use crate::client::SchedulerClient;
+use crate::client::SchedulerError;
+use crate::client::SchedulerResponse;
 
 /// gRPC-backed [`SchedulerClient`] implementation.
 #[derive(Debug, Clone)]

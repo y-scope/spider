@@ -1,9 +1,8 @@
 //! Public types shared across the end-to-end test driver.
 
-use spider_core::{
-    task::TaskGraph,
-    types::io::{TaskInput, TaskOutput},
-};
+use spider_core::task::TaskGraph;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskOutput;
 
 /// The terminal outcome of a job returned from the test driver.
 pub enum TerminationResult {

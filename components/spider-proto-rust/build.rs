@@ -1,4 +1,6 @@
-use std::{env, fs, path::PathBuf};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 /// The environment variable that, if set, forces the build script to regenerate the protobuf code.
 const SPIDER_PROTO_RUST_GENERATE_FROM_SOURCE: &str = "SPIDER_PROTO_RUST_GENERATE_FROM_SOURCE";
