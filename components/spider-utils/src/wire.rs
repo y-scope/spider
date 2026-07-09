@@ -16,10 +16,11 @@
 
 use std::fmt;
 
-use serde::{
-    de::{self, DeserializeSeed, SeqAccess, Visitor},
-    ser,
-};
+use serde::de::DeserializeSeed;
+use serde::de::SeqAccess;
+use serde::de::Visitor;
+use serde::de::{self};
+use serde::ser;
 
 /// Errors produced while framing or unframing a wire buffer.
 #[derive(Debug, thiserror::Error)]

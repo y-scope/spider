@@ -1,8 +1,7 @@
-use spider_core::{
-    compression::decode_zstd_bytes,
-    task::{self, TaskGraph},
-    types::io::TaskInput,
-};
+use spider_core::compression::decode_zstd_bytes;
+use spider_core::task::TaskGraph;
+use spider_core::task::{self};
+use spider_core::types::io::TaskInput;
 use spider_utils::wire;
 
 /// Errors produced while constructing a [`ValidatedJobSubmission`] from its compressed
@@ -207,14 +206,12 @@ pub fn create_validated_submission(
 
 #[cfg(test)]
 mod tests {
-    use spider_core::task::{
-        DataTypeDescriptor,
-        ExecutionPolicy,
-        TaskDescriptor,
-        TaskGraph as SubmittedTaskGraph,
-        TdlContext,
-        ValueTypeDescriptor,
-    };
+    use spider_core::task::DataTypeDescriptor;
+    use spider_core::task::ExecutionPolicy;
+    use spider_core::task::TaskDescriptor;
+    use spider_core::task::TaskGraph as SubmittedTaskGraph;
+    use spider_core::task::TdlContext;
+    use spider_core::task::ValueTypeDescriptor;
 
     use super::*;
 

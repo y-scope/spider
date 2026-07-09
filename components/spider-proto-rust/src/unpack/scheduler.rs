@@ -2,17 +2,15 @@
 
 use std::time::Duration;
 
-use spider_core::types::{id::ExecutionManagerId, scheduler::TaskAssignmentRecord};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::scheduler::TaskAssignmentRecord;
 
-use crate::{
-    scheduler::{
-        HeartbeatRequest,
-        NextTaskRequest,
-        ShutdownRequest,
-        TaskAssignmentRecord as ProtoTaskAssignmentRecord,
-    },
-    unpack::{RequestUnpack, UnpackError},
-};
+use crate::scheduler::HeartbeatRequest;
+use crate::scheduler::NextTaskRequest;
+use crate::scheduler::ShutdownRequest;
+use crate::scheduler::TaskAssignmentRecord as ProtoTaskAssignmentRecord;
+use crate::unpack::RequestUnpack;
+use crate::unpack::UnpackError;
 
 /// Unpacks [`NextTaskRequest`] into a tuple containing:
 ///

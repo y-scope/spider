@@ -1,18 +1,19 @@
 //! Execution manager registry service.
 
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    num::NonZeroU64,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::num::NonZeroU64;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use serde::Deserialize;
-use spider_core::types::id::{ExecutionManagerId, TaskAssignmentId};
-use tokio::{
-    select,
-    sync::{Mutex, RwLock, mpsc::UnboundedSender},
-};
+use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::TaskAssignmentId;
+use tokio::select;
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
 use crate::TaskAssignment;
@@ -351,11 +352,12 @@ impl ExecutionManagerStateInner {
 mod tests {
     use std::collections::HashSet;
 
-    use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
-    use tokio::{
-        sync::mpsc::{self, UnboundedReceiver},
-        time::timeout,
-    };
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::TaskId;
+    use tokio::sync::mpsc::UnboundedReceiver;
+    use tokio::sync::mpsc::{self};
+    use tokio::time::timeout;
     use tokio_util::task::TaskTracker;
 
     use super::*;

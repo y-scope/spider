@@ -1,25 +1,22 @@
 //! Background actor for removing terminated jobs from the in-memory job cache.
 
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::collections::VecDeque;
+use std::time::Duration;
+use std::time::Instant;
 
 use serde::Deserialize;
 use spider_core::types::id::JobId;
-use tokio::{
-    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-    task::JoinHandle,
-};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    cache::error::InternalError,
-    db::InternalJobOrchestration,
-    ready_queue::ReadyQueueSender,
-    state::JobCache,
-    task_instance_pool::TaskInstancePoolConnector,
-};
+use crate::cache::error::InternalError;
+use crate::db::InternalJobOrchestration;
+use crate::ready_queue::ReadyQueueSender;
+use crate::state::JobCache;
+use crate::task_instance_pool::TaskInstancePoolConnector;
 
 /// Configuration for the job-cache GC actor.
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -245,15 +242,17 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    use std::time::Instant;
 
     use spider_core::types::id::JobId;
 
-    use super::{JobCacheGc, JobCacheGcConfig};
-    use crate::state::{
-        JobCache,
-        test_utils::{MockDbConnector, MockReadyQueueSender, MockTaskInstancePoolConnector},
-    };
+    use super::JobCacheGc;
+    use super::JobCacheGcConfig;
+    use crate::state::JobCache;
+    use crate::state::test_utils::MockDbConnector;
+    use crate::state::test_utils::MockReadyQueueSender;
+    use crate::state::test_utils::MockTaskInstancePoolConnector;
 
     type TestJobCache =
         JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;

@@ -1,6 +1,8 @@
 //! The data types the scheduler exchanges with the storage layer and execution managers.
 
-use spider_core::types::id::{JobId, ResourceGroupId, TaskId};
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
 pub use spider_core::types::scheduler::TaskAssignment;
 
 /// A ready task drained from the storage-owned inbound queue.

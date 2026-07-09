@@ -2,20 +2,17 @@
 
 use std::num::NonZeroUsize;
 
-use spider_core::{
-    job::JobState,
-    task::TaskGraph,
-    types::{
-        id::{JobId, ResourceGroupId},
-        io::{TaskInput, TaskOutput},
-    },
-};
+use spider_core::job::JobState;
+use spider_core::task::TaskGraph;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskOutput;
 use tonic::transport::Endpoint;
 
-use crate::{
-    error::ClientError,
-    grpc::{job::JobOrchestrationClient, resource_group::ResourceGroupManagementClient},
-};
+use crate::error::ClientError;
+use crate::grpc::job::JobOrchestrationClient;
+use crate::grpc::resource_group::ResourceGroupManagementClient;
 
 /// User-facing client for the Spider storage gRPC services.
 #[derive(Debug, Clone)]

@@ -17,9 +17,12 @@
 pub const INSTRUMENT_SLEEP_US: u64 = 50;
 
 mod task_decl {
-    use std::{thread::sleep, time::Duration};
+    use std::thread::sleep;
+    use std::time::Duration;
 
-    use spider_tdl::{TaskContext, TdlError, task};
+    use spider_tdl::TaskContext;
+    use spider_tdl::TdlError;
+    use spider_tdl::task;
 
     use crate::INSTRUMENT_SLEEP_US;
 

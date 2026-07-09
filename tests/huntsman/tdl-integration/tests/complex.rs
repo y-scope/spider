@@ -1,12 +1,18 @@
 //! End-to-end tests for the TDL package executor against the `huntsman-complex` example crate.
 
-use huntsman_complex_types::{Complex, ComplexVec};
-use spider_core::types::{
-    id::{JobId, ResourceGroupId, TaskId},
-    io::{TaskInput, TaskInputsSerializer, TaskOutputsSerializer},
-};
-use spider_task_executor::{ExecutorError, TdlPackageManager};
-use spider_tdl::{TaskContext, TdlError, Version};
+use huntsman_complex_types::Complex;
+use huntsman_complex_types::ComplexVec;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::TaskId;
+use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskOutputsSerializer;
+use spider_task_executor::ExecutorError;
+use spider_task_executor::TdlPackageManager;
+use spider_tdl::TaskContext;
+use spider_tdl::TdlError;
+use spider_tdl::Version;
 
 const PACKAGE_NAME: &str = "complex";
 

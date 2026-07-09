@@ -1,11 +1,11 @@
 //! A round-robin pool of gRPC service-client connections.
 
-use std::{
-    num::NonZeroUsize,
-    sync::{Arc, atomic::AtomicUsize},
-};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::Channel;
+use tonic::transport::Endpoint;
 
 use super::Error;
 

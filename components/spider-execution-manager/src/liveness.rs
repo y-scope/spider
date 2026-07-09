@@ -9,15 +9,16 @@
 
 use std::time::Duration;
 
-use spider_core::{session::SessionTracker, types::id::ExecutionManagerId};
-use tokio::{
-    sync::mpsc,
-    task::JoinHandle,
-    time::{Interval, MissedTickBehavior},
-};
+use spider_core::session::SessionTracker;
+use spider_core::types::id::ExecutionManagerId;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tokio::time::Interval;
+use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 
-use crate::client::{LivenessClient, LivenessResponseError};
+use crate::client::LivenessClient;
+use crate::client::LivenessResponseError;
 
 /// Commands the runtime sends to the actor.
 #[derive(Debug)]
@@ -172,23 +173,25 @@ impl<LivenessClientType: LivenessClient + Clone> LivenessActor<LivenessClientTyp
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::VecDeque,
-        net::IpAddr,
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
+    use std::collections::VecDeque;
+    use std::net::IpAddr;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::Duration;
 
     use async_trait::async_trait;
-    use spider_core::{
-        session::SessionTracker,
-        types::id::{ExecutionManagerId, SessionId},
-    };
-    use tokio::{sync::Notify, task::JoinHandle};
+    use spider_core::session::SessionTracker;
+    use spider_core::types::id::ExecutionManagerId;
+    use spider_core::types::id::SessionId;
+    use tokio::sync::Notify;
+    use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
-    use super::{LivenessHandle, spawn};
-    use crate::client::{LivenessClient, LivenessResponseError, RegistrationResponse};
+    use super::LivenessHandle;
+    use super::spawn;
+    use crate::client::LivenessClient;
+    use crate::client::LivenessResponseError;
+    use crate::client::RegistrationResponse;
 
     struct MockState {
         responses: VecDeque<Result<SessionId, LivenessResponseError>>,

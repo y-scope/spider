@@ -13,21 +13,25 @@
 //! the executor itself has no concurrency requirements, and exactly one task runs for the
 //! lifetime of the process.
 
-use std::{
-    path::{Path, PathBuf},
-    time::Instant,
-};
+use std::path::Path;
+use std::path::PathBuf;
+use std::time::Instant;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use anyhow::anyhow;
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
-use spider_task_executor::{
-    ExecutorError,
-    TdlPackageManager,
-    protocol::{ExecutorOutcome, Request, Response},
-};
-use tokio::io::{stdin, stdout};
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use futures_util::SinkExt;
+use futures_util::StreamExt;
+use spider_task_executor::ExecutorError;
+use spider_task_executor::TdlPackageManager;
+use spider_task_executor::protocol::ExecutorOutcome;
+use spider_task_executor::protocol::Request;
+use spider_task_executor::protocol::Response;
+use tokio::io::stdin;
+use tokio::io::stdout;
+use tokio_util::codec::FramedRead;
+use tokio_util::codec::FramedWrite;
+use tokio_util::codec::LengthDelimitedCodec;
 
 /// Env var that points to the directory where compiled TDL packages live.
 const SPIDER_TDL_PACKAGE_DIR: &str = "SPIDER_TDL_PACKAGE_DIR";
