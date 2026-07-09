@@ -1,1 +1,47 @@
+nameOverride: ""
+fullnameOverride: ""
 
+image:
+  storage:
+    repository: "ghcr.io/y-scope/spider/storage"
+    pullPolicy: "Always"
+    tag: "main"
+  mariadb:
+    repository: "mariadb"
+    pullPolicy: "Always"
+    tag: "10.11.16"
+
+spiderConfig:
+  # List of third-party services bundled (deployed) as part of the chart.
+  # Remove a service from this list to use an external instance instead, and configure its host/port
+  # accordingly in the service-specific sections below.
+  bundled:
+    - "database"
+
+  database:
+    # Host and port for the database service. When "database" is in `bundled`, the host is
+    # automatically set to the bundled service name (ignored). When external, set these to the
+    # external service's address.
+    host: "127.0.0.1"
+    port: 3306
+    username: "spider-user"
+    password: "spider-password"
+    root_password: "spider-root-password"
+    name: "spider-db"
+
+  storage_endpoint:
+    port: 50051
+
+  storage:
+    max_connections: 64
+    # task_instance_pool_config:
+    #   execution_manager_stale_cutoff_sec: 30
+    #   gc_interval_sec: 5
+    #   message_channel_capacity: 1024
+    # job_cache_gc_config:
+    #   terminated_job_retention_sec: 300
+    #   gc_interval_sec: 10
+    ready_queue_config:
+      task_capacity: 1048576
+      commit_capacity: 256
+      cleanup_capacity: 256
