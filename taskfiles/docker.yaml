@@ -12,12 +12,12 @@ tasks:
 
   build-storage:
     deps: [":init"]
-    cmd: "{{.G_BUILD_SCRIPT}} storage"
+    cmd: "'{{.G_BUILD_SCRIPT}}' storage"
 
   build-scheduler:
     deps: [":init"]
-    cmd: "{{.G_BUILD_SCRIPT}} scheduler"
+    cmd: "'{{.G_BUILD_SCRIPT}}' scheduler"
 
   build-worker:
     deps: [":init"]
-    cmd: "{{.G_BUILD_SCRIPT}} worker"
+    cmd: "'{{.G_BUILD_SCRIPT}}' worker"
