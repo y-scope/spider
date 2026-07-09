@@ -15,6 +15,7 @@ tasks:
 
       - task: "cmake-check"
       - task: "cpp-check"
+      - task: "helm-check"
       - task: "py-check"
       - task: "toml-check"
       - task: "yml-check"
@@ -25,6 +26,7 @@ tasks:
 
       - task: "cmake-fix"
       - task: "cpp-fix"
+      - task: "helm-fix"
       - task: "py-fix"
       - task: "toml-fix"
       - task: "yml-fix"
@@ -170,6 +172,22 @@ tasks:
           docs/ \
           taskfile.yaml \
           taskfiles/
+
+  helm:
+    aliases:
+      - "helm-check"
+      - "helm-fix"
+    deps:
+      - "toolchains:helm"
+      - "venv"
+    cmds:
+      - |-
+        . "{{.G_LINT_VENV_DIR}}/bin/activate"
+        . "{{.G_HELM_TOOLCHAIN_ENV_FILE}}"
+        ct lint \
+          --chart-dirs="tools/deployment" \
+          --chart-yaml-schema="{{.G_HELM_TOOLCHAIN_DIR}}/etc/chart_schema.yaml" \
+          --lint-conf="tools/yscope-dev-utils/exports/lint-configs/.yamllint.yml"
 
   toml-check:
     cmds:
