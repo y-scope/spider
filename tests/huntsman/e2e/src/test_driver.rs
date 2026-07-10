@@ -317,7 +317,8 @@ async fn poll_until_terminal(
 ///
 /// # Panics
 ///
-/// Panics if the default value is zero.
+/// Panics if the default value is zero. This shouldn't be reachable at runtime: the default number
+/// is a non-zero compile-time constant.
 fn read_concurrency() -> anyhow::Result<NonZeroUsize> {
     const CONCURRENCY_ENV_VAR: &str = "SPIDER_CONCURRENCY";
     const DEFAULT_CONCURRENCY: usize = 8;
