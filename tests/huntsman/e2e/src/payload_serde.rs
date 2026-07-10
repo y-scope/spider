@@ -2,7 +2,7 @@
 //!
 //! Converts between a Rust value and the `MessagePack`-encoded
 //! [`TaskInput::ValuePayload`] / [`TaskOutput`] payload Spider exchanges over a single job
-//! input/output boundary, so end-to-end tests can feed typed inputs and read typed outputs.
+//! input/output boundary.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;

@@ -33,7 +33,9 @@ impl NeuralNetwork {
     ///
     /// # Errors
     ///
-    /// Forwards [`wiring::validate`]'s return values on failure.
+    /// Returns an error if:
+    ///
+    /// * Forwards [`wiring::validate`]'s return values on failure.
     pub fn new(layer_specs: Vec<(usize, Neuron)>, seed: u64) -> anyhow::Result<Self> {
         let sizes: Vec<usize> = layer_specs.iter().map(|(size, _)| *size).collect();
         wiring::validate(&sizes)?;
@@ -67,8 +69,10 @@ impl NeuralNetwork {
     ///
     /// # Errors
     ///
-    /// Forwards [`TaskGraph::new`]'s return values on failure.
-    /// Forwards [`TaskGraph::insert_task`]'s return values on failure.
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TaskGraph::new`]'s return values on failure.
+    /// * Forwards [`TaskGraph::insert_task`]'s return values on failure.
     pub fn to_task_graph(&self) -> anyhow::Result<TaskGraph> {
         let float64 = DataTypeDescriptor::Value(ValueTypeDescriptor::float64());
         let mut graph = TaskGraph::new(None, None)?;

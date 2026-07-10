@@ -34,10 +34,10 @@ async fn test_nn() -> anyhow::Result<()> {
         .map(|i| {
             (
                 LAYER_SIZE,
-                if i % 2 == 0 {
-                    Neuron::Relu
-                } else {
-                    Neuron::Sigmoid
+                match i % 3 {
+                    0 => Neuron::Relu,
+                    1 => Neuron::Sigmoid,
+                    _ => Neuron::Identity,
                 },
             )
         })

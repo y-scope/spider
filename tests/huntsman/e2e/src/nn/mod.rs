@@ -1,7 +1,7 @@
 //! Self-contained neural-network model for the end-to-end test.
 //!
 //! [`NeuralNetwork`] builds a layered `neuron::dense_*` task graph and reproduces it in-process via
-//! [`NeuralNetwork::simulate`], so a test can assert a live Spider run matches the simulation.
+//! [`NeuralNetwork::simulate`].
 
 mod network;
 mod neuron;

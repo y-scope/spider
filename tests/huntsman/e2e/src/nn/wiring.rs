@@ -18,7 +18,7 @@ use rand::seq::SliceRandom;
 ///
 /// Returns an error if:
 ///
-/// * [`anyhow::Error`] if an invariant is violated.
+/// * [`anyhow::Error`] if an invariant is voilated.
 pub fn validate(sizes: &[usize]) -> anyhow::Result<()> {
     anyhow::ensure!(!sizes.is_empty(), "at least one layer is required");
     for (i, &size) in sizes.iter().enumerate() {
@@ -31,8 +31,13 @@ pub fn validate(sizes: &[usize]) -> anyhow::Result<()> {
         let layer_index = i + 1;
         let prev_size = window[0];
         let next_size = window[1];
+        let coverage = next_size.checked_mul(NUM_INPUTS).ok_or_else(|| {
+            anyhow::anyhow!(
+                "layer {layer_index}'s {next_size} * fan-in {NUM_INPUTS} overflows usize",
+            )
+        })?;
         anyhow::ensure!(
-            next_size * NUM_INPUTS >= prev_size,
+            coverage >= prev_size,
             "layer {layer_index}'s {next_size} * fan-in {NUM_INPUTS} cannot cover previous size \
              {prev_size}",
         );
@@ -113,7 +118,10 @@ impl<'a> Dealer<'a> {
 /// `prev_size < NUM_INPUTS`.
 fn generate_layer_wiring(rng: &mut StdRng, prev_size: usize, next_size: usize) -> Vec<Vec<usize>> {
     assert!(
-        prev_size >= NUM_INPUTS && next_size * NUM_INPUTS >= prev_size,
+        prev_size >= NUM_INPUTS
+            && next_size
+                .checked_mul(NUM_INPUTS)
+                .is_some_and(|coverage| coverage >= prev_size),
         "layer invariants do not hold",
     );
     let mut slots: Vec<Vec<usize>> = vec![Vec::new(); next_size];
