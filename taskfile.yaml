@@ -3,6 +3,7 @@ version: "3"
 includes:
   build: "taskfiles/build.yaml"
   deps: "taskfiles/deps.yaml"
+  docker: "taskfiles/docker.yaml"
   docs: "taskfiles/docs.yaml"
   lint: "taskfiles/lint.yaml"
   test: "taskfiles/test.yaml"

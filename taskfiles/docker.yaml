@@ -1,0 +1,23 @@
+version: "3"
+
+vars:
+  G_BUILD_SCRIPT: "{{.ROOT_DIR}}/tools/docker/build.sh"
+
+tasks:
+  build:
+    cmds:
+      - task: "build-storage"
+      - task: "build-scheduler"
+      - task: "build-worker"
+
+  build-storage:
+    deps: [":init"]
+    cmd: "'{{.G_BUILD_SCRIPT}}' storage"
+
+  build-scheduler:
+    deps: [":init"]
+    cmd: "'{{.G_BUILD_SCRIPT}}' scheduler"
+
+  build-worker:
+    deps: [":init"]
+    cmd: "'{{.G_BUILD_SCRIPT}}' worker"
