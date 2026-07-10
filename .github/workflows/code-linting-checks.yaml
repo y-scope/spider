@@ -151,7 +151,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/ubuntu/install-dev-common.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-wolf.sh"
 
       - run: "task lint:py-check"
 
