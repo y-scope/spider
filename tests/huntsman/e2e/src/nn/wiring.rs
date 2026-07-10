@@ -61,39 +61,6 @@ pub fn build_wiring(sizes: &[usize], rng: &mut StdRng) -> Vec<Vec<Vec<usize>>> {
     wiring
 }
 
-/// Generates the fan-in for each neuron of one inner layer.
-///
-/// # Returns
-///
-/// One fan-in vector per neuron in the layer, each containing previous-layer output indices.
-///
-/// # Panics
-///
-/// Panics if the layer invariants do not hold, i.e. `next_size * NUM_INPUTS < prev_size` or
-/// `prev_size < NUM_INPUTS`.
-fn generate_layer_wiring(rng: &mut StdRng, prev_size: usize, next_size: usize) -> Vec<Vec<usize>> {
-    assert!(
-        prev_size >= NUM_INPUTS && next_size * NUM_INPUTS >= prev_size,
-        "layer invariants do not hold",
-    );
-    let mut slots: Vec<Vec<usize>> = vec![Vec::new(); next_size];
-    let mut dealer = Dealer::new(rng, prev_size);
-
-    for neuron_slots in &mut slots {
-        for _ in 0..NUM_INPUTS {
-            let output = loop {
-                let candidate = dealer.draw();
-                if !neuron_slots.contains(&candidate) {
-                    break candidate;
-                }
-            };
-            neuron_slots.push(output);
-        }
-    }
-
-    slots
-}
-
 /// Deals numbers from a shuffled deck, reshuffling a fresh permutation whenever the current deck
 /// runs out.
 struct Dealer<'a> {
@@ -132,6 +99,39 @@ impl<'a> Dealer<'a> {
         }
         self.deck.pop().expect("reshuffled deck must be non-empty")
     }
+}
+
+/// Generates the fan-in for each neuron of one inner layer.
+///
+/// # Returns
+///
+/// One fan-in vector per neuron in the layer, each containing previous-layer output indices.
+///
+/// # Panics
+///
+/// Panics if the layer invariants do not hold, i.e. `next_size * NUM_INPUTS < prev_size` or
+/// `prev_size < NUM_INPUTS`.
+fn generate_layer_wiring(rng: &mut StdRng, prev_size: usize, next_size: usize) -> Vec<Vec<usize>> {
+    assert!(
+        prev_size >= NUM_INPUTS && next_size * NUM_INPUTS >= prev_size,
+        "layer invariants do not hold",
+    );
+    let mut slots: Vec<Vec<usize>> = vec![Vec::new(); next_size];
+    let mut dealer = Dealer::new(rng, prev_size);
+
+    for neuron_slots in &mut slots {
+        for _ in 0..NUM_INPUTS {
+            let output = loop {
+                let candidate = dealer.draw();
+                if !neuron_slots.contains(&candidate) {
+                    break candidate;
+                }
+            };
+            neuron_slots.push(output);
+        }
+    }
+
+    slots
 }
 
 /// Produces a random permutation of the numbers in 0..`range_size`.

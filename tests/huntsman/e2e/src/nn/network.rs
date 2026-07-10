@@ -15,20 +15,6 @@ use spider_core::task::ValueTypeDescriptor;
 use crate::nn::Neuron;
 use crate::nn::wiring;
 
-/// Name of the TDL package supplying the `neuron::dense_*` tasks.
-const PACKAGE: &str = "nn";
-
-/// One layer of the network: its neuron count, activation, and per-neuron fan-in.
-struct Layer {
-    /// Number of neurons in this layer.
-    neuron_count: usize,
-    /// Activation applied by every neuron in this layer.
-    activation: Neuron,
-    /// Per-neuron fan-in, listing previous-layer output indices feeding each neuron.
-    /// Empty for layer 0, which reads graph inputs directly.
-    fan_in: Vec<Vec<usize>>,
-}
-
 /// A randomly-wired, layered neural network of `neuron::dense_*` neurons.
 pub struct NeuralNetwork {
     /// The layers in layer order.
@@ -172,4 +158,18 @@ impl NeuralNetwork {
 
         Ok(layer_outputs)
     }
+}
+
+/// Name of the TDL package supplying the `neuron::dense_*` tasks.
+const PACKAGE: &str = "nn";
+
+/// One layer of the network: its neuron count, activation, and per-neuron fan-in.
+struct Layer {
+    /// Number of neurons in this layer.
+    neuron_count: usize,
+    /// Activation applied by every neuron in this layer.
+    activation: Neuron,
+    /// Per-neuron fan-in, listing previous-layer output indices feeding each neuron.
+    /// Empty for layer 0, which reads graph inputs directly.
+    fan_in: Vec<Vec<usize>>,
 }
