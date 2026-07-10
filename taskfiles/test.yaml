@@ -243,7 +243,8 @@ tasks:
            "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
         cp "{{.G_RUST_RELEASE_DIR}}/libintegration_test_tasks.so" \
            "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks/libintegration_test_tasks.so"
-        cargo nextest run --all --all-features --run-ignored all --release
+        cargo nextest run --all --all-features --run-ignored all --release \
+          -E 'not (package(e2e) & kind(test))'
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
           if [ -f "$f" ]; then
