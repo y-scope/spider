@@ -122,8 +122,12 @@ pub fn create_job_cache_gc<
         Duration::from_secs(config.terminated_job_retention_sec),
         receiver,
     );
-    let join_handle =
-        tokio::spawn(async move { gc.run(cancellation_token, gc_interval_sec).await });
+    let join_handle = tokio::spawn(async move {
+        gc.run(cancellation_token.clone(), gc_interval_sec).await.inspect_err(|e| {
+            tracing::error!(error = % e, "Job cache GC actor exited with error. Cancelling the service.");
+            cancellation_token.cancel();
+        })
+    });
     Ok((JobCacheGcHandle::new(sender), join_handle))
 }
 
