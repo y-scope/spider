@@ -124,6 +124,22 @@ tasks:
             - "{{.G_EXAMPLES_WOLF_DIR}}"
           VENV_DIR: "{{.G_LINT_VENV_DIR}}"
 
+  helm:
+    aliases:
+      - "helm-check"
+      - "helm-fix"
+    deps:
+      - "toolchains:helm"
+      - "venv"
+    cmds:
+      - |-
+        . "{{.G_LINT_VENV_DIR}}/bin/activate"
+        . "{{.G_HELM_TOOLCHAIN_ENV_FILE}}"
+        ct lint \
+          --chart-dirs="tools/deployment" \
+          --chart-yaml-schema="{{.G_HELM_TOOLCHAIN_DIR}}/etc/chart_schema.yaml" \
+          --lint-conf="tools/yscope-dev-utils/exports/lint-configs/.yamllint.yml"
+
   py-check:
     cmds:
       - task: "spider-py-check"
@@ -172,22 +188,6 @@ tasks:
           docs/ \
           taskfile.yaml \
           taskfiles/
-
-  helm:
-    aliases:
-      - "helm-check"
-      - "helm-fix"
-    deps:
-      - "toolchains:helm"
-      - "venv"
-    cmds:
-      - |-
-        . "{{.G_LINT_VENV_DIR}}/bin/activate"
-        . "{{.G_HELM_TOOLCHAIN_ENV_FILE}}"
-        ct lint \
-          --chart-dirs="tools/deployment" \
-          --chart-yaml-schema="{{.G_HELM_TOOLCHAIN_DIR}}/etc/chart_schema.yaml" \
-          --lint-conf="tools/yscope-dev-utils/exports/lint-configs/.yamllint.yml"
 
   toml-check:
     cmds:
