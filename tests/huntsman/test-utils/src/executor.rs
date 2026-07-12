@@ -192,7 +192,7 @@ pub fn tdl_package_dir() -> PathBuf {
 ///
 /// # Panics
 ///
-/// Panics if msgpack encoding fails.
+/// Panics if constructing or msgpack-encoding the [`TaskContext`] fails.
 #[must_use]
 pub fn build_ctx() -> Vec<u8> {
     let ctx = TaskContext::new(
@@ -201,7 +201,8 @@ pub fn build_ctx() -> Vec<u8> {
         1,
         ResourceGroupId::random(),
         None,
-    );
+    )
+    .expect("build TaskContext");
     rmp_serde::to_vec(&ctx).expect("serialize TaskContext")
 }
 

@@ -38,7 +38,8 @@ fn encode_ctx() -> Vec<u8> {
         1,
         ResourceGroupId::random(),
         None,
-    );
+    )
+    .expect("failed to build `TaskContext`");
     rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
 }
 

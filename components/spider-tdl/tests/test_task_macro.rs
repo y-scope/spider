@@ -85,7 +85,8 @@ fn make_encoded_ctx() -> Vec<u8> {
         1,
         ResourceGroupId::random(),
         None,
-    );
+    )
+    .expect("failed to build `TaskContext`");
     rmp_serde::to_vec(&ctx).expect("failed to serialize `TaskContext`")
 }
 
@@ -308,7 +309,7 @@ fn direct_execute_call_round_trips() -> anyhow::Result<()> {
         1,
         ResourceGroupId::random(),
         None,
-    );
+    )?;
 
     let mut inputs = TaskInputsSerializer::new();
     append_value(&mut inputs, &OPERAND_A)?;
