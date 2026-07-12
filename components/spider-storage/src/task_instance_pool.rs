@@ -527,8 +527,12 @@ pub fn create_task_instance_pool<
         receiver,
     };
     let gc_interval_sec = config.gc_interval_sec;
-    let pool_join_handle =
-        tokio::spawn(async move { pool.run(cancellation_token, gc_interval_sec).await });
+    let pool_join_handle = tokio::spawn(async move {
+        pool.run(cancellation_token.clone(), gc_interval_sec).await.inspect_err(|e| {
+            tracing::error!(error = % e, "Task instance pool actor exited with error. Cancelling the service.");
+            cancellation_token.cancel();
+        })
+    });
     let handle = TaskInstancePoolHandle {
         next_task_instance_id,
         sender,
