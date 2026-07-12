@@ -49,6 +49,12 @@ pub struct ProcessPoolConfig {
     /// Per-spawn filenames mean each respawn naturally rotates onto a fresh file; a long-lived
     /// healthy executor accumulates into one file.
     pub log_dir: PathBuf,
+
+    /// Names of additional environment variables forwarded from the execution manager's process
+    /// into each spawned executor, beyond the always-forwarded `RUST_LOG`. For each key, the value
+    /// is read from this process's environment at spawn time and set on the child; a key that is
+    /// unset (or non-Unicode) is skipped with a warning.
+    pub env_keys: Vec<String>,
 }
 
 /// Request to execute a task inside the spawned task executor.
@@ -203,7 +209,8 @@ impl ProcessPool {
     /// log file, and wraps the child's stdin/stdout in length-delimited codec frames.
     ///
     /// The child's stderr is redirected to `<log_dir>/<em_id>-<executor_id>.log` in
-    /// create-or-append mode.
+    /// create-or-append mode. `RUST_LOG`, if set, is forwarded to the spawned task executor to make
+    /// the child process' log level match the current execution manager.
     ///
     /// # Returns
     ///
@@ -234,6 +241,28 @@ impl ProcessPool {
             .stdout(Stdio::piped())
             .stderr(Stdio::from(log_file))
             .kill_on_drop(true);
+
+        if let Ok(rust_log) = std::env::var("RUST_LOG") {
+            command.env("RUST_LOG", rust_log);
+        }
+
+        for key in &self.config.env_keys {
+            match std::env::var(key) {
+                Ok(value) => {
+                    command.env(key, value);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        executor_id,
+                        env_key = % key,
+                        err = % e,
+                        "Configured env key could not be read from the execution manager's \
+                         environment; skipping."
+                    );
+                }
+            }
+        }
+
         let mut child = command.spawn()?;
         let stdin = child
             .stdin

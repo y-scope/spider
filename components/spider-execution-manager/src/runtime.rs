@@ -56,6 +56,11 @@ pub struct RuntimeConfig {
 
     /// Directory the process pool writes per-executor stderr logs into.
     pub log_dir: PathBuf,
+
+    /// Names of additional environment variables forwarded from the execution manager's process
+    /// into each spawned `spider-task-executor`, beyond the always-forwarded `RUST_LOG` (values
+    /// read from this process's environment at spawn time).
+    pub env_keys: Vec<String>,
 }
 
 /// Errors returned by [`Runtime`] during bootstrap or the main loop.
@@ -150,6 +155,7 @@ impl<
             executor_binary_path: config.executor_binary_path,
             package_dir: config.package_dir,
             log_dir: config.log_dir,
+            env_keys: config.env_keys,
         })?;
 
         let cancellation_token = CancellationToken::new();
