@@ -80,7 +80,7 @@ pub trait SchedulerClient: Send + Sync {
     ///
     /// * `em_id` - The identity of the calling execution manager.
     /// * `prev_assignments` - The task assignments produced by the scheduler that are successfully
-    ///   consumed by the execution manager.`
+    ///   consumed by the execution manager.
     async fn shutdown(
         &self,
         em_id: ExecutionManagerId,
