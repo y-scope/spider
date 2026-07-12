@@ -195,12 +195,13 @@ pub fn tdl_package_dir() -> PathBuf {
 /// Panics if msgpack encoding fails.
 #[must_use]
 pub fn build_ctx() -> Vec<u8> {
-    let ctx = TaskContext {
-        job_id: JobId::random(),
-        task_id: TaskId::Index(0),
-        task_instance_id: 1,
-        resource_group_id: ResourceGroupId::random(),
-    };
+    let ctx = TaskContext::new(
+        JobId::random(),
+        TaskId::Index(0),
+        1,
+        ResourceGroupId::random(),
+        None,
+    );
     rmp_serde::to_vec(&ctx).expect("serialize TaskContext")
 }
 

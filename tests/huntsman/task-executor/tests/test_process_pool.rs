@@ -95,7 +95,7 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
                 soft_timeout_ms: 100,
                 hard_timeout_ms: 1000,
             },
-            serialized_inputs: serializer.release(),
+            serialized_task_io: serializer.release(),
         },
     }
 }

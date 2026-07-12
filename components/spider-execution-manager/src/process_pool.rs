@@ -349,8 +349,9 @@ impl ExecutorHandle {
 ///
 /// # Returns
 ///
-/// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContext`] and
-/// `raw_inputs` set to the serialized execution inputs on success.
+/// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContext`] on
+/// success. For a commit task the serialized payload is routed into the [`TaskContext`]'s
+/// task-graph outputs and `raw_inputs` is left empty; for any other task it is set as `raw_inputs`.
 ///
 /// # Errors
 ///
@@ -368,17 +369,23 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         task_instance_id,
         tdl_context,
         timeout_policy: _,
-        serialized_inputs,
+        serialized_task_io,
     } = ctx;
-    let raw_ctx = rmp_serde::to_vec(&TaskContext {
+    let (raw_inputs, serialized_task_graph_outputs) = if task_id == TaskId::Commit {
+        (Vec::new(), Some(serialized_task_io))
+    } else {
+        (serialized_task_io, None)
+    };
+    let raw_ctx = rmp_serde::to_vec(&TaskContext::new(
         job_id,
         task_id,
         task_instance_id,
         resource_group_id,
-    })?;
+        serialized_task_graph_outputs,
+    ))?;
     Ok(Request::Execute {
         tdl_context,
         raw_ctx,
-        raw_inputs: serialized_inputs,
+        raw_inputs,
     })
 }

@@ -222,6 +222,31 @@ impl TaskGraph {
         &self.outputs
     }
 
+    /// Reads the payloads of all outputs in the task graph.
+    ///
+    /// # Returns
+    ///
+    /// The payloads of all task-graph outputs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`InternalError::TaskInputNotReady`] if any output has no value.
+    pub async fn read_output_payloads(&self) -> Result<Vec<TaskOutput>, InternalError> {
+        let mut outputs = Vec::new();
+        for output_reader in &self.outputs {
+            let payload = output_reader
+                .read()
+                .await
+                .as_ref()
+                .ok_or(InternalError::TaskInputNotReady)?
+                .clone();
+            outputs.push(payload);
+        }
+        Ok(outputs)
+    }
+
     #[must_use]
     pub const fn has_commit_task(&self) -> bool {
         self.commit_task.is_some()
@@ -267,7 +292,7 @@ impl SharedTaskControlBlock {
                 task_instance_id: instance_id,
                 tdl_context: tcb.base.tdl_context.clone(),
                 timeout_policy: tcb.base.timeout_policy.clone(),
-                serialized_inputs: tcb.fetch_inputs().await?,
+                serialized_task_io: tcb.fetch_inputs().await?,
             })
         };
         result.map_err(CacheError::from)
@@ -1317,7 +1342,7 @@ mod tests {
             .iter()
             .map(|v| TaskInput::ValuePayload(v.clone()))
             .collect();
-        let actual_inputs = deserialize_task_inputs(&ctx.serialized_inputs);
+        let actual_inputs = deserialize_task_inputs(&ctx.serialized_task_io);
         assert_eq!(actual_inputs, expected, "task {task_index} inputs mismatch");
         let outputs = compute_outputs(&actual_inputs);
         tcb.succeed_task_instance(id, outputs)
@@ -1348,7 +1373,7 @@ mod tests {
                 .iter()
                 .map(|v| TaskInput::ValuePayload(v.clone()))
                 .collect();
-            let actual_inputs = deserialize_task_inputs(&ctx.serialized_inputs);
+            let actual_inputs = deserialize_task_inputs(&ctx.serialized_task_io);
             assert_eq!(actual_inputs, expected, "task inputs mismatch");
             barrier.wait().await;
             let outputs = compute_outputs(&actual_inputs);
