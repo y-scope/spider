@@ -57,9 +57,8 @@ pub struct RuntimeConfig {
     /// Directory the process pool writes per-executor stderr logs into.
     pub log_dir: PathBuf,
 
-    /// Names of additional environment variables forwarded from the execution manager's process
-    /// into each spawned `spider-task-executor`, beyond the always-forwarded `RUST_LOG` (values
-    /// read from this process's environment at spawn time).
+    /// Names of environment variables forwarded from the execution manager's process into each
+    /// spawned `spider-task-executor` (values read from this process's environment at spawn time).
     pub env_keys: Vec<String>,
 }
 

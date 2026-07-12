@@ -50,10 +50,9 @@ pub struct ProcessPoolConfig {
     /// healthy executor accumulates into one file.
     pub log_dir: PathBuf,
 
-    /// Names of additional environment variables forwarded from the execution manager's process
-    /// into each spawned executor, beyond the always-forwarded `RUST_LOG`. For each key, the value
-    /// is read from this process's environment at spawn time and set on the child; a key that is
-    /// unset (or non-Unicode) is skipped with a warning.
+    /// Names of environment variables forwarded from the execution manager's process into each
+    /// spawned executor. For each key, the value is read from this process's environment at spawn
+    /// time and set on the child; a key that is unset (or non-Unicode) is skipped with a warning.
     pub env_keys: Vec<String>,
 }
 
