@@ -18,6 +18,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::id::SessionId;
+use spider_core::types::id::TaskAssignmentId;
 use spider_core::types::id::TaskId;
 use tokio_util::sync::CancellationToken;
 
@@ -263,6 +264,29 @@ fn make_finalizing_batch(jobs: &[(JobId, ResourceGroupId)], task_id: TaskId) -> 
         .collect()
 }
 
+/// Builds a [`TaskAssignment`] as the execution-manager registry would push onto the re-schedule
+/// queue for a lost assignment. The `id` is drawn from the top of the id space so it can never
+/// collide with the sequential ids the scheduler's own issuer hands out, letting a test prove an
+/// assignment was re-issued.
+///
+/// # Returns
+///
+/// The reschedule-queue [`TaskAssignment`] for the given job, task, and session.
+fn make_reschedule_assignment(
+    job: (JobId, ResourceGroupId),
+    task_id: TaskId,
+    session_id: SessionId,
+    distinct_id: u64,
+) -> TaskAssignment {
+    TaskAssignment {
+        id: TaskAssignmentId::from(u64::MAX - distinct_id),
+        resource_group_id: job.1,
+        job_id: job.0,
+        task_id,
+        session_id,
+    }
+}
+
 /// Spawns the scheduler's public run loop as a background task.
 ///
 /// # Returns
@@ -279,22 +303,46 @@ fn spawn_scheduler(
     tokio::task::JoinHandle<Result<(), SchedulerError>>,
     CancellationToken,
 ) {
+    let (handle, cancellation_token, _reschedule_queue_sender) =
+        spawn_scheduler_with_reschedule(config, storage_client, sink);
+    (handle, cancellation_token)
+}
+
+/// Spawns the scheduler's public run loop as a background task, exposing the reschedule-queue
+/// sender.
+///
+/// # Returns
+///
+/// A tuple containing:
+///
+/// * The join handle yielding the scheduler's exit result.
+/// * The cancellation token that stops the scheduler.
+/// * The reschedule-queue sender a test uses to push assignments back as if a worker took them then
+///   died.
+fn spawn_scheduler_with_reschedule(
+    config: RoundRobinConfig,
+    storage_client: MockStorageClient,
+    sink: DispatchQueueWriter,
+) -> (
+    tokio::task::JoinHandle<Result<(), SchedulerError>>,
+    CancellationToken,
+    tokio::sync::mpsc::UnboundedSender<TaskAssignment>,
+) {
     let core = Box::new(config.make_core());
     let cancellation_token = CancellationToken::new();
     let scheduler_token = cancellation_token.clone();
-    let (_reschedule_queue_sender, reschedule_queue_receiver) =
-        tokio::sync::mpsc::unbounded_channel();
+    let (reschedule_queue_sender, reschedule_queue_reader) = tokio::sync::mpsc::unbounded_channel();
     let handle = tokio::spawn(async move {
         core.run(
             storage_client,
             sink,
-            reschedule_queue_receiver,
+            reschedule_queue_reader,
             TaskAssignmentIdIssuer::new(),
             scheduler_token,
         )
         .await
     });
-    (handle, cancellation_token)
+    (handle, cancellation_token, reschedule_queue_sender)
 }
 
 /// Drains exactly `n` task assignments from the dispatch queue, playing the worker pool's role.
@@ -447,9 +495,24 @@ fn make_scheduler(
     storage_client: MockStorageClient,
     sink: DispatchQueueWriter,
 ) -> TestScheduler {
-    let (_reschedule_queue_sender, reschedule_queue_reader) =
-        tokio::sync::mpsc::unbounded_channel();
-    RoundRobin::new(
+    make_scheduler_with_reschedule(config, storage_client, sink).0
+}
+
+/// # Returns
+///
+/// A white-box scheduler wired to the given storage client and sink, driven by manual
+/// [`RoundRobin::tick`] calls, together with the reschedule-queue sender a test uses to inject
+/// the assignments a lost execution manager would have returned.
+fn make_scheduler_with_reschedule(
+    config: RoundRobinConfig,
+    storage_client: MockStorageClient,
+    sink: DispatchQueueWriter,
+) -> (
+    TestScheduler,
+    tokio::sync::mpsc::UnboundedSender<TaskAssignment>,
+) {
+    let (reschedule_queue_sender, reschedule_queue_reader) = tokio::sync::mpsc::unbounded_channel();
+    let scheduler = RoundRobin::new(
         DEFAULT_SESSION_ID,
         storage_client,
         sink,
@@ -457,7 +520,8 @@ fn make_scheduler(
         TaskAssignmentIdIssuer::new(),
         CancellationToken::new(),
         config,
-    )
+    );
+    (scheduler, reschedule_queue_sender)
 }
 
 /// Ticks the scheduler until `predicate` holds on its state.
@@ -1029,5 +1093,211 @@ async fn session_bump_clears_buffered_tasks() -> anyhow::Result<()> {
 
     assert_strict_rotation(&assignments, &new_jobs, NEW_TASKS_PER_JOB);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn reschedule_ready_task_redispatches_with_current_session() -> anyhow::Result<()> {
+    const ACTIVE_JOB_QUEUE_CAPACITY: usize = 4;
+    const DISPATCH_QUEUE_CAPACITY: usize = 4;
+
+    let jobs = make_jobs(1);
+    let job_a = jobs[0];
+
+    let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
+    let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
+    let (mut scheduler, reschedule_queue_sender) = make_scheduler_with_reschedule(
+        make_config(ACTIVE_JOB_QUEUE_CAPACITY, DISPATCH_QUEUE_CAPACITY),
+        storage_client,
+        writer,
+    );
+
+    let injected = make_reschedule_assignment(job_a, TaskId::Index(0), DEFAULT_SESSION_ID, 0);
+    reschedule_queue_sender
+        .send(injected)
+        .expect("reschedule queue sender closed");
+
+    let assignments = tick_and_drain_n(&mut scheduler, &reader, 1).await?;
+    let redispatched = assignments[0];
+    assert_eq!(redispatched.job_id, job_a.0);
+    assert_eq!(redispatched.resource_group_id, job_a.1);
+    assert_eq!(redispatched.task_id, TaskId::Index(0));
+    assert_eq!(redispatched.session_id, DEFAULT_SESSION_ID);
+    assert_ne!(redispatched.id, injected.id);
+
+    assert_no_further_assignments(&mut scheduler, &reader).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reschedule_drops_stale_session_assignment() -> anyhow::Result<()> {
+    const ACTIVE_JOB_QUEUE_CAPACITY: usize = 4;
+    const DISPATCH_QUEUE_CAPACITY: usize = 4;
+    const NEW_SESSION_ID: SessionId = DEFAULT_SESSION_ID + 1;
+
+    let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
+    storage_client.set_session(NEW_SESSION_ID);
+    let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
+    let (mut scheduler, reschedule_queue_sender) = make_scheduler_with_reschedule(
+        make_config(ACTIVE_JOB_QUEUE_CAPACITY, DISPATCH_QUEUE_CAPACITY),
+        storage_client,
+        writer,
+    );
+
+    // An empty poll under the higher session bumps the scheduler's session past the stale
+    // assignment's.
+    tick_until(&mut scheduler, |scheduler| {
+        scheduler.storage_session_id == NEW_SESSION_ID
+    })
+    .await?;
+
+    let jobs = make_jobs(1);
+    let job_stale = jobs[0];
+    let injected = make_reschedule_assignment(job_stale, TaskId::Index(0), DEFAULT_SESSION_ID, 0);
+    reschedule_queue_sender
+        .send(injected)
+        .expect("reschedule queue sender closed");
+
+    scheduler.tick().await?;
+
+    assert!(!scheduler.active_jobs.contains_key(&job_stale.0));
+    assert!(
+        scheduler
+            .buffered_tasks
+            .iter()
+            .all(|&(job_id, _)| job_id != job_stale.0),
+        "a stale-session assignment leaked into the buffered tasks",
+    );
+    assert_no_further_assignments(&mut scheduler, &reader).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reschedule_dedups_against_inbound_ready_task() -> anyhow::Result<()> {
+    const ACTIVE_JOB_QUEUE_CAPACITY: usize = 4;
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+
+    let jobs = make_jobs(2);
+    let job_blocker = jobs[0];
+    let job_a = jobs[1];
+
+    let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
+    storage_client.push_ready_batch(DEFAULT_SESSION_ID, make_ready_batch(&jobs, 1, 0));
+    let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
+    let (mut scheduler, reschedule_queue_sender) = make_scheduler_with_reschedule(
+        make_config(ACTIVE_JOB_QUEUE_CAPACITY, DISPATCH_QUEUE_CAPACITY),
+        storage_client,
+        writer,
+    );
+
+    tick_until(&mut scheduler, |scheduler| {
+        scheduler
+            .buffered_tasks
+            .contains(&(job_a.0, TaskId::Index(0)))
+    })
+    .await?;
+
+    let injected = make_reschedule_assignment(job_a, TaskId::Index(0), DEFAULT_SESSION_ID, 0);
+    reschedule_queue_sender
+        .send(injected)
+        .expect("reschedule queue sender closed");
+    scheduler.tick().await?;
+
+    // Unfreeze: exactly the blocker's task and `job_a`'s single task drain, proving the inbound and
+    // rescheduled copies of `job_a.t0` were deduplicated to a single dispatch.
+    let assignments = tick_and_drain_n(&mut scheduler, &reader, 2).await?;
+    assert_eq!(
+        make_assignment_tuple(&assignments),
+        vec![
+            (job_blocker.0, job_blocker.1, TaskId::Index(0)),
+            (job_a.0, job_a.1, TaskId::Index(0)),
+        ],
+    );
+    assert_no_further_assignments(&mut scheduler, &reader).await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn randomly_rescheduled_assignments_are_eventually_redispatched() -> anyhow::Result<()> {
+    const NUM_JOBS: usize = 4;
+    const TASKS_PER_JOB: usize = 5;
+    const DISPATCH_QUEUE_CAPACITY: usize = 32;
+
+    let jobs = make_jobs(NUM_JOBS);
+    let storage_client = MockStorageClient::new(DEFAULT_SESSION_ID);
+    storage_client.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        make_ready_batch(&jobs, TASKS_PER_JOB, 0),
+    );
+
+    let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, DEFAULT_SESSION_ID);
+    let (scheduler_handle, cancellation_token, reschedule_sender) = spawn_scheduler_with_reschedule(
+        make_config(NUM_JOBS, DISPATCH_QUEUE_CAPACITY),
+        storage_client,
+        writer,
+    );
+
+    let total = NUM_JOBS * TASKS_PER_JOB;
+    let mut completed: HashSet<(JobId, TaskId)> = HashSet::new();
+    let mut rescheduled: HashSet<(JobId, TaskId)> = HashSet::new();
+    let mut seen_ids: HashSet<TaskAssignmentId> = HashSet::new();
+    let mut dispatch_count: HashMap<(JobId, TaskId), usize> = HashMap::new();
+
+    let deadline = tokio::time::Instant::now() + DRAIN_DEADLINE;
+    while completed.len() < total {
+        if tokio::time::Instant::now() > deadline {
+            bail!(
+                "timed out redispatching rescheduled assignments: completed {}, expected {total}",
+                completed.len(),
+            );
+        }
+        let Some(assignment) = reader.dequeue(Duration::from_millis(100)).await? else {
+            continue;
+        };
+        assert_eq!(assignment.session_id, DEFAULT_SESSION_ID);
+        assert!(
+            seen_ids.insert(assignment.id),
+            "a redispatched assignment reused an id: {:?}",
+            assignment.id,
+        );
+
+        let key = (assignment.job_id, assignment.task_id);
+        *dispatch_count.entry(key).or_insert(0) += 1;
+
+        // Randomly decide whether to reschedule this assignment, but only if it has not already
+        // been rescheduled, so each task is rescheduled at most once.
+        if !rescheduled.contains(&key) && rand::random::<bool>() {
+            reschedule_sender
+                .send(assignment)
+                .expect("reschedule queue sender closed");
+            rescheduled.insert(key);
+        } else {
+            completed.insert(key);
+        }
+    }
+
+    let expected: HashSet<(JobId, TaskId)> = jobs
+        .iter()
+        .flat_map(|&(job_id, _)| (0..TASKS_PER_JOB).map(move |i| (job_id, TaskId::Index(i))))
+        .collect();
+    assert_eq!(completed, expected);
+
+    // Every dispatch is accounted for: the totals add up to each task's original dispatch plus one
+    // extra dispatch per rescheduled task, and every rescheduled task is dispatched exactly twice.
+    let total_dispatches: usize = dispatch_count.values().sum();
+    assert_eq!(total_dispatches, total + rescheduled.len());
+    for key in &rescheduled {
+        assert_eq!(
+            dispatch_count.get(key).copied(),
+            Some(2),
+            "rescheduled task {key:?} was not dispatched exactly twice",
+        );
+    }
+
+    cancellation_token.cancel();
+    scheduler_handle.await.expect("scheduler task panicked")?;
     Ok(())
 }
