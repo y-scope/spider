@@ -282,10 +282,13 @@ fn spawn_scheduler(
     let core = Box::new(config.make_core());
     let cancellation_token = CancellationToken::new();
     let scheduler_token = cancellation_token.clone();
+    let (_reschedule_queue_sender, reschedule_queue_receiver) =
+        tokio::sync::mpsc::unbounded_channel();
     let handle = tokio::spawn(async move {
         core.run(
             storage_client,
             sink,
+            reschedule_queue_receiver,
             TaskAssignmentIdIssuer::new(),
             scheduler_token,
         )
@@ -317,7 +320,7 @@ async fn drain_n(reader: &DispatchQueueReader, n: usize) -> anyhow::Result<Vec<T
                 assignments.len(),
             );
         }
-        if let Some((_session_id, assignment)) = reader.dequeue(DEQUEUE_WAIT).await? {
+        if let Some(assignment) = reader.dequeue(DEQUEUE_WAIT).await? {
             assignments.push(assignment);
         }
     }
@@ -444,10 +447,13 @@ fn make_scheduler(
     storage_client: MockStorageClient,
     sink: DispatchQueueWriter,
 ) -> TestScheduler {
+    let (_reschedule_queue_sender, reschedule_queue_reader) =
+        tokio::sync::mpsc::unbounded_channel();
     RoundRobin::new(
         DEFAULT_SESSION_ID,
         storage_client,
         sink,
+        reschedule_queue_reader,
         TaskAssignmentIdIssuer::new(),
         CancellationToken::new(),
         config,
@@ -496,7 +502,7 @@ async fn tick_and_drain_n(
     scheduler: &mut TestScheduler,
     reader: &DispatchQueueReader,
     n: usize,
-) -> anyhow::Result<Vec<(SessionId, TaskAssignment)>> {
+) -> anyhow::Result<Vec<TaskAssignment>> {
     let deadline = tokio::time::Instant::now() + DRAIN_DEADLINE;
     let mut assignments = Vec::with_capacity(n);
     while assignments.len() < n {
@@ -507,8 +513,8 @@ async fn tick_and_drain_n(
             );
         }
         scheduler.tick().await?;
-        while let Some((session_id, assignment)) = reader.dequeue(Duration::ZERO).await? {
-            assignments.push((session_id, assignment));
+        while let Some(assignment) = reader.dequeue(Duration::ZERO).await? {
+            assignments.push(assignment);
         }
         tokio::task::yield_now().await;
     }
@@ -669,11 +675,7 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     let num_assignments =
         NUM_PRE_FREEZE_ASSIGNMENTS + NUM_FINALIZED_JOBS + (TASKS_PER_JOB - 1) + TASKS_PER_JOB;
     let assignments: Vec<TaskAssignment> =
-        tick_and_drain_n(&mut scheduler, &reader, num_assignments)
-            .await?
-            .into_iter()
-            .map(|(_session_id, assignment)| assignment)
-            .collect();
+        tick_and_drain_n(&mut scheduler, &reader, num_assignments).await?;
     assert_no_further_assignments(&mut scheduler, &reader).await?;
     assert_eq!(scheduler.buffered_tasks.len(), 0);
 
@@ -756,11 +758,7 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     late_batch.extend(make_ready_batch(&canary_jobs, TASKS_PER_JOB, 0));
     storage_client.push_ready_batch(DEFAULT_SESSION_ID, late_batch);
 
-    let late_assignments: Vec<_> = tick_and_drain_n(&mut scheduler, &reader, TASKS_PER_JOB)
-        .await?
-        .into_iter()
-        .map(|(_session_id, assignment)| assignment)
-        .collect();
+    let late_assignments = tick_and_drain_n(&mut scheduler, &reader, TASKS_PER_JOB).await?;
     assert_strict_rotation(&late_assignments, &canary_jobs, TASKS_PER_JOB);
     assert_no_further_assignments(&mut scheduler, &reader).await?;
 
@@ -1022,17 +1020,13 @@ async fn session_bump_clears_buffered_tasks() -> anyhow::Result<()> {
     // draining yields exactly the new jobs' tasks in strict rotation, each paired with the new
     // session.
     let num_new_assignments = new_jobs.len() * NEW_TASKS_PER_JOB;
-    let session_stamped = tick_and_drain_n(&mut scheduler, &reader, num_new_assignments).await?;
+    let assignments = tick_and_drain_n(&mut scheduler, &reader, num_new_assignments).await?;
     assert_no_further_assignments(&mut scheduler, &reader).await?;
 
-    for &(session_id, _) in &session_stamped {
-        assert_eq!(session_id, NEW_SESSION_ID);
+    for assignment in &assignments {
+        assert_eq!(assignment.session_id, NEW_SESSION_ID);
     }
 
-    let assignments: Vec<TaskAssignment> = session_stamped
-        .into_iter()
-        .map(|(_session_id, assignment)| assignment)
-        .collect();
     assert_strict_rotation(&assignments, &new_jobs, NEW_TASKS_PER_JOB);
 
     Ok(())

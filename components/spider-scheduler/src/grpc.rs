@@ -2,7 +2,6 @@
 
 use async_trait::async_trait;
 use spider_core::types::id::SchedulerId;
-use spider_core::types::id::SessionId;
 use spider_core::types::scheduler::TaskAssignment;
 use spider_proto_rust::common;
 use spider_proto_rust::scheduler::NextTaskResponse;
@@ -134,14 +133,12 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
             .await
             .map_err(|error| self.service_error_handler(error, "next_task"))?;
 
-        let response = match dispatched {
-            Some((session_id, assignment)) => {
-                make_next_task_response(assignment, self.inner.scheduler_id(), session_id)
-            }
-            None => NextTaskResponse {
+        let response = dispatched.map_or(
+            NextTaskResponse {
                 result: Some(next_task_response::Result::NoTask(common::Void {})),
             },
-        };
+            |assignment| make_next_task_response(assignment, self.inner.scheduler_id()),
+        );
         Ok(Response::new(response))
     }
 
@@ -182,12 +179,10 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
 
 /// # Returns
 ///
-/// A [`NextTaskResponse`] carrying the given assignment, stamped with `scheduler_id` and paired
-/// with `session_id`.
+/// A [`NextTaskResponse`] carrying the given assignment, stamped with `scheduler_id`.
 fn make_next_task_response(
     assignment: TaskAssignment,
     scheduler_id: SchedulerId,
-    session_id: SessionId,
 ) -> NextTaskResponse {
     NextTaskResponse {
         result: Some(next_task_response::Result::Assignment(
@@ -197,7 +192,7 @@ fn make_next_task_response(
                 job_id: assignment.job_id.get(),
                 task_id: Some(common::TaskId::from(assignment.task_id)),
                 scheduler_id: scheduler_id.get(),
-                session_id,
+                session_id: assignment.session_id,
             },
         )),
     }

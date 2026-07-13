@@ -1,9 +1,10 @@
 //! The scheduler runtime.
 //!
 //! This module registers the scheduler with the storage service, wires the scheduler core to a
-//! freshly created dispatch queue, and spawns the core's scheduling loop as a background coroutine
-//! alongside the execution manager registry. The resulting [`Runtime`] owns the spawned coroutine
-//! and is responsible for cancelling and joining it on shutdown.
+//! freshly created dispatch queue, hands the core the reschedule queue reader, and spawns the
+//! core's scheduling loop as a background coroutine alongside the execution manager registry. The
+//! resulting [`Runtime`] owns the spawned coroutine and is responsible for cancelling and joining
+//! it on shutdown.
 
 use std::time::Duration;
 
@@ -22,7 +23,6 @@ use crate::execution_manager_registry::ExecutionManagerRegistry;
 use crate::execution_manager_registry::ExecutionManagerRegistryConfig;
 use crate::service::SchedulerServiceState;
 use crate::storage_client::SchedulerStorageClient;
-use crate::types::TaskAssignment;
 
 /// Runtime configuration for the scheduler service.
 #[derive(Clone, Debug, Deserialize)]
@@ -48,7 +48,6 @@ pub struct RuntimeConfig {
 /// Runtime state for the scheduler service.
 pub struct Runtime {
     core_join_handle: tokio::task::JoinHandle<Result<(), SchedulerError>>,
-    _reschedule_queue_receiver: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
     cancellation_token: CancellationToken,
     stop_timeout: Duration,
 }
@@ -92,7 +91,8 @@ impl Runtime {
 /// Creates a scheduler runtime from the given configuration and storage client.
 ///
 /// Registers this scheduler with the storage service, wires the scheduler core to a freshly created
-/// dispatch queue, and starts the core's scheduling loop as a background coroutine.
+/// dispatch queue, hands the core the reschedule queue reader, and starts the core's scheduling
+/// loop as a background coroutine.
 ///
 /// # Type Parameters
 ///
@@ -153,6 +153,7 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
         core.run(
             storage_client,
             dispatch_queue_writer,
+            reschedule_queue_receiver,
             TaskAssignmentIdIssuer::new(),
             core_cancellation_token.clone(),
         )
@@ -169,7 +170,6 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
 
     let runtime = Runtime {
         core_join_handle,
-        _reschedule_queue_receiver: reschedule_queue_receiver,
         cancellation_token: cancellation_token.clone(),
         stop_timeout: Duration::from_secs(stop_timeout_sec),
     };
@@ -276,18 +276,14 @@ mod tests {
 
     /// # Returns
     ///
-    /// A [`Runtime`] whose core coroutine is `core_task`, wired to a fresh cancellation token and
-    /// reschedule queue.
+    /// A [`Runtime`] whose core coroutine is `core_task`, wired to a fresh cancellation token.
     fn make_runtime(
         cancellation_token: CancellationToken,
         core_task: tokio::task::JoinHandle<Result<(), SchedulerError>>,
         stop_timeout_sec: u64,
     ) -> Runtime {
-        let (_reschedule_queue_sender, reschedule_queue_receiver) =
-            tokio::sync::mpsc::unbounded_channel();
         Runtime {
             core_join_handle: core_task,
-            _reschedule_queue_receiver: reschedule_queue_receiver,
             cancellation_token,
             stop_timeout: Duration::from_secs(stop_timeout_sec),
         }
