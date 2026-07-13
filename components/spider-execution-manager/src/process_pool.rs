@@ -53,7 +53,7 @@ pub struct ProcessPoolConfig {
     /// Names of environment variables forwarded from the execution manager's process into each
     /// spawned executor. For each key, the value is read from this process's environment at spawn
     /// time and set on the child; a key that is unset (or non-Unicode) is skipped with a warning.
-    pub env_keys: Vec<String>,
+    pub inherited_env: Vec<String>,
 }
 
 /// Request to execute a task inside the spawned task executor.
@@ -245,7 +245,7 @@ impl ProcessPool {
             command.env("RUST_LOG", rust_log);
         }
 
-        for key in &self.config.env_keys {
+        for key in &self.config.inherited_env {
             match std::env::var(key) {
                 Ok(value) => {
                     command.env(key, value);

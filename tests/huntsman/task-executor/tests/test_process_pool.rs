@@ -63,7 +63,7 @@ fn build_pool() -> ProcessPool {
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,
-        env_keys: Vec::new(),
+        inherited_env: Vec::new(),
     };
     ProcessPool::new(config).expect("construct pool")
 }
