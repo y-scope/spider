@@ -1,0 +1,11 @@
+apiVersion: "v2"
+name: "spider"
+description: "A Helm chart for the Spider Huntsman deployment"
+type: "application"
+version: "0.1.0"
+appVersion: "0.1.0"
+home: "https://github.com/y-scope/spider"
+sources: ["https://github.com/y-scope/spider"]
+maintainers: [{name: "y-scope", email: "dev@yscope.com", url: "https://yscope.com"}]
+keywords:
+  - "distributed-scheduler"
