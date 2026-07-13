@@ -20,7 +20,7 @@ pub enum TdlError {
     #[error("execution error: {0}")]
     ExecutionError(String),
 
-    #[error("internal error: {0}")]
+    #[error("invalid task context: {0}")]
     InvalidTaskContext(String),
 
     #[error("{0}")]
