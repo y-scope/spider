@@ -133,6 +133,7 @@ fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,
+        inherited_env: Vec::new(),
     }
 }
 
