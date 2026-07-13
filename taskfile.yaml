@@ -1,5 +1,7 @@
 version: "3"
 
+set: ["pipefail"]
+
 includes:
   build: "taskfiles/build.yaml"
   deps: "taskfiles/deps.yaml"
