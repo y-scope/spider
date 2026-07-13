@@ -1,6 +1,6 @@
 //! Test TDL package used by the `task-executor` integration tests.
 //!
-//! Exposes four tasks that exercise distinct executor code paths:
+//! Exposes five tasks that exercise distinct executor code paths:
 //!
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
 //! * [`task_decl::always_fail`] — in-task error reporting.
@@ -9,6 +9,8 @@
 //!   duration then echoes its `Vec<String>` payload back. Used by the overhead bench so the
 //!   non-sleep portion of the executor's reported FFI time isolates the in-executor input/output
 //!   serde cost, while the parent-side delta isolates IPC framing cost.
+//! * [`task_decl::assert_outputs_sum_zero`] — commit task: reads the job's task-graph outputs from
+//!   its [`TaskContext`](spider_tdl::TaskContext) and asserts the `i64` outputs sum to zero.
 
 /// The constant sleep duration used by [`task_decl::sleep_and_echo`].
 ///
@@ -65,6 +67,32 @@ mod task_decl {
         sleep(Duration::from_micros(INSTRUMENT_SLEEP_US));
         Ok(items)
     }
+
+    /// Commit task that reads the job's task-graph outputs and asserts that the `i64` values they
+    /// carry sum to zero.
+    #[task(name = "assert_outputs_sum_zero")]
+    pub fn assert_outputs_sum_zero(ctx: TaskContext) -> Result<(), TdlError> {
+        let outputs = ctx.get_task_graph_outputs()?.ok_or_else(|| {
+            TdlError::ExecutionError("assert_outputs_sum_zero must run as a commit task".to_owned())
+        })?;
+        if outputs.is_empty() {
+            return Err(TdlError::ExecutionError(
+                "assert_outputs_sum_zero: task-graph outputs empty".to_owned(),
+            ));
+        }
+        let mut sum: i64 = 0;
+        for output in &outputs {
+            let value: i64 = rmp_serde::from_slice(output)
+                .map_err(|e| TdlError::DeserializationError(e.to_string()))?;
+            sum += value;
+        }
+        if sum != 0 {
+            return Err(TdlError::ExecutionError(format!(
+                "task-graph outputs do not sum to zero: got {sum}"
+            )));
+        }
+        Ok(())
+    }
 }
 
 spider_tdl::register_tdl_package! {
@@ -74,5 +102,6 @@ spider_tdl::register_tdl_package! {
         task_decl::always_fail,
         task_decl::always_panic,
         task_decl::sleep_and_echo,
+        task_decl::assert_outputs_sum_zero,
     ],
 }

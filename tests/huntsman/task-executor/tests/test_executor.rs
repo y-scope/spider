@@ -8,10 +8,31 @@ use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::Response;
 use spider_tdl::TdlError;
 use test_utils::ExecutorHandle;
+use test_utils::commit_execute_request;
 use test_utils::decode_single_output;
 use test_utils::encode_no_inputs;
 use test_utils::encode_single_input;
 use test_utils::execute_request;
+
+/// Asserts that `outcome` is a task [`TdlError::ExecutionError`] whose message contains `needle`.
+fn assert_task_execution_error(outcome: ExecutorOutcome, needle: &str) {
+    match outcome {
+        ExecutorOutcome::Success { outputs } => {
+            panic!("expected Failure, got Success with {} bytes", outputs.len());
+        }
+        ExecutorOutcome::Failure { error } => {
+            let err: ExecutorError =
+                rmp_serde::from_slice(&error).expect("decode ExecutorError payload");
+            let ExecutorError::TaskError(TdlError::ExecutionError(message)) = &err else {
+                panic!("expected TaskError(ExecutionError), got {err:?}");
+            };
+            assert!(
+                message.contains(needle),
+                "unexpected error message: {message}",
+            );
+        }
+    }
+}
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
@@ -84,4 +105,71 @@ async fn always_panic_crashes_the_process() {
         !status.success(),
         "expected non-zero exit after panic, got {status:?}",
     );
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn assert_outputs_sum_zero_succeeds_when_outputs_sum_to_zero() {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&commit_execute_request(
+            "assert_outputs_sum_zero",
+            &[3_i64, -1, -2],
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    match outcome {
+        ExecutorOutcome::Success { .. } => {}
+        ExecutorOutcome::Failure { error } => {
+            let err: ExecutorError =
+                rmp_serde::from_slice(&error).expect("decode ExecutorError payload");
+            panic!("expected Success for zero-sum outputs, got Failure: {err:?}");
+        }
+    }
+    handle.shutdown_clean().await;
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn assert_outputs_sum_zero_fails_when_outputs_do_not_sum_to_zero() {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&commit_execute_request(
+            "assert_outputs_sum_zero",
+            &[1_i64, 2, 3],
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    assert_task_execution_error(outcome, "sum to zero");
+    handle.shutdown_clean().await;
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn assert_outputs_sum_zero_fails_when_outputs_empty() {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&commit_execute_request::<i64>(
+            "assert_outputs_sum_zero",
+            &[],
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    assert_task_execution_error(outcome, "empty");
+    handle.shutdown_clean().await;
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn assert_outputs_sum_zero_fails_for_non_commit_task() {
+    let mut handle = ExecutorHandle::spawn();
+    handle
+        .send(&execute_request(
+            "assert_outputs_sum_zero",
+            encode_no_inputs(),
+        ))
+        .await;
+    let Response::Result { outcome, .. } = handle.recv().await;
+    assert_task_execution_error(outcome, "commit task");
+    handle.shutdown_clean().await;
 }
