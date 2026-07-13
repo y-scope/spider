@@ -55,6 +55,9 @@ pub trait SchedulerCore: Send {
     /// and writes assignments to `sink`, repeating until `cancellation_token` is fired, at which
     /// point it returns.
     ///
+    /// The implementation does not need to fire the cancellation token when exiting on error: this
+    /// cancellation is handled by the runtime.
+    ///
     /// # Parameters
     ///
     /// * `storage_client` - The storage client used to poll the inbound queue and read state for
