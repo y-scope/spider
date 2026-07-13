@@ -27,6 +27,20 @@ release name already contains the chart name it is used as-is.
 {{- end }}{{/* define "spider.fullname" */}}
 
 {{/*
+Creates a fully qualified component name while preserving its suffix within the 63-character limit.
+
+@param {object} root Root template context (required)
+@param {string} component Component name suffix (required)
+@return {string} The fully qualified component name
+*/}}
+{{- define "spider.componentFullname" -}}
+{{- $suffix := printf "-%s" .component -}}
+{{- $maxBaseLength := sub 63 (len $suffix) | int -}}
+{{- $base := include "spider.fullname" .root | trunc $maxBaseLength | trimSuffix "-" -}}
+{{- printf "%s%s" $base $suffix -}}
+{{- end }}
+
+{{/*
 Creates chart name and version as used by the chart label.
 
 @return {string} Chart name and version (truncated to 63 characters)
@@ -106,7 +120,7 @@ Gets the bundled MariaDB Service host or external `spiderConfig.database.host`.
 */}}
 {{- define "spider.databaseHost" -}}
 {{- if has "database" .Values.spiderConfig.bundled -}}
-{{- printf "%s-database" (include "spider.fullname" .) -}}
+{{- include "spider.componentFullname" (dict "root" . "component" "database") -}}
 {{- else -}}
 {{- .Values.spiderConfig.database.host -}}
 {{- end -}}

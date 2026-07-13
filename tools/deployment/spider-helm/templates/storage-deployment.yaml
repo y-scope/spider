@@ -1,7 +1,7 @@
 apiVersion: "apps/v1"
 kind: "Deployment"
 metadata:
-  name: {{ include "spider.fullname" . }}-storage
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "storage") }}
   labels:
     {{- include "spider.labels" . | nindent 4 }}
     app.kubernetes.io/component: "storage"
@@ -40,4 +40,4 @@ spec:
       volumes:
         - name: "config"
           configMap:
-            name: {{ include "spider.fullname" . }}-config
+            name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}

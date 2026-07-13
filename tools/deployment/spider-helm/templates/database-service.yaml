@@ -2,7 +2,7 @@
 apiVersion: "v1"
 kind: "Service"
 metadata:
-  name: {{ include "spider.fullname" . }}-database
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
   labels:
     {{- include "spider.labels" . | nindent 4 }}
     app.kubernetes.io/component: "database"

@@ -2,12 +2,12 @@
 apiVersion: "apps/v1"
 kind: "StatefulSet"
 metadata:
-  name: {{ include "spider.fullname" . }}-database
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
   labels:
     {{- include "spider.labels" . | nindent 4 }}
     app.kubernetes.io/component: "database"
 spec:
-  serviceName: {{ include "spider.fullname" . }}-database
+  serviceName: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
   replicas: 1
   selector:
     matchLabels:
@@ -29,17 +29,17 @@ spec:
             - name: "MYSQL_USER"
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "spider.fullname" . }}-database
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
                   key: "username"
             - name: "MYSQL_PASSWORD"
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "spider.fullname" . }}-database
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
                   key: "password"
             - name: "MYSQL_ROOT_PASSWORD"
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "spider.fullname" . }}-database
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
                   key: "root_password"
           ports:
             - name: "database"
