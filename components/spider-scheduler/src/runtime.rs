@@ -148,12 +148,24 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
     let service = SchedulerServiceState::new(dispatch_queue_reader, registry, scheduler_id);
     let core = scheduler_config.make_core::<SchedulerStorageClientType, DispatchQueueWriter>();
 
-    let core_join_handle = tokio::spawn(core.run(
-        storage_client,
-        dispatch_queue_writer,
-        TaskAssignmentIdIssuer::new(),
-        cancellation_token.clone(),
-    ));
+    let core_cancellation_token = cancellation_token.clone();
+    let core_join_handle = tokio::spawn(async move {
+        core.run(
+            storage_client,
+            dispatch_queue_writer,
+            TaskAssignmentIdIssuer::new(),
+            core_cancellation_token.clone(),
+        )
+        .await
+        .inspect_err(|e| {
+            tracing::error!(
+                scheduler_id = % scheduler_id,
+                error = % e,
+                "Scheduler core exited on error. Cancelling runtime."
+            );
+            core_cancellation_token.cancel();
+        })
+    });
 
     let runtime = Runtime {
         core_join_handle,
