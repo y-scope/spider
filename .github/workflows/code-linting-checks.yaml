@@ -53,7 +53,7 @@ jobs:
 
       - run: "task lint:yml-check"
 
-      - run: "task lint:helm-check"
+      - run: "task lint:check-helm"
 
   lint-cpp:
     needs: "filter-relevant-changes"

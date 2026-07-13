@@ -15,7 +15,7 @@ tasks:
 
       - task: "cmake-check"
       - task: "cpp-check"
-      - task: "helm-check"
+      - task: "check-helm"
       - task: "py-check"
       - task: "toml-check"
       - task: "yml-check"
@@ -26,7 +26,7 @@ tasks:
 
       - task: "cmake-fix"
       - task: "cpp-fix"
-      - task: "helm-fix"
+      - task: "fix-helm"
       - task: "py-fix"
       - task: "toml-fix"
       - task: "yml-fix"
@@ -126,8 +126,8 @@ tasks:
 
   helm:
     aliases:
-      - "helm-check"
-      - "helm-fix"
+      - "check-helm"
+      - "fix-helm"
     deps:
       - "toolchains:helm"
       - "venv"
