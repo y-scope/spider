@@ -1045,6 +1045,7 @@ dependencies = [
 name = "integration-test-tasks"
 version = "0.1.0"
 dependencies = [
+ "rmp-serde",
  "serde",
  "spider-tdl",
 ]
@@ -1983,6 +1984,7 @@ dependencies = [
 name = "spider-execution-manager"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bincode",
  "bytes",

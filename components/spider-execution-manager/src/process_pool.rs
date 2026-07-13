@@ -19,6 +19,7 @@ use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
 use spider_tdl::TaskContext;
+use spider_tdl::TdlError;
 use spider_utils::wire::WireError;
 use tokio::process::Child;
 use tokio::process::ChildStdin;
@@ -107,6 +108,10 @@ pub enum InternalError {
     /// Failed to wire-format-encode the task inputs when building the executor request.
     #[error("failed to encode task inputs: {0}")]
     EncodeTaskInputs(#[from] WireError),
+
+    /// Failed to construct the [`TaskContext`] when building the executor request.
+    #[error("failed to build task context: {0}")]
+    BuildTaskContext(#[from] TdlError),
 }
 
 /// The process pool of pre-forked task executor subprocesses ready for task execution.
@@ -377,13 +382,15 @@ impl ExecutorHandle {
 ///
 /// # Returns
 ///
-/// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContext`] and
-/// `raw_inputs` set to the serialized execution inputs on success.
+/// A populated [`Request::Execute`] with `raw_ctx` set to the msgpack-encoded [`TaskContext`] on
+/// success. For a commit task the serialized payload is routed into the [`TaskContext`]'s
+/// task-graph outputs and `raw_inputs` is left empty; for any other task it is set as `raw_inputs`.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
+/// * Forwards [`TaskContext::new`]'s return values on failure.
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
 fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
     let ExecuteRequest {
@@ -396,17 +403,130 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         task_instance_id,
         tdl_context,
         timeout_policy: _,
-        serialized_inputs,
+        serialized_task_io,
     } = ctx;
-    let raw_ctx = rmp_serde::to_vec(&TaskContext {
+    let (raw_inputs, serialized_task_graph_outputs) = if task_id == TaskId::Commit {
+        (Vec::new(), Some(serialized_task_io))
+    } else {
+        (serialized_task_io, None)
+    };
+    let raw_ctx = rmp_serde::to_vec(&TaskContext::new(
         job_id,
         task_id,
         task_instance_id,
         resource_group_id,
-    })?;
+        serialized_task_graph_outputs,
+    )?)?;
     Ok(Request::Execute {
         tdl_context,
         raw_ctx,
-        raw_inputs: serialized_inputs,
+        raw_inputs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use spider_core::task::TdlContext;
+    use spider_core::task::TimeoutPolicy;
+    use spider_core::types::io::SerializedTaskOutputs;
+    use spider_core::types::io::TaskOutput;
+
+    use super::*;
+
+    /// Builds an [`ExecutionContext`] with dummy TDL and timeout metadata wrapping the given task
+    /// IO buffer.
+    ///
+    /// # Returns
+    ///
+    /// The constructed [`ExecutionContext`].
+    fn make_execution_context(serialized_task_io: Vec<u8>) -> ExecutionContext {
+        ExecutionContext {
+            task_instance_id: 1,
+            tdl_context: TdlContext {
+                package: "test-package".to_owned(),
+                task_func: "test-task".to_owned(),
+            },
+            timeout_policy: TimeoutPolicy {
+                soft_timeout_ms: 1_000,
+                hard_timeout_ms: 2_000,
+            },
+            serialized_task_io,
+        }
+    }
+
+    #[test]
+    fn build_request_routes_commit_outputs_into_context() -> anyhow::Result<()> {
+        let outputs: Vec<TaskOutput> = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let serialized = SerializedTaskOutputs::serialize_with_size_hint(&outputs)?.to_raw();
+        let request = ExecuteRequest {
+            job_id: JobId::random(),
+            task_id: TaskId::Commit,
+            resource_group_id: ResourceGroupId::random(),
+            ctx: make_execution_context(serialized),
+        };
+
+        let Request::Execute {
+            raw_ctx,
+            raw_inputs,
+            ..
+        } = build_request(request)?
+        else {
+            panic!("build_request must produce a Request::Execute");
+        };
+
+        assert!(raw_inputs.is_empty());
+        let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
+        assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
+        Ok(())
+    }
+
+    #[test]
+    fn build_request_routes_empty_commit_outputs() -> anyhow::Result<()> {
+        let outputs: Vec<TaskOutput> = Vec::new();
+        let serialized = SerializedTaskOutputs::serialize_with_size_hint(&outputs)?.to_raw();
+        let request = ExecuteRequest {
+            job_id: JobId::random(),
+            task_id: TaskId::Commit,
+            resource_group_id: ResourceGroupId::random(),
+            ctx: make_execution_context(serialized),
+        };
+
+        let Request::Execute {
+            raw_ctx,
+            raw_inputs,
+            ..
+        } = build_request(request)?
+        else {
+            panic!("build_request must produce a Request::Execute");
+        };
+
+        assert!(raw_inputs.is_empty());
+        let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
+        assert_eq!(ctx.get_task_graph_outputs()?, Some(Vec::new()));
+        Ok(())
+    }
+
+    #[test]
+    fn build_request_routes_regular_task_inputs() -> anyhow::Result<()> {
+        let request = ExecuteRequest {
+            job_id: JobId::random(),
+            task_id: TaskId::Index(0),
+            resource_group_id: ResourceGroupId::random(),
+            ctx: make_execution_context(vec![10, 20, 30]),
+        };
+
+        let Request::Execute {
+            raw_ctx,
+            raw_inputs,
+            ..
+        } = build_request(request)?
+        else {
+            panic!("build_request must produce a Request::Execute");
+        };
+
+        assert_eq!(raw_inputs, vec![10, 20, 30]);
+        let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
+        assert!(ctx.get_task_graph_outputs()?.is_none());
+        Ok(())
+    }
 }

@@ -92,7 +92,7 @@ fn execution_context(task_func: &str, inputs: Vec<TaskInput>) -> ExecutionContex
             soft_timeout_ms: 1_000,
             hard_timeout_ms: 5_000,
         },
-        serialized_inputs: serializer.release(),
+        serialized_task_io: serializer.release(),
     }
 }
 

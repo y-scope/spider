@@ -432,7 +432,7 @@ pub struct ExecutionContext {
     pub task_instance_id: TaskInstanceId,
     pub tdl_context: TdlContext,
     pub timeout_policy: TimeoutPolicy,
-    pub serialized_inputs: Vec<u8>,
+    pub serialized_task_io: Vec<u8>,
 }
 
 #[cfg(test)]
