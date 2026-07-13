@@ -24,8 +24,10 @@ use spider_core::task::TdlContext;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
+use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskOutput;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
@@ -300,5 +302,65 @@ pub fn execute_request(task_func: &str, raw_inputs: Vec<u8>) -> Request {
         },
         raw_ctx: build_ctx(),
         raw_inputs,
+    }
+}
+
+/// Builds a msgpack-encoded commit [`TaskContext`] carrying `outputs` as the job's task-graph
+/// outputs.
+///
+/// Each value in `outputs` is msgpack-encoded into one task-graph output payload, mirroring the
+/// shape the execution manager ships to a commit task.
+///
+/// # Type Parameters
+///
+/// * `ValueType` - The Serde-serializable type of each task-graph output value.
+///
+/// # Returns
+///
+/// A msgpack-encoded commit [`TaskContext`] whose task-graph outputs decode back to `outputs`.
+///
+/// # Panics
+///
+/// Panics if msgpack encoding, output serialization, or [`TaskContext`] construction fails.
+#[must_use]
+pub fn build_commit_ctx<ValueType: serde::Serialize>(outputs: &[ValueType]) -> Vec<u8> {
+    let task_outputs: Vec<TaskOutput> = outputs
+        .iter()
+        .map(|value| rmp_serde::to_vec(value).expect("msgpack encode task-graph output"))
+        .collect();
+    let serialized_outputs = SerializedTaskOutputs::serialize_with_size_hint(&task_outputs)
+        .expect("serialize task-graph outputs")
+        .to_raw();
+    let ctx = TaskContext::new(
+        JobId::random(),
+        TaskId::Commit,
+        1,
+        ResourceGroupId::random(),
+        Some(serialized_outputs),
+    )
+    .expect("build commit TaskContext");
+    rmp_serde::to_vec(&ctx).expect("serialize TaskContext")
+}
+
+/// # Type Parameters
+///
+/// * `ValueType` - The Serde-serializable type of each task-graph output value.
+///
+/// # Returns
+///
+/// A [`Request::Execute`] targeting `task_func` in the integration package, carrying a commit
+/// [`TaskContext`] whose task-graph outputs are `outputs` and no task inputs.
+#[must_use]
+pub fn commit_execute_request<ValueType: serde::Serialize>(
+    task_func: &str,
+    outputs: &[ValueType],
+) -> Request {
+    Request::Execute {
+        tdl_context: TdlContext {
+            package: PACKAGE_NAME.to_owned(),
+            task_func: task_func.to_owned(),
+        },
+        raw_ctx: build_commit_ctx(outputs),
+        raw_inputs: encode_no_inputs(),
     }
 }
