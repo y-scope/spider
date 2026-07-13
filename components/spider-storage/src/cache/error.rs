@@ -98,6 +98,9 @@ pub enum InternalError {
     WireError(#[from] WireError),
 
     #[error(transparent)]
+    TaskOutputs(#[from] spider_core::types::io::TaskOutputsError),
+
+    #[error(transparent)]
     Db(#[from] crate::db::DbError),
 }
 
