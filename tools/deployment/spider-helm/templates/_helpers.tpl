@@ -22,9 +22,9 @@ release name already contains the chart name it is used as-is.
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+{{- end }}{{/* if contains $name .Release.Name */}}
+{{- end }}{{/* if .Values.fullnameOverride */}}
+{{- end }}{{/* define "spider.fullname" */}}
 
 {{/*
 Creates chart name and version as used by the chart label.
@@ -99,8 +99,7 @@ failureThreshold: 3
 {{- end }}
 
 {{/*
-Gets the database host. When "database" is bundled, this is the in-cluster MariaDB Service; when not
-bundled, it is the external `spiderConfig.database.host`.
+Gets the bundled MariaDB Service host or external `spiderConfig.database.host`.
 
 @param {object} . Root template context
 @return {string} The database host
@@ -114,8 +113,7 @@ bundled, it is the external `spiderConfig.database.host`.
 {{- end }}
 
 {{/*
-Gets the database port. When "database" is bundled, this is 3306 (the bundled MariaDB's port);
-otherwise it is the external `spiderConfig.database.port`.
+Gets the bundled MariaDB port or external `spiderConfig.database.port`.
 
 @param {object} . Root template context
 @return {string} The database port
