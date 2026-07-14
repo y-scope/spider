@@ -1,6 +1,7 @@
 //! [`SpiderClient`] — the top-level handle holding the gRPC connection pools.
 
 use std::num::NonZeroUsize;
+use std::time::Duration;
 
 use spider_core::job::JobState;
 use spider_core::task::TaskGraph;
@@ -8,6 +9,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskOutput;
+use spider_utils::grpc::retry::RetryConfig;
 use tonic::transport::Endpoint;
 
 use crate::error::ClientError;
@@ -22,27 +24,17 @@ pub struct SpiderClient {
 }
 
 impl SpiderClient {
-    /// Connects pools of `pool_size` connections to the storage gRPC endpoint.
+    /// Creates a builder for connecting a [`SpiderClient`] to `endpoint`.
     ///
     /// # Returns
     ///
-    /// A new [`SpiderClient`] connected to `endpoint` on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
-        let (job_orchestration, resource_group) = tokio::try_join!(
-            JobOrchestrationClient::connect(endpoint.clone(), pool_size),
-            ResourceGroupManagementClient::connect(endpoint, pool_size),
-        )?;
-
-        Ok(Self {
-            job_orchestration,
-            resource_group,
-        })
+    /// A [`SpiderClientBuilder`] for `endpoint` with default pool size and retry configuration.
+    pub fn builder(endpoint: Endpoint) -> SpiderClientBuilder {
+        SpiderClientBuilder {
+            endpoint,
+            pool_size: DEFAULT_POOL_SIZE,
+            retry_config: RetryConfig::default(),
+        }
     }
 
     /// Serializes and zstd-compresses the task graph and inputs, registers the job, and returns its
@@ -222,3 +214,78 @@ impl SpiderClient {
             .await
     }
 }
+
+/// Builder for configuring and connecting a [`SpiderClient`].
+pub struct SpiderClientBuilder {
+    endpoint: Endpoint,
+    pool_size: NonZeroUsize,
+    retry_config: RetryConfig,
+}
+
+impl SpiderClientBuilder {
+    /// Sets the size of each gRPC connection pool.
+    ///
+    /// # Returns
+    ///
+    /// The builder with `pool_size` set.
+    #[must_use]
+    pub const fn pool_size(mut self, pool_size: NonZeroUsize) -> Self {
+        self.pool_size = pool_size;
+        self
+    }
+
+    /// Sets the number of retries allowed after the initial attempt.
+    ///
+    /// # Returns
+    ///
+    /// The builder with `max_retries` set.
+    #[must_use]
+    pub const fn max_retries(mut self, max_retries: usize) -> Self {
+        self.retry_config.max_retries = max_retries;
+        self
+    }
+
+    /// Sets the upper bound on the exponential backoff between attempts.
+    ///
+    /// # Returns
+    ///
+    /// The builder with `max_backoff` set.
+    #[must_use]
+    pub const fn max_backoff(mut self, max_backoff: Duration) -> Self {
+        self.retry_config.max_backoff = max_backoff;
+        self
+    }
+
+    /// Connects pools of the configured size to the storage gRPC endpoint.
+    ///
+    /// # Returns
+    ///
+    /// A new [`SpiderClient`] connected to the configured endpoint on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
+    pub async fn connect(self) -> Result<SpiderClient, ClientError> {
+        let (job_orchestration, resource_group) = tokio::try_join!(
+            JobOrchestrationClient::connect(
+                self.endpoint.clone(),
+                self.pool_size,
+                self.retry_config
+            ),
+            ResourceGroupManagementClient::connect(
+                self.endpoint,
+                self.pool_size,
+                self.retry_config
+            ),
+        )?;
+
+        Ok(SpiderClient {
+            job_orchestration,
+            resource_group,
+        })
+    }
+}
+
+const DEFAULT_POOL_SIZE: NonZeroUsize = NonZeroUsize::new(8).unwrap();
