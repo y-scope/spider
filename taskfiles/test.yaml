@@ -228,7 +228,12 @@ tasks:
       SPIDER_TEST_INSTRUMENT_OUTPUT_DIR:
         sh: "echo {{.G_BUILD_DIR}}/spider-instrument-$(uuidgen)"
     requires:
-      vars: ["MARIADB_PORT", "MARIADB_DATABASE", "SPIDER_STORAGE_DB_USERNAME", "SPIDER_STORAGE_DB_PASSWORD"]
+      vars: [
+        "MARIADB_PORT",
+        "MARIADB_DATABASE",
+        "SPIDER_STORAGE_DB_USERNAME",
+        "SPIDER_STORAGE_DB_PASSWORD"
+      ]
     dir: "{{.ROOT_DIR}}"
     deps: ["toolchains:rust"]
     cmds:
