@@ -127,8 +127,8 @@ mod tests {
     /// The database password supplied through the environment in these tests.
     const ENV_PASSWORD: &str = "env-pass";
 
-    #[test]
     #[serial]
+    #[test]
     fn deserialize_resolves_credentials_from_env() -> anyhow::Result<()> {
         // SAFETY: these variables are read-only by the serialized credential tests, so mutating
         // this process-global state does not race with other tests.
@@ -149,8 +149,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
     #[serial]
+    #[test]
     fn read_credential_from_env() -> anyhow::Result<()> {
         // SAFETY: these variables are read only by this test, so mutating this process-global state
         // does not race with other tests.
