@@ -20,6 +20,9 @@ pub enum TdlError {
     #[error("execution error: {0}")]
     ExecutionError(String),
 
+    #[error("invalid task context: {0}")]
+    InvalidTaskContext(String),
+
     #[error("{0}")]
     Custom(String),
 }
@@ -35,6 +38,7 @@ mod tests {
             TdlError::DeserializationError("deserialization_error".to_owned()),
             TdlError::SerializationError("serialization_error".to_owned()),
             TdlError::ExecutionError("execution_error".to_owned()),
+            TdlError::InvalidTaskContext("invalid_task_context".to_owned()),
             TdlError::Custom("custom".to_owned()),
         ];
         for error in errors_to_test {

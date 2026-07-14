@@ -91,6 +91,7 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskOutput;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::InternalError;
@@ -1061,6 +1062,13 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_commit_task_instance`]'s return values of failure.
+///
+/// # Panics
+///
+/// Panics if:
+///
+/// * The commit task's execution context does not carry decodable task-graph outputs.
+/// * The commit task's execution context carries an empty task-graph output list.
 async fn process_commit<DbConnectorType: InternalJobOrchestration>(
     ctx: &EmContext<DbConnectorType>,
 ) -> Result<(), CacheError> {
@@ -1068,6 +1076,13 @@ async fn process_commit<DbConnectorType: InternalJobOrchestration>(
         .jcb
         .create_task_instance(TaskId::Commit, ctx.execution_manager_id)
         .await?;
+    let task_graph_outputs =
+        SerializedTaskOutputs::deserialize_from_raw(&exec_ctx.serialized_task_io)
+            .expect("commit task execution context should carry decodable task-graph outputs");
+    assert!(
+        !task_graph_outputs.is_empty(),
+        "task-graph outputs should not be empty"
+    );
     let state = ctx
         .jcb
         .succeed_commit_task_instance(exec_ctx.task_instance_id)

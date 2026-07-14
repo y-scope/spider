@@ -607,7 +607,7 @@ impl<
                     soft_timeout_ms: execution_context.timeout_policy.soft_timeout_ms,
                     hard_timeout_ms: execution_context.timeout_policy.hard_timeout_ms,
                 }),
-                serialized_inputs: execution_context.serialized_inputs,
+                serialized_task_io: execution_context.serialized_task_io,
             }),
         }))
     }
