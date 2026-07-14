@@ -302,16 +302,16 @@ impl<
             };
 
             tracing::info!(
-                bundle_session = response.session_id,
+                bundle_session = response.task_assignment.session_id,
                 job_id = ? response.task_assignment.job_id,
                 task_id = ? response.task_assignment.task_id,
                 "Received a new task assignment from the scheduler."
             );
 
             let current_session = self.session_tracker.current();
-            if response.session_id < current_session {
+            if response.task_assignment.session_id < current_session {
                 tracing::warn!(
-                    bundle_session = response.session_id,
+                    bundle_session = response.task_assignment.session_id,
                     current_session,
                     job_id = ? response.task_assignment.job_id,
                     task_id = ? response.task_assignment.task_id,
@@ -320,9 +320,9 @@ impl<
                 self.mark_consume(&response);
                 continue;
             }
-            if response.session_id > current_session {
+            if response.task_assignment.session_id > current_session {
                 tracing::info!(
-                    new_session = response.session_id,
+                    new_session = response.task_assignment.session_id,
                     "Observed a newer session via the scheduler. Refreshing liveness."
                 );
                 self.liveness_handle.refresh().await;
@@ -355,9 +355,9 @@ impl<
                 })?;
 
             let current_session = self.session_tracker.current();
-            if response.session_id < current_session {
+            if response.task_assignment.session_id < current_session {
                 tracing::warn!(
-                    bundle_session = response.session_id,
+                    bundle_session = response.task_assignment.session_id,
                     current_session,
                     job_id = ? response.task_assignment.job_id,
                     task_id = ? response.task_assignment.task_id,
@@ -375,7 +375,7 @@ impl<
                     job: response.task_assignment.job_id,
                     task: response.task_assignment.task_id,
                     task_instance_id,
-                    session: response.session_id,
+                    session: response.task_assignment.session_id,
                 },
                 outcome,
             ));
@@ -413,7 +413,7 @@ impl<
                 response.task_assignment.job_id,
                 response.task_assignment.task_id,
                 self.em_id,
-                response.session_id,
+                response.task_assignment.session_id,
             ) => result,
         };
 
@@ -425,7 +425,7 @@ impl<
             Err(err) => match &err {
                 StorageResponseError::StaleSession(message) => {
                     tracing::warn!(
-                        bundle_session = response.session_id,
+                        bundle_session = response.task_assignment.session_id,
                         error = % message,
                         job_id = ? response.task_assignment.job_id,
                         task_id = ? response.task_assignment.task_id,

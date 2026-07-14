@@ -9,6 +9,7 @@ use spider_core::types::id::TaskAssignmentId;
 use crate::dispatch_queue::DispatchQueueSink;
 use crate::error::SchedulerError;
 use crate::storage_client::SchedulerStorageClient;
+use crate::types::TaskAssignment;
 
 /// Single-source ID issuer for creating globally unique IDs for task assignments.
 pub struct TaskAssignmentIdIssuer {
@@ -63,6 +64,8 @@ pub trait SchedulerCore: Send {
     /// * `storage_client` - The storage client used to poll the inbound queue and read state for
     ///   placement.
     /// * `sink` - The dispatch sink that assignments are written to.
+    /// * `reschedule_queue_reader` - The reader side of the re-schedule queue, delivering task
+    ///   assignments returned for re-placement when an execution manager is lost.
     /// * `id_issuer` - The single-source ID issuer for creating globally unique IDs for task
     ///   assignments.
     /// * `cancellation_token` - The token to signal the scheduling loop to stop.
@@ -74,6 +77,7 @@ pub trait SchedulerCore: Send {
         self: Box<Self>,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
+        reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: tokio_util::sync::CancellationToken,
     ) -> Result<(), SchedulerError>;

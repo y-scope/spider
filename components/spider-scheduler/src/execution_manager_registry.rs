@@ -354,6 +354,7 @@ mod tests {
 
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::SessionId;
     use spider_core::types::id::TaskId;
     use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::mpsc::{self};
@@ -436,6 +437,7 @@ mod tests {
             resource_group_id: ResourceGroupId::random(),
             job_id: JobId::random(),
             task_id: TaskId::Index(0),
+            session_id: SessionId::default(),
         }
     }
 
