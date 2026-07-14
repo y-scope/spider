@@ -2026,6 +2026,7 @@ dependencies = [
  "async-trait",
  "clap",
  "dashmap",
+ "rand 0.9.4",
  "serde",
  "spider-core",
  "spider-proto-rust",

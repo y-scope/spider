@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::SchedulerId;
-use spider_core::types::id::SessionId;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 
 use crate::dispatch_queue::DispatchQueueSource;
@@ -71,9 +70,8 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
     ///
     /// # Returns
     ///
-    /// * A tuple on success, containing:
-    ///   * The storage session the dispatch queue paired with the assignment.
-    ///   * The task assignment handed to the execution manager.
+    /// * The task assignment handed to the execution manager on success, whose `session_id` carries
+    ///   the storage session.
     /// * `None` if no assignment becomes available within `wait_time`.
     ///
     /// # Errors
@@ -86,7 +84,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
         em_id: ExecutionManagerId,
         prev_assignment: Option<TaskAssignmentRecord>,
         wait_time: Duration,
-    ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerServiceError> {
+    ) -> Result<Option<TaskAssignment>, SchedulerServiceError> {
         if let Some(prev) = prev_assignment {
             // The previous assignment is handled in a fire-and-forget task. Errors are ignored but
             // logged for observability purposes.
@@ -106,7 +104,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
                 );
                 Ok(None)
             }
-            Some((session_id, assignment)) => {
+            Some(assignment) => {
                 tracing::info!(
                     scheduler_id = % self.scheduler_id(),
                     em_id = % em_id,
@@ -116,7 +114,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
                     "Task dispatched to execution manager."
                 );
                 self.inner.registry.assign(em_id, assignment).await;
-                Ok(Some((session_id, assignment)))
+                Ok(Some(assignment))
             }
         }
     }
@@ -285,7 +283,7 @@ mod tests {
         async fn dequeue(
             &self,
             _wait_time: Duration,
-        ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerError> {
+        ) -> Result<Option<TaskAssignment>, SchedulerError> {
             // Atomically claim one slot: return None once the counter is exhausted, otherwise
             // decrement and synthesize a fresh assignment.
             let mut current = self.remaining.load(Ordering::Relaxed);
@@ -299,7 +297,7 @@ mod tests {
                     Ordering::Relaxed,
                     Ordering::Relaxed,
                 ) {
-                    Ok(_) => return Ok(Some((SESSION_ID, make_assignment()))),
+                    Ok(_) => return Ok(Some(make_assignment())),
                     Err(actual) => current = actual,
                 }
             }
@@ -319,6 +317,7 @@ mod tests {
             resource_group_id: ResourceGroupId::from(0),
             job_id: JobId::from(0),
             task_id: TaskId::Index(0),
+            session_id: SESSION_ID,
         }
     }
 
@@ -406,11 +405,11 @@ mod tests {
 
         assert_eq!(service.scheduler_id(), SchedulerId::from(SCHEDULER_ID));
 
-        let (session_id, assignment) = service
+        let assignment = service
             .next_task(em_id, None, Duration::from_millis(1))
             .await?
             .expect("an assignment should be dequeued");
-        assert_eq!(session_id, SESSION_ID);
+        assert_eq!(assignment.session_id, SESSION_ID);
 
         // The assignment was recorded against the execution manager, so shutting it down without
         // acknowledging the assignment reschedules it.
@@ -444,15 +443,15 @@ mod tests {
         let (service, mut reschedule_queue_receiver, _cancellation_token) = build_service(3);
         let em_id = ExecutionManagerId::from(EM_ID);
 
-        let (_, assignment_a) = service
+        let assignment_a = service
             .next_task(em_id, None, Duration::from_millis(1))
             .await?
             .expect("the first assignment should be dequeued");
-        let (_, assignment_b) = service
+        let assignment_b = service
             .next_task(em_id, None, Duration::from_millis(1))
             .await?
             .expect("the second assignment should be dequeued");
-        let (_, assignment_c) = service
+        let assignment_c = service
             .next_task(em_id, None, Duration::from_millis(1))
             .await?
             .expect("the third assignment should be dequeued");

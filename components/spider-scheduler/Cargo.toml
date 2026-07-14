@@ -22,7 +22,7 @@ spider-utils = { path = "../spider-utils" }
 thiserror = "2.0.18"
 tokio = {
   version = "1.52.3",
-  features = ["macros", "rt-multi-thread", "signal", "sync", "time"]
+  features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"]
 }
 tokio-util = "0.7.18"
 tonic = "0.14.6"
@@ -31,5 +31,6 @@ tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 [dev-dependencies]
 anyhow = "1.0.102"
 dashmap = "6.1.0"
+rand = "0.9.1"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }

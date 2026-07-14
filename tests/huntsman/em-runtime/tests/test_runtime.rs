@@ -60,9 +60,9 @@ fn assignment_with_session(session_id: u64) -> SchedulerResponse {
             resource_group_id: ResourceGroupId::random(),
             job_id: JobId::random(),
             task_id: TaskId::Index(0),
+            session_id,
         },
         scheduler_id: SchedulerId::random(),
-        session_id,
     }
 }
 

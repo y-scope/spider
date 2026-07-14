@@ -12,8 +12,10 @@ use spider_scheduler::create_runtime;
 use spider_scheduler::grpc::GrpcSchedulerService;
 use spider_utils::config::YamlConfig;
 use spider_utils::logging::set_up_logging;
+use tokio::net::TcpListener;
 use tokio::select;
 use tonic::transport::Server;
+use tonic::transport::server::TcpIncoming;
 
 /// Command-line arguments for the scheduler gRPC server.
 #[derive(Debug, Parser)]
@@ -52,9 +54,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let grpc_service = GrpcSchedulerService::new(service, cancellation_token.clone());
     tracing::info!(listen_addr = % listen_addr, "Starting scheduler gRPC server.");
 
+    let listener = TcpListener::bind(listen_addr).await.inspect_err(
+        |error| tracing::error!(error = % error, "Failed to bind scheduler listen address."),
+    )?;
+    let incoming = TcpIncoming::from(listener);
+
     Server::builder()
         .add_service(SchedulerServiceServer::new(grpc_service))
-        .serve_with_shutdown(listen_addr, async move {
+        .serve_with_incoming_shutdown(incoming, async move {
             select! {
                 () = cancellation_token.cancelled() => {
                     tracing::info!("Shutting down scheduler gRPC server.");
