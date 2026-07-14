@@ -114,6 +114,7 @@ impl<
         self: Box<Self>,
         storage_client: Self::StorageClient,
         sink: Self::Sink,
+        reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
     ) -> Result<(), SchedulerError> {
@@ -121,6 +122,7 @@ impl<
             SessionId::default(),
             storage_client,
             sink,
+            reschedule_queue_reader,
             id_issuer,
             cancellation_token,
             self.config,
@@ -202,6 +204,7 @@ pub(super) struct RoundRobin<
     pub(super) finalizing_job_queue: VecDeque<(JobId, Instant)>,
 
     pub(super) inbound_queue_reader: AsyncInboundQueueReader<SchedulerStorageClientType>,
+    pub(super) reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
 }
 
 impl<
@@ -220,6 +223,7 @@ impl<
         storage_session_id: SessionId,
         storage_client: SchedulerStorageClientType,
         sink: DispatchQueueSinkType,
+        reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
         config: RoundRobinConfig,
@@ -254,21 +258,25 @@ impl<
             finalizing_jobs,
             finalizing_job_queue,
             inbound_queue_reader,
+            reschedule_queue_reader,
         }
     }
 
-    /// Executes a single scheduling tick: consumes any completed inbound poll, then makes
-    /// scheduling decisions to fill the dispatch queue.
+    /// Executes a single scheduling tick: consumes any completed inbound poll, re-injects
+    /// assignments returned by lost execution managers, then makes scheduling decisions to fill the
+    /// dispatch queue.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * Forwards [`Self::consume_inbound_poll_result`]'s return values on failure.
+    /// * Forwards [`Self::reschedule`]'s return values on failure.
     /// * Forwards [`Self::make_schedule_decisions`]'s return values on failure.
     pub(super) async fn tick(&mut self) -> Result<(), SchedulerError> {
         tracing::info!("Starting scheduling tick.");
         self.consume_inbound_poll_result().await?;
+        self.reschedule()?;
         self.make_schedule_decisions().await?;
         self.retire_expired_finalizing_jobs();
         Ok(())
@@ -477,6 +485,78 @@ impl<
             self.storage_session_id = storage_session_id;
             self.clear();
             self.sink.bump_session_id(storage_session_id).await?;
+        }
+
+        // Load commit-ready tasks and cleanup-ready tasks first to avoid loading a job that is
+        // already finalizing.
+        self.enqueue_commit_ready_entries(commit_ready_entries)?;
+        self.enqueue_cleanup_ready_entries(cleanup_ready_entries)?;
+        self.enqueue_ready_entries(ready_entries);
+
+        Ok(())
+    }
+
+    /// Re-injects assignments recovered from lost execution managers into the scheduler.
+    ///
+    /// The assignments are grouped by task kind and processed through the same
+    /// commit-ready, cleanup-ready, and ready paths as inbound entries. This ensures that
+    /// finalization semantics and buffered-task deduplication are applied consistently.
+    ///
+    /// Rescheduled assignments are enqueued without respecting the internal buffer's capacity
+    /// limit. As a result, the buffer may temporarily contain more assignments than its configured
+    /// capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`SchedulerError::Internal`] if the re-schedule queue reader fails to receive a buffered
+    ///   assignment.
+    /// * Forwards [`Self::enqueue_commit_ready_entries`]'s return values on failure.
+    /// * Forwards [`Self::enqueue_cleanup_ready_entries`]'s return values on failure.
+    fn reschedule(&mut self) -> Result<(), SchedulerError> {
+        if self.reschedule_queue_reader.is_empty() {
+            return Ok(());
+        }
+
+        // Snapshot the size so assignments pushed concurrently during the drain are deferred to the
+        // next tick instead of extending this loop unboundedly.
+        let mut reschedule_queue_size = self.reschedule_queue_reader.len();
+        let mut ready_entries = Vec::new();
+        let mut commit_ready_entries = Vec::new();
+        let mut cleanup_ready_entries = Vec::new();
+        while reschedule_queue_size > 0 {
+            let assignment = self.reschedule_queue_reader.try_recv().map_err(|e| {
+                tracing::error!(
+                    err = % e,
+                    "Reschedule queue reader failed to receive a message."
+                );
+                SchedulerError::Internal(
+                    "reschedule queue reader failed to receive a message".to_string(),
+                )
+            })?;
+            reschedule_queue_size -= 1;
+
+            if assignment.session_id < self.storage_session_id {
+                continue;
+            }
+
+            let entry = InboundEntry {
+                resource_group_id: assignment.resource_group_id,
+                job_id: assignment.job_id,
+                task_id: assignment.task_id,
+            };
+            match &assignment.task_id {
+                TaskId::Index(_) => {
+                    ready_entries.push(entry);
+                }
+                TaskId::Commit => {
+                    commit_ready_entries.push(entry);
+                }
+                TaskId::Cleanup => {
+                    cleanup_ready_entries.push(entry);
+                }
+            }
         }
 
         // Load commit-ready tasks and cleanup-ready tasks first to avoid loading a job that is
@@ -732,6 +812,7 @@ impl<
                             job_id,
                             resource_group_id,
                             task_id: TaskId::Cleanup,
+                            session_id: self.storage_session_id,
                         })
                         .await?;
                     self.buffered_tasks.remove(&(job_id, TaskId::Cleanup));
@@ -752,6 +833,7 @@ impl<
                                 job_id,
                                 resource_group_id,
                                 task_id: TaskId::Commit,
+                                session_id: self.storage_session_id,
                             })
                             .await?;
                         self.buffered_tasks.remove(&(job_id, TaskId::Commit));
@@ -771,6 +853,7 @@ impl<
                                 job_id,
                                 resource_group_id: job_entry.resource_group_id,
                                 task_id,
+                                session_id: self.storage_session_id,
                             })
                             .await?;
                         self.buffered_tasks.remove(&(job_id, task_id));
@@ -800,6 +883,8 @@ impl<
     ///
     /// * Forwards [`AsyncInboundQueueReader::start`]'s return values on failure.
     fn start_inbound_poll(&mut self) -> Result<(), SchedulerError> {
+        // The reschedule path can load the ready buffers beyond their configured capacity, so
+        // `saturating_sub` floors the remaining poll budget at zero instead of underflowing.
         let num_commit_ready_tasks = self.commit_ready_jobs.len();
         let num_cleanup_ready_tasks = self.cleanup_ready_jobs.len();
         let max_commit_ready_entries = self

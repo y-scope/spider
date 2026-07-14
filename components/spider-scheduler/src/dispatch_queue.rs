@@ -59,21 +59,15 @@ pub trait DispatchQueueSource: Send + Sync + Clone {
     ///
     /// # Returns
     ///
-    /// `None` if no task assignment is available within the specified wait time, or a tuple
-    /// containing:
-    ///
-    /// * The storage session associated with the assignment.
-    /// * The next task assignment ready to execute.
+    /// * The next task assignment ready to execute, whose `session_id` carries the storage session.
+    /// * `None` if no task assignment is available within the specified wait time.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
-    async fn dequeue(
-        &self,
-        wait_time: Duration,
-    ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerError>;
+    async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError>;
 }
 
 /// A cloneable writer handle for the dispatching queue, implementing [`DispatchQueueSink`] using
@@ -128,16 +122,13 @@ pub struct DispatchQueueReader {
 
 #[async_trait]
 impl DispatchQueueSource for DispatchQueueReader {
-    async fn dequeue(
-        &self,
-        wait_time: Duration,
-    ) -> Result<Option<(SessionId, TaskAssignment)>, SchedulerError> {
+    async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError> {
         // Lock session ID for the entire duration of the dequeue operation to exclude any
         // `bump_session_id` operations.
-        let session_id_guard = self.inner.session_id.read().await;
+        let _session_id_guard = self.inner.session_id.read().await;
 
         if let Ok(assignment) = self.inner.assignment_receiver.try_recv() {
-            return Ok(Some((*session_id_guard, assignment)));
+            return Ok(Some(assignment));
         }
 
         if wait_time.is_zero() {
@@ -145,7 +136,7 @@ impl DispatchQueueSource for DispatchQueueReader {
         }
 
         match tokio::time::timeout(wait_time, self.inner.assignment_receiver.recv()).await {
-            Ok(Ok(assignment)) => Ok(Some((*session_id_guard, assignment))),
+            Ok(Ok(assignment)) => Ok(Some(assignment)),
             Ok(Err(_)) => Err(SchedulerError::DispatchQueueClosed),
             Err(_) => Ok(None),
         }
@@ -233,19 +224,21 @@ mod tests {
     ///
     /// Forwards [`make_assignment_with_task_id`]'s return values with `task_id` set with
     /// [`next_task_id`]'s return value.
-    fn make_assignment() -> TaskAssignment {
-        make_assignment_with_task_id(next_task_id())
+    fn make_assignment(session_id: SessionId) -> TaskAssignment {
+        make_assignment_with_task_id(next_task_id(), session_id)
     }
 
     /// # Returns
     ///
-    /// A new [`TaskAssignment`] with the given `task_id` and other ID fields are auto-generated.
-    fn make_assignment_with_task_id(task_id: TaskId) -> TaskAssignment {
+    /// A new [`TaskAssignment`] with the given `task_id` and `session_id`; other ID fields are
+    /// auto-generated.
+    fn make_assignment_with_task_id(task_id: TaskId, session_id: SessionId) -> TaskAssignment {
         TaskAssignment {
             id: TaskAssignmentId::random(),
             resource_group_id: ResourceGroupId::random(),
             job_id: JobId::random(),
             task_id,
+            session_id,
         }
     }
 
@@ -318,7 +311,7 @@ mod tests {
                     let id = next_task_id();
                     tagged_for_writer.insert(id, current_session);
                     writer
-                        .enqueue(make_assignment_with_task_id(id))
+                        .enqueue(make_assignment_with_task_id(id, current_session))
                         .await
                         .expect("enqueue failed");
                 }
@@ -334,7 +327,7 @@ mod tests {
                 let id = next_task_id();
                 tagged_for_writer.insert(id, current_session);
                 writer
-                    .enqueue(make_assignment_with_task_id(id))
+                    .enqueue(make_assignment_with_task_id(id, current_session))
                     .await
                     .expect("enqueue failed");
             }
@@ -351,9 +344,9 @@ mod tests {
             tracker.spawn(async move {
                 loop {
                     match r.dequeue(Duration::from_millis(500)).await {
-                        Ok(Some((session, assignment))) => {
+                        Ok(Some(assignment)) => {
                             if delivered_for_reader
-                                .insert(assignment.task_id, session)
+                                .insert(assignment.task_id, assignment.session_id)
                                 .is_some()
                             {
                                 duplicates_for_reader.insert(assignment.task_id);
@@ -401,15 +394,15 @@ mod tests {
     async fn sanity_round_trip_and_initial_session() -> Result<()> {
         const SESSION_ID: SessionId = 1;
         let (writer, reader) = create_dispatch_queue(8, SESSION_ID);
-        let assignment = make_assignment();
+        let assignment = make_assignment(SESSION_ID);
 
         writer.enqueue(assignment).await?;
 
-        let (session, received) = reader
+        let received = reader
             .dequeue(Duration::from_millis(1))
             .await?
             .expect("expected an assignment");
-        assert_eq!(session, SESSION_ID);
+        assert_eq!(received.session_id, SESSION_ID);
         assert_eq!(received, assignment);
         Ok(())
     }
@@ -425,7 +418,7 @@ mod tests {
 
         for _ in 0..N {
             writer
-                .enqueue(make_assignment())
+                .enqueue(make_assignment(1))
                 .await
                 .expect("enqueue failed");
         }
@@ -450,7 +443,7 @@ mod tests {
 
         for _ in 0..N {
             writer
-                .enqueue(make_assignment())
+                .enqueue(make_assignment(1))
                 .await
                 .expect("enqueue failed");
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -498,21 +491,21 @@ mod tests {
 
         let (writer, reader) = create_dispatch_queue(8, SESSION_ID);
         writer.bump_session_id(NEW_SESSION_ID).await?;
-        writer.enqueue(make_assignment()).await?;
+        writer.enqueue(make_assignment(NEW_SESSION_ID)).await?;
 
-        let (session, _) = reader
+        let received = reader
             .dequeue(Duration::from_secs(1))
             .await?
             .expect("expected an assignment");
-        assert_eq!(session, NEW_SESSION_ID);
+        assert_eq!(received.session_id, NEW_SESSION_ID);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn pre_bump_items_not_delivered() -> Result<()> {
         let (writer, reader) = create_dispatch_queue(8, 1);
-        writer.enqueue(make_assignment()).await?;
-        writer.enqueue(make_assignment()).await?;
+        writer.enqueue(make_assignment(1)).await?;
+        writer.enqueue(make_assignment(1)).await?;
         writer.bump_session_id(2).await?;
 
         let result = reader.dequeue(Duration::from_millis(100)).await?;
@@ -524,14 +517,14 @@ mod tests {
     async fn post_bump_items_paired_with_new_session() -> Result<()> {
         let (writer, reader) = create_dispatch_queue(8, 1);
         writer.bump_session_id(2).await?;
-        let assignment = make_assignment();
+        let assignment = make_assignment(2);
         writer.enqueue(assignment).await?;
 
-        let (session, received) = reader
+        let received = reader
             .dequeue(Duration::from_secs(1))
             .await?
             .expect("expected an assignment");
-        assert_eq!(session, 2);
+        assert_eq!(received.session_id, 2);
         assert_eq!(received, assignment);
         Ok(())
     }
@@ -553,21 +546,21 @@ mod tests {
             "expected InvalidSessionId(2), got {smaller:?}",
         );
 
-        writer.enqueue(make_assignment()).await?;
-        let (session, _) = reader
+        writer.enqueue(make_assignment(3)).await?;
+        let received = reader
             .dequeue(Duration::from_secs(1))
             .await?
             .expect("expected an assignment");
-        assert_eq!(session, 3);
+        assert_eq!(received.session_id, 3);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn size_zero_after_bump() -> Result<()> {
         let (writer, _reader) = create_dispatch_queue(8, 1);
-        writer.enqueue(make_assignment()).await?;
-        writer.enqueue(make_assignment()).await?;
-        writer.enqueue(make_assignment()).await?;
+        writer.enqueue(make_assignment(1)).await?;
+        writer.enqueue(make_assignment(1)).await?;
+        writer.enqueue(make_assignment(1)).await?;
         assert_eq!(writer.size(), 3);
 
         writer.bump_session_id(2).await?;
@@ -592,7 +585,7 @@ mod tests {
         let writer_handle = tokio::spawn(async move {
             for &id in &pre_bump_for_writer {
                 writer
-                    .enqueue(make_assignment_with_task_id(id))
+                    .enqueue(make_assignment_with_task_id(id, INIT_SESSION))
                     .await
                     .expect("enqueue failed");
             }
@@ -608,7 +601,7 @@ mod tests {
 
             for &id in &post_bump_for_writer {
                 writer
-                    .enqueue(make_assignment_with_task_id(id))
+                    .enqueue(make_assignment_with_task_id(id, MID_SESSION))
                     .await
                     .expect("enqueue failed");
             }
@@ -621,7 +614,7 @@ mod tests {
                 .expect("bump to final session failed");
 
             writer
-                .enqueue(make_assignment_with_task_id(final_id))
+                .enqueue(make_assignment_with_task_id(final_id, FINAL_SESSION))
                 .await
                 .expect("enqueue failed");
             drop(writer);
@@ -630,8 +623,8 @@ mod tests {
         let mut delivered: HashMap<TaskId, SessionId> = HashMap::new();
         loop {
             match reader.dequeue(Duration::from_millis(100)).await {
-                Ok(Some((session, assignment))) => {
-                    let prior = delivered.insert(assignment.task_id, session);
+                Ok(Some(assignment)) => {
+                    let prior = delivered.insert(assignment.task_id, assignment.session_id);
                     assert_eq!(
                         prior, None,
                         "duplicate delivery for {:?}",

@@ -46,9 +46,9 @@ impl TryFrom<NextTaskResponse> for Option<SchedulerResponse> {
                         resource_group_id: ResourceGroupId::from(assignment.resource_group_id),
                         job_id: JobId::from(assignment.job_id),
                         task_id,
+                        session_id: assignment.session_id,
                     },
                     scheduler_id: SchedulerId::from(assignment.scheduler_id),
-                    session_id: assignment.session_id,
                 }))
             }
             Some(next_task_response::Result::NoTask(common::Void {})) => Ok(None),
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(scheduler_response.task_assignment.job_id, JobId::from(3));
         assert_eq!(scheduler_response.task_assignment.task_id, TaskId::Index(7));
         assert_eq!(scheduler_response.scheduler_id, SchedulerId::from(4));
-        assert_eq!(scheduler_response.session_id, 5);
+        assert_eq!(scheduler_response.task_assignment.session_id, 5);
     }
 
     #[test]
