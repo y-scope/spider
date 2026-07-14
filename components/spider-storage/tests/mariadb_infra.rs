@@ -1,6 +1,7 @@
 use secrecy::SecretString;
 use spider_core::types::id::ResourceGroupId;
 use spider_storage::DatabaseConfig;
+use spider_storage::DatabaseCredentials;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
 
@@ -47,9 +48,11 @@ pub fn create_mariadb_config() -> DatabaseConfig {
         host: "localhost".to_string(),
         port,
         name: database,
-        username,
-        password: SecretString::from(password),
         max_connections: 5,
+        credentials: DatabaseCredentials {
+            username,
+            password: SecretString::from(password),
+        },
     }
 }
 

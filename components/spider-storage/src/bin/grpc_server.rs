@@ -12,6 +12,7 @@ use spider_proto_rust::storage::ResourceGroupManagementServiceServer;
 use spider_proto_rust::storage::SchedulerRegistrationServiceServer;
 use spider_proto_rust::storage::SessionManagementServiceServer;
 use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
+use spider_storage::DatabaseCredentials;
 use spider_storage::ServerConfig;
 use spider_storage::grpc::GrpcServiceState;
 use spider_storage::state::runtime::create_runtime;
@@ -35,7 +36,8 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let _log_guard = set_up_logging();
     let cli = Cli::parse();
-    let server_config = ServerConfig::from_yaml_file(&cli.config)?;
+    let mut server_config = ServerConfig::from_yaml_file(&cli.config)?;
+    server_config.runtime.db_config.credentials = DatabaseCredentials::from_env()?;
     let listen_addr = SocketAddr::new(server_config.host, server_config.port);
     let (runtime, cancellation_token) = create_runtime(&server_config.runtime).await?;
     let grpc_service =
