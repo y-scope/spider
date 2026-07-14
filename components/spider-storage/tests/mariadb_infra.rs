@@ -1,4 +1,3 @@
-use secrecy::SecretString;
 use spider_core::types::id::ResourceGroupId;
 use spider_storage::DatabaseConfig;
 use spider_storage::DatabaseCredentials;
@@ -14,7 +13,8 @@ use spider_storage::db::ResourceGroupManagement;
 /// # Panics
 ///
 /// Panics if any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`,
-/// `MARIADB_USERNAME`, `MARIADB_PASSWORD`) is missing or if the connection fails.
+/// `SPIDER_STORAGE_DB_USERNAME`, `SPIDER_STORAGE_DB_PASSWORD`) is missing or if the connection
+/// fails.
 pub async fn create_mariadb_connector() -> MariaDbStorageConnector {
     MariaDbStorageConnector::connect(&create_mariadb_config())
         .await
@@ -31,8 +31,8 @@ pub async fn create_mariadb_connector() -> MariaDbStorageConnector {
 ///
 /// Panics if:
 ///
-/// * Any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`, `MARIADB_USERNAME`, or
-///   `MARIADB_PASSWORD`) is missing.
+/// * Any required environment variable (`MARIADB_PORT`, `MARIADB_DATABASE`,
+///   `SPIDER_STORAGE_DB_USERNAME`, or `SPIDER_STORAGE_DB_PASSWORD`) is missing.
 /// * The value of `MARIADB_PORT` is invalid.
 #[must_use]
 pub fn create_mariadb_config() -> DatabaseConfig {
@@ -41,18 +41,13 @@ pub fn create_mariadb_config() -> DatabaseConfig {
         .parse()
         .expect("valid port");
     let database = std::env::var("MARIADB_DATABASE").expect("MARIADB_DATABASE");
-    let username = std::env::var("MARIADB_USERNAME").expect("MARIADB_USERNAME");
-    let password = std::env::var("MARIADB_PASSWORD").expect("MARIADB_PASSWORD");
 
     DatabaseConfig {
         host: "localhost".to_string(),
         port,
         name: database,
         max_connections: 5,
-        credentials: DatabaseCredentials {
-            username,
-            password: SecretString::from(password),
-        },
+        credentials: DatabaseCredentials::from_env().expect("database credentials"),
     }
 }
 

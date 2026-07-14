@@ -120,8 +120,8 @@ tasks:
   # parameters for database connection:
   # - MARIADB_PORT
   # - MARIADB_DATABASE
-  # - MARIADB_USERNAME
-  # - MARIADB_PASSWORD
+  # - SPIDER_STORAGE_DB_USERNAME
+  # - SPIDER_STORAGE_DB_PASSWORD
   huntsman-mariadb-storage-task-executor:
     internal: true
     vars:
@@ -148,8 +148,8 @@ tasks:
         vars:
           MARIADB_PORT: "{{.MARIADB_PORT}}"
           MARIADB_DATABASE: "{{.G_MARIADB_DATABASE}}"
-          MARIADB_USERNAME: "{{.G_MARIADB_USERNAME}}"
-          MARIADB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
+          SPIDER_STORAGE_DB_USERNAME: "{{.G_MARIADB_USERNAME}}"
+          SPIDER_STORAGE_DB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
 
   # Internal task that runs all spider-py's unit tests.
   #
@@ -220,15 +220,15 @@ tasks:
     env:
       MARIADB_PORT: "{{.MARIADB_PORT}}"
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
-      MARIADB_USERNAME: "{{.MARIADB_USERNAME}}"
-      MARIADB_PASSWORD: "{{.MARIADB_PASSWORD}}"
+      SPIDER_STORAGE_DB_USERNAME: "{{.SPIDER_STORAGE_DB_USERNAME}}"
+      SPIDER_STORAGE_DB_PASSWORD: "{{.SPIDER_STORAGE_DB_PASSWORD}}"
       SPIDER_TDL_PACKAGE_COMPLEX: "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
       SPIDER_TDL_PACKAGE_DIR: "{{.G_TDL_PACKAGES_DIR}}"
       SPIDER_TASK_EXECUTOR_BIN: "{{.G_RUST_RELEASE_DIR}}/spider-task-executor"
       SPIDER_TEST_INSTRUMENT_OUTPUT_DIR:
         sh: "echo {{.G_BUILD_DIR}}/spider-instrument-$(uuidgen)"
     requires:
-      vars: ["MARIADB_PORT", "MARIADB_DATABASE", "MARIADB_USERNAME", "MARIADB_PASSWORD"]
+      vars: ["MARIADB_PORT", "MARIADB_DATABASE", "SPIDER_STORAGE_DB_USERNAME", "SPIDER_STORAGE_DB_PASSWORD"]
     dir: "{{.ROOT_DIR}}"
     deps: ["toolchains:rust"]
     cmds:

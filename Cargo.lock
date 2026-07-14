@@ -2051,6 +2051,7 @@ dependencies = [
  "rand 0.9.4",
  "secrecy",
  "serde",
+ "serde_json",
  "serial_test",
  "spider-core",
  "spider-derive",
