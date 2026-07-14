@@ -74,18 +74,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Creates a container image reference from `.Values.image.<component>`.
+Creates a container image reference from .Values.image.
 
-The tag defaults to the chart's appVersion when the component omits it.
+Renders repository@digest when "digest" is set; otherwise, requires "tag" and renders repository:tag.
 
 @param {object} root Root template context (required)
-@param {string} component Key under `.Values.image` (e.g. "storage", "database")
-@return {string} Full image reference (repository:tag)
+@param {string} component Key under .Values.image (e.g., "storage", "database")
+@return {string} Full image reference (repository@digest or repository:tag)
 */}}
 {{- define "spider.imageRef" -}}
 {{- $img := index .root.Values.image .component -}}
-{{- $tag := $img.tag | default .root.Chart.AppVersion -}}
+{{- if $img.digest -}}
+{{- printf "%s@%s" $img.repository $img.digest -}}
+{{- else -}}
+{{- $tag := required (printf "image.%s.tag is required" .component) $img.tag -}}
 {{- printf "%s:%s" $img.repository $tag -}}
+{{- end -}}
 {{- end }}
 
 {{/*
