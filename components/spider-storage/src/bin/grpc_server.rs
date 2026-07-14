@@ -17,8 +17,10 @@ use spider_storage::grpc::GrpcServiceState;
 use spider_storage::state::runtime::create_runtime;
 use spider_utils::config::YamlConfig;
 use spider_utils::logging::set_up_logging;
+use tokio::net::TcpListener;
 use tokio::select;
 use tonic::transport::Server;
+use tonic::transport::server::TcpIncoming;
 
 /// Command-line arguments for the storage gRPC server.
 #[derive(Debug, Parser)]
@@ -40,6 +42,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         GrpcServiceState::new(runtime.get_service_state(), cancellation_token.clone());
     tracing::info!(listen_addr = % listen_addr, "Starting storage gRPC server.");
 
+    let listener = TcpListener::bind(listen_addr).await.inspect_err(
+        |error| tracing::error!(error = % error, "Failed to bind storage listen address."),
+    )?;
+    let incoming = TcpIncoming::from(listener);
+
     let serve_result = Server::builder()
         .add_service(JobOrchestrationServiceServer::new(grpc_service.clone()))
         .add_service(TaskInstanceManagementServiceServer::new(
@@ -56,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             grpc_service.clone(),
         ))
         .add_service(SessionManagementServiceServer::new(grpc_service))
-        .serve_with_shutdown(listen_addr, async move {
+        .serve_with_incoming_shutdown(incoming, async move {
             select! {
                 () = cancellation_token.cancelled() => {
                     tracing::info!("Shutting down storage gRPC server.");
