@@ -56,6 +56,7 @@ impl Config {
             executor_binary_path: self.task_executor.bin_path.clone(),
             package_dir: self.task_executor.package_dir.clone(),
             log_dir: self.task_executor.log_dir.clone(),
+            inherited_env: self.task_executor.inherited_env.clone(),
         }
     }
 }
@@ -83,4 +84,10 @@ pub struct TaskExecutorConfig {
 
     /// Directory the process pool writes per-executor stderr logs into.
     pub log_dir: PathBuf,
+
+    /// Names of environment variables forwarded from the execution manager's process into each
+    /// spawned `spider-task-executor`. Their values are read from this process's environment at
+    /// spawn time.
+    #[serde(default)]
+    pub inherited_env: Vec<String>,
 }

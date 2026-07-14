@@ -63,6 +63,7 @@ fn build_pool() -> ProcessPool {
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
         log_dir,
+        inherited_env: Vec::new(),
     };
     ProcessPool::new(config).expect("construct pool")
 }
@@ -95,7 +96,7 @@ fn make_request(task_func: &str, inputs: Vec<TaskInput>) -> ExecuteRequest {
                 soft_timeout_ms: 100,
                 hard_timeout_ms: 1000,
             },
-            serialized_inputs: serializer.release(),
+            serialized_task_io: serializer.release(),
         },
     }
 }

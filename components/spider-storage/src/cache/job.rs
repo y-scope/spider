@@ -13,6 +13,7 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskOutput;
 use tokio::sync::RwLockReadGuard;
 use tokio::sync::RwLockWriteGuard;
@@ -219,20 +220,11 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`].
-    /// * [`InternalError::TaskInputNotReady`] if any output has no value.
+    /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, CacheError> {
         let jcb = &self.inner;
         let job = jcb.job_execution_state.read_succeeded().await?;
-        let mut outputs = Vec::new();
-        for output_reader in job.task_graph.get_outputs() {
-            let payload = output_reader
-                .read()
-                .await
-                .as_ref()
-                .ok_or(InternalError::TaskInputNotReady)?
-                .clone();
-            outputs.push(payload);
-        }
+        let outputs = job.task_graph.read_output_payloads().await?;
         drop(job);
         Ok(outputs)
     }
@@ -376,7 +368,7 @@ impl<
     /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::commit_outputs`]'s return values on failure.
-    /// * Forwards [`OutputReader::read_as_task_output`]'s return values on failure.
+    /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     /// * Forwards [`InternalJobOrchestration::commit_outputs`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
@@ -417,16 +409,7 @@ impl<
         // Release the read lock prior to acquiring a write lock for committing job outputs.
         drop(job);
         let mut job = jcb.job_execution_state.write_running().await?;
-        let mut job_outputs = Vec::new();
-        for output_reader in job.task_graph.get_outputs() {
-            let payload = output_reader
-                .read()
-                .await
-                .as_ref()
-                .ok_or(InternalError::TaskInputNotReady)?
-                .clone();
-            job_outputs.push(payload);
-        }
+        let job_outputs = job.task_graph.read_output_payloads().await?;
         let has_commit_task = job.task_graph.has_commit_task();
         job.db_connector
             .commit_outputs(jcb.id, job_outputs, has_commit_task)
@@ -720,6 +703,8 @@ impl<
     ///   failure.
     /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
     ///   on failure.
+    /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
+    /// * Forwards [`SerializedTaskOutputs::serialize_with_size_hint`]'s return values on failure.
     async fn create_commit_task_instance(
         jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         execution_manager_id: ExecutionManagerId,
@@ -747,12 +732,18 @@ impl<
             .register_termination_task_instance(commit_tcb.clone(), registration)
             .await?;
 
+        let task_graph_outputs = job.task_graph.read_output_payloads().await?;
+        let serialized_task_io =
+            SerializedTaskOutputs::serialize_with_size_hint(&task_graph_outputs)
+                .map_err(InternalError::TaskOutputs)?
+                .to_raw();
+
         drop(job);
         Ok(ExecutionContext {
             task_instance_id,
             tdl_context,
             timeout_policy,
-            serialized_inputs: Vec::new(),
+            serialized_task_io,
         })
     }
 
@@ -804,7 +795,7 @@ impl<
             task_instance_id,
             tdl_context,
             timeout_policy,
-            serialized_inputs: Vec::new(),
+            serialized_task_io: Vec::new(),
         })
     }
 }
