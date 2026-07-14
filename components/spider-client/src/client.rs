@@ -266,7 +266,8 @@ impl SpiderClientBuilder {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
+    /// * Forwards [`JobOrchestrationClient::connect`]'s return values on failure.
+    /// * Forwards [`ResourceGroupManagementClient::connect`]'s return values on failure.
     pub async fn connect(self) -> Result<SpiderClient, ClientError> {
         let (job_orchestration, resource_group) = tokio::try_join!(
             JobOrchestrationClient::connect(
