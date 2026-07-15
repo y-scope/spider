@@ -1,5 +1,6 @@
 //! An async retry helper for transient gRPC call failures.
 
+use std::error::Error;
 use std::time::Duration;
 
 use rand::Rng;
@@ -119,9 +120,19 @@ pub async fn call_with_retry<
 ///
 /// # Returns
 ///
-/// Whether `status`'s code is [`Code::Unavailable`], the only code treated as retriable.
+/// Whether `status` is retriable, which holds when its code is:
+///
+/// * [`Code::Unavailable`], the server's signal that the request may be retried; or
+/// * [`Code::Unknown`] carrying a [`tonic::transport::Error`] source, which is how tonic surfaces a
+///   client-side transport failure (such as a dropped connection) that is worth retrying.
 fn is_retriable_status(status: &Status) -> bool {
-    matches!(status.code(), Code::Unavailable)
+    match status.code() {
+        Code::Unavailable => true,
+        Code::Unknown => status
+            .source()
+            .is_some_and(|source| source.downcast_ref::<tonic::transport::Error>().is_some()),
+        _ => false,
+    }
 }
 
 /// The default number of retries allowed after the initial attempt.
