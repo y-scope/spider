@@ -1,6 +1,7 @@
 //! gRPC-related utilities.
 
 pub mod client;
+pub mod retry;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
