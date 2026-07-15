@@ -46,10 +46,14 @@ pub struct DatabaseConfig {
 
     /// The credentials used to connect to the database.
     ///
-    /// When omitted, the credentials are read from the following environment variables:
+    /// By default, Spider expects the database credentials to be supplied through the following
+    /// environment variables:
     ///
     /// * Database username: `SPIDER_STORAGE_DB_USERNAME`
     /// * Database password: `SPIDER_STORAGE_DB_PASSWORD`
+    ///
+    /// These can be overridden by explicitly supplying the `credentials` field in the
+    /// configuration file.
     #[serde(skip_serializing)]
     pub credentials: DatabaseCredentials,
 }
