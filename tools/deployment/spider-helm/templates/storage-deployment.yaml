@@ -22,6 +22,17 @@ spec:
           image: {{ include "spider.imageRef" (dict "root" . "component" "storage") | quote }}
           imagePullPolicy: {{ .Values.image.storage.pullPolicy | quote }}
           command: ["spider-storage", "--config", "/etc/spider/storage.yaml"]
+          env:
+            - name: "SPIDER_STORAGE_DB_USERNAME"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "username"
+            - name: "SPIDER_STORAGE_DB_PASSWORD"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "password"
           ports:
             - name: "grpc"
               containerPort: {{ .Values.spiderConfig.storage_endpoint.port }}
