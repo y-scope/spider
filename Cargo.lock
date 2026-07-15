@@ -2117,9 +2117,11 @@ dependencies = [
 name = "spider-utils"
 version = "0.1.0"
 dependencies = [
+ "rand 0.9.4",
  "rmp-serde",
  "serde",
  "thiserror",
+ "tokio",
  "tonic",
  "tracing-appender",
  "tracing-subscriber",

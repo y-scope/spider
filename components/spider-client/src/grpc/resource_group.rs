@@ -6,6 +6,8 @@ use spider_core::types::id::ResourceGroupId;
 use spider_proto_rust::storage::ResourceGroupManagementServiceClient;
 use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
+use spider_utils::grpc::retry::RetryConfig;
+use spider_utils::grpc::retry::call_with_retry;
 use tonic::Code;
 use tonic::Status;
 use tonic::transport::Channel;
@@ -18,6 +20,7 @@ use crate::error::to_transport_error;
 #[derive(Debug, Clone)]
 pub struct ResourceGroupManagementClient {
     connection_pool: ConnectionPool<ResourceGroupManagementServiceClient<Channel>>,
+    retry_config: RetryConfig,
 }
 
 impl ResourceGroupManagementClient {
@@ -32,14 +35,21 @@ impl ResourceGroupManagementClient {
     /// Returns an error if:
     ///
     /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
+    pub async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+        retry_config: RetryConfig,
+    ) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             ResourceGroupManagementServiceClient::new(channel)
         })
         .await
         .map_err(to_transport_error)?;
 
-        Ok(Self { connection_pool })
+        Ok(Self {
+            connection_pool,
+            retry_config,
+        })
     }
 
     /// Registers an external resource group and returns its server-assigned id.
@@ -63,13 +73,15 @@ impl ResourceGroupManagementClient {
             external_resource_group_id,
             password,
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .add_resource_group(request)
-            .await
-            .map_err(|status| resource_group_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool
+                .get_client()
+                .add_resource_group(request.clone())
+                .await
+        })
+        .await
+        .map_err(|status| resource_group_status_to_error(&status))?
+        .into_inner();
 
         Ok(ResourceGroupId::from(response.resource_group_id))
     }
@@ -95,11 +107,14 @@ impl ResourceGroupManagementClient {
             resource_group_id: resource_group_id.get(),
             password,
         };
-        self.connection_pool
-            .get_client()
-            .verify_resource_group(request)
-            .await
-            .map_err(|status| resource_group_status_to_error(&status))?;
+        call_with_retry(self.retry_config, async || {
+            self.connection_pool
+                .get_client()
+                .verify_resource_group(request.clone())
+                .await
+        })
+        .await
+        .map_err(|status| resource_group_status_to_error(&status))?;
         Ok(())
     }
 }

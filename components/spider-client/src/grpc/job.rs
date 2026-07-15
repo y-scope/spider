@@ -15,6 +15,8 @@ use spider_proto_rust::error::Error as ProtoError;
 use spider_proto_rust::storage::JobOrchestrationServiceClient;
 use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
+use spider_utils::grpc::retry::RetryConfig;
+use spider_utils::grpc::retry::call_with_retry;
 use tonic::Code;
 use tonic::Status;
 use tonic::transport::Channel;
@@ -27,6 +29,7 @@ use crate::error::to_transport_error;
 #[derive(Debug, Clone)]
 pub struct JobOrchestrationClient {
     connection_pool: ConnectionPool<JobOrchestrationServiceClient<Channel>>,
+    retry_config: RetryConfig,
 }
 
 impl JobOrchestrationClient {
@@ -41,14 +44,21 @@ impl JobOrchestrationClient {
     /// Returns an error if:
     ///
     /// * [`ClientError::Transport`] if tonic cannot create or connect to the endpoint.
-    pub async fn connect(endpoint: Endpoint, pool_size: NonZeroUsize) -> Result<Self, ClientError> {
+    pub async fn connect(
+        endpoint: Endpoint,
+        pool_size: NonZeroUsize,
+        retry_config: RetryConfig,
+    ) -> Result<Self, ClientError> {
         let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
             JobOrchestrationServiceClient::new(channel)
         })
         .await
         .map_err(to_transport_error)?;
 
-        Ok(Self { connection_pool })
+        Ok(Self {
+            connection_pool,
+            retry_config,
+        })
     }
 
     /// Serializes and zstd-compresses the task graph and inputs, registers the job, and returns
@@ -80,13 +90,15 @@ impl JobOrchestrationClient {
             compressed_serialized_task_graph,
             compressed_serialized_inputs,
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .register_job(request)
-            .await
-            .map_err(|status| job_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool
+                .get_client()
+                .register_job(request.clone())
+                .await
+        })
+        .await
+        .map_err(|status| job_status_to_error(&status))?
+        .into_inner();
 
         Ok(JobId::from(response.job_id))
     }
@@ -107,13 +119,12 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .start_job(request)
-            .await
-            .map_err(|status| job_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool.get_client().start_job(request).await
+        })
+        .await
+        .map_err(|status| job_status_to_error(&status))?
+        .into_inner();
 
         job_state_response_to_result(response)
     }
@@ -134,13 +145,12 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .cancel_job(request)
-            .await
-            .map_err(|status| job_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool.get_client().cancel_job(request).await
+        })
+        .await
+        .map_err(|status| job_status_to_error(&status))?
+        .into_inner();
 
         job_state_response_to_result(response)
     }
@@ -161,13 +171,15 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .get_job_state(request)
-            .await
-            .map_err(|status| job_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool
+                .get_client()
+                .get_job_state(request)
+                .await
+        })
+        .await
+        .map_err(|status| job_status_to_error(&status))?
+        .into_inner();
 
         job_state_response_to_result(response)
     }
@@ -190,13 +202,15 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .get_job_outputs(request)
-            .await
-            .map_err(|status| job_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool
+                .get_client()
+                .get_job_outputs(request)
+                .await
+        })
+        .await
+        .map_err(|status| job_status_to_error(&status))?
+        .into_inner();
 
         SerializedTaskOutputs::deserialize_from_raw(&response.serialized_outputs)
             .map_err(|error| ClientError::Deserialization(error.to_string()))
@@ -217,13 +231,15 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = self
-            .connection_pool
-            .get_client()
-            .get_job_error(request)
-            .await
-            .map_err(|status| job_status_to_error(&status))?
-            .into_inner();
+        let response = call_with_retry(self.retry_config, async || {
+            self.connection_pool
+                .get_client()
+                .get_job_error(request)
+                .await
+        })
+        .await
+        .map_err(|status| job_status_to_error(&status))?
+        .into_inner();
 
         Ok(response.error_message)
     }

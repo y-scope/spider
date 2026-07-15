@@ -12,3 +12,5 @@ pub mod error;
 pub(crate) mod grpc;
 
 pub use client::SpiderClient;
+pub use client::SpiderClientBuilder;
+pub use spider_utils::grpc::retry::RetryConfig;
