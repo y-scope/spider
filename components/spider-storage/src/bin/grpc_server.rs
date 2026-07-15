@@ -35,9 +35,16 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let _log_guard = set_up_logging();
     let cli = Cli::parse();
-    let server_config = ServerConfig::from_yaml_file(&cli.config)?;
+    let server_config = ServerConfig::from_yaml_file(&cli.config).inspect_err(|e| {
+        tracing::error!(error = % e, "Failed to load server configuration.");
+    })?;
     let listen_addr = SocketAddr::new(server_config.host, server_config.port);
-    let (runtime, cancellation_token) = create_runtime(&server_config.runtime).await?;
+    let (runtime, cancellation_token) =
+        create_runtime(&server_config.runtime)
+            .await
+            .inspect_err(|e| {
+                tracing::error!(error = % e, "Failed to create runtime.");
+            })?;
     let grpc_service =
         GrpcServiceState::new(runtime.get_service_state(), cancellation_token.clone());
     tracing::info!(listen_addr = % listen_addr, "Starting storage gRPC server.");
@@ -46,40 +53,59 @@ async fn main() -> Result<(), Box<dyn Error>> {
         |error| tracing::error!(error = % error, "Failed to bind storage listen address."),
     )?;
     let incoming = TcpIncoming::from(listener);
-
-    let serve_result = Server::builder()
-        .add_service(JobOrchestrationServiceServer::new(grpc_service.clone()))
-        .add_service(TaskInstanceManagementServiceServer::new(
-            grpc_service.clone(),
-        ))
-        .add_service(InboundQueueServiceServer::new(grpc_service.clone()))
-        .add_service(ResourceGroupManagementServiceServer::new(
-            grpc_service.clone(),
-        ))
-        .add_service(ExecutionManagerLivenessServiceServer::new(
-            grpc_service.clone(),
-        ))
-        .add_service(SchedulerRegistrationServiceServer::new(
-            grpc_service.clone(),
-        ))
-        .add_service(SessionManagementServiceServer::new(grpc_service))
-        .serve_with_incoming_shutdown(incoming, async move {
-            select! {
-                () = cancellation_token.cancelled() => {
-                    tracing::info!("Shutting down storage gRPC server.");
-                }
-                result = tokio::signal::ctrl_c() => {
-                    if let Err(error) = result {
-                        tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
+    let server_cancellation_token = cancellation_token.clone();
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(JobOrchestrationServiceServer::new(grpc_service.clone()))
+            .add_service(TaskInstanceManagementServiceServer::new(
+                grpc_service.clone(),
+            ))
+            .add_service(InboundQueueServiceServer::new(grpc_service.clone()))
+            .add_service(ResourceGroupManagementServiceServer::new(
+                grpc_service.clone(),
+            ))
+            .add_service(ExecutionManagerLivenessServiceServer::new(
+                grpc_service.clone(),
+            ))
+            .add_service(SchedulerRegistrationServiceServer::new(
+                grpc_service.clone(),
+            ))
+            .add_service(SessionManagementServiceServer::new(grpc_service))
+            .serve_with_incoming_shutdown(incoming, async move {
+                select! {
+                    () = server_cancellation_token.cancelled() => {
+                        tracing::info!("Shutting down storage gRPC server.");
                     }
-                    cancellation_token.cancel();
+                    result = tokio::signal::ctrl_c() => {
+                        if let Err(error) = result {
+                            tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
+                        }
+                        server_cancellation_token.cancel();
+                    }
                 }
-            }
-        })
-        .await;
+            }),
+    );
 
-    let stop_result = runtime.stop().await;
-    serve_result?;
-    stop_result?;
+    // Initialize the inbound queue by resending all ready tasks from the current cache. This must
+    // be done after the server becomes serviceable. Otherwise, the inbound queue could fill up and
+    // cause a deadlock.
+    //
+    // This operation may duplicate ready tasks for jobs submitted after the server starts but
+    // before the resend starts. This is safe because the system is designed to tolerate
+    // duplicate entries in the inbound queue.
+    let service_state = runtime.get_service_state();
+    if let Err(e) = service_state.resend_ready_tasks().await {
+        tracing::error!(error = % e, "Failed to initialize inbound queue.");
+        cancellation_token.cancel();
+    }
+
+    server
+        .await
+        .inspect_err(|e| tracing::error!(error = % e, "gRPC server panicked."))?
+        .inspect_err(|e| tracing::error!(error = % e, "gRPC server failure."))?;
+    runtime
+        .stop()
+        .await
+        .inspect_err(|e| tracing::error!(error = % e, "gRPC runtime failure."))?;
     Ok(())
 }
