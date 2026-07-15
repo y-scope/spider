@@ -6,7 +6,7 @@ image:
     repository: "ghcr.io/y-scope/spider/storage"
     pullPolicy: "Always"
     tag: "main"
-  mariadb:
+  database:
     repository: "mariadb"
     pullPolicy: "Always"
     tag: "10.11.16"

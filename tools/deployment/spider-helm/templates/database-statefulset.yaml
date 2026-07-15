@@ -21,8 +21,8 @@ spec:
     spec:
       containers:
         - name: "database"
-          image: {{ include "spider.imageRef" (dict "root" . "component" "mariadb") | quote }}
-          imagePullPolicy: {{ .Values.image.mariadb.pullPolicy | quote }}
+          image: {{ include "spider.imageRef" (dict "root" . "component" "database") | quote }}
+          imagePullPolicy: {{ .Values.image.database.pullPolicy | quote }}
           env:
             - name: "MYSQL_DATABASE"
               value: {{ .Values.spiderConfig.database.name | quote }}

@@ -79,7 +79,7 @@ Creates a container image reference from `.Values.image.<component>`.
 The tag defaults to the chart's appVersion when the component omits it.
 
 @param {object} root Root template context (required)
-@param {string} component Key under `.Values.image` (e.g. "storage", "mariadb")
+@param {string} component Key under `.Values.image` (e.g. "storage", "database")
 @return {string} Full image reference (repository:tag)
 */}}
 {{- define "spider.imageRef" -}}
@@ -113,7 +113,7 @@ failureThreshold: 3
 {{- end }}
 
 {{/*
-Gets the bundled MariaDB Service host or external `spiderConfig.database.host`.
+Gets the bundled database Service host or external `spiderConfig.database.host`.
 
 @param {object} . Root template context
 @return {string} The database host
@@ -127,7 +127,7 @@ Gets the bundled MariaDB Service host or external `spiderConfig.database.host`.
 {{- end }}
 
 {{/*
-Gets the bundled MariaDB port or external `spiderConfig.database.port`.
+Gets the bundled database port or external `spiderConfig.database.port`.
 
 @param {object} . Root template context
 @return {string} The database port
