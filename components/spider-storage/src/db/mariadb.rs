@@ -65,8 +65,8 @@ impl MariaDbStorageConnector {
             .host(&config.host)
             .port(config.port)
             .database(&config.name)
-            .username(&config.username)
-            .password(config.password.expose_secret());
+            .username(&config.credentials.username)
+            .password(config.credentials.password.expose_secret());
 
         let pool = sqlx::mysql::MySqlPoolOptions::new()
             .max_connections(config.max_connections)
