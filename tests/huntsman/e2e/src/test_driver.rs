@@ -150,14 +150,17 @@ impl SpiderTestDriver {
     ///  * The endpoint environment variable is unset.
     ///  * The endpoint value is not a valid Spider endpoint.
     /// * Forwards [`read_concurrency`]'s return values on failure.
-    /// * Forwards [`SpiderClient::connect`]'s return values on failure.
+    /// * Forwards [`spider_client::SpiderClientBuilder::connect`]'s return values on failure.
     async fn init() -> anyhow::Result<Self> {
         const ENDPOINT_ENV_VAR: &str = "SPIDER_ENDPOINT";
         let endpoint_string = std::env::var(ENDPOINT_ENV_VAR)
             .with_context(|| format!("{ENDPOINT_ENV_VAR} is not set"))?;
         let endpoint = Endpoint::from_shared(endpoint_string).context("invalid spider endpoint")?;
         let concurrency = read_concurrency()?;
-        let client = SpiderClient::connect(endpoint, concurrency).await?;
+        let client = SpiderClient::builder(endpoint)
+            .pool_size(concurrency)
+            .connect()
+            .await?;
         Ok(Self {
             client: RwLock::new(client),
             concurrency_limiter: Semaphore::new(concurrency.get()),
