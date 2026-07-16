@@ -11,5 +11,5 @@ spec:
     app.kubernetes.io/component: "storage"
   ports:
     - name: "grpc"
-      port: {{ .Values.spiderConfig.storage_endpoint.port }}
+      port: {{ .Values.spiderConfig.storage.port }}
       targetPort: "grpc"

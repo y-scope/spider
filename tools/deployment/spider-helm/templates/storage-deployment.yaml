@@ -35,7 +35,7 @@ spec:
                   key: "password"
           ports:
             - name: "grpc"
-              containerPort: {{ .Values.spiderConfig.storage_endpoint.port }}
+              containerPort: {{ .Values.spiderConfig.storage.port }}
           volumeMounts:
             - name: "config"
               mountPath: "/etc/spider/storage.yaml"
