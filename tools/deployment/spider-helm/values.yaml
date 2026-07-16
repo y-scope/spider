@@ -33,14 +33,7 @@ spiderConfig:
   storage:
     port: 50051
     runtime:
-      # job_cache_gc_config:
-      #   gc_interval_sec: 10
-      #   terminated_job_retention_sec: 300
       ready_queue_config:
         cleanup_capacity: 256
         commit_capacity: 256
         task_capacity: 1048576
-      # task_instance_pool_config:
-      #   execution_manager_stale_cutoff_sec: 30
-      #   gc_interval_sec: 5
-      #   message_channel_capacity: 1024
