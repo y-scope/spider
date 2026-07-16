@@ -1,0 +1,71 @@
+{{- if has "database" .Values.spiderConfig.bundled }}
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata:
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+  labels:
+    {{- include "spider.labels" . | nindent 4 }}
+    app.kubernetes.io/component: "database"
+spec:
+  serviceName: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "spider.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: "database"
+  template:
+    metadata:
+      labels:
+        {{- include "spider.labels" . | nindent 8 }}
+        app.kubernetes.io/component: "database"
+    spec:
+      containers:
+        - name: "database"
+          image: {{ include "spider.imageRef" (dict "root" . "component" "database") | quote }}
+          imagePullPolicy: {{ .Values.image.database.pullPolicy | quote }}
+          env:
+            - name: "MYSQL_DATABASE"
+              value: {{ .Values.spiderConfig.database.name | quote }}
+            - name: "MYSQL_USER"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "username"
+            - name: "MYSQL_PASSWORD"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "password"
+            - name: "MYSQL_ROOT_PASSWORD"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "root_password"
+          ports:
+            - name: "database"
+              containerPort: 3306
+          volumeMounts:
+            - name: "data"
+              mountPath: "/var/lib/mysql"
+          readinessProbe:
+            {{- include "spider.readinessProbeTimings" . | nindent 12 }}
+            exec: &health-check
+              command: [
+                "mysqladmin", "ping",
+                "--host=127.0.0.1",
+                "--port=3306",
+                "--user=$(MYSQL_USER)",
+                "--password=$(MYSQL_PASSWORD)"
+              ]
+          livenessProbe:
+            {{- include "spider.livenessProbeTimings" . | nindent 12 }}
+            exec: *health-check
+  volumeClaimTemplates:
+    - metadata:
+        name: "data"
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: "20Gi"
+{{- end }}

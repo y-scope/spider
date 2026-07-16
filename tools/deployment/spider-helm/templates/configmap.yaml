@@ -1,0 +1,19 @@
+apiVersion: "v1"
+kind: "ConfigMap"
+metadata:
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
+  labels:
+    {{- include "spider.labels" . | nindent 4 }}
+data:
+  storage.yaml: |
+    host: "0.0.0.0"
+    port: {{ .Values.spiderConfig.storage.port }}
+    runtime:
+      db_config:
+        host: {{ include "spider.databaseHost" . | quote }}
+        max_connections: {{ .Values.spiderConfig.database.max_connections }}
+        name: {{ .Values.spiderConfig.database.name | quote }}
+        port: {{ include "spider.databasePort" . }}
+      {{- with .Values.spiderConfig.storage.runtime }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
