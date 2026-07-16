@@ -28,12 +28,12 @@ spiderConfig:
     password: "spider-password"
     root_password: "spider-root-password"
     name: "spider-db"
+    max_connections: 64
 
   storage_endpoint:
     port: 50051
 
   storage:
-    max_connections: 64
     # task_instance_pool_config:
     #   execution_manager_stale_cutoff_sec: 30
     #   gc_interval_sec: 5

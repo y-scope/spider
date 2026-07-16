@@ -13,7 +13,7 @@ data:
         host: {{ include "spider.databaseHost" . | quote }}
         port: {{ include "spider.databasePort" . }}
         name: {{ .Values.spiderConfig.database.name | quote }}
-        max_connections: {{ .Values.spiderConfig.storage.max_connections }}
-      {{- with omit .Values.spiderConfig.storage "max_connections" }}
+        max_connections: {{ .Values.spiderConfig.database.max_connections }}
+      {{- with .Values.spiderConfig.storage }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
