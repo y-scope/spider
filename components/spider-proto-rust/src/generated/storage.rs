@@ -181,7 +181,7 @@ pub struct UpdateExecutionManagerHeartbeatResponse {
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterSchedulerRequest {
     #[prost(string, tag = "1")]
-    pub ip_address: ::prost::alloc::string::String,
+    pub host: ::prost::alloc::string::String,
     #[prost(uint32, tag = "2")]
     pub port: u32,
 }
@@ -202,7 +202,7 @@ pub struct Scheduler {
     #[prost(uint64, tag = "1")]
     pub scheduler_id: u64,
     #[prost(string, tag = "2")]
-    pub ip_address: ::prost::alloc::string::String,
+    pub host: ::prost::alloc::string::String,
     #[prost(uint32, tag = "3")]
     pub port: u32,
 }

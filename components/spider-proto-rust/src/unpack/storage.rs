@@ -9,6 +9,7 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
+use spider_utils::config::Host;
 use tonic::Code;
 
 use crate::storage::AddResourceGroupRequest;
@@ -185,21 +186,16 @@ impl RequestUnpack for ExecutionManagerIdRequest {
     }
 }
 
-/// Unpacks [`RegisterSchedulerRequest`] into a tuple containing:
-///
-/// * The scheduler IP address.
-/// * The scheduler port.
+/// Unpacks [`RegisterSchedulerRequest`] into the scheduler host and port.
 impl RequestUnpack for RegisterSchedulerRequest {
-    type Unpacked = (IpAddr, u16);
+    type Unpacked = (Host, u16);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        let ip_address = self
-            .ip_address
-            .parse::<IpAddr>()
-            .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))?;
+        let host = Host::new(self.host)
+            .map_err(|_| invalid_argument("host must not be empty".to_owned()))?;
         let port = u16::try_from(self.port)
             .map_err(|_| invalid_argument(format!("port does not fit in `u16`: {}", self.port)))?;
-        Ok((ip_address, port))
+        Ok((host, port))
     }
 }
 
