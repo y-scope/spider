@@ -859,11 +859,11 @@ impl<
         &self,
         request: Request<storage::RegisterSchedulerRequest>,
     ) -> Result<Response<storage::RegisterSchedulerResponse>, Status> {
-        let (ip_addr, port) = request.into_inner().unpack()?;
-        tracing::info!(% ip_addr, port, "Scheduler registration request received.");
+        let (host, port) = request.into_inner().unpack()?;
+        tracing::info!(host = % host, port, "Scheduler registration request received.");
         let scheduler_id = self
             .inner
-            .register_scheduler(ip_addr, port)
+            .register_scheduler(host, port)
             .await
             .map_err(|error| {
                 self.scheduler_registration_service_error_handler(error, "register_scheduler")

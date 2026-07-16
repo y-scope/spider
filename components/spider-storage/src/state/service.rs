@@ -16,6 +16,7 @@ use spider_core::types::io::TaskOutput;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_core::types::scheduler::RegisteredScheduler;
 use spider_tdl::error::TdlError;
+use spider_utils::config::Host;
 use tokio_util::sync::CancellationToken;
 
 use crate::cache::error::CacheError;
@@ -704,15 +705,19 @@ impl<
     ///   failure.
     pub async fn register_scheduler(
         &self,
-        ip_address: IpAddr,
+        host: Host,
         port: u16,
     ) -> Result<SchedulerId, StorageServerError> {
         let mut has_previous_scheduler_connection =
             self.inner.has_previous_scheduler_connection.lock().await;
-        let scheduler_id = self.inner.db.register_scheduler(ip_address, port).await?;
+        let scheduler_id = self
+            .inner
+            .db
+            .register_scheduler(host.as_str(), port)
+            .await?;
         tracing::info!(
             scheduler_id = ? scheduler_id,
-            ip = ? ip_address,
+            host = % host,
             port,
             "Scheduler registered.",
         );
@@ -1766,7 +1771,11 @@ mod tests {
 
         // The first registration has no previous scheduler to replace, so it must not resend.
         service
-            .register_scheduler("127.0.0.1".parse()?, 8080)
+            .register_scheduler(
+                Host::new("scheduler-a.example.com".to_owned())
+                    .expect("scheduler host should not be empty"),
+                8080,
+            )
             .await?;
         tokio::task::yield_now().await;
         let after_first = service
@@ -1780,7 +1789,11 @@ mod tests {
         // The second registration replaces the first scheduler, so it must resend ready tasks. The
         // resend runs in a spawned background task, so yield to let it run before polling.
         service
-            .register_scheduler("127.0.0.1".parse()?, 8081)
+            .register_scheduler(
+                Host::new("scheduler-b.example.com".to_owned())
+                    .expect("scheduler host should not be empty"),
+                8081,
+            )
             .await?;
         tokio::task::yield_now().await;
         let after_second = service
