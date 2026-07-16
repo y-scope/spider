@@ -6,6 +6,10 @@ image:
     pullPolicy: "Always"
     repository: "mariadb"
     tag: "10.11.16"
+  scheduler:
+    pullPolicy: "Always"
+    repository: "ghcr.io/y-scope/spider/scheduler"
+    tag: "main"
   storage:
     pullPolicy: "Always"
     repository: "ghcr.io/y-scope/spider/storage"
@@ -29,6 +33,21 @@ spiderConfig:
     port: 3306
     root_password: "spider-root-password"
     username: "spider-user"
+
+  scheduler:
+    connection_pool_size: 4
+    port: 50052
+    runtime:
+      scheduler:
+        round_robin:
+          active_job_queue_capacity: 64
+          cleanup_ready_task_capacity: 256
+          commit_ready_task_capacity: 256
+          dispatch_queue_capacity: 64
+          finalizing_job_expiration_timeout_sec: 300
+          ready_task_capacity: 65536
+          storage_poll_timeout_ms: 10
+          tick_interval_ms: 5
 
   storage:
     port: 50051

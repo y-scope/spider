@@ -5,6 +5,18 @@ metadata:
   labels:
     {{- include "spider.labels" . | nindent 4 }}
 data:
+  scheduler.yaml: |
+    connection_pool_size: {{ .Values.spiderConfig.scheduler.connection_pool_size }}
+    runtime:
+      host: "__SCHEDULER_HOST__"
+      port: {{ .Values.spiderConfig.scheduler.port }}
+      {{- $scheduler := .Values.spiderConfig.scheduler.runtime.scheduler }}
+      {{- $algorithm := keys $scheduler | first }}
+      scheduler: !{{ $algorithm }}
+        {{- toYaml (index $scheduler $algorithm) | nindent 8 }}
+    storage_endpoint:
+      host: "__STORAGE_HOST__"
+      port: {{ .Values.spiderConfig.storage.port }}
   storage.yaml: |
     host: "0.0.0.0"
     port: {{ .Values.spiderConfig.storage.port }}
