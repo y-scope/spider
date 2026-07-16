@@ -7,6 +7,7 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::id::SessionId;
+use spider_utils::config::Host;
 
 use crate::error::StorageClientError;
 use crate::types::InboundEntry;
@@ -27,7 +28,7 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     ///
     /// # Parameters
     ///
-    /// * `ip_address` - The IP address this scheduler is reachable on.
+    /// * `host` - The host this scheduler is reachable on.
     /// * `port` - The port this scheduler is reachable on.
     ///
     /// # Returns
@@ -41,11 +42,7 @@ pub trait SchedulerStorageClient: Send + Sync + Clone {
     /// * [`StorageClientError::Server`] if the storage service returns an error.
     /// * [`StorageClientError::Transport`] if the storage transport fails or returns malformed
     ///   data.
-    async fn register(
-        &self,
-        ip_address: std::net::IpAddr,
-        port: u16,
-    ) -> Result<SchedulerId, StorageClientError>;
+    async fn register(&self, host: Host, port: u16) -> Result<SchedulerId, StorageClientError>;
 
     /// Polls the regular-task lane of the storage-owned inbound queue for ready tasks.
     ///
