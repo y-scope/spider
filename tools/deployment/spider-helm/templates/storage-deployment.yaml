@@ -38,7 +38,8 @@ spec:
               containerPort: {{ .Values.spiderConfig.storage_endpoint.port }}
           volumeMounts:
             - name: "config"
-              mountPath: "/etc/spider"
+              mountPath: "/etc/spider/storage.yaml"
+              subPath: "storage.yaml"
               readOnly: true
           readinessProbe:
             {{- include "spider.readinessProbeTimings" . | nindent 12 }}
