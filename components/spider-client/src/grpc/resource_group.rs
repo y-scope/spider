@@ -73,11 +73,11 @@ impl ResourceGroupManagementClient {
             external_resource_group_id,
             password,
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .add_resource_group(request.clone())
-                .await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request.clone();
+            async move { client.add_resource_group(request).await }
         })
         .await
         .map_err(|status| resource_group_status_to_error(&status))?
@@ -107,11 +107,11 @@ impl ResourceGroupManagementClient {
             resource_group_id: resource_group_id.get(),
             password,
         };
-        call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .verify_resource_group(request.clone())
-                .await
+        let pool = self.connection_pool.clone();
+        call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request.clone();
+            async move { client.verify_resource_group(request).await }
         })
         .await
         .map_err(|status| resource_group_status_to_error(&status))?;

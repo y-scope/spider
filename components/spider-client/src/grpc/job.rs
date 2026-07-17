@@ -90,11 +90,11 @@ impl JobOrchestrationClient {
             compressed_serialized_task_graph,
             compressed_serialized_inputs,
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .register_job(request.clone())
-                .await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request.clone();
+            async move { client.register_job(request).await }
         })
         .await
         .map_err(|status| job_status_to_error(&status))?
@@ -119,8 +119,11 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool.get_client().start_job(request).await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request;
+            async move { client.start_job(request).await }
         })
         .await
         .map_err(|status| job_status_to_error(&status))?
@@ -145,8 +148,11 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool.get_client().cancel_job(request).await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request;
+            async move { client.cancel_job(request).await }
         })
         .await
         .map_err(|status| job_status_to_error(&status))?
@@ -171,11 +177,11 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .get_job_state(request)
-                .await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request;
+            async move { client.get_job_state(request).await }
         })
         .await
         .map_err(|status| job_status_to_error(&status))?
@@ -202,11 +208,11 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .get_job_outputs(request)
-                .await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request;
+            async move { client.get_job_outputs(request).await }
         })
         .await
         .map_err(|status| job_status_to_error(&status))?
@@ -231,11 +237,11 @@ impl JobOrchestrationClient {
         let request = storage::JobIdRequest {
             job_id: job_id.get(),
         };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .get_job_error(request)
-                .await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = request;
+            async move { client.get_job_error(request).await }
         })
         .await
         .map_err(|status| job_status_to_error(&status))?

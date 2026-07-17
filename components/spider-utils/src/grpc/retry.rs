@@ -1,6 +1,7 @@
 //! An async retry helper for transient gRPC call failures.
 
 use std::error::Error;
+use std::future::Future;
 use std::time::Duration;
 
 use rand::Rng;
@@ -43,7 +44,8 @@ impl Default for RetryConfig {
 ///
 /// * `ResponseType` - The success value produced by `grpc_call`.
 /// * `ErrorType` - The error produced by `grpc_call`.
-/// * `GrpcCall` - The async closure performing the gRPC call.
+/// * `GrpcCall` - The closure performing the gRPC call.
+/// * `FutureType` - The `Send` future returned by `grpc_call`.
 /// * `RetriableCheck` - Classifies an error as retriable or not.
 ///
 /// # Returns
@@ -60,7 +62,8 @@ impl Default for RetryConfig {
 pub async fn execute_with_retry<
     ResponseType,
     ErrorType,
-    GrpcCall: AsyncFnMut() -> Result<ResponseType, ErrorType>,
+    GrpcCall: FnMut() -> FutureType,
+    FutureType: Future<Output = Result<ResponseType, ErrorType>> + Send,
     RetriableCheck: Fn(&ErrorType) -> bool,
 >(
     max_retries: usize,
@@ -88,7 +91,8 @@ pub async fn execute_with_retry<
 /// # Type Parameters
 ///
 /// * `ResponseType` - The success value produced by `grpc_call`.
-/// * `GrpcCall` - The async closure performing the gRPC round-trip.
+/// * `GrpcCall` - The closure performing the gRPC round-trip.
+/// * `FutureType` - The `Send` future returned by `grpc_call`.
 ///
 /// # Returns
 ///
@@ -102,7 +106,8 @@ pub async fn execute_with_retry<
 ///   budget is exhausted.
 pub async fn call_with_retry<
     ResponseType,
-    GrpcCall: AsyncFnMut() -> Result<ResponseType, Status>,
+    GrpcCall: FnMut() -> FutureType,
+    FutureType: Future<Output = Result<ResponseType, Status>> + Send,
 >(
     retry_config: RetryConfig,
     grpc_call: GrpcCall,
@@ -164,7 +169,8 @@ fn backoff(retry: usize, max_backoff: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     use tonic::Code;
@@ -180,12 +186,12 @@ mod tests {
 
     #[tokio::test]
     async fn succeeds_on_first_attempt() {
-        let calls = Cell::new(0usize);
+        let calls = AtomicUsize::new(0);
         let result: Result<i32, i32> = execute_with_retry(
             3,
             TEST_MAX_BACKOFF,
             async || {
-                calls.set(calls.get() + 1);
+                calls.fetch_add(1, Ordering::Relaxed);
                 Ok(42)
             },
             |_error| true,
@@ -193,18 +199,17 @@ mod tests {
         .await;
 
         assert_eq!(result, Ok(42));
-        assert_eq!(calls.get(), 1);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
     async fn succeeds_after_retriable_failures() {
-        let calls = Cell::new(0usize);
+        let calls = AtomicUsize::new(0);
         let result: Result<i32, i32> = execute_with_retry(
             5,
             TEST_MAX_BACKOFF,
             async || {
-                let attempt = calls.get();
-                calls.set(attempt + 1);
+                let attempt = calls.fetch_add(1, Ordering::Relaxed);
                 if attempt < 2 { Err(-1) } else { Ok(7) }
             },
             |_error| true,
@@ -212,17 +217,17 @@ mod tests {
         .await;
 
         assert_eq!(result, Ok(7));
-        assert_eq!(calls.get(), 3);
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
     }
 
     #[tokio::test]
     async fn non_retriable_error_returns_immediately() {
-        let calls = Cell::new(0usize);
+        let calls = AtomicUsize::new(0);
         let result: Result<i32, i32> = execute_with_retry(
             3,
             TEST_MAX_BACKOFF,
             async || {
-                calls.set(calls.get() + 1);
+                calls.fetch_add(1, Ordering::Relaxed);
                 Err(99)
             },
             |error| *error != 99,
@@ -230,18 +235,18 @@ mod tests {
         .await;
 
         assert_eq!(result, Err(99));
-        assert_eq!(calls.get(), 1);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
     async fn retries_are_exhausted() {
         let max_retries = 4usize;
-        let calls = Cell::new(0usize);
+        let calls = AtomicUsize::new(0);
         let result: Result<i32, i32> = execute_with_retry(
             max_retries,
             TEST_MAX_BACKOFF,
             async || {
-                calls.set(calls.get() + 1);
+                calls.fetch_add(1, Ordering::Relaxed);
                 Err(-7)
             },
             |_error| true,
@@ -249,7 +254,7 @@ mod tests {
         .await;
 
         assert_eq!(result, Err(-7));
-        assert_eq!(calls.get(), max_retries + 1);
+        assert_eq!(calls.load(Ordering::Relaxed), max_retries + 1);
     }
 
     #[tokio::test]
@@ -258,10 +263,9 @@ mod tests {
             max_retries: 5,
             max_backoff: TEST_MAX_BACKOFF,
         };
-        let calls = Cell::new(0usize);
+        let calls = AtomicUsize::new(0);
         let result: Result<i32, Status> = call_with_retry(config, async || {
-            let attempt = calls.get();
-            calls.set(attempt + 1);
+            let attempt = calls.fetch_add(1, Ordering::Relaxed);
             if attempt < 2 {
                 Err(Status::unavailable("connection lost"))
             } else {
@@ -274,7 +278,7 @@ mod tests {
             result.expect("call_with_retry should succeed after retriable failures"),
             11
         );
-        assert_eq!(calls.get(), 3);
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
     }
 
     #[tokio::test]
@@ -283,9 +287,9 @@ mod tests {
             max_retries: 5,
             max_backoff: TEST_MAX_BACKOFF,
         };
-        let calls = Cell::new(0usize);
+        let calls = AtomicUsize::new(0);
         let result: Result<i32, Status> = call_with_retry(config, async || {
-            calls.set(calls.get() + 1);
+            calls.fetch_add(1, Ordering::Relaxed);
             Err(Status::not_found("missing"))
         })
         .await;
@@ -296,7 +300,7 @@ mod tests {
                 .code(),
             Code::NotFound
         );
-        assert_eq!(calls.get(), 1);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
     #[test]
