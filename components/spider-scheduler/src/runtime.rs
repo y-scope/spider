@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use spider_core::types::id::SessionId;
+use spider_utils::config::EndpointConfig;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
@@ -34,11 +35,8 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub em_registry: ExecutionManagerRegistryConfig,
 
-    /// The IP address this scheduler advertises to the storage service during registration.
-    pub host: std::net::IpAddr,
-
-    /// The port this scheduler advertises to the storage service during registration.
-    pub port: u16,
+    /// The scheduler endpoint advertised to the storage service during registration.
+    pub advertised_endpoint: EndpointConfig,
 
     /// The maximum time, in seconds, to wait for background tasks to stop during shutdown.
     #[serde(default = "default_stop_timeout_sec")]
@@ -122,17 +120,18 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
     ),
     SchedulerRuntimeError,
 > {
-    let cancellation_token = CancellationToken::new();
-
-    let scheduler_id = storage_client.register(config.host, config.port).await?;
-    tracing::info!(scheduler_id = % scheduler_id, "Scheduler registered with storage.");
-
     let RuntimeConfig {
         scheduler: scheduler_config,
         em_registry: execution_manager_registry_config,
+        advertised_endpoint,
         stop_timeout_sec,
-        ..
     } = config;
+    let cancellation_token = CancellationToken::new();
+
+    let scheduler_id = storage_client
+        .register(advertised_endpoint.host, advertised_endpoint.port)
+        .await?;
+    tracing::info!(scheduler_id = % scheduler_id, "Scheduler registered with storage.");
     let dispatch_queue_capacity = scheduler_config.dispatch_queue_capacity();
 
     let (reschedule_queue_sender, reschedule_queue_receiver) =
@@ -189,8 +188,6 @@ const fn default_stop_timeout_sec() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::net::IpAddr;
-    use std::net::Ipv4Addr;
     use std::num::NonZeroU64;
     use std::num::NonZeroUsize;
 
@@ -198,6 +195,7 @@ mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
     use spider_core::types::id::SchedulerId;
+    use spider_utils::config::Host;
 
     use super::*;
     use crate::core_impl::RoundRobinConfig;
@@ -217,7 +215,7 @@ mod tests {
     impl SchedulerStorageClient for MockStorageClient {
         async fn register(
             &self,
-            _ip_address: IpAddr,
+            _host: Host,
             _port: u16,
         ) -> Result<SchedulerId, StorageClientError> {
             Ok(SchedulerId::from(SCHEDULER_ID))
@@ -268,8 +266,11 @@ mod tests {
                 finalizing_job_expiration_timeout_sec: 60,
             }),
             em_registry: ExecutionManagerRegistryConfig::default(),
-            host: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            port: 0,
+            advertised_endpoint: EndpointConfig {
+                host: Host::new("scheduler.example.com".to_owned())
+                    .expect("advertised host should not be empty"),
+                port: 50052,
+            },
             stop_timeout_sec,
         }
     }

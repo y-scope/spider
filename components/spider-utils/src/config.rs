@@ -1,9 +1,8 @@
 use std::fs::File;
 use std::io;
-use std::net::IpAddr;
-use std::net::SocketAddr;
 use std::path::Path;
 
+use non_empty_string::NonEmptyString;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -47,22 +46,17 @@ pub trait YamlConfig: DeserializeOwned {
 
 impl<ConfigType: DeserializeOwned> YamlConfig for ConfigType {}
 
+/// A non-empty DNS name or IP address.
+pub type Host = NonEmptyString;
+
 /// The network location of a gRPC server.
 #[derive(Clone, Debug, Deserialize)]
 pub struct EndpointConfig {
-    pub host: IpAddr,
+    pub host: Host,
     pub port: u16,
 }
 
 impl EndpointConfig {
-    /// # Returns
-    ///
-    /// This endpoint's `host:port` as a [`SocketAddr`].
-    #[must_use]
-    pub const fn socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.host, self.port)
-    }
-
     /// Builds a tonic [`Endpoint`] pointing at this `host:port` over plaintext HTTP/2.
     ///
     /// # Returns
@@ -75,6 +69,6 @@ impl EndpointConfig {
     ///
     /// * Forwards [`Endpoint::from_shared`]'s return values on failure.
     pub fn endpoint(&self) -> Result<Endpoint, tonic::transport::Error> {
-        Endpoint::from_shared(format!("http://{}", self.socket_addr()))
+        Endpoint::from_shared(format!("http://{}:{}", self.host, self.port))
     }
 }

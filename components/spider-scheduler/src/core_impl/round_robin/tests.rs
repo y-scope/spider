@@ -149,7 +149,7 @@ impl MockStorageClient {
 impl SchedulerStorageClient for MockStorageClient {
     async fn register(
         &self,
-        _ip_address: std::net::IpAddr,
+        _host: spider_utils::config::Host,
         _port: u16,
     ) -> Result<SchedulerId, StorageClientError> {
         Ok(SchedulerId::from(0))

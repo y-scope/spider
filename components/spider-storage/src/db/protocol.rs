@@ -439,7 +439,7 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     ///
     /// # Parameters
     ///
-    /// * `ip_address` - The scheduler IP address.
+    /// * `host` - The scheduler host.
     /// * `port` - The scheduler port.
     ///
     /// # Returns
@@ -451,11 +451,7 @@ pub trait SchedulerRegistrationManagement: Clone + Send + Sync {
     /// Returns an error if:
     ///
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
-    async fn register_scheduler(
-        &self,
-        ip_address: IpAddr,
-        port: u16,
-    ) -> Result<SchedulerId, DbError>;
+    async fn register_scheduler(&self, host: &str, port: u16) -> Result<SchedulerId, DbError>;
 
     /// Gets registered schedulers.
     ///
