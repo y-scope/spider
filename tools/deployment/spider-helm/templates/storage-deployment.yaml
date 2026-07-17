@@ -1,0 +1,55 @@
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "storage") }}
+  labels:
+    {{- include "spider.labels" . | nindent 4 }}
+    app.kubernetes.io/component: "storage"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "spider.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: "storage"
+  template:
+    metadata:
+      labels:
+        {{- include "spider.labels" . | nindent 8 }}
+        app.kubernetes.io/component: "storage"
+    spec:
+      containers:
+        - name: "storage"
+          image: {{ include "spider.imageRef" (dict "root" . "component" "storage") | quote }}
+          imagePullPolicy: {{ .Values.image.storage.pullPolicy | quote }}
+          command: ["spider-storage", "--config", "/etc/spider/storage.yaml"]
+          env:
+            - name: "SPIDER_STORAGE_DB_USERNAME"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "username"
+            - name: "SPIDER_STORAGE_DB_PASSWORD"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spider.componentFullname" (dict "root" . "component" "database") }}
+                  key: "password"
+          ports:
+            - name: "grpc"
+              containerPort: {{ .Values.spiderConfig.storage.port }}
+          volumeMounts:
+            - name: "config"
+              mountPath: "/etc/spider/storage.yaml"
+              subPath: "storage.yaml"
+              readOnly: true
+          readinessProbe:
+            {{- include "spider.readinessProbeTimings" . | nindent 12 }}
+            tcpSocket:
+              port: "grpc"
+          livenessProbe:
+            {{- include "spider.livenessProbeTimings" . | nindent 12 }}
+            tcpSocket:
+              port: "grpc"
+      volumes:
+        - name: "config"
+          configMap:
+            name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
