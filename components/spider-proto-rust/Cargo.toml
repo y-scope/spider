@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 prost = "0.14.4"
 spider-core = { path = "../spider-core" }
+spider-utils = { path = "../spider-utils" }
 thiserror = "2.0.18"
 tonic = "0.14.6"
 tonic-prost = "0.14.6"

@@ -14,6 +14,7 @@ use spider_proto_rust::storage::InboundQueueServiceClient;
 use spider_proto_rust::storage::JobOrchestrationServiceClient;
 use spider_proto_rust::storage::SchedulerRegistrationServiceClient;
 use spider_proto_rust::storage::{self};
+use spider_utils::config::Host;
 use spider_utils::grpc::client::ConnectionPool;
 use tonic::Code;
 use tonic::Status;
@@ -74,13 +75,9 @@ impl GrpcSchedulerStorageClient {
 
 #[async_trait]
 impl SchedulerStorageClient for GrpcSchedulerStorageClient {
-    async fn register(
-        &self,
-        ip_address: std::net::IpAddr,
-        port: u16,
-    ) -> Result<SchedulerId, StorageClientError> {
+    async fn register(&self, host: Host, port: u16) -> Result<SchedulerId, StorageClientError> {
         let request = storage::RegisterSchedulerRequest {
-            ip_address: ip_address.to_string(),
+            host: host.into_inner(),
             port: u32::from(port),
         };
         let response = self
