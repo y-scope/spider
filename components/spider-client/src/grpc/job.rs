@@ -121,7 +121,7 @@ impl JobOrchestrationClient {
         };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
-            let mut client = pool.get_client().clone();
+            let mut client = pool.get_client();
             let request = request;
             async move { client.start_job(request).await }
         })
