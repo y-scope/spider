@@ -18,7 +18,7 @@ spec:
         app.kubernetes.io/component: "scheduler"
     spec:
       initContainers:
-        # Resolve IP addresses of the scheduler and storage services, and render the scheduler
+        # Resolves IP addresses of the scheduler and storage services, and renders the scheduler
         # configuration file with the resolved addresses.
         - name: "render-config"
           image: {{ include "spider.imageRef" (dict "root" . "component" "scheduler") | quote }}
