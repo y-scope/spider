@@ -411,7 +411,7 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         // an empty byte buffer.
         (
             spider_core::types::io::TaskInputsSerializer::new().release(),
-            Some(serialized_task_io)
+            Some(serialized_task_io),
         )
     } else {
         (serialized_task_io, None)
