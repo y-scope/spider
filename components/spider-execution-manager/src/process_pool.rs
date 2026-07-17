@@ -406,7 +406,13 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
         serialized_task_io,
     } = ctx;
     let (raw_inputs, serialized_task_graph_outputs) = if task_id == TaskId::Commit {
-        (Vec::new(), Some(serialized_task_io))
+        // A commit task takes no value-params, but the executor still unframes `raw_inputs` as a
+        // wire-format stream. Therefore, it must be a valid empty frame (a zero-count header), not
+        // an empty byte buffer.
+        (
+            spider_core::types::io::TaskInputsSerializer::new().release(),
+            Some(serialized_task_io)
+        )
     } else {
         (serialized_task_io, None)
     };
