@@ -480,7 +480,10 @@ mod tests {
             panic!("build_request must produce a Request::Execute");
         };
 
-        assert!(raw_inputs.is_empty());
+        assert_eq!(
+            raw_inputs,
+            spider_core::types::io::TaskInputsSerializer::new().release()
+        );
         let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
         assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
         Ok(())
@@ -506,7 +509,10 @@ mod tests {
             panic!("build_request must produce a Request::Execute");
         };
 
-        assert!(raw_inputs.is_empty());
+        assert_eq!(
+            raw_inputs,
+            spider_core::types::io::TaskInputsSerializer::new().release()
+        );
         let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
         assert_eq!(ctx.get_task_graph_outputs()?, Some(Vec::new()));
         Ok(())
