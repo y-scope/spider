@@ -7,15 +7,18 @@ metadata:
 data:
   scheduler.yaml: |
     connection_pool_size: {{ .Values.spiderConfig.scheduler.connection_pool_size }}
+    host: "0.0.0.0"
+    port: {{ .Values.spiderConfig.scheduler.port }}
     runtime:
-      host: "__SCHEDULER_HOST__"
-      port: {{ .Values.spiderConfig.scheduler.port }}
+      advertised_endpoint:
+        host: {{ include "spider.componentFullname" (dict "root" . "component" "scheduler") | quote }}
+        port: {{ .Values.spiderConfig.scheduler.port }}
       {{- $scheduler := .Values.spiderConfig.scheduler.runtime.scheduler }}
       {{- $algorithm := keys $scheduler | first }}
       scheduler: !{{ $algorithm }}
         {{- toYaml (index $scheduler $algorithm) | nindent 8 }}
     storage_endpoint:
-      host: "__STORAGE_HOST__"
+      host: {{ include "spider.componentFullname" (dict "root" . "component" "storage") | quote }}
       port: {{ .Values.spiderConfig.storage.port }}
   storage.yaml: |
     host: "0.0.0.0"

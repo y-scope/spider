@@ -17,40 +17,6 @@ spec:
         {{- include "spider.labels" . | nindent 8 }}
         app.kubernetes.io/component: "scheduler"
     spec:
-      initContainers:
-        # Resolves IP addresses of the scheduler and storage services, and renders the scheduler
-        # configuration file with the resolved addresses.
-        - name: "render-config"
-          image: {{ include "spider.imageRef" (dict "root" . "component" "scheduler") | quote }}
-          imagePullPolicy: {{ .Values.image.scheduler.pullPolicy | quote }}
-          command:
-            - "sh"
-            - "-c"
-            - |
-              set -eu
-              storage_ip="$(getent hosts "$STORAGE_HOST" | head -n1 | tr -s ' ' | cut -d' ' -f1)"
-              if [ -z "$storage_ip" ]; then
-                echo "Failed to resolve storage host: $STORAGE_HOST" >&2
-                exit 1
-              fi
-              sed \
-                -e "s/__STORAGE_HOST__/${storage_ip}/" \
-                -e "s/__SCHEDULER_HOST__/${SCHEDULER_HOST}/" \
-                /etc/spider/template/scheduler.yaml > /etc/spider/scheduler.yaml
-          env:
-            - name: "STORAGE_HOST"
-              value: {{ include "spider.componentFullname" (dict "root" . "component" "storage") | quote }}
-            - name: "SCHEDULER_HOST"
-              valueFrom:
-                fieldRef:
-                  fieldPath: "status.podIP"
-          volumeMounts:
-            - name: "config-template"
-              mountPath: "/etc/spider/template/scheduler.yaml"
-              subPath: "scheduler.yaml"
-              readOnly: true
-            - name: "config"
-              mountPath: "/etc/spider"
       containers:
         - name: "scheduler"
           image: {{ include "spider.imageRef" (dict "root" . "component" "scheduler") | quote }}
@@ -61,7 +27,8 @@ spec:
               containerPort: {{ .Values.spiderConfig.scheduler.port }}
           volumeMounts:
             - name: "config"
-              mountPath: "/etc/spider"
+              mountPath: "/etc/spider/scheduler.yaml"
+              subPath: "scheduler.yaml"
               readOnly: true
           readinessProbe:
             {{- include "spider.readinessProbeTimings" . | nindent 12 }}
@@ -72,8 +39,6 @@ spec:
             tcpSocket:
               port: "grpc"
       volumes:
-        - name: "config-template"
+        - name: "config"
           configMap:
             name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
-        - name: "config"
-          emptyDir: {}
