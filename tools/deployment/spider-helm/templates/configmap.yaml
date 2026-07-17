@@ -5,6 +5,20 @@ metadata:
   labels:
     {{- include "spider.labels" . | nindent 4 }}
 data:
+  execution-manager.yaml: |
+    connection_pool_size: {{ .Values.spiderConfig.execution_manager.connection_pool_size }}
+    host: "__EXECUTION_MANAGER_HOST__"
+    liveness:
+      {{- toYaml .Values.spiderConfig.execution_manager.liveness | nindent 6 }}
+    scheduler:
+      host: {{ include "spider.componentFullname" (dict "root" . "component" "scheduler") | quote }}
+      port: {{ .Values.spiderConfig.scheduler.port }}
+    scheduler_poll_wait_ms: {{ .Values.spiderConfig.execution_manager.scheduler_poll_wait_ms }}
+    storage:
+      host: {{ include "spider.componentFullname" (dict "root" . "component" "storage") | quote }}
+      port: {{ .Values.spiderConfig.storage.port }}
+    task_executor:
+      {{- toYaml .Values.spiderConfig.execution_manager.task_executor | nindent 6 }}
   scheduler.yaml: |
     connection_pool_size: {{ .Values.spiderConfig.scheduler.connection_pool_size }}
     host: "0.0.0.0"
