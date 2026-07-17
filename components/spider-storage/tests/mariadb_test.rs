@@ -1058,15 +1058,15 @@ async fn test_liveness_operations_no_deadlock_under_concurrency() {
 #[serial_test::file_serial]
 async fn test_register_scheduler_replaces_previous_scheduler() {
     let storage = create_mariadb_connector().await;
-    let scheduler_ip_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
-    let updated_scheduler_ip_address = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+    let scheduler_host = "scheduler-a.spider.svc.cluster.local";
+    let updated_scheduler_host = "scheduler-b.spider.svc.cluster.local";
 
     let first_scheduler_id = storage
-        .register_scheduler(scheduler_ip_address, TEST_SCHEDULER_PORT)
+        .register_scheduler(scheduler_host, TEST_SCHEDULER_PORT)
         .await
         .expect("first register_scheduler should succeed");
     let second_scheduler_id = storage
-        .register_scheduler(updated_scheduler_ip_address, TEST_UPDATED_SCHEDULER_PORT)
+        .register_scheduler(updated_scheduler_host, TEST_UPDATED_SCHEDULER_PORT)
         .await
         .expect("second register_scheduler should succeed");
     let schedulers = storage
@@ -1092,7 +1092,7 @@ async fn test_register_scheduler_replaces_previous_scheduler() {
         "only the latest scheduler should remain"
     );
     assert_eq!(schedulers[0].id, second_scheduler_id);
-    assert_eq!(schedulers[0].ip_address, updated_scheduler_ip_address);
+    assert_eq!(schedulers[0].host.as_str(), updated_scheduler_host);
     assert_eq!(schedulers[0].port, TEST_UPDATED_SCHEDULER_PORT);
 }
 
