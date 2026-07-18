@@ -85,15 +85,14 @@ impl JobOrchestrationClient {
             .to_zstd_compressed_json()
             .map_err(|error| ClientError::Serialization(error.to_string()))?;
         let compressed_serialized_inputs = serialize_inputs(inputs)?;
-        let request = storage::RegisterJobRequest {
-            resource_group_id: resource_group_id.get(),
-            compressed_serialized_task_graph,
-            compressed_serialized_inputs,
-        };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
-            let request = request.clone();
+            let request = storage::RegisterJobRequest {
+                resource_group_id: resource_group_id.get(),
+                compressed_serialized_task_graph: compressed_serialized_task_graph.clone(),
+                compressed_serialized_inputs: compressed_serialized_inputs.clone(),
+            };
             async move { client.register_job(request).await }
         })
         .await
@@ -116,13 +115,12 @@ impl JobOrchestrationClient {
     /// * Forwards [`JobOrchestrationServiceClient::start_job`]'s status on failure.
     /// * Forwards [`job_state_response_to_result`]'s return values on failure.
     pub async fn start_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
-        let request = storage::JobIdRequest {
-            job_id: job_id.get(),
-        };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
-            let request = request;
+            let request = storage::JobIdRequest {
+                job_id: job_id.get(),
+            };
             async move { client.start_job(request).await }
         })
         .await
@@ -145,13 +143,12 @@ impl JobOrchestrationClient {
     /// * Forwards [`JobOrchestrationServiceClient::cancel_job`]'s status on failure.
     /// * Forwards [`job_state_response_to_result`]'s return values on failure.
     pub async fn cancel_job(&self, job_id: JobId) -> Result<JobState, ClientError> {
-        let request = storage::JobIdRequest {
-            job_id: job_id.get(),
-        };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
-            let request = request;
+            let request = storage::JobIdRequest {
+                job_id: job_id.get(),
+            };
             async move { client.cancel_job(request).await }
         })
         .await
@@ -174,13 +171,12 @@ impl JobOrchestrationClient {
     /// * Forwards [`JobOrchestrationServiceClient::get_job_state`]'s status on failure.
     /// * Forwards [`job_state_response_to_result`]'s return values on failure.
     pub async fn get_job_state(&self, job_id: JobId) -> Result<JobState, ClientError> {
-        let request = storage::JobIdRequest {
-            job_id: job_id.get(),
-        };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
-            let request = request;
+            let request = storage::JobIdRequest {
+                job_id: job_id.get(),
+            };
             async move { client.get_job_state(request).await }
         })
         .await
@@ -205,13 +201,12 @@ impl JobOrchestrationClient {
     ///   [`ClientError::Deserialization`].
     /// * Forwards [`JobOrchestrationServiceClient::get_job_outputs`]'s status on failure.
     pub async fn get_job_outputs(&self, job_id: JobId) -> Result<Vec<TaskOutput>, ClientError> {
-        let request = storage::JobIdRequest {
-            job_id: job_id.get(),
-        };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
-            let request = request;
+            let request = storage::JobIdRequest {
+                job_id: job_id.get(),
+            };
             async move { client.get_job_outputs(request).await }
         })
         .await
@@ -234,13 +229,12 @@ impl JobOrchestrationClient {
     ///
     /// * Forwards [`JobOrchestrationServiceClient::get_job_error`]'s status on failure.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, ClientError> {
-        let request = storage::JobIdRequest {
-            job_id: job_id.get(),
-        };
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
-            let request = request;
+            let request = storage::JobIdRequest {
+                job_id: job_id.get(),
+            };
             async move { client.get_job_error(request).await }
         })
         .await
