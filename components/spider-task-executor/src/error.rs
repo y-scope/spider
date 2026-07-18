@@ -40,6 +40,10 @@ pub enum ExecutorError {
     #[error("task execution failed: {0}")]
     TaskError(#[from] TdlError),
 
+    /// The package's init function returned a [`TdlError`] during load.
+    #[error("failed to initialize TDL package: {0}")]
+    PackageInitError(TdlError),
+
     /// The msgpack-encoded error payload returned by a failing task could not be decoded back into
     /// a [`TdlError`].
     #[error("failed to deserialize error payload: {0}")]

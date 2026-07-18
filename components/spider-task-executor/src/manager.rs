@@ -51,7 +51,9 @@ impl TdlPackage {
     /// 2. Look up [`SYM_GET_VERSION`], call it, and verify the returned [`Version`] is compatible
     ///    with [`Version::SPIDER_TDL`].
     /// 3. Look up [`SYM_GET_NAME`], call it, and decode the returned bytes as UTF-8.
-    /// 4. Look up [`SYM_EXECUTE`] and cache the fn pointer for per-task dispatch.
+    /// 4. Look up [`SYM_INIT`] (optional) and, if present, call it once; a returned [`TdlError`]
+    ///    aborts the load.
+    /// 5. Look up [`SYM_EXECUTE`] and cache the fn pointer for per-task dispatch.
     ///
     /// # Returns
     ///
@@ -63,10 +65,13 @@ impl TdlPackage {
     ///
     /// * [`ExecutorError::IncompatibleVersion`] if the package was built against an incompatible
     ///   `spider-tdl` release.
+    /// * [`ExecutorError::PackageInitError`] if the package's init function returned a
+    ///   [`TdlError`].
     /// * Forwards [`Library::new`]'s return values on failure.
     /// * Forwards [`Library::get`]'s return values on failure for loading [`SYM_GET_VERSION`],
     ///   [`SYM_GET_NAME`], or [`SYM_EXECUTE`].
     /// * Forwards [`CCharArray::as_utf8`]'s return values on failure.
+    /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
     pub fn load(path: &Path) -> Result<Self, ExecutorError> {
         // SAFETY: `Library::new` runs the dylib's initializers. Spider's design treats every TDL
         // package as trusted code installed by the operator, so this is the unsafety boundary for
@@ -96,6 +101,19 @@ impl TdlPackage {
             get_name()
         };
         let name = name_array.as_utf8()?.to_owned();
+
+        // The init symbol is optional: packages built against an older `spider-tdl` may not export
+        // it, so a failed lookup is treated as "no init to run".
+        let init: Option<InitFn> =
+            unsafe { library.get::<InitFn>(SYM_INIT).ok().map(|symbol| *symbol) };
+        if let Some(init) = init {
+            // SAFETY: see the SAFETY comment on the version lookup above.
+            let init_result = unsafe { init() };
+            if let Err(error_bytes) = init_result.into_result() {
+                let err: TdlError = rmp_serde::from_slice(&error_bytes)?;
+                return Err(ExecutorError::PackageInitError(err));
+            }
+        }
 
         // SAFETY: see the SAFETY comment on the version lookup above. We deref the borrowed
         // `Symbol<ExecuteFn>` to copy out the underlying fn pointer (`ExecuteFn` is `Copy`); the
@@ -234,6 +252,9 @@ type GetVersionFn = unsafe extern "C" fn() -> Version;
 /// FFI signature of `__spider_tdl_package_get_name`.
 type GetNameFn = unsafe extern "C" fn() -> CCharArray<'static>;
 
+/// FFI signature of `__spider_tdl_package_init`.
+type InitFn = unsafe extern "C" fn() -> TaskExecutionResult;
+
 /// FFI signature of `__spider_tdl_package_execute`.
 type ExecuteFn =
     unsafe extern "C" fn(CCharArray<'_>, CByteArray<'_>, CByteArray<'_>) -> TaskExecutionResult;
@@ -243,6 +264,9 @@ const SYM_GET_VERSION: &[u8] = b"__spider_tdl_package_get_version\0";
 
 /// FFI symbol name (NUL-terminated) for the package's declared name.
 const SYM_GET_NAME: &[u8] = b"__spider_tdl_package_get_name\0";
+
+/// FFI symbol name (NUL-terminated) for the package's optional init function.
+const SYM_INIT: &[u8] = b"__spider_tdl_package_init\0";
 
 /// FFI symbol name (NUL-terminated) for the per-task dispatcher.
 const SYM_EXECUTE: &[u8] = b"__spider_tdl_package_execute\0";
