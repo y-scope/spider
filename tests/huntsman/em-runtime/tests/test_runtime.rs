@@ -7,6 +7,8 @@
 //!
 //! All tests are `#[ignore]` so the workspace's plain `cargo test` doesn't run them.
 
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -118,15 +120,10 @@ async fn wait_until(predicate: impl Fn() -> bool, timeout: Duration) -> bool {
 /// # Returns
 ///
 /// A [`RuntimeConfig`] ready to hand to [`Runtime::create`].
-///
-/// # Panics
-///
-/// Panics if the hard-coded loopback ip fails to parse — never in practice.
 fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
     let unique = ExecutionManagerId::random();
     let log_dir = std::env::temp_dir().join(format!("spider-em-runtime-test-{unique}"));
     RuntimeConfig {
-        em_ip: "127.0.0.1".parse().expect("parse loopback"),
         heartbeat_interval,
         scheduler_heartbeat_interval: heartbeat_interval,
         scheduler_poll_wait_ms: SCHEDULER_POLL_WAIT_MS,
