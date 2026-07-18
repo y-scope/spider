@@ -137,8 +137,8 @@ impl<
         liveness_client: LivenessClientType,
         config: RuntimeConfig,
     ) -> Result<(Self, CancellationToken), RuntimeError> {
-        // Locality metadata is not available yet, so register a placeholder address.
-        // See https://github.com/y-scope/spider/issues/406 for detail.
+        // TODO: Register with a placeholder address. This should be updated when the system needs
+        // to store locality metadata. See https://github.com/y-scope/spider/issues/406 for detail.
         let registration = liveness_client
             .register(Ipv4Addr::UNSPECIFIED.into())
             .await?;
