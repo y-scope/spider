@@ -1,6 +1,6 @@
 //! Test TDL package used by the `task-executor` integration tests.
 //!
-//! Exposes five tasks that exercise distinct executor code paths:
+//! Exposes six tasks that exercise distinct executor code paths:
 //!
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
 //! * [`task_decl::always_fail`] — in-task error reporting.
@@ -11,6 +11,10 @@
 //!   serde cost, while the parent-side delta isolates IPC framing cost.
 //! * [`task_decl::assert_outputs_sum_zero`] — commit task: reads the job's task-graph outputs from
 //!   its [`TaskContext`](spider_tdl::TaskContext) and asserts the `i64` outputs sum to zero.
+//! * [`task_decl::assert_initialized`] — confirms the package's init hook ran on load.
+//!
+//! The package also registers an init hook ([`task_decl::package_init`]) that runs once when the
+//! package is loaded.
 
 /// The constant sleep duration used by [`task_decl::sleep_and_echo`].
 ///
@@ -19,6 +23,8 @@
 pub const INSTRUMENT_SLEEP_US: u64 = 50;
 
 mod task_decl {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
     use std::thread::sleep;
     use std::time::Duration;
 
@@ -27,6 +33,25 @@ mod task_decl {
     use spider_tdl::task;
 
     use crate::INSTRUMENT_SLEEP_US;
+
+    /// Package init hook. Records that init ran, or fails when `SPIDER_TEST_TDL_INIT_SHOULD_FAIL`
+    /// is set (used by the executor's init integration test).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ExecutionError`] if `SPIDER_TEST_TDL_INIT_SHOULD_FAIL` is set in the
+    ///   environment.
+    pub fn package_init() -> Result<(), TdlError> {
+        if std::env::var_os("SPIDER_TEST_TDL_INIT_SHOULD_FAIL").is_some() {
+            return Err(TdlError::ExecutionError(
+                "integration_test_tasks: init failure requested".to_owned(),
+            ));
+        }
+        INITIALIZED.store(true, Ordering::SeqCst);
+        Ok(())
+    }
 
     /// Computes the `index`-th Fibonacci number with a deliberately naive recursive
     /// implementation so the call has measurable CPU cost for the overhead benchmark.
@@ -93,15 +118,38 @@ mod task_decl {
         }
         Ok(())
     }
+
+    /// Succeeds only if the package's init hook set the [`INITIALIZED`] flag on load.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`TdlError::ExecutionError`] if the init hook did not run before this task was dispatched.
+    #[task(name = "assert_initialized")]
+    pub fn assert_initialized(_ctx: TaskContext) -> Result<(), TdlError> {
+        if INITIALIZED.load(Ordering::SeqCst) {
+            Ok(())
+        } else {
+            Err(TdlError::ExecutionError(
+                "assert_initialized: package init hook did not run".to_owned(),
+            ))
+        }
+    }
+
+    /// Set by [`package_init`] so [`assert_initialized`] can confirm the init hook ran on load.
+    static INITIALIZED: AtomicBool = AtomicBool::new(false);
 }
 
 spider_tdl::register_tdl_package! {
     package_name: "integration_test_tasks",
+    init: task_decl::package_init,
     tasks: [
         task_decl::fibonacci,
         task_decl::always_fail,
         task_decl::always_panic,
         task_decl::sleep_and_echo,
         task_decl::assert_outputs_sum_zero,
+        task_decl::assert_initialized,
     ],
 }
