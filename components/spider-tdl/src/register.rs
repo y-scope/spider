@@ -8,9 +8,10 @@
 //! * A single assertion that rejects duplicate `NAME`s with a `const_eval` panic at build time. The
 //!   hash map itself is built only once at runtime; uniqueness is enforced at compile time and is
 //!   independent of the runtime structure.
-//! * Three `extern "C"` entry points consumed by the package manager via `dlsym`:
+//! * Four `extern "C"` entry points consumed by the package manager via `dlsym`:
 //!   * `__spider_tdl_package_get_version`
 //!   * `__spider_tdl_package_get_name`
+//!   * `__spider_tdl_package_init`
 //!   * `__spider_tdl_package_execute`
 //!
 //! The helpers in this module are public only so they are reachable from macro expansions in
@@ -19,7 +20,7 @@
 
 use crate::TdlError;
 
-/// Registers a TDL package's tasks and exports the three C-FFI entry points consumed by the task
+/// Registers a TDL package's tasks and exports the four C-FFI entry points consumed by the task
 /// executor.
 ///
 /// Invoke once per package, at module scope:
@@ -27,12 +28,16 @@ use crate::TdlError;
 /// ```ignore
 /// spider_tdl::register_tdl_package! {
 ///     package_name: "complex-number",
+///     init: my_init_fn,
 ///     tasks: [add, sub, mul, div, always_fail],
 /// }
 /// ```
 ///
 /// Each entry in `tasks` must name a type that implements [`Task`](crate::Task) (typically a marker
 /// struct produced by the `#[task]` attribute macro).
+///
+/// The optional `init` field names a `fn() -> Result<(), TdlError>` that is run once when the
+/// package is loaded. When omitted, it defaults to a no-op.
 ///
 /// # Name Uniqueness
 ///
@@ -45,12 +50,40 @@ use crate::TdlError;
 ///   package was compiled against.
 /// * `__spider_tdl_package_get_name` returns the package name passed to the macro, as a borrowed
 ///   [`CCharArray`](crate::ffi::CCharArray).
+/// * `__spider_tdl_package_init` runs the package's init function (or a no-op when none was
+///   provided) and returns a [`TaskExecutionResult`](crate::ffi::TaskExecutionResult) carrying an
+///   empty success buffer or the msgpack-encoded [`TdlError`](crate::TdlError).
 /// * `__spider_tdl_package_execute` dispatches a task by name for execution and returns a
 ///   [`TaskExecutionResult`](crate::ffi::TaskExecutionResult).
 #[macro_export]
 macro_rules! register_tdl_package {
     (
         package_name: $package_name:expr,
+        init: $init:path,
+        tasks: [$($task:path),* $(,)?] $(,)?
+    ) => {
+        $crate::register_tdl_package! {
+            @internal
+            package_name: $package_name,
+            init: $init,
+            tasks: [$($task),*],
+        }
+    };
+    (
+        package_name: $package_name:expr,
+        tasks: [$($task:path),* $(,)?] $(,)?
+    ) => {
+        $crate::register_tdl_package! {
+            @internal
+            package_name: $package_name,
+            init: $crate::register::noop_package_init,
+            tasks: [$($task),*],
+        }
+    };
+    (
+        @internal
+        package_name: $package_name:expr,
+        init: $init:path,
         tasks: [$($task:path),* $(,)?] $(,)?
     ) => {
         const __SPIDER_TDL_PACKAGE_NAME: &str = $package_name;
@@ -86,6 +119,20 @@ macro_rules! register_tdl_package {
         #[unsafe(no_mangle)]
         pub extern "C" fn __spider_tdl_package_get_name() -> $crate::ffi::CCharArray<'static> {
             $crate::ffi::CCharArray::from_utf8(__SPIDER_TDL_PACKAGE_NAME)
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __spider_tdl_package_init() -> $crate::ffi::TaskExecutionResult {
+            let init_fn: fn() -> ::std::result::Result<(), $crate::TdlError> = $init;
+            match init_fn() {
+                ::std::result::Result::Ok(()) => {
+                    $crate::ffi::TaskExecutionResult::from_outputs(::std::vec::Vec::new())
+                }
+                ::std::result::Result::Err(err) => {
+                    let bytes = $crate::register::serialize_error_payload(&err);
+                    $crate::ffi::TaskExecutionResult::from_error(bytes)
+                }
+            }
         }
 
         #[unsafe(no_mangle)]
@@ -178,6 +225,12 @@ pub fn serialize_error_payload(err: &TdlError) -> Vec<u8> {
     rmp_serde::to_vec(err).expect("failed to serialize `TdlError` as msgpack")
 }
 
+/// Default package init function used when a package registers no `init` hook.
+#[doc(hidden)]
+pub const fn noop_package_init() -> Result<(), TdlError> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::panic;
@@ -212,6 +265,11 @@ mod tests {
             msg.contains("two registered tasks share the same NAME"),
             "unexpected panic payload: {msg}",
         );
+    }
+
+    #[test]
+    fn noop_package_init_returns_ok() {
+        assert_eq!(noop_package_init(), Ok(()));
     }
 
     #[test]
