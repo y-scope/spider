@@ -6,7 +6,7 @@ metadata:
     {{- include "spider.labels" . | nindent 4 }}
     app.kubernetes.io/component: "worker"
 spec:
-  replicas: 1
+  replicas: {{ .Values.spiderConfig.execution_manager.replicas }}
   selector:
     matchLabels:
       {{- include "spider.selectorLabels" . | nindent 6 }}
