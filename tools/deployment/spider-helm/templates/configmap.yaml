@@ -7,7 +7,6 @@ metadata:
 data:
   execution-manager.yaml: |
     connection_pool_size: {{ .Values.spiderConfig.execution_manager.connection_pool_size }}
-    host: "__EXECUTION_MANAGER_HOST__"
     liveness:
       {{- toYaml .Values.spiderConfig.execution_manager.liveness | nindent 6 }}
     scheduler:

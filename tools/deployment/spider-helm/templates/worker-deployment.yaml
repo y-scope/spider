@@ -17,31 +17,6 @@ spec:
         {{- include "spider.labels" . | nindent 8 }}
         app.kubernetes.io/component: "worker"
     spec:
-      initContainers:
-        # The execution manager registers its Pod IP with storage, while the rest of its endpoints
-        # use Kubernetes Service DNS names. Render the Pod-specific value into a writable config
-        # volume before starting the manager.
-        - name: "render-config"
-          image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
-          imagePullPolicy: {{ .Values.image.worker.pullPolicy | quote }}
-          command:
-            - "sh"
-            - "-c"
-            - |
-              set -eu
-              sed "s/__EXECUTION_MANAGER_HOST__/${POD_IP}/" \
-                /etc/spider/template/execution-manager.yaml > /etc/spider/execution-manager.yaml
-          env:
-            - name: "POD_IP"
-              valueFrom:
-                fieldRef:
-                  fieldPath: "status.podIP"
-          volumeMounts:
-            - name: "config-template"
-              mountPath: "/etc/spider/template"
-              readOnly: true
-            - name: "config"
-              mountPath: "/etc/spider"
       containers:
         - name: "execution-manager"
           image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
@@ -49,11 +24,10 @@ spec:
           command: ["spider-execution-manager", "--config", "/etc/spider/execution-manager.yaml"]
           volumeMounts:
             - name: "config"
-              mountPath: "/etc/spider"
+              mountPath: "/etc/spider/execution-manager.yaml"
+              subPath: "execution-manager.yaml"
               readOnly: true
       volumes:
-        - name: "config-template"
+        - name: "config"
           configMap:
             name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
-        - name: "config"
-          emptyDir: {}
