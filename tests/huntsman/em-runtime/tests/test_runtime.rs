@@ -7,8 +7,6 @@
 //!
 //! All tests are `#[ignore]` so the workspace's plain `cargo test` doesn't run them.
 
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
