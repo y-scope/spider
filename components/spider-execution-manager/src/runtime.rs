@@ -1,7 +1,7 @@
 //! Runtime — the execution manager's main loop.
 
 use std::collections::VecDeque;
-use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -34,9 +34,6 @@ use crate::process_pool::{self};
 /// Static configuration for a [`Runtime`]. Supplied once at bootstrap and never mutated.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
-    /// IP address advertised to storage at registration.
-    pub em_ip: IpAddr,
-
     /// Interval between liveness heartbeats. Handed verbatim to the liveness actor.
     pub heartbeat_interval: Duration,
 
@@ -140,7 +137,11 @@ impl<
         liveness_client: LivenessClientType,
         config: RuntimeConfig,
     ) -> Result<(Self, CancellationToken), RuntimeError> {
-        let registration = liveness_client.register(config.em_ip).await?;
+        // TODO: Register with a placeholder address. This should be updated when the system needs
+        // to store locality metadata. See https://github.com/y-scope/spider/issues/406 for detail.
+        let registration = liveness_client
+            .register(Ipv4Addr::UNSPECIFIED.into())
+            .await?;
         let em_id = registration.em_id;
         let session_tracker = SessionTracker::new(registration.session_id);
         tracing::info!(
