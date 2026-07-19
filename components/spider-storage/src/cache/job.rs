@@ -424,6 +424,7 @@ impl<
                 .send_commit_ready(jcb.owner_id, jcb.id)
                 .await?;
         }
+        job.task_graph.finalize();
         Ok(job.state)
     }
 
@@ -635,6 +636,7 @@ impl<
                 .send_cleanup_ready(jcb.owner_id, jcb.id)
                 .await?;
         }
+        job.task_graph.finalize();
         Ok(job.state)
     }
 
