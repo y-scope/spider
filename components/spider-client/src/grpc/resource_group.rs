@@ -69,15 +69,14 @@ impl ResourceGroupManagementClient {
         external_resource_group_id: String,
         password: Vec<u8>,
     ) -> Result<ResourceGroupId, ClientError> {
-        let request = storage::AddResourceGroupRequest {
-            external_resource_group_id,
-            password,
-        };
-        let response = call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .add_resource_group(request.clone())
-                .await
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = storage::AddResourceGroupRequest {
+                external_resource_group_id: external_resource_group_id.clone(),
+                password: password.clone(),
+            };
+            async move { client.add_resource_group(request).await }
         })
         .await
         .map_err(|status| resource_group_status_to_error(&status))?
@@ -103,15 +102,14 @@ impl ResourceGroupManagementClient {
         resource_group_id: ResourceGroupId,
         password: Vec<u8>,
     ) -> Result<(), ClientError> {
-        let request = storage::VerifyResourceGroupRequest {
-            resource_group_id: resource_group_id.get(),
-            password,
-        };
-        call_with_retry(self.retry_config, async || {
-            self.connection_pool
-                .get_client()
-                .verify_resource_group(request.clone())
-                .await
+        let pool = self.connection_pool.clone();
+        call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = storage::VerifyResourceGroupRequest {
+                resource_group_id: resource_group_id.get(),
+                password: password.clone(),
+            };
+            async move { client.verify_resource_group(request).await }
         })
         .await
         .map_err(|status| resource_group_status_to_error(&status))?;
