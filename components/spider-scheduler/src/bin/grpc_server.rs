@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let server_config = ServerConfig::from_yaml_file(&cli.config)
         .inspect_err(|error| tracing::error!(error = % error, "Failed to load configuration."))?;
-    let listen_addr = SocketAddr::new(server_config.runtime.host, server_config.runtime.port);
+    let listen_addr = SocketAddr::new(server_config.host, server_config.port);
 
     let storage_endpoint = server_config.storage_endpoint.endpoint().inspect_err(
         |error| tracing::error!(error = % error, "Failed to parse storage endpoint."),

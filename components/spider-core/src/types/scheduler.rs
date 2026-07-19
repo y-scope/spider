@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use spider_utils::config::Host;
 
 use crate::types::id::JobId;
 use crate::types::id::ResourceGroupId;
@@ -8,10 +8,10 @@ use crate::types::id::TaskAssignmentId;
 use crate::types::id::TaskId;
 
 /// The currently registered scheduler endpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisteredScheduler {
     pub id: SchedulerId,
-    pub ip_address: IpAddr,
+    pub host: Host,
     pub port: u16,
 }
 

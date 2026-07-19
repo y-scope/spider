@@ -174,7 +174,7 @@ message UpdateExecutionManagerHeartbeatResponse {
 }
 
 message RegisterSchedulerRequest {
-  string ip_address = 1;
+  string host = 1;
   uint32 port = 2;
 }
 
@@ -189,7 +189,7 @@ message RegisterSchedulerResponse {
 
 message Scheduler {
   uint64 scheduler_id = 1;
-  string ip_address = 2;
+  string host = 2;
   uint32 port = 3;
 }
 

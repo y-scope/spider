@@ -251,11 +251,7 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
 
 #[async_trait::async_trait]
 impl SchedulerRegistrationManagement for MockDbConnector {
-    async fn register_scheduler(
-        &self,
-        _ip_address: IpAddr,
-        _port: u16,
-    ) -> Result<SchedulerId, DbError> {
+    async fn register_scheduler(&self, _host: &str, _port: u16) -> Result<SchedulerId, DbError> {
         let counter = self.next_scheduler_id.fetch_add(1, Ordering::Relaxed);
         Ok(SchedulerId::from(counter as u64))
     }

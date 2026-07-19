@@ -1,5 +1,6 @@
 //! Scheduler service configuration.
 
+use std::net::IpAddr;
 use std::num::NonZeroUsize;
 
 use serde::Deserialize;
@@ -14,6 +15,12 @@ use crate::storage_client::SchedulerStorageClient;
 /// Top-level configuration for the scheduler gRPC server.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ServerConfig {
+    /// The IP address the gRPC server listens on.
+    pub host: IpAddr,
+
+    /// The port the gRPC server listens on.
+    pub port: u16,
+
     /// The storage service gRPC endpoint.
     pub storage_endpoint: EndpointConfig,
 
@@ -22,7 +29,7 @@ pub struct ServerConfig {
     /// Must be greater than zero.
     pub connection_pool_size: NonZeroUsize,
 
-    /// The scheduler runtime configuration (also supplies the gRPC listen host/port).
+    /// The scheduler runtime configuration.
     pub runtime: RuntimeConfig,
 }
 

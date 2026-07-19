@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "complex"
 path = "tests/complex.rs"
 
+[[test]]
+name = "init"
+path = "tests/init.rs"
+
 [dev-dependencies]
 anyhow = "1.0.98"
 huntsman-complex-types = { path = "../../../examples/huntsman/complex/types" }

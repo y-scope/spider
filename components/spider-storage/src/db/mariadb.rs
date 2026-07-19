@@ -13,6 +13,7 @@ use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::scheduler::RegisteredScheduler;
 use spider_derive::MySqlEnum;
+use spider_utils::config::Host;
 use sqlx::Connection;
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlDatabaseError;
@@ -581,22 +582,18 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
 
 #[async_trait]
 impl SchedulerRegistrationManagement for MariaDbStorageConnector {
-    async fn register_scheduler(
-        &self,
-        ip_address: IpAddr,
-        port: u16,
-    ) -> Result<SchedulerId, DbError> {
+    async fn register_scheduler(&self, host: &str, port: u16) -> Result<SchedulerId, DbError> {
         const DELETE_QUERY: &str =
             formatcp!("DELETE FROM `{table}`;", table = SCHEDULERS_TABLE_NAME,);
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`ip_address`, `port`) VALUES (?, ?) RETURNING `id`;",
+            "INSERT INTO `{table}` (`host`, `port`) VALUES (?, ?) RETURNING `id`;",
             table = SCHEDULERS_TABLE_NAME,
         );
 
         let mut tx = self.pool.begin().await?;
         sqlx::query(DELETE_QUERY).execute(&mut *tx).await?;
         let scheduler_id = sqlx::query_scalar(INSERT_QUERY)
-            .bind(ip_address.to_string())
+            .bind(host)
             .bind(port)
             .fetch_one(&mut *tx)
             .await?;
@@ -606,7 +603,7 @@ impl SchedulerRegistrationManagement for MariaDbStorageConnector {
 
     async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {
         const QUERY: &str = formatcp!(
-            "SELECT `id`, `ip_address`, `port` FROM `{table}` ORDER BY `id` ASC;",
+            "SELECT `id`, `host`, `port` FROM `{table}` ORDER BY `id` ASC;",
             table = SCHEDULERS_TABLE_NAME,
         );
 
@@ -722,7 +719,7 @@ const fn schedulers_creation_query() -> &'static str {
         r"
 CREATE TABLE IF NOT EXISTS `{SCHEDULERS_TABLE_NAME}` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `ip_address` VARCHAR(45) NOT NULL,
+  `host` VARCHAR(255) NOT NULL,
   `port` SMALLINT UNSIGNED NOT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
@@ -793,7 +790,7 @@ impl RecoverableJobRowProjection {
 #[derive(sqlx::FromRow)]
 struct SchedulerRowProjection {
     id: SchedulerId,
-    ip_address: String,
+    host: String,
     port: u16,
 }
 
@@ -808,17 +805,14 @@ impl SchedulerRowProjection {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::CorruptedDbState`] if the scheduler IP address is invalid.
+    /// * [`DbError::CorruptedDbState`] if the scheduler host is empty.
     fn into_registered_scheduler(self) -> Result<RegisteredScheduler, DbError> {
-        let ip_address = self.ip_address.parse().map_err(|error| {
-            DbError::CorruptedDbState(format!(
-                "scheduler `{}` has invalid IP address `{}`: {error}",
-                self.id, self.ip_address
-            ))
+        let host = Host::new(self.host).map_err(|_| {
+            DbError::CorruptedDbState(format!("scheduler `{}` has an empty host", self.id))
         })?;
         Ok(RegisteredScheduler {
             id: self.id,
-            ip_address,
+            host,
             port: self.port,
         })
     }
