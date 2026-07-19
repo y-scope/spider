@@ -169,6 +169,15 @@ impl TaskGraph {
         }
     }
 
+    /// Finalizes the task graph, indicating the job state has transitioned from
+    /// [`JobState::Running`] to the next state.
+    ///
+    /// At this stage, all TCBs are explicitly removed. This implies the internal data dependencies
+    /// are also removed if they are no longer referenced by any TCB(s).
+    pub fn finalize(&mut self) {
+        self.tasks.clear();
+    }
+
     /// Marks all TCBs and commit TCB as cancelled, if not terminated.
     pub async fn cancel_non_terminal(&mut self) {
         for tcb in &self.tasks {
