@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -11,9 +10,6 @@ use crate::runtime::RuntimeConfig;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
-    /// The IP address the execution manager hosts on.
-    pub host: IpAddr,
-
     /// The endpoint of the storage gRPC server.
     pub storage: EndpointConfig,
 
@@ -45,7 +41,6 @@ impl Config {
     #[must_use]
     pub fn runtime_config(&self) -> RuntimeConfig {
         RuntimeConfig {
-            em_ip: self.host,
             heartbeat_interval: Duration::from_secs(
                 self.liveness.storage_heartbeat_interval_sec.get(),
             ),
