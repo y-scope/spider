@@ -290,3 +290,32 @@ impl SpiderClientBuilder {
 }
 
 const DEFAULT_POOL_SIZE: NonZeroUsize = NonZeroUsize::new(8).unwrap();
+
+/// Compile-time assertion that the public client handles are `Send + Sync`.
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<SpiderClient>();
+    assert_send_sync::<SpiderClientBuilder>();
+};
+
+/// Compile-time assertion that every public [`SpiderClient`] async method returns a `Send` future.
+///
+/// This function is never called; it exists only to type-check the `Send` bound on each returned
+/// future. The arguments are taken as parameters (never constructed) so no real values are needed.
+#[expect(dead_code, reason = "compile-time-only `Send` assertion; never called")]
+fn assert_client_futures_send(
+    client: &SpiderClient,
+    resource_group_id: ResourceGroupId,
+    job_id: JobId,
+    task_graph: &TaskGraph,
+) {
+    const fn assert_send<FutureType: Send>(_: &FutureType) {}
+    assert_send(&client.submit_job(resource_group_id, task_graph, Vec::new()));
+    assert_send(&client.start_job(job_id));
+    assert_send(&client.cancel_job(job_id));
+    assert_send(&client.get_job_state(job_id));
+    assert_send(&client.get_job_outputs(job_id));
+    assert_send(&client.get_job_error(job_id));
+    assert_send(&client.add_resource_group(String::new(), Vec::new()));
+    assert_send(&client.verify_resource_group(resource_group_id, Vec::new()));
+}
