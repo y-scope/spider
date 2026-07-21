@@ -26,10 +26,10 @@ data:
       advertised_endpoint:
         host: {{ include "spider.componentFullname" (dict "root" . "component" "scheduler") | quote }}
         port: {{ .Values.spiderConfig.scheduler.port }}
-      {{- $scheduler := .Values.spiderConfig.scheduler.runtime.scheduler }}
-      {{- $algorithm := keys $scheduler | first }}
-      scheduler: !{{ $algorithm }}
-        {{- toYaml (index $scheduler $algorithm) | nindent 8 }}
+      scheduler:
+        policy: {{ .Values.spiderConfig.scheduler.runtime.scheduler.policy | quote }}
+        config:
+          {{- toYaml .Values.spiderConfig.scheduler.runtime.scheduler.config | nindent 10 }}
     storage_endpoint:
       host: {{ include "spider.componentFullname" (dict "root" . "component" "storage") | quote }}
       port: {{ .Values.spiderConfig.storage.port }}
