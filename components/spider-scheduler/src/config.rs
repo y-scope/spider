@@ -35,7 +35,12 @@ pub struct ServerConfig {
 
 /// The configuration that selects and configures the scheduler core's scheduling algorithm.
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(
+    tag = "algorithm",
+    content = "config",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum SchedulerConfig {
     /// The round-robin scheduling algorithm.
     RoundRobin(RoundRobinConfig),
