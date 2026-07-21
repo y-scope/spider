@@ -39,7 +39,8 @@ spiderConfig:
     port: 50052
     runtime:
       scheduler:
-        round_robin:
+        policy: "round_robin"
+        config:
           active_job_queue_capacity: 64
           cleanup_ready_task_capacity: 256
           commit_ready_task_capacity: 256
