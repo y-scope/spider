@@ -33,10 +33,10 @@ pub struct ServerConfig {
     pub runtime: RuntimeConfig,
 }
 
-/// The configuration that selects and configures the scheduler core's scheduling algorithm.
+/// The configuration that selects and configures the scheduler core's scheduling policy.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(
-    tag = "algorithm",
+    tag = "policy",
     content = "config",
     rename_all = "snake_case",
     deny_unknown_fields
