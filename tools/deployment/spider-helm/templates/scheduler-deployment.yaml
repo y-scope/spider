@@ -1,0 +1,44 @@
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "scheduler") }}
+  labels:
+    {{- include "spider.labels" . | nindent 4 }}
+    app.kubernetes.io/component: "scheduler"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "spider.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: "scheduler"
+  template:
+    metadata:
+      labels:
+        {{- include "spider.labels" . | nindent 8 }}
+        app.kubernetes.io/component: "scheduler"
+    spec:
+      containers:
+        - name: "scheduler"
+          image: {{ include "spider.imageRef" (dict "root" . "component" "scheduler") | quote }}
+          imagePullPolicy: {{ .Values.image.scheduler.pullPolicy | quote }}
+          command: ["spider-scheduler", "--config", "/etc/spider/scheduler.yaml"]
+          ports:
+            - name: "grpc"
+              containerPort: {{ .Values.spiderConfig.scheduler.port }}
+          volumeMounts:
+            - name: "config"
+              mountPath: "/etc/spider/scheduler.yaml"
+              subPath: "scheduler.yaml"
+              readOnly: true
+          readinessProbe:
+            {{- include "spider.readinessProbeTimings" . | nindent 12 }}
+            tcpSocket:
+              port: "grpc"
+          livenessProbe:
+            {{- include "spider.livenessProbeTimings" . | nindent 12 }}
+            tcpSocket:
+              port: "grpc"
+      volumes:
+        - name: "config"
+          configMap:
+            name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
