@@ -5,6 +5,21 @@ metadata:
   labels:
     {{- include "spider.labels" . | nindent 4 }}
 data:
+  scheduler.yaml: |
+    connection_pool_size: {{ .Values.spiderConfig.scheduler.connection_pool_size }}
+    host: "0.0.0.0"
+    port: {{ .Values.spiderConfig.scheduler.port }}
+    runtime:
+      advertised_endpoint:
+        host: {{ include "spider.componentFullname" (dict "root" . "component" "scheduler") | quote }}
+        port: {{ .Values.spiderConfig.scheduler.port }}
+      scheduler:
+        policy: {{ .Values.spiderConfig.scheduler.runtime.scheduler.policy | quote }}
+        config:
+          {{- toYaml .Values.spiderConfig.scheduler.runtime.scheduler.config | nindent 10 }}
+    storage_endpoint:
+      host: {{ include "spider.componentFullname" (dict "root" . "component" "storage") | quote }}
+      port: {{ .Values.spiderConfig.storage.port }}
   storage.yaml: |
     host: "0.0.0.0"
     port: {{ .Values.spiderConfig.storage.port }}
