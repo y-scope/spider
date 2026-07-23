@@ -457,6 +457,10 @@ name = "e2e"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "huntsman-nn-core",
+ "rand 0.9.4",
+ "rmp-serde",
+ "serde",
  "spider-client",
  "spider-core",
  "tokio",
