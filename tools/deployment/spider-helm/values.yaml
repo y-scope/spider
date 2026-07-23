@@ -43,7 +43,6 @@ spiderConfig:
     liveness:
       scheduler_heartbeat_interval_sec: 10
       storage_heartbeat_interval_sec: 10
-    replicas: 1
     scheduler_poll_wait_ms: 1000
     task_executor:
       bin_path: "/usr/local/bin/spider-task-executor"
@@ -74,3 +73,6 @@ spiderConfig:
         cleanup_capacity: 256
         commit_capacity: 256
         task_capacity: 1048576
+
+  worker:
+    replicas: 4
