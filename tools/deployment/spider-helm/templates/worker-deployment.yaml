@@ -22,6 +22,13 @@ spec:
           image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
           imagePullPolicy: {{ .Values.image.worker.pullPolicy | quote }}
           command: ["spider-execution-manager", "--config", "/etc/spider/execution-manager.yaml"]
+          {{- with .Values.spiderConfig.worker.extra_envs }}
+          env:
+            {{- range $name, $value := . }}
+            - name: {{ $name | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
           volumeMounts:
             - name: "config"
               mountPath: "/etc/spider/execution-manager.yaml"
