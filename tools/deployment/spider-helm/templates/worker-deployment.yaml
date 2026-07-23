@@ -1,0 +1,40 @@
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "worker") }}
+  labels:
+    {{- include "spider.labels" . | nindent 4 }}
+    app.kubernetes.io/component: "worker"
+spec:
+  replicas: {{ .Values.spiderConfig.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "spider.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: "worker"
+  template:
+    metadata:
+      labels:
+        {{- include "spider.labels" . | nindent 8 }}
+        app.kubernetes.io/component: "worker"
+    spec:
+      containers:
+        - name: "execution-manager"
+          image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
+          imagePullPolicy: {{ .Values.image.worker.pullPolicy | quote }}
+          command: ["spider-execution-manager", "--config", "/etc/spider/execution-manager.yaml"]
+          {{- with .Values.spiderConfig.worker.extra_envs }}
+          env:
+            {{- range $name, $value := . }}
+            - name: {{ $name | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: "config"
+              mountPath: "/etc/spider/execution-manager.yaml"
+              subPath: "execution-manager.yaml"
+              readOnly: true
+      volumes:
+        - name: "config"
+          configMap:
+            name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
