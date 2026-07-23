@@ -1,0 +1,127 @@
+name: "spider-helm"
+
+on:
+  pull_request:
+    paths: &monitored_paths
+      - ".github/workflows/spider-helm.yaml"
+      - "taskfile.yaml"
+      - "taskfiles/**"
+      - "tools/deployment/spider-helm/**"
+      - "tools/yscope-dev-utils"
+  push:
+    paths: *monitored_paths
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+
+  # Cancel in-progress jobs for efficiency. Exclude the `main` branch to allow uninterrupted
+  # publishing of Helm charts.
+  cancel-in-progress: >-
+    ${{
+      github.ref != 'refs/heads/main'
+      && !startsWith(github.ref, 'refs/heads/spider-huntsman-v')
+    }}
+
+jobs:
+  lint:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
+        with:
+          submodules: "recursive"
+
+          # Fetch all history for all branches; otherwise, `helm lint` would complain about not
+          # finding the `origin/main` branch.
+          fetch-depth: 0
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
+        with:
+          version: "3.10"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
+        with:
+          version: "3.48.0"
+
+      - name: "Lint Helm charts"
+        shell: "bash"
+        run: "task lint:check-helm"
+
+  publish:
+    # Publish from `main` and `spider-huntsman-vA.B.C` release branches.
+    if: >-
+      github.event_name != 'pull_request'
+      && (github.ref == 'refs/heads/main'
+      || startsWith(github.ref, 'refs/heads/spider-huntsman-v'))
+    needs: "lint"
+    runs-on: "ubuntu-latest"
+    concurrency:
+      group: "${{github.workflow}}-gh-pages"
+      cancel-in-progress: false
+    permissions:
+      # To push to the `gh-pages` branch.
+      contents: "write"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: "recursive"
+
+      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
+        with:
+          version: "3.48.0"
+
+      - name: "Package Helm chart"
+        shell: "bash"
+        run: "task helm:package"
+
+      - name: "Checkout branch `gh-pages`"
+        uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
+        with:
+          path: "gh-pages"
+          ref: "gh-pages"
+
+      - name: "Get chart version"
+        id: "get-chart-version"
+        uses: "mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d"  # v4.53.3
+        with:
+          cmd: "yq '.version' 'tools/deployment/spider-helm/Chart.yaml'"
+
+      - name: "Update Helm repository"
+        id: "update-helm-repo"
+        shell: "bash"
+        run: |-
+          chart_tgz="spider-${{steps.get-chart-version.outputs.result}}.tgz"
+
+          # Skip if this chart version already exists.
+          if [[ -f "gh-pages/${chart_tgz}" ]]; then
+            echo "Chart ${chart_tgz} already exists, skipping publish."
+            echo "skip_publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cp "build/spider-helm"/*.tgz "gh-pages/"
+
+          # Update index.yaml, merging with existing index if present.
+          . "build/toolchains/helm/env"
+          url="${{github.server_url}}/${{github.repository}}/raw/gh-pages"
+          if [[ -f "gh-pages/index.yaml" ]]; then
+            helm repo index "gh-pages" --merge "gh-pages/index.yaml" --url "${url}"
+          else
+            helm repo index "gh-pages" --url "${url}"
+          fi
+
+      - name: "Push to gh-pages branch"
+        if: "steps.update-helm-repo.outputs.skip_publish != 'true'"
+        shell: "bash"
+        working-directory: "gh-pages"
+        run: |-
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git add "*.tgz" "index.yaml"
+          commit_message="ci(helm): Publish spider-${{steps.get-chart-version.outputs.result}}"
+          commit_message+=" from ${{github.ref_name}} (${{github.sha}})."
+          git commit -m "$commit_message"
+          git push
