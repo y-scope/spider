@@ -19,13 +19,17 @@ concurrency:
 
   # Cancel in-progress jobs for efficiency. Exclude the `main` branch to allow uninterrupted
   # publishing of Helm charts.
-  cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
+  cancel-in-progress: >-
+    ${{
+      github.ref != 'refs/heads/main'
+      && !startsWith(github.ref, 'refs/heads/spider-huntsman-v')
+    }}
 
 jobs:
   lint:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
         with:
           submodules: "recursive"
 
@@ -53,12 +57,16 @@ jobs:
       || startsWith(github.ref, 'refs/heads/spider-huntsman-v'))
     needs: "lint"
     runs-on: "ubuntu-latest"
+    concurrency:
+      group: "${{github.workflow}}-gh-pages"
+      cancel-in-progress: false
     permissions:
       # To push to the `gh-pages` branch.
       contents: "write"
     steps:
-      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
         with:
+          persist-credentials: false
           persist-credentials: false
           submodules: "recursive"
 
@@ -71,14 +79,14 @@ jobs:
         run: "task helm:package"
 
       - name: "Checkout branch `gh-pages`"
-        uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+        uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
         with:
           path: "gh-pages"
           ref: "gh-pages"
 
       - name: "Get chart version"
         id: "get-chart-version"
-        uses: "mikefarah/yq@065b200af9851db0d5132f50bc10b1406ea5c0a8"  # v4.50.1
+        uses: "mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d"  # v4.53.3
         with:
           cmd: "yq '.version' 'tools/deployment/spider-helm/Chart.yaml'"
 
