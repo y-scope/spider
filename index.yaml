@@ -3,7 +3,26 @@ entries:
   spider:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-07-23T20:36:45.184910976Z"
+    created: "2026-07-23T20:58:41.513624087Z"
+    description: A Helm chart for the Spider Huntsman deployment
+    digest: 50751bdc2ae653dadb368c3df93386eb99d29756c3e6900784bfea2a12074490
+    home: https://github.com/y-scope/spider
+    keywords:
+    - distributed-scheduler
+    maintainers:
+    - email: dev@yscope.com
+      name: y-scope
+      url: https://yscope.com
+    name: spider
+    sources:
+    - https://github.com/y-scope/spider
+    type: application
+    urls:
+    - https://github.com/y-scope/spider/raw/gh-pages/spider-0.1.3.tgz
+    version: 0.1.3
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2026-07-23T20:58:41.513190255Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 1d7d59b0a1df35eb1a19a0ce5da30a922da973223cf741ade99b251e50eee649
     home: https://github.com/y-scope/spider
@@ -20,4 +39,4 @@ entries:
     urls:
     - https://github.com/y-scope/spider/raw/gh-pages/spider-0.1.2.tgz
     version: 0.1.2
-generated: "2026-07-23T20:36:45.184356437Z"
+generated: "2026-07-23T20:58:41.512697272Z"
