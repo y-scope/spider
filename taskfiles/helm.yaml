@@ -1,0 +1,19 @@
+version: "3"
+
+includes:
+  toolchains: "toolchains.yaml"
+
+vars:
+  G_SPIDER_HELM_BUILD_DIR: "{{.G_BUILD_DIR}}/spider-helm"
+
+tasks:
+  package:
+    vars:
+      OUTPUT_DIR: "{{.G_SPIDER_HELM_BUILD_DIR}}"
+    deps: ["toolchains:helm"]
+    cmds:
+      - "rm -rf '{{.OUTPUT_DIR}}'"
+      - "mkdir -p '{{.OUTPUT_DIR}}'"
+      - |-
+        . "{{.G_HELM_TOOLCHAIN_ENV_FILE}}"
+        helm package "{{.ROOT_DIR}}/tools/deployment/spider-helm" --destination "{{.OUTPUT_DIR}}"
