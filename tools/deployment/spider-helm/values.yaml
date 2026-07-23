@@ -38,6 +38,19 @@ spiderConfig:
     root_password: "spider-root-password"
     username: "spider-user"
 
+  execution_manager:
+    connection_pool_size: 4
+    liveness:
+      scheduler_heartbeat_interval_sec: 10
+      storage_heartbeat_interval_sec: 10
+    replicas: 1
+    scheduler_poll_wait_ms: 1000
+    task_executor:
+      bin_path: "/usr/local/bin/spider-task-executor"
+      inherited_env: []
+      log_dir: "/tmp/spider/task-executor"
+      package_dir: "/opt/spider/packages"
+
   scheduler:
     connection_pool_size: 4
     port: 50052
@@ -53,19 +66,6 @@ spiderConfig:
           ready_task_capacity: 65536
           storage_poll_timeout_ms: 10
           tick_interval_ms: 5
-
-  execution_manager:
-    connection_pool_size: 4
-    liveness:
-      scheduler_heartbeat_interval_sec: 10
-      storage_heartbeat_interval_sec: 10
-    replicas: 1
-    scheduler_poll_wait_ms: 1000
-    task_executor:
-      bin_path: "/usr/local/bin/spider-task-executor"
-      inherited_env: []
-      log_dir: "/tmp/spider/task-executor"
-      package_dir: "/opt/spider/packages"
 
   storage:
     port: 50051
