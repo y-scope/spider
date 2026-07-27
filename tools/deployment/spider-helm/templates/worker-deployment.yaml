@@ -24,17 +24,20 @@ spec:
           command: ["spider-execution-manager", "--config", "/etc/spider/execution-manager.yaml"]
           {{- with .Values.spiderConfig.worker.extra_envs }}
           env:
-            {{- range $name, $value := . }}
-            - name: {{ $name | quote }}
-              value: {{ $value | quote }}
-            {{- end }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
           {{- end }}
           volumeMounts:
             - name: "config"
               mountPath: "/etc/spider/execution-manager.yaml"
               subPath: "execution-manager.yaml"
               readOnly: true
+            {{- with .Values.spiderConfig.worker.extra_volume_mounts }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+            {{- end }}
       volumes:
         - name: "config"
           configMap:
             name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
+        {{- with .Values.spiderConfig.worker.extra_volumes }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
