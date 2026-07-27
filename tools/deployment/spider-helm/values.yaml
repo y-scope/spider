@@ -75,5 +75,7 @@ spiderConfig:
         task_capacity: 1048576
 
   worker:
-    extra_envs: {}
+    extra_envs: []
+    extra_volume_mounts: []
+    extra_volumes: []
     replicas: 4
