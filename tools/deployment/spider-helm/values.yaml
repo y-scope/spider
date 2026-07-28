@@ -47,7 +47,7 @@ spiderConfig:
     task_executor:
       bin_path: "/usr/local/bin/spider-task-executor"
       inherited_env: []
-      log_dir: "/tmp/spider/task-executor"
+      max_log_line_bytes: 65536
       package_dir: "/opt/spider/packages"
 
   scheduler:
