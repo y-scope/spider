@@ -7,15 +7,21 @@
 
 use std::io;
 
+#[cfg(test)]
+use tokio::io::AsyncBufReadExt;
+#[cfg(test)]
+use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
+#[cfg(test)]
+use tokio::io::BufReader;
 use tokio::io::BufWriter;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 /// Cloneable handle for sending log lines into the running actor.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExecutorLogHandle {
     sender: mpsc::Sender<String>,
 }
@@ -60,6 +66,36 @@ pub fn spawn<WriterType: AsyncWrite + Unpin + Send + 'static>(
     };
     let join = tokio::spawn(actor.run());
     (ExecutorLogHandle { sender }, join)
+}
+
+/// Spawns a task draining `reader` line by line until the writing end of the stream is dropped.
+///
+/// The drain has to run concurrently with the actor, otherwise a full stream buffer would deadlock
+/// the caller.
+///
+/// # Type Parameters
+///
+/// * `ReaderType` - The stream the collector takes ownership of and reads lines from.
+///
+/// # Returns
+///
+/// The spawned task's [`JoinHandle`], resolving to every line read.
+///
+/// # Panics
+///
+/// The spawned task panics if reading from `reader` fails.
+#[cfg(test)]
+pub fn spawn_line_collector<ReaderType: AsyncRead + Unpin + Send + 'static>(
+    reader: ReaderType,
+) -> JoinHandle<Vec<String>> {
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(reader).lines();
+        let mut collected = Vec::new();
+        while let Some(line) = lines.next_line().await.expect("failed to read a line") {
+            collected.push(line);
+        }
+        collected
+    })
 }
 
 /// Capacity of the log line channel between the producers and the actor.
@@ -134,14 +170,12 @@ mod tests {
     use std::task::Poll;
     use std::time::Duration;
 
-    use tokio::io::AsyncBufReadExt;
     use tokio::io::AsyncWrite;
-    use tokio::io::BufReader;
-    use tokio::io::DuplexStream;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
     use super::spawn;
+    use super::spawn_line_collector;
 
     /// Buffer capacity of the in-memory stream standing in for the actor's output.
     ///
@@ -168,25 +202,6 @@ mod tests {
         fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
         }
-    }
-
-    /// Spawns a task draining `reader` line by line until the actor drops its end of the stream.
-    ///
-    /// The drain has to run concurrently with the actor, otherwise a full stream buffer would
-    /// deadlock the test.
-    ///
-    /// # Returns
-    ///
-    /// The spawned task's [`JoinHandle`], resolving to every line read.
-    fn spawn_line_collector(reader: DuplexStream) -> JoinHandle<Vec<String>> {
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(reader).lines();
-            let mut collected = Vec::new();
-            while let Some(line) = lines.next_line().await.expect("failed to read a line") {
-                collected.push(line);
-            }
-            collected
-        })
     }
 
     /// Joins the actor with a short upper bound so a stuck task surfaces as a test failure instead

@@ -3,7 +3,7 @@
 
 pub mod client;
 mod config;
-pub mod executor_log;
+pub mod executor_log_collection;
 pub mod liveness;
 pub mod process_pool;
 pub mod runtime;

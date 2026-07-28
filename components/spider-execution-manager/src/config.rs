@@ -50,7 +50,7 @@ impl Config {
             scheduler_poll_wait_ms: self.scheduler_poll_wait_ms,
             executor_binary_path: self.task_executor.bin_path.clone(),
             package_dir: self.task_executor.package_dir.clone(),
-            log_dir: self.task_executor.log_dir.clone(),
+            max_log_line_bytes: self.task_executor.max_log_line_bytes,
             inherited_env: self.task_executor.inherited_env.clone(),
         }
     }
@@ -77,12 +77,30 @@ pub struct TaskExecutorConfig {
     /// Directory of TDL packages exposed to executors via `SPIDER_TDL_PACKAGE_DIR`.
     pub package_dir: PathBuf,
 
-    /// Directory the process pool writes per-executor stderr logs into.
-    pub log_dir: PathBuf,
+    /// Maximum length, in bytes, of a single log line captured from an executor's stderr and
+    /// forwarded to the execution manager's stdout. A longer line is dropped.
+    ///
+    /// Must be greater than zero.
+    #[serde(default = "default_max_log_line_bytes")]
+    pub max_log_line_bytes: NonZeroUsize,
 
     /// Names of environment variables forwarded from the execution manager's process into each
     /// spawned `spider-task-executor`. Their values are read from this process's environment at
     /// spawn time.
     #[serde(default)]
     pub inherited_env: Vec<String>,
+}
+
+/// Default value of [`TaskExecutorConfig::max_log_line_bytes`].
+const DEFAULT_MAX_LOG_LINE_BYTES: usize = 64 * 1024;
+
+/// # Returns
+///
+/// The default value of [`TaskExecutorConfig::max_log_line_bytes`].
+///
+/// # Panics
+///
+/// Panics if [`DEFAULT_MAX_LOG_LINE_BYTES`] is zero.
+const fn default_max_log_line_bytes() -> NonZeroUsize {
+    NonZeroUsize::new(DEFAULT_MAX_LOG_LINE_BYTES).expect("default max log line bytes is non-zero")
 }
