@@ -21,3 +21,6 @@
 .idea/
 .project
 .vscode/
+# Test set-up scripts
+set-up-test.sh
+.set-up-common.sh
