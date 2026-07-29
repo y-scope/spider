@@ -11,6 +11,8 @@ use spider_execution_manager::client::grpc::GrpcStorageClient;
 use spider_execution_manager::runtime::Runtime;
 use spider_utils::config::YamlConfig;
 use spider_utils::logging::set_up_logging;
+use tokio::signal::unix::SignalKind;
+use tokio::signal::unix::signal;
 
 /// Command-line arguments for the execution manager.
 #[derive(Debug, Parser)]
@@ -63,6 +65,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tracing::info!(em_id, "Execution manager started.");
     let mut run_handle = tokio::spawn(runtime.run());
+    let mut sigterm = signal(SignalKind::terminate()).inspect_err(
+        |error| tracing::error!(em_id, error = % error, "Failed to register SIGTERM handler."),
+    )?;
 
     let () = tokio::select! {
         result = tokio::signal::ctrl_c() => {
@@ -70,6 +75,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 tracing::error!(em_id, error = % error, "Failed to listen for Ctrl-C.");
             }
             tracing::info!(em_id, "Received Ctrl-C. Shutting down execution manager.");
+            cancellation_token.cancel();
+            run_handle.await
+        }
+        _ = sigterm.recv() => {
+            tracing::info!(em_id, "Received SIGTERM. Shutting down execution manager.");
             cancellation_token.cancel();
             run_handle.await
         }

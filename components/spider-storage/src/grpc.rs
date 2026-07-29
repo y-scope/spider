@@ -694,7 +694,7 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let (max_items, wait) = request.into_inner().unpack()?;
-        tracing::info!(max_items, "Poll ready tasks request received.");
+        tracing::debug!(max_items, "Poll ready tasks request received.");
         let entries = self
             .inner
             .poll_ready_tasks(max_items, wait)
@@ -712,7 +712,7 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let (max_items, wait) = request.into_inner().unpack()?;
-        tracing::info!(max_items, "Poll ready commit tasks request received.");
+        tracing::debug!(max_items, "Poll ready commit tasks request received.");
         let entries = self
             .inner
             .poll_commit_ready_tasks(max_items, wait)
@@ -730,7 +730,7 @@ impl<
         request: Request<storage::PollReadyTasksRequest>,
     ) -> Result<Response<storage::PollReadyTasksResponse>, Status> {
         let (max_items, wait) = request.into_inner().unpack()?;
-        tracing::info!(max_items, "Poll ready cleanup tasks request received.");
+        tracing::debug!(max_items, "Poll ready cleanup tasks request received.");
         let entries = self
             .inner
             .poll_cleanup_ready_tasks(max_items, wait)
