@@ -82,3 +82,4 @@ spiderConfig:
     extra_volume_mounts: []
     extra_volumes: []
     replicas: 4
+    service_account_name: ""

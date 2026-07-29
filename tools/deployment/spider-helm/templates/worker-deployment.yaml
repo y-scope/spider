@@ -17,6 +17,9 @@ spec:
         {{- include "spider.labels" . | nindent 8 }}
         app.kubernetes.io/component: "worker"
     spec:
+      {{- with .Values.spiderConfig.worker.service_account_name }}
+      serviceAccountName: {{ tpl . $ | quote }}
+      {{- end }}
       containers:
         - name: "execution-manager"
           image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
