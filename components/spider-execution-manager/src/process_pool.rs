@@ -1,6 +1,6 @@
 //! Process supervisor for `spider-task-executor` subprocesses.
 
-use std::fs::File;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::AtomicU64;
@@ -10,7 +10,6 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -21,6 +20,7 @@ use spider_task_executor::protocol::Response;
 use spider_tdl::TaskContext;
 use spider_tdl::TdlError;
 use spider_utils::wire::WireError;
+use tokio::io::AsyncRead;
 use tokio::process::Child;
 use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
@@ -29,13 +29,14 @@ use tokio::sync::Mutex;
 use tokio_util::codec::FramedRead;
 use tokio_util::codec::FramedWrite;
 use tokio_util::codec::LengthDelimitedCodec;
+use tokio_util::codec::LinesCodec;
+use tokio_util::codec::LinesCodecError;
+
+use crate::executor_log_collection::ExecutorLogHandle;
 
 /// Pool configuration. Supplied once at construction time and never mutated.
 #[derive(Debug, Clone)]
 pub struct ProcessPoolConfig {
-    /// Identity of the owning execution manager.
-    pub em_id: ExecutionManagerId,
-
     /// Absolute path to the `spider-task-executor` binary the pool will spawn.
     pub executor_binary_path: PathBuf,
 
@@ -43,13 +44,9 @@ pub struct ProcessPoolConfig {
     /// `${dir}/<package>/lib<package>.so` for each package it dispatches.
     pub package_dir: PathBuf,
 
-    /// Directory the pool writes per-executor stderr log files into. Each spawn opens
-    /// `<log_dir>/<em_id>-<executor_id>.log` in create-or-append mode and routes the child's
-    /// stderr there.
-    ///
-    /// Per-spawn filenames mean each respawn naturally rotates onto a fresh file; a long-lived
-    /// healthy executor accumulates into one file.
-    pub log_dir: PathBuf,
+    /// Maximum length, in bytes, of a single log line captured from an executor's stderr. A longer
+    /// line is dropped with a warning, and capture resumes at the next line boundary.
+    pub max_log_line_bytes: NonZeroUsize,
 
     /// Names of environment variables forwarded from the execution manager's process into each
     /// spawned executor. For each key, the value is read from this process's environment at spawn
@@ -96,8 +93,7 @@ pub enum InternalError {
     #[error("task executor process is not running")]
     NotRunning,
 
-    /// Failed to spawn the executor (any I/O step during spawn — `create_dir_all`, log-file open,
-    /// [`Command::spawn`], or claiming the piped stdio handles).
+    /// Failed to spawn the executor on any I/O step during spawn.
     #[error("failed to create an executor process: {0}")]
     ExecutorCreationFailure(#[from] std::io::Error),
 
@@ -118,6 +114,7 @@ pub enum InternalError {
 pub struct ProcessPool {
     config: ProcessPoolConfig,
     next_executor_id: AtomicU64,
+    log_handle: ExecutorLogHandle,
     /// Lock-serializes concurrent [`Self::execute`] callers. The single executor means each caller
     /// takes the lock for the whole call, so the mutex is the entire concurrency gate.
     handle: Mutex<Option<ExecutorHandle>>,
@@ -137,10 +134,14 @@ impl ProcessPool {
     /// Returns an error if:
     ///
     /// * Forwards [`Self::spawn_executor`]'s return values on failure.
-    pub fn new(config: ProcessPoolConfig) -> Result<Self, InternalError> {
+    pub fn new(
+        config: ProcessPoolConfig,
+        log_handle: ExecutorLogHandle,
+    ) -> Result<Self, InternalError> {
         let mut this = Self {
             config,
             handle: Mutex::new(None),
+            log_handle,
             next_executor_id: AtomicU64::new(0),
         };
         let handle = this.spawn_executor().inspect_err(|err| {
@@ -209,12 +210,12 @@ impl ProcessPool {
         Ok(outcome)
     }
 
-    /// Spawns the executor binary, allocates the next monotonic executor-id, opens the per-executor
-    /// log file, and wraps the child's stdin/stdout in length-delimited codec frames.
+    /// Spawns the executor binary, allocates the next monotonic executor-id, starts the detached
+    /// forwarder draining the child's stderr into the pool's log sink, and wraps the child's
+    /// stdin/stdout in length-delimited codec frames.
     ///
-    /// The child's stderr is redirected to `<log_dir>/<em_id>-<executor_id>.log` in
-    /// create-or-append mode. `RUST_LOG`, if set, is forwarded to the spawned task executor to make
-    /// the child process' log level match the current execution manager.
+    /// `RUST_LOG`, if set, is forwarded to the spawned task executor to make the child process' log
+    /// level match the current execution manager.
     ///
     /// # Returns
     ///
@@ -224,26 +225,18 @@ impl ProcessPool {
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::ExecutorCreationFailure`] if the piped stdin or stdout handles cannot be
-    ///   claimed after spawn.
-    /// * Forwards [`std::fs::create_dir_all`]'s return values on failure.
-    /// * Forwards [`std::fs::OpenOptions::open`]'s return values on failure.
+    /// * [`InternalError::ExecutorCreationFailure`] if the piped stdin, stdout, or stderr handles
+    ///   cannot be claimed after spawn.
     /// * Forwards [`Command::spawn`]'s return values on failure.
     fn spawn_executor(&self) -> Result<ExecutorHandle, InternalError> {
         let executor_id = self.next_executor_id.fetch_add(1, Ordering::Relaxed);
-        std::fs::create_dir_all(&self.config.log_dir)?;
-        let log_path = self
-            .config
-            .log_dir
-            .join(format!("{}-{executor_id}.log", self.config.em_id));
-        let log_file = File::options().create(true).append(true).open(&log_path)?;
 
         let mut command = Command::new(&self.config.executor_binary_path);
         command
             .env("SPIDER_TDL_PACKAGE_DIR", &self.config.package_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::from(log_file))
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
 
         if let Ok(rust_log) = std::env::var("RUST_LOG") {
@@ -276,6 +269,16 @@ impl ProcessPool {
             .stdout
             .take()
             .ok_or_else(|| std::io::Error::other("executor stdout not piped"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| std::io::Error::other("executor stderr not piped"))?;
+        tokio::spawn(forward_executor_logs(
+            executor_id,
+            stderr,
+            self.log_handle.clone(),
+            self.config.max_log_line_bytes,
+        ));
         tracing::info!(executor_id, "Executor spawned.");
         Ok(ExecutorHandle {
             executor_id,
@@ -430,14 +433,111 @@ fn build_request(request: ExecuteRequest) -> Result<Request, InternalError> {
     })
 }
 
+/// Forwards every line read from one executor's stderr into `log_handle`.
+///
+/// Designed to run as a detached background task spawned by [`ProcessPool::spawn_executor`], which
+/// keeps `kill_on_drop` set on the child: dropping the executor handle kills the child, closing the
+/// pipe and ending this task.
+///
+/// # Type Parameters
+///
+/// * `ReaderType` - The executor's stderr stream.
+async fn forward_executor_logs<ReaderType: AsyncRead + Unpin>(
+    executor_id: u64,
+    reader: ReaderType,
+    log_handle: ExecutorLogHandle,
+    max_line_bytes: NonZeroUsize,
+) {
+    let mut lines = FramedRead::new(
+        reader,
+        LinesCodec::new_with_max_length(max_line_bytes.get()),
+    );
+
+    // `FramedRead` yields one `None` after a decoding error before it resumes reading. Without this
+    // flag, an oversized line would be indistinguishable from end-of-stream.
+    let mut resuming_after_oversized_line = false;
+    loop {
+        match lines.next().await {
+            Some(Ok(line)) => {
+                log_handle.write_line(line).await;
+            }
+            Some(Err(LinesCodecError::MaxLineLengthExceeded)) => {
+                tracing::warn!(
+                    executor_id,
+                    max_line_bytes = max_line_bytes.get(),
+                    "Executor log line exceeded the maximum length. Dropping it."
+                );
+                resuming_after_oversized_line = true;
+            }
+            Some(Err(LinesCodecError::Io(e))) => {
+                tracing::warn!(
+                    executor_id,
+                    err = % e,
+                    "Failed to read the executor's log stream. Stopping the forwarder."
+                );
+                break;
+            }
+            None => {
+                if resuming_after_oversized_line {
+                    resuming_after_oversized_line = false;
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use spider_core::task::TdlContext;
     use spider_core::task::TimeoutPolicy;
     use spider_core::types::io::SerializedTaskOutputs;
     use spider_core::types::io::TaskOutput;
+    use tokio_util::sync::CancellationToken;
 
     use super::*;
+    use crate::executor_log_collection;
+
+    /// Buffer capacity of the in-memory stream standing in for the log actor's output.
+    const DUPLEX_BUF_CAP: usize = 64;
+
+    /// Runs [`forward_executor_logs`] to completion over `input`, with a real log actor behind an
+    /// in-memory stream, and collects everything the actor wrote out.
+    ///
+    /// # Returns
+    ///
+    /// The forwarded lines, in the order the actor wrote them.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_line_bytes` is zero, or if the log actor or the collector does not finish
+    /// within one second.
+    async fn forward_and_collect(input: &[u8], max_line_bytes: usize) -> Vec<String> {
+        let (writer, reader) = tokio::io::duplex(DUPLEX_BUF_CAP);
+        let collector = executor_log_collection::spawn_line_collector(reader);
+        let (log_handle, log_join) =
+            executor_log_collection::spawn(writer, CancellationToken::new());
+
+        // `forward_executor_logs` owns `log_handle`, so returning here drops the last sender and
+        // lets the actor drain and exit.
+        forward_executor_logs(
+            0,
+            input,
+            log_handle,
+            NonZeroUsize::new(max_line_bytes).expect("max line bytes must be non-zero"),
+        )
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(1), log_join)
+            .await
+            .expect("log actor did not exit within 1s")
+            .expect("log actor panicked");
+        tokio::time::timeout(Duration::from_secs(1), collector)
+            .await
+            .expect("collector did not exit within 1s")
+            .expect("collector panicked")
+    }
 
     /// Builds an [`ExecutionContext`] with dummy TDL and timeout metadata wrapping the given task
     /// IO buffer.
@@ -540,5 +640,17 @@ mod tests {
         let ctx: TaskContext = rmp_serde::from_slice(&raw_ctx)?;
         assert!(ctx.get_task_graph_outputs()?.is_none());
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn forward_executor_logs_preserves_line_order() {
+        let forwarded = forward_and_collect(b"first\nsecond\nthird\n", 1_024).await;
+        assert_eq!(forwarded, vec!["first", "second", "third"]);
+    }
+
+    #[tokio::test]
+    async fn forward_executor_logs_recovers_after_an_oversized_line() {
+        let forwarded = forward_and_collect(b"short\nfar-too-long-to-capture\nnext\n", 8).await;
+        assert_eq!(forwarded, vec!["short", "next"]);
     }
 }

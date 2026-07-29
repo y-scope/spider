@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 use std::net::Ipv4Addr;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -14,6 +15,7 @@ use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tokio_util::sync::DropGuard;
 
@@ -23,6 +25,7 @@ use crate::client::SchedulerClient;
 use crate::client::SchedulerResponse;
 use crate::client::StorageClient;
 use crate::client::StorageResponseError;
+use crate::executor_log_collection::{self};
 use crate::liveness::LivenessHandle;
 use crate::liveness::{self};
 use crate::process_pool::ExecuteRequest;
@@ -51,8 +54,9 @@ pub struct RuntimeConfig {
     /// Directory of TDL packages exposed to executors via `SPIDER_TDL_PACKAGE_DIR`.
     pub package_dir: PathBuf,
 
-    /// Directory the process pool writes per-executor stderr logs into.
-    pub log_dir: PathBuf,
+    /// Maximum length, in bytes, of a single log line captured from an executor's stderr. A longer
+    /// line is dropped rather than forwarded.
+    pub max_log_line_bytes: NonZeroUsize,
 
     /// Names of environment variables forwarded from the execution manager's process into each
     /// spawned `spider-task-executor` (values read from this process's environment at spawn time).
@@ -95,6 +99,7 @@ pub struct Runtime<
     liveness_handle: LivenessHandle,
     liveness_join: JoinHandle<()>,
     scheduler_heartbeat_join: JoinHandle<()>,
+    log_join: JoinHandle<()>,
     scheduler_poll_wait_ms: u64,
     prev_assignments: VecDeque<TaskAssignmentRecord>,
     cancellation_token: CancellationToken,
@@ -109,9 +114,9 @@ impl<
     /// Factory function.
     ///
     /// Registers the execution manager with storage, seeds the [`SessionTracker`] with the session
-    /// ID returned by registration, spawns the initial executor [`ProcessPool`] and the liveness
-    /// actor, then assembles a ready-to-run runtime. The liveness actor sends the first heartbeat
-    /// by the time this returns.
+    /// ID returned by registration, spawns the executor log actor, the initial executor
+    /// [`ProcessPool`], and the liveness actor, then assembles a ready-to-run runtime. The liveness
+    /// actor sends the first heartbeat by the time this returns.
     ///
     /// # Type Parameters
     ///
@@ -150,15 +155,20 @@ impl<
             "Execution manager registered with storage."
         );
 
-        let process_pool = ProcessPool::new(ProcessPoolConfig {
-            em_id,
-            executor_binary_path: config.executor_binary_path,
-            package_dir: config.package_dir,
-            log_dir: config.log_dir,
-            inherited_env: config.inherited_env,
-        })?;
-
         let cancellation_token = CancellationToken::new();
+        let (log_handle, log_join) =
+            executor_log_collection::spawn(tokio::io::stdout(), cancellation_token.clone());
+
+        let process_pool = ProcessPool::new(
+            ProcessPoolConfig {
+                executor_binary_path: config.executor_binary_path,
+                package_dir: config.package_dir,
+                max_log_line_bytes: config.max_log_line_bytes,
+                inherited_env: config.inherited_env,
+            },
+            log_handle,
+        )?;
+
         let (liveness_handle, liveness_join) = liveness::spawn(
             em_id,
             liveness_client,
@@ -203,6 +213,7 @@ impl<
             liveness_handle,
             liveness_join,
             scheduler_heartbeat_join,
+            log_join,
             scheduler_poll_wait_ms: config.scheduler_poll_wait_ms,
             prev_assignments: VecDeque::new(),
             cancellation_token: cancellation_token.clone(),
@@ -236,6 +247,11 @@ impl<
         tracing::info!(em_id = ? self.em_id, "Runtime main loop exited. Shutting down.");
         self.cancellation_token.cancel();
 
+        // NOTE: The process pool is dropped before the executor log actor is joined: the pool holds
+        // an [`executor_log_collection::ExecutorLogHandle`], which must be closed to terminate the
+        // log actor.
+        drop(self.process_pool);
+
         let join_liveness_actor = async {
             match self.liveness_join.await {
                 Ok(()) => {
@@ -258,9 +274,32 @@ impl<
             }
         };
 
+        let log_join = self.log_join;
+        let join_log_actor = async {
+            // Upper bound on how long the shutdown path waits for the executor log actor to drain.
+            // This timeout is conservative enough to allow the actor to flush all the buffered
+            // messages.
+            const LOG_ACTOR_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
+
+            let Ok(join_result) = timeout(LOG_ACTOR_JOIN_TIMEOUT, log_join).await else {
+                tracing::warn!("Executor log actor join timed out. Dropping the actor.");
+                return;
+            };
+
+            match join_result {
+                Ok(()) => {
+                    tracing::info!("Executor log actor stopped.");
+                }
+                Err(e) => {
+                    tracing::error!(error = ? e, "Executor log actor exited on panic.");
+                }
+            }
+        };
+
         tokio::join!(
             join_liveness_actor,
             join_scheduler_heartbeat,
+            join_log_actor,
             self.scheduler_client
                 .shutdown(self.em_id, self.prev_assignments.into())
         );

@@ -11,17 +11,18 @@
 //! Each of those paths is followed by a second `execute` that asserts the pool transparently
 //! respawned the child and is ready to serve again.
 
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use spider_core::task::TdlContext;
 use spider_core::task::TimeoutPolicy;
-use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::ExecutionContext;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
+use spider_execution_manager::executor_log_collection::{self};
 use spider_execution_manager::process_pool::ExecuteRequest;
 use spider_execution_manager::process_pool::Outcome;
 use spider_execution_manager::process_pool::ProcessPool;
@@ -33,9 +34,13 @@ use test_utils::decode_single_output;
 use test_utils::single_input;
 use test_utils::task_executor_bin;
 use test_utils::tdl_package_dir;
+use tokio_util::sync::CancellationToken;
 
 /// Generous timeout for tasks expected to finish quickly.
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Maximum length, in bytes, of a captured executor log line.
+const MAX_LOG_LINE_BYTES: usize = 64 * 1024;
 
 /// Hard timeout chosen to fire well before [`SLOW_FIB_INDEX`] can complete even on a fast host.
 /// Tokio's sleep granularity is comfortably below this value.
@@ -45,8 +50,11 @@ const SHORT_TIMEOUT: Duration = Duration::from_millis(200);
 /// realistic host (`fib(45)` ~= 1.1×10^9 recursive calls — about a second in release mode).
 const SLOW_FIB_INDEX: u64 = 45;
 
-/// Builds a fresh [`ProcessPool`] wired to the test-harness env (executor binary + package dir)
-/// with a unique temp log directory.
+/// Builds a fresh [`ProcessPool`] wired to the test-harness env (executor binary + package dir),
+/// with the executors' logs forwarded into a sink.
+///
+/// Must be called from within a tokio runtime: both the log actor and the pool's first executor are
+/// spawned on the current runtime.
 ///
 /// # Returns
 ///
@@ -56,16 +64,15 @@ const SLOW_FIB_INDEX: u64 = 45;
 ///
 /// Panics if [`ProcessPool::new`] fails — i.e., the task-executor binary cannot be spawned.
 fn build_pool() -> ProcessPool {
-    let em_id = ExecutionManagerId::random();
-    let log_dir = std::env::temp_dir().join(format!("spider-em-pool-test-{em_id}"));
+    let (log_handle, _log_join) =
+        executor_log_collection::spawn(tokio::io::sink(), CancellationToken::new());
     let config = ProcessPoolConfig {
-        em_id,
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
-        log_dir,
+        max_log_line_bytes: NonZeroUsize::new(MAX_LOG_LINE_BYTES).expect("non-zero line cap"),
         inherited_env: Vec::new(),
     };
-    ProcessPool::new(config).expect("construct pool")
+    ProcessPool::new(config, log_handle).expect("construct pool")
 }
 
 /// Builds an [`ExecuteRequest`] targeting `task_func` in the integration package.
