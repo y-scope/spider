@@ -19,6 +19,8 @@ use spider_utils::config::YamlConfig;
 use spider_utils::logging::set_up_logging;
 use tokio::net::TcpListener;
 use tokio::select;
+use tokio::signal::unix::SignalKind;
+use tokio::signal::unix::signal;
 use tonic::transport::Server;
 use tonic::transport::server::TcpIncoming;
 
@@ -53,6 +55,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         |error| tracing::error!(error = % error, "Failed to bind storage listen address."),
     )?;
     let incoming = TcpIncoming::from(listener);
+    let mut sigterm = signal(SignalKind::terminate()).inspect_err(
+        |error| tracing::error!(error = % error, "Failed to register SIGTERM handler."),
+    )?;
     let server_cancellation_token = cancellation_token.clone();
     let server = tokio::spawn(
         Server::builder()
@@ -80,6 +85,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         if let Err(error) = result {
                             tracing::error!(error = % error, "Failed to listen for Ctrl-C.");
                         }
+                        server_cancellation_token.cancel();
+                    }
+                    _ = sigterm.recv() => {
+                        tracing::info!("Received SIGTERM. Shutting down storage gRPC server.");
                         server_cancellation_token.cancel();
                     }
                 }
