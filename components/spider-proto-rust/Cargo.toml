@@ -1,20 +1,20 @@
 [package]
 name = "spider-proto-rust"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 
 [lib]
 name = "spider_proto_rust"
 path = "src/lib.rs"
 
 [dependencies]
-prost = "0.14.4"
-spider-core = { path = "../spider-core" }
-spider-utils = { path = "../spider-utils" }
-thiserror = "2.0.18"
-tonic = "0.14.6"
-tonic-prost = "0.14.6"
-tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+prost = { workspace = true }
+spider-core = { workspace = true }
+spider-utils = { workspace = true }
+thiserror = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+tracing = { workspace = true }
 
 [build-dependencies]
-tonic-prost-build = "0.14.6"
+tonic-prost-build = { workspace = true }

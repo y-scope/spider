@@ -1,7 +1,7 @@
 [package]
 name = "spider-scheduler"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 
 [lib]
 name = "spider_scheduler"
@@ -12,25 +12,25 @@ name = "spider-scheduler"
 path = "src/bin/grpc_server.rs"
 
 [dependencies]
-async-channel = "2.3.1"
-async-trait = "0.1.89"
-clap = { version = "4.6.1", features = ["derive"] }
-serde = { version = "1.0.228", features = ["derive"] }
-spider-core = { path = "../spider-core" }
-spider-proto-rust = { path = "../spider-proto-rust" }
-spider-utils = { path = "../spider-utils" }
-thiserror = "2.0.18"
+async-channel = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+spider-core = { workspace = true }
+spider-proto-rust = { workspace = true }
+spider-utils = { workspace = true }
+thiserror = { workspace = true }
 tokio = {
-  version = "1.52.3",
+  workspace = true,
   features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"]
 }
-tokio-util = "0.7.18"
-tonic = "0.14.6"
-tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
-anyhow = "1.0.102"
-dashmap = "6.1.0"
-rand = "0.9.1"
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
-tokio-util = { version = "0.7.18", features = ["rt"] }
+anyhow = { workspace = true }
+dashmap = { workspace = true }
+rand = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-util = { workspace = true, features = ["rt"] }

@@ -1,7 +1,7 @@
 [package]
 name = "spider-tdl"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 
 [lib]
 name = "spider_tdl"
@@ -13,18 +13,18 @@ path = "tests/test_task_macro.rs"
 required-features = ["derive"]
 
 [dependencies]
-const-str = "1.1.0"
-rmp-serde = "1.3.1"
-serde = { version = "1.0.228", features = ["derive"] }
-spider-core = { path = "../spider-core" }
-spider-tdl-derive = { path = "../spider-tdl-derive", optional = true }
-thiserror = "2.0.18"
+const-str = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+spider-core = { workspace = true }
+spider-tdl-derive = { workspace = true, optional = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
-anyhow = "1.0.98"
-rmp-serde = "1.3.1"
-serde = { version = "1.0.228", features = ["derive"] }
-spider-core = { path = "../spider-core" }
+anyhow = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+spider-core = { workspace = true }
 
 [features]
 default = []

@@ -2,8 +2,8 @@ apiVersion: "v2"
 name: "spider"
 description: "A Helm chart for the Spider Huntsman deployment"
 type: "application"
-version: "0.1.5"
-appVersion: "0.1.0"
+version: "0.1.6"
+appVersion: "0.1.0-dev"
 home: "https://github.com/y-scope/spider"
 sources: ["https://github.com/y-scope/spider"]
 maintainers: [{name: "y-scope", email: "dev@yscope.com", url: "https://yscope.com"}]

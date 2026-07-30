@@ -1,7 +1,7 @@
 [package]
 name = "em-runtime-tests"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 publish = false
 
 [lib]
@@ -13,14 +13,12 @@ name = "runtime"
 path = "tests/test_runtime.rs"
 
 [dev-dependencies]
-anyhow = "1.0.98"
-spider-core = { path = "../../../components/spider-core" }
-spider-execution-manager = {
-  path = "../../../components/spider-execution-manager"
-}
-spider-tdl = { path = "../../../components/spider-tdl" }
-test-utils = { path = "../test-utils" }
+anyhow = { workspace = true }
+spider-core = { workspace = true }
+spider-execution-manager = { workspace = true }
+spider-tdl = { workspace = true }
+test-utils = { workspace = true }
 tokio = {
-  version = "1.50.0",
+  workspace = true,
   features = ["macros", "rt", "rt-multi-thread", "time"]
 }
