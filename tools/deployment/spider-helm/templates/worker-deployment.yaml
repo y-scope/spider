@@ -22,10 +22,12 @@ spec:
           image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
           imagePullPolicy: {{ .Values.image.worker.pullPolicy | quote }}
           command: ["spider-execution-manager", "--config", "/etc/spider/execution-manager.yaml"]
-          {{- with .Values.spiderConfig.worker.extra_envs }}
           env:
+            - name: "RUST_LOG"
+              value: {{ .Values.spiderConfig.execution_manager.log_level | quote }}
+            {{- with .Values.spiderConfig.worker.extra_envs }}
             {{- tpl (toYaml .) $ | nindent 12 }}
-          {{- end }}
+            {{- end }}
           volumeMounts:
             - name: "config"
               mountPath: "/etc/spider/execution-manager.yaml"

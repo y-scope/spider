@@ -23,6 +23,8 @@ spec:
           imagePullPolicy: {{ .Values.image.storage.pullPolicy | quote }}
           command: ["spider-storage", "--config", "/etc/spider/storage.yaml"]
           env:
+            - name: "RUST_LOG"
+              value: {{ .Values.spiderConfig.storage.log_level | quote }}
             - name: "SPIDER_STORAGE_DB_USERNAME"
               valueFrom:
                 secretKeyRef:

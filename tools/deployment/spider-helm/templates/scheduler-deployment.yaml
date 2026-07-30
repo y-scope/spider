@@ -22,6 +22,9 @@ spec:
           image: {{ include "spider.imageRef" (dict "root" . "component" "scheduler") | quote }}
           imagePullPolicy: {{ .Values.image.scheduler.pullPolicy | quote }}
           command: ["spider-scheduler", "--config", "/etc/spider/scheduler.yaml"]
+          env:
+            - name: "RUST_LOG"
+              value: {{ .Values.spiderConfig.scheduler.log_level | quote }}
           ports:
             - name: "grpc"
               containerPort: {{ .Values.spiderConfig.scheduler.port }}
