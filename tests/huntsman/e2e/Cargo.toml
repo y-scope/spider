@@ -1,15 +1,15 @@
 [package]
 name = "e2e"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 publish = false
 
 [dependencies]
-anyhow = "1.0.98"
-spider-client = { path = "../../../components/spider-client" }
-spider-core = { path = "../../../components/spider-core" }
+anyhow = { workspace = true }
+spider-client = { workspace = true }
+spider-core = { workspace = true }
 tokio = {
-  version = "1.52.3",
+  workspace = true,
   features = ["macros", "rt-multi-thread", "sync", "time"]
 }
-tonic = "0.14.6"
+tonic = { workspace = true }

@@ -1,7 +1,7 @@
 [package]
 name = "spider-execution-manager"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 
 [lib]
 name = "spider_execution_manager"
@@ -12,25 +12,21 @@ name = "spider-execution-manager"
 path = "src/bin/execution_manager.rs"
 
 [dependencies]
-async-trait = "0.1.89"
-bincode = "1.3.3"
-bytes = "1.10"
-clap = { version = "4.6.1", features = ["derive"] }
-futures-util = {
-  version = "0.3.31",
-  default-features = false,
-  features = ["sink", "std"]
-}
-rmp-serde = "1.3.1"
-serde = { version = "1.0.228", features = ["derive"] }
-spider-core = { path = "../spider-core" }
-spider-proto-rust = { path = "../spider-proto-rust" }
-spider-task-executor = { path = "../spider-task-executor" }
-spider-tdl = { path = "../spider-tdl" }
-spider-utils = { path = "../spider-utils" }
-thiserror = "2.0.18"
+async-trait = { workspace = true }
+bincode = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+futures-util = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+spider-core = { workspace = true }
+spider-proto-rust = { workspace = true }
+spider-task-executor = { workspace = true }
+spider-tdl = { workspace = true }
+spider-utils = { workspace = true }
+thiserror = { workspace = true }
 tokio = {
-  version = "1.50.0",
+  workspace = true,
   features = [
     "io-std",
     "io-util",
@@ -43,9 +39,9 @@ tokio = {
     "time"
   ]
 }
-tokio-util = { version = "0.7", features = ["codec", "rt"] }
-tonic = "0.14.6"
-tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tokio-util = { workspace = true, features = ["codec", "rt"] }
+tonic = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
-anyhow = "1.0.98"
+anyhow = { workspace = true }
