@@ -7,6 +7,7 @@
 //!
 //! All tests are `#[ignore]` so the workspace's plain `cargo test` doesn't run them.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +15,6 @@ use std::time::Duration;
 use anyhow::Context;
 use spider_core::task::TdlContext;
 use spider_core::task::TimeoutPolicy;
-use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
@@ -46,6 +46,9 @@ const SLOW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const BOUNDED_WAIT: Duration = Duration::from_secs(2);
 const TIGHT_WAIT: Duration = Duration::from_millis(500);
 const SCHEDULER_POLL_WAIT_MS: u64 = 2_000;
+
+/// Maximum length, in bytes, of a captured executor log line.
+const MAX_LOG_LINE_BYTES: usize = 64 * 1024;
 
 /// Builds a [`SchedulerResponse`] tagged with `session_id` and fresh ids for the rest.
 ///
@@ -112,22 +115,24 @@ async fn wait_until(predicate: impl Fn() -> bool, timeout: Duration) -> bool {
     true
 }
 
-/// Builds a fresh [`RuntimeConfig`] pointing at the real executor binary, with a unique per-test
-/// log directory and the requested `heartbeat_interval`.
+/// Builds a fresh [`RuntimeConfig`] pointing at the real executor binary with the requested
+/// `heartbeat_interval`.
 ///
 /// # Returns
 ///
 /// A [`RuntimeConfig`] ready to hand to [`Runtime::create`].
+///
+/// # Panics
+///
+/// Panics if [`MAX_LOG_LINE_BYTES`] is zero.
 fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
-    let unique = ExecutionManagerId::random();
-    let log_dir = std::env::temp_dir().join(format!("spider-em-runtime-test-{unique}"));
     RuntimeConfig {
         heartbeat_interval,
         scheduler_heartbeat_interval: heartbeat_interval,
         scheduler_poll_wait_ms: SCHEDULER_POLL_WAIT_MS,
         executor_binary_path: task_executor_bin(),
         package_dir: tdl_package_dir(),
-        log_dir,
+        max_log_line_bytes: NonZeroUsize::new(MAX_LOG_LINE_BYTES).expect("non-zero line cap"),
         inherited_env: Vec::new(),
     }
 }
