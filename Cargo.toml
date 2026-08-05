@@ -36,3 +36,68 @@ default-members = [
   "components/spider-tdl-derive",
   "components/spider-utils",
 ]
+
+[workspace.package]
+version = "0.1.0-dev"
+edition = "2024"
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+async-channel = "2.5.0"
+async-trait = "0.1.91"
+bincode = "1.3.3"
+bytes = "1.12.1"
+clap = { version = "4.6.4", features = ["derive"] }
+const_format = "0.2.36"
+const-str = "1.1.0"
+dashmap = "6.2.1"
+futures-util = {
+  version = "0.3.33",
+  default-features = false,
+  features = ["sink", "std"]
+}
+huntsman-complex-types = { path = "examples/huntsman/complex/types" }
+huntsman-nn-core = { path = "examples/huntsman/nn/core" }
+integration-test-tasks = { path = "tests/huntsman/integration-test-tasks" }
+libloading = "0.8.9"
+non-empty-string = { version = "0.2.6", features = ["serde"] }
+proc-macro2 = "1.0.107"
+prost = "0.14.4"
+quote = "1.0.47"
+rand = "0.9.5"
+rmp-serde = "1.3.1"
+secrecy = { version = "0.10.3", features = ["serde"] }
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serial_test = { version = "3.5.0", features = ["file_locks"] }
+spider-client = { path = "components/spider-client" }
+spider-core = { path = "components/spider-core" }
+spider-derive = { path = "components/spider-derive" }
+spider-execution-manager = { path = "components/spider-execution-manager" }
+spider-proto-rust = { path = "components/spider-proto-rust" }
+spider-task-executor = { path = "components/spider-task-executor" }
+spider-tdl = { path = "components/spider-tdl" }
+spider-tdl-derive = { path = "components/spider-tdl-derive" }
+spider-utils = { path = "components/spider-utils" }
+sqlx = { version = "0.8.6", features = ["mysql"] }
+strum = { version = "0.28.0", features = ["derive"] }
+subtle = "2.6.1"
+syn = "2.0.119"
+tabled = "0.20.0"
+test-utils = { path = "tests/huntsman/test-utils" }
+thiserror = "2.0.19"
+tokio = "1.53.1"
+tokio-util = "0.7.19"
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
+tonic-prost-build = "0.14.6"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-appender = "0.2.5"
+tracing-subscriber = {
+  version = "0.3.23",
+  default-features = false,
+  features = ["env-filter", "fmt", "json"]
+}
+yaml_serde = "0.10.4"
+zstd = "0.13.3"
