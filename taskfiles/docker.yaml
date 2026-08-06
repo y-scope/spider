@@ -28,13 +28,13 @@ tasks:
     cmd: "docker compose --file compose.yaml config --quiet"
 
   compose:up:
-    vars:
-      WAIT_TIMEOUT: "{{.SPIDER_COMPOSE_WAIT_TIMEOUT | default \"120\"}}"
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
-    cmd: >-
-      docker compose --file compose.yaml up --detach --wait
-      --wait-timeout "{{.WAIT_TIMEOUT}}"
+    cmd: "docker compose --file compose.yaml up --detach --wait"
 
   compose:down:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --file compose.yaml down"
+
+  compose:clean:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --file compose.yaml down --volumes --remove-orphans"
