@@ -42,11 +42,12 @@ jobs:
       || needs.filter-relevant-changes.outputs.python_changed == 'true'
     strategy:
       matrix:
-        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        os: ["ubuntu-22.04", "ubuntu-22.04-arm", "ubuntu-24.04", "ubuntu-24.04-arm"]
     runs-on: "${{matrix.os}}"
     steps:
+      # NOTE: `--force` since the arm64 runner images don't ship a default CMake installation.
       - name: "Remove default CMake installation in the runner"
-        run: "rm '/usr/local/bin/cmake'"
+        run: "rm --force '/usr/local/bin/cmake'"
 
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
@@ -83,7 +84,7 @@ jobs:
       || needs.filter-relevant-changes.outputs.rust_changed == 'true'
     strategy:
       matrix:
-        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        os: ["ubuntu-22.04", "ubuntu-22.04-arm", "ubuntu-24.04", "ubuntu-24.04-arm"]
     runs-on: "${{matrix.os}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
