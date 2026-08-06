@@ -23,6 +23,8 @@ services:
     <<: *service_defaults
     image: "mariadb:10.11.16"
     pull_policy: "always"
+    networks:
+      - "spider-internal"
     environment:
       MYSQL_DATABASE: "spider-db"
       MYSQL_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:?Please set a value.}"
@@ -48,6 +50,9 @@ services:
     image: >-
       ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:?Please set a value.}
     pull_policy: "always"
+    networks:
+      - "default"
+      - "spider-internal"
     command: [
       "spider-storage",
       "--config", "/etc/spider/storage.yaml",
@@ -56,6 +61,10 @@ services:
       RUST_LOG: "${SPIDER_STORAGE_RUST_LOG:-INFO}"
       SPIDER_STORAGE_DB_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:?Please set a value.}"
       SPIDER_STORAGE_DB_USERNAME: "${SPIDER_STORAGE_DB_USERNAME:?Please set a value.}"
+    ports:
+      - host_ip: "${SPIDER_STORAGE_HOST:-127.0.0.1}"
+        published: "${SPIDER_STORAGE_HOST_PORT:-50051}"
+        target: 50051
     configs:
       - source: "spider-storage-config"
         target: "/etc/spider/storage.yaml"
@@ -76,16 +85,14 @@ services:
     image: >-
       ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:?Please set a value.}
     pull_policy: "always"
+    networks:
+      - "spider-internal"
     command: [
       "spider-scheduler",
       "--config", "/etc/spider/scheduler.yaml",
     ]
     environment:
       RUST_LOG: "${SPIDER_SCHEDULER_RUST_LOG:-INFO}"
-    ports:
-      - host_ip: "${SPIDER_SCHEDULER_HOST:-127.0.0.1}"
-        published: "${SPIDER_SCHEDULER_HOST_PORT:-50052}"
-        target: 50052
     configs:
       - source: "spider-scheduler-config"
         target: "/etc/spider/scheduler.yaml"
@@ -106,6 +113,9 @@ services:
     image: >-
       ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:?Please set a value.}
     pull_policy: "always"
+    networks:
+      - "default"
+      - "spider-internal"
     command: [
       "spider-execution-manager",
       "--config", "/etc/spider/worker.yaml",
@@ -132,6 +142,11 @@ configs:
     file: "./config/storage.yaml"
   spider-worker-config:
     file: "./config/worker.yaml"
+
+networks:
+  default:
+  spider-internal:
+    internal: true
 
 volumes:
   spider-database-data:
