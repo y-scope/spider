@@ -1,5 +1,4 @@
 # Required variables:
-# - SPIDER_IMAGE_TAG
 # - SPIDER_STORAGE_DB_USERNAME
 # - SPIDER_STORAGE_DB_PASSWORD
 # - SPIDER_DATABASE_ROOT_PASSWORD
@@ -47,8 +46,7 @@ services:
 
   spider-storage:
     <<: *service_defaults
-    image: >-
-      ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:?Please set a value.}
+    image: "ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-main}"
     pull_policy: "always"
     networks:
       - "default"
@@ -82,8 +80,7 @@ services:
 
   spider-scheduler:
     <<: *service_defaults
-    image: >-
-      ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:?Please set a value.}
+    image: "ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}"
     pull_policy: "always"
     networks:
       - "spider-internal"
@@ -111,7 +108,7 @@ services:
   spider-worker:
     <<: *service_defaults
     image: >-
-      ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:?Please set a value.}
+      ${SPIDER_WORKER_CONTAINER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
     pull_policy: "always"
     networks:
       - "default"
