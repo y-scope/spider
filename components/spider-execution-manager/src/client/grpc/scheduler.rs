@@ -57,8 +57,8 @@ impl SchedulerClient for GrpcSchedulerClient {
         mut prev_assignment: Option<TaskAssignmentRecord>,
         wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError> {
-        // The scheduler completes `prev_assignment` by removing it from its registry, so it must be
-        // sent at most once; every later poll iteration sends `None`.
+        // Completing an assignment removes it from the scheduler's registry, so `prev_assignment`
+        // must be sent at most once; every later poll iteration sends `None`.
         loop {
             let response = self
                 .connection_pool
