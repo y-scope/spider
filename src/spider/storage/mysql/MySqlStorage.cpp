@@ -1702,10 +1702,10 @@ auto MySqlMetadataStorage::task_finish(
         std::unique_ptr<sql::PreparedStatement> ready_statement(
                 static_cast<MySqlConnection&>(conn)->prepareStatement(
                         "UPDATE `tasks` SET `state` = 'ready' WHERE `id` IN (SELECT `task_id` FROM "
-                        "`task_inputs` WHERE `output_task_id` = ?) AND `state` = 'pending' AND NOT "
-                        "EXISTS (SELECT `task_id` FROM `task_inputs` WHERE `task_id` IN (SELECT "
-                        "`task_id` FROM `task_inputs` WHERE `output_task_id` = ?) AND `value` IS "
-                        "NULL AND `data_id` IS NULL)"
+                        "`task_inputs` WHERE `output_task_id` = ?) AND `state` = 'pending' AND "
+                        "`id` NOT IN (SELECT `task_id` FROM `task_inputs` WHERE `task_id` IN "
+                        "(SELECT `task_id` FROM `task_inputs` WHERE `output_task_id` = ?) AND "
+                        "`value` IS NULL AND `data_id` IS NULL)"
                 )
         );
         ready_statement->setBytes(1, &task_id_bytes);
