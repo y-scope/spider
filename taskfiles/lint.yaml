@@ -187,7 +187,8 @@ tasks:
           .github/ \
           docs/ \
           taskfile.yaml \
-          taskfiles/
+          taskfiles/ \
+          tools/deployment/spider-compose/
 
   toml-check:
     cmds:
