@@ -29,14 +29,23 @@ concurrency:
   cancel-in-progress: "${{github.ref != 'refs/heads/main'}}"
 
 jobs:
-  build-and-push:
-    runs-on: "ubuntu-latest"
+  build:
+    name: "build (${{matrix.service}}, ${{matrix.arch}})"
+    runs-on: "${{matrix.runner}}"
     permissions:
       contents: "read"
       packages: "write"
     strategy:
       matrix:
         service: ["storage", "scheduler", "worker"]
+        arch: ["amd64", "arm64"]
+        # Each arch is built on a native runner rather than through QEMU emulation, since
+        # emulating the Rust build would be an order of magnitude slower.
+        include:
+          - arch: "amd64"
+            runner: "ubuntu-24.04"
+          - arch: "arm64"
+            runner: "ubuntu-24.04-arm"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
@@ -60,16 +69,102 @@ jobs:
         id: "meta"
         with:
           images: "ghcr.io/${{steps.repo.outputs.name}}/${{matrix.service}}"
+
+      - uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"  # v6.15.0
+        id: "build"
+        with:
+          context: "."
+          file: "tools/docker/Dockerfile"
+          target: "${{matrix.service}}"
+          platforms: "linux/${{matrix.arch}}"
+          labels: "${{steps.meta.outputs.labels}}"
+
+          # Outside of pull requests, each arch is pushed by digest only (untagged); the
+          # `merge-manifests` job combines the per-arch digests into one tagged multi-arch
+          # manifest per service. On pull requests, the image is built on both arches to validate
+          # the Dockerfile and then discarded.
+          outputs: >-
+            ${{github.event_name != 'pull_request'
+            && format(
+            'type=image,name=ghcr.io/{0}/{1},push-by-digest=true,name-canonical=true,push=true',
+            steps.repo.outputs.name,
+            matrix.service
+            )
+            || 'type=cacheonly'}}
+
+          # Disable provenance so that each arch is pushed as a plain image manifest rather than a
+          # single-entry manifest list, which `docker buildx imagetools create` can then combine.
+          provenance: false
+
+      - name: "Export digest"
+        if: "github.event_name != 'pull_request'"
+        run: |-
+          mkdir -p "${RUNNER_TEMP}/digests"
+          digest="${{steps.build.outputs.digest}}"
+          touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
+
+      - name: "Upload digest"
+        if: "github.event_name != 'pull_request'"
+        uses: "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"  # v6.0.0
+        with:
+          name: "digests-${{matrix.service}}-${{matrix.arch}}"
+          path: "${{runner.temp}}/digests/*"
+          if-no-files-found: "error"
+          retention-days: 1
+
+  merge-manifests:
+    name: "merge-manifests (${{matrix.service}})"
+    if: "github.event_name != 'pull_request'"
+    needs: "build"
+    runs-on: "ubuntu-24.04"
+    permissions:
+      contents: "read"
+      packages: "write"
+    strategy:
+      matrix:
+        service: ["storage", "scheduler", "worker"]
+    steps:
+      - name: "Sanitize repository name"
+        id: "repo"
+        run: >-
+          echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: "Download digests"
+        uses: "actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53"  # v6.0.0
+        with:
+          path: "${{runner.temp}}/digests"
+          pattern: "digests-${{matrix.service}}-*"
+          merge-multiple: true
+
+      - uses: "docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2"  # v3.10.0
+
+      - uses: "docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121"  # v4.1.0
+        with:
+          registry: "ghcr.io"
+          username: "${{github.actor}}"
+          password: "${{secrets.GITHUB_TOKEN}}"
+
+      - uses: "docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804"  # v5.7.0
+        id: "meta"
+        with:
+          images: "ghcr.io/${{steps.repo.outputs.name}}/${{matrix.service}}"
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=sha
 
-      - uses: "docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4"  # v6.15.0
-        with:
-          context: "."
-          file: "tools/docker/Dockerfile"
-          target: "${{matrix.service}}"
-          push: "${{github.event_name != 'pull_request'}}"
-          tags: "${{steps.meta.outputs.tags}}"
-          labels: "${{steps.meta.outputs.labels}}"
+      - name: "Create and push multi-arch manifest"
+        working-directory: "${{runner.temp}}/digests"
+        env:
+          IMAGE: "ghcr.io/${{steps.repo.outputs.name}}/${{matrix.service}}"
+        run: |-
+          # shellcheck disable=SC2046  # Word splitting is intentional for both substitutions.
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("--tag " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: "Inspect multi-arch manifest"
+        env:
+          IMAGE: "ghcr.io/${{steps.repo.outputs.name}}/${{matrix.service}}"
+        run: >-
+          docker buildx imagetools inspect "${IMAGE}:${{steps.meta.outputs.version}}"
