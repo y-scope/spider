@@ -102,7 +102,7 @@ services:
   spider-worker:
     <<: *service_defaults
     image: >-
-      ${SPIDER_WORKER_CONTAINER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
+      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
     networks:
       - "default"
       - "spider-internal"
