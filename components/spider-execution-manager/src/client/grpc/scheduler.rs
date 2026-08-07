@@ -54,16 +54,18 @@ impl SchedulerClient for GrpcSchedulerClient {
     async fn next_task(
         &self,
         em_id: ExecutionManagerId,
-        prev_assignment: Option<TaskAssignmentRecord>,
+        mut prev_assignment: Option<TaskAssignmentRecord>,
         wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError> {
+        // Completing an assignment removes it from the scheduler's registry, so `prev_assignment`
+        // must be sent at most once; every later poll iteration sends `None`.
         loop {
             let response = self
                 .connection_pool
                 .get_client()
                 .next_task(scheduler::NextTaskRequest {
                     execution_manager_id: em_id.get(),
-                    prev_assignment: prev_assignment.map(Into::into),
+                    prev_assignment: prev_assignment.take().map(Into::into),
                     wait_time_ms,
                 })
                 .await
