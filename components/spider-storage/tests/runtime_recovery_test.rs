@@ -11,10 +11,10 @@ use spider_core::types::io::TaskOutputsSerializer;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
 use spider_storage::db::ExternalJobOrchestration;
-use spider_storage::ready_queue::CleanupTaskMarker;
-use spider_storage::ready_queue::CommitTaskMarker;
-use spider_storage::ready_queue::ReadyQueueConfig;
-use spider_storage::ready_queue::ReadyQueueEntry;
+use spider_storage::inbound_queue::CleanupTaskMarker;
+use spider_storage::inbound_queue::CommitTaskMarker;
+use spider_storage::inbound_queue::InboundQueueConfig;
+use spider_storage::inbound_queue::InboundQueueEntry;
 use spider_storage::state::JobCacheGcConfig;
 use spider_storage::state::Runtime;
 use spider_storage::state::ServiceState;
@@ -99,10 +99,10 @@ async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<(
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
-    let ready_entries = recovered_service
+    let inbound_entries = recovered_service
         .poll_commit_ready_tasks(32, Duration::from_secs(1))
         .await?;
-    let job_entries = find_entry_for_job(ready_entries, job_id);
+    let job_entries = find_entry_for_job(inbound_entries, job_id);
     assert_eq!(job_entries.len(), 1);
     assert_eq!(job_entries[0].task_kind, CommitTaskMarker);
 
@@ -156,10 +156,10 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
-    let ready_entries = recovered_service
+    let inbound_entries = recovered_service
         .poll_cleanup_ready_tasks(32, Duration::from_secs(1))
         .await?;
-    let job_entries = find_entry_for_job(ready_entries, job_id);
+    let job_entries = find_entry_for_job(inbound_entries, job_id);
     assert_eq!(job_entries.len(), 1);
     assert_eq!(job_entries[0].task_kind, CleanupTaskMarker);
 
@@ -202,7 +202,7 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
 fn create_runtime_config() -> RuntimeConfig {
     RuntimeConfig {
         db: create_mariadb_config(),
-        ready_queue: ReadyQueueConfig::default(),
+        inbound_queue: InboundQueueConfig::default(),
         task_instance_pool: TaskInstancePoolConfig::default(),
         job_cache_gc: JobCacheGcConfig::default(),
     }
@@ -231,7 +231,7 @@ async fn restart_after_starting_job(
 ) -> anyhow::Result<(
     JobId,
     Runtime<
-        spider_storage::ready_queue::ReadyQueueSenderHandle,
+        spider_storage::inbound_queue::InboundQueueSenderHandle,
         spider_storage::db::MariaDbStorageConnector,
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
@@ -270,7 +270,7 @@ async fn restart_after_commit_ready(
 ) -> anyhow::Result<(
     JobId,
     Runtime<
-        spider_storage::ready_queue::ReadyQueueSenderHandle,
+        spider_storage::inbound_queue::InboundQueueSenderHandle,
         spider_storage::db::MariaDbStorageConnector,
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
@@ -279,19 +279,19 @@ async fn restart_after_commit_ready(
     let service = runtime.get_service_state();
 
     service.resend_ready_tasks().await?;
-    let ready_entries = service.poll_ready_tasks(32, Duration::from_secs(1)).await?;
-    let job_entries = find_entry_for_job(ready_entries, job_id);
+    let inbound_entries = service.poll_ready_tasks(32, Duration::from_secs(1)).await?;
+    let job_entries = find_entry_for_job(inbound_entries, job_id);
     assert_eq!(job_entries.len(), 1);
-    let ready_entry = job_entries[0];
+    let inbound_entry = job_entries[0];
 
     let task_instance_id =
-        run_recovered_regular_task(&service, job_id, ready_entry.task_kind).await?;
+        run_recovered_regular_task(&service, job_id, inbound_entry.task_kind).await?;
     let state = service
         .succeed_task_instance(
             service.session_id(),
             job_id,
             task_instance_id,
-            ready_entry.task_kind,
+            inbound_entry.task_kind,
             serialized_single_output()?,
         )
         .await?;
@@ -325,7 +325,7 @@ async fn restart_after_cleanup_ready(
 ) -> anyhow::Result<(
     JobId,
     Runtime<
-        spider_storage::ready_queue::ReadyQueueSenderHandle,
+        spider_storage::inbound_queue::InboundQueueSenderHandle,
         spider_storage::db::MariaDbStorageConnector,
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
@@ -354,11 +354,11 @@ async fn restart_after_cleanup_ready(
 /// * Forwards [`register_job`]'s return values on failure.
 /// * Forwards [`ServiceState::start_job`]'s return values on failure.
 async fn register_and_start_job<
-    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
 >(
-    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    service: &ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     with_commit: bool,
     with_cleanup: bool,
 ) -> anyhow::Result<JobId> {
@@ -381,11 +381,11 @@ async fn register_and_start_job<
 /// * Forwards [`spider_core::task::TaskGraph::to_json`]'s return values on failure.
 /// * Forwards [`ServiceState::register_job`]'s return values on failure.
 async fn register_job<
-    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
 >(
-    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    service: &ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     with_commit: bool,
     with_cleanup: bool,
 ) -> anyhow::Result<JobId> {
@@ -416,11 +416,11 @@ async fn register_job<
 /// * Forwards [`ServiceState::register_execution_manager`]'s return values on failure.
 /// * Forwards [`ServiceState::create_task_instance`]'s return values on failure.
 async fn run_recovered_regular_task<
-    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
 >(
-    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    service: &ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     job_id: JobId,
     task_index: TaskIndex,
 ) -> anyhow::Result<TaskInstanceId> {
@@ -454,15 +454,15 @@ async fn run_recovered_regular_task<
 /// * Forwards [`ServiceState::succeed_task_instance`]'s return values on failure.
 /// * Forwards [`TaskOutputsSerializer::deserialize`]'s return values on failure.
 async fn run_single_task_job_to_succeed<
-    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
 >(
-    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    service: &ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     job_id: JobId,
 ) -> anyhow::Result<Vec<TaskOutput>> {
-    let ready_entries = service.poll_ready_tasks(32, Duration::from_secs(1)).await?;
-    let job_entries = find_entry_for_job(ready_entries, job_id);
+    let inbound_entries = service.poll_ready_tasks(32, Duration::from_secs(1)).await?;
+    let job_entries = find_entry_for_job(inbound_entries, job_id);
     assert_eq!(job_entries.len(), 1);
     let task_index = job_entries[0].task_kind;
 
@@ -491,11 +491,11 @@ async fn run_single_task_job_to_succeed<
 /// Panics if the registration succeeds or fails with an error other than
 /// [`StaleStateError::JobNoLongerRunning`].
 async fn assert_regular_task_registration_rejected<
-    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
 >(
-    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    service: &ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     job_id: JobId,
     execution_manager_id: ExecutionManagerId,
 ) {
@@ -528,11 +528,11 @@ async fn assert_regular_task_registration_rejected<
 /// * Forwards [`ServiceState::get_job_state`]'s return values.
 /// * Forwards [`ServiceState::get_job_outputs`]'s return values.
 async fn assert_job_outputs_on_success<
-    ReadyQueueSenderType: spider_storage::ready_queue::ReadyQueueSender,
+    InboundQueueSenderType: spider_storage::inbound_queue::InboundQueueSender,
     DbConnectorType: spider_storage::db::DbStorage,
     TaskInstancePoolConnectorType: spider_storage::task_instance_pool::TaskInstancePoolConnector,
 >(
-    service: &ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    service: &ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     job_id: JobId,
     expected_outputs: &[TaskOutput],
 ) -> anyhow::Result<()> {
@@ -543,15 +543,15 @@ async fn assert_job_outputs_on_success<
     Ok(())
 }
 
-/// Collects the ready-queue entries belonging to a job.
+/// Collects the inbound-queue entries belonging to a job.
 ///
 /// # Returns
 ///
-/// The matching ready-queue entries, preserving their original order.
+/// The matching inbound-queue entries, preserving their original order.
 fn find_entry_for_job<TaskKind>(
-    entries: Vec<ReadyQueueEntry<TaskKind>>,
+    entries: Vec<InboundQueueEntry<TaskKind>>,
     job_id: JobId,
-) -> Vec<ReadyQueueEntry<TaskKind>> {
+) -> Vec<InboundQueueEntry<TaskKind>> {
     entries
         .into_iter()
         .filter(|entry| entry.job_id == job_id)

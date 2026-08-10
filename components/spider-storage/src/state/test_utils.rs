@@ -26,17 +26,17 @@ use crate::db::RecoverableJobContext;
 use crate::db::ResourceGroupManagement;
 use crate::db::SchedulerRegistrationManagement;
 use crate::db::SessionManagement;
+use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
-use crate::ready_queue::ReadyQueueSender;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 
-/// A mock ready queue sender for testing.
+/// A mock inbound queue sender for testing.
 #[derive(Clone, Default)]
-pub struct MockReadyQueueSender;
+pub struct MockInboundQueueSender;
 
 #[async_trait::async_trait]
-impl ReadyQueueSender for MockReadyQueueSender {
+impl InboundQueueSender for MockInboundQueueSender {
     async fn send_task_ready(
         &self,
         _rg_id: ResourceGroupId,

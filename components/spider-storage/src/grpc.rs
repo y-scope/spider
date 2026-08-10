@@ -22,8 +22,8 @@ use tonic::Status;
 use crate::cache::error::CacheError;
 use crate::db::DbError;
 use crate::db::DbStorage;
-use crate::ready_queue::ReadyQueueEntry;
-use crate::ready_queue::ReadyQueueSender;
+use crate::inbound_queue::InboundQueueEntry;
+use crate::inbound_queue::InboundQueueSender;
 use crate::state::ServiceState;
 use crate::state::StorageServerError;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -32,24 +32,24 @@ use crate::task_instance_pool::TaskInstancePoolConnector;
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The ready queue sender type.
+/// * `InboundQueueSenderType` - The inbound queue sender type.
 /// * `DbConnectorType` - The database connector type.
 /// * `TaskInstancePoolConnectorType` - The task instance pool connector type.
 #[derive(Clone)]
 pub struct GrpcServiceState<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
-    inner: ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    inner: ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     cancellation_token: CancellationToken,
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
-> GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Factory function.
     ///
@@ -58,7 +58,7 @@ impl<
     /// A new [`GrpcServiceState`] wrapping [`ServiceState`].
     #[must_use]
     pub const fn new(
-        inner: ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        inner: ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
@@ -420,21 +420,21 @@ impl<
         Status::internal("storage service internal error")
     }
 
-    /// Builds a [`storage::ReadyTasks`] message from a batch of ready-queue entries.
+    /// Builds a [`storage::ReadyTasks`] message from a batch of inbound-queue entries.
     ///
     /// # Type Parameters
     ///
-    /// * `TaskKindType` - The kind of ready-queue task carried by each entry:
+    /// * `TaskKindType` - The kind of inbound-queue task carried by each entry:
     ///   * [`spider_core::task::TaskIndex`] for the regular lane.
-    ///   * [`crate::ready_queue::CommitTaskMarker`] for the commit lane.
-    ///   * [`crate::ready_queue::CleanupTaskMarker`] for the cleanup lane.
+    ///   * [`crate::inbound_queue::CommitTaskMarker`] for the commit lane.
+    ///   * [`crate::inbound_queue::CleanupTaskMarker`] for the cleanup lane.
     ///
     /// # Returns
     ///
     /// A [`storage::ReadyTasks`] carrying the storage session and the flattened ready tasks.
     fn build_ready_tasks<TaskKindType>(
         &self,
-        entries: Vec<ReadyQueueEntry<TaskKindType>>,
+        entries: Vec<InboundQueueEntry<TaskKindType>>,
         to_task_id: impl Fn(TaskKindType) -> common::TaskId,
     ) -> storage::ReadyTasks {
         let tasks = entries
@@ -463,11 +463,11 @@ impl<
 /// [`GrpcServiceState::job_orchestration_service_error_handler`].
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > JobOrchestrationService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_job(
         &self,
@@ -569,11 +569,11 @@ impl<
 
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > TaskInstanceManagementService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_task_instance(
         &self,
@@ -683,11 +683,11 @@ impl<
 
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > InboundQueueService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn poll_ready_tasks(
         &self,
@@ -746,11 +746,11 @@ impl<
 
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > ResourceGroupManagementService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn add_resource_group(
         &self,
@@ -791,11 +791,11 @@ impl<
 
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > ExecutionManagerLivenessService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_execution_manager(
         &self,
@@ -849,11 +849,11 @@ impl<
 
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > SchedulerRegistrationService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn register_scheduler(
         &self,
@@ -886,11 +886,11 @@ impl<
 
 #[async_trait]
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > SessionManagementService
-    for GrpcServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+    for GrpcServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     async fn get_session(
         &self,
