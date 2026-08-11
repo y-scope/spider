@@ -3,8 +3,8 @@ name: "spider"
 x-service-defaults: &service_defaults
   logging:
     driver: "local"
-  pull_policy: "${SPIDER_PULL_POLICY:-always}"
-  restart: "${SPIDER_RESTART_POLICY:-on-failure:3}"
+  pull_policy: "${SPIDER_PULL_POLICY:?}"
+  restart: "${SPIDER_RESTART_POLICY:?}"
   stop_grace_period: "60s"
 
 x-healthcheck-defaults: &healthcheck_defaults
@@ -17,14 +17,17 @@ x-healthcheck-defaults: &healthcheck_defaults
 services:
   spider-database:
     <<: *service_defaults
-    image: "mariadb:10.11.16"
+    image: "${SPIDER_DATABASE_IMAGE_REF:?}"
     networks:
       - "spider-internal"
+    command: [
+      "--port=${SPIDER_DATABASE_PORT:?}",
+    ]
     environment:
-      MYSQL_DATABASE: "spider-db"
-      MYSQL_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:?Please set a value.}"
-      MYSQL_ROOT_PASSWORD: "${SPIDER_DATABASE_ROOT_PASSWORD:?Please set a value.}"
-      MYSQL_USER: "${SPIDER_STORAGE_DB_USERNAME:?Please set a value.}"
+      MYSQL_DATABASE: "${SPIDER_DATABASE_NAME:?}"
+      MYSQL_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:?}"
+      MYSQL_ROOT_PASSWORD: "${SPIDER_DATABASE_ROOT_PASSWORD:?}"
+      MYSQL_USER: "${SPIDER_STORAGE_DB_USERNAME:?}"
     volumes:
       - type: "volume"
         source: "spider-database-data"
@@ -36,13 +39,14 @@ services:
         "mysqladmin", "ping",
         "--silent",
         "-h", "127.0.0.1",
-        "-u", "${SPIDER_STORAGE_DB_USERNAME:?Please set a value.}",
-        "--password=${SPIDER_STORAGE_DB_PASSWORD:?Please set a value.}",
+        "-P", "${SPIDER_DATABASE_PORT:?}",
+        "-u", "${SPIDER_STORAGE_DB_USERNAME:?}",
+        "--password=${SPIDER_STORAGE_DB_PASSWORD:?}",
       ]
 
   spider-storage:
     <<: *service_defaults
-    image: "ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-main}"
+    image: "ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:?}"
     networks:
       - "default"
       - "spider-internal"
@@ -51,13 +55,13 @@ services:
       "--config", "/etc/spider/storage.yaml",
     ]
     environment:
-      RUST_LOG: "${SPIDER_STORAGE_LOG_LEVEL:-INFO}"
-      SPIDER_STORAGE_DB_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:?Please set a value.}"
-      SPIDER_STORAGE_DB_USERNAME: "${SPIDER_STORAGE_DB_USERNAME:?Please set a value.}"
+      RUST_LOG: "${SPIDER_STORAGE_LOG_LEVEL:?}"
+      SPIDER_STORAGE_DB_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:?}"
+      SPIDER_STORAGE_DB_USERNAME: "${SPIDER_STORAGE_DB_USERNAME:?}"
     ports:
-      - host_ip: "${SPIDER_STORAGE_PUBLISH_IP:-127.0.0.1}"
-        published: "${SPIDER_STORAGE_HOST_PORT:-50051}"
-        target: 50051
+      - host_ip: "${SPIDER_STORAGE_PUBLISHED_IP:?}"
+        published: "${SPIDER_STORAGE_PUBLISHED_PORT:?}"
+        target: "${SPIDER_STORAGE_PORT:?}"
     configs:
       - source: "spider-storage-config"
         target: "/etc/spider/storage.yaml"
@@ -70,12 +74,12 @@ services:
       test: [
         "CMD",
         "timeout", "2",
-        "bash", "-c", "</dev/tcp/127.0.0.1/50051",
+        "bash", "-c", "</dev/tcp/127.0.0.1/${SPIDER_STORAGE_PORT:?}",
       ]
 
   spider-scheduler:
     <<: *service_defaults
-    image: "ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}"
+    image: "ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:?}"
     networks:
       - "spider-internal"
     command: [
@@ -83,7 +87,7 @@ services:
       "--config", "/etc/spider/scheduler.yaml",
     ]
     environment:
-      RUST_LOG: "${SPIDER_SCHEDULER_LOG_LEVEL:-INFO}"
+      RUST_LOG: "${SPIDER_SCHEDULER_LOG_LEVEL:?}"
     configs:
       - source: "spider-scheduler-config"
         target: "/etc/spider/scheduler.yaml"
@@ -96,13 +100,13 @@ services:
       test: [
         "CMD",
         "timeout", "2",
-        "bash", "-c", "</dev/tcp/127.0.0.1/50052",
+        "bash", "-c", "</dev/tcp/127.0.0.1/${SPIDER_SCHEDULER_PORT:?}",
       ]
 
   spider-worker:
     <<: *service_defaults
     image: >-
-      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
+      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:?}}
     networks:
       - "default"
       - "spider-internal"
@@ -111,7 +115,7 @@ services:
       "--config", "/etc/spider/worker.yaml",
     ]
     environment:
-      RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
+      RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:?}"
     configs:
       - source: "spider-worker-config"
         target: "/etc/spider/worker.yaml"
@@ -123,15 +127,65 @@ services:
         condition: "service_healthy"
         restart: true
     deploy:
-      replicas: "${SPIDER_WORKER_REPLICAS:-4}"
+      replicas: "${SPIDER_WORKER_REPLICAS:?}"
 
 configs:
   spider-scheduler-config:
-    file: "./config/scheduler.yaml"
+    content: |
+      connection_pool_size: ${SPIDER_SCHEDULER_CONNECTION_POOL_SIZE:?}
+      host: "0.0.0.0"
+      port: ${SPIDER_SCHEDULER_PORT:?}
+      runtime:
+        advertised_endpoint:
+          host: "spider-scheduler"
+          port: ${SPIDER_SCHEDULER_PORT:?}
+        scheduler:
+          policy: "${SPIDER_SCHEDULER_POLICY:?}"
+          config:
+            active_job_queue_capacity: ${SPIDER_SCHEDULER_ACTIVE_JOB_QUEUE_CAPACITY:?}
+            cleanup_ready_task_capacity: ${SPIDER_SCHEDULER_CLEANUP_READY_TASK_CAPACITY:?}
+            commit_ready_task_capacity: ${SPIDER_SCHEDULER_COMMIT_READY_TASK_CAPACITY:?}
+            dispatch_queue_capacity: ${SPIDER_SCHEDULER_DISPATCH_QUEUE_CAPACITY:?}
+            finalizing_job_expiration_timeout_sec:
+              ${SPIDER_SCHEDULER_FINALIZING_JOB_EXPIRATION_TIMEOUT_SEC:?}
+            ready_task_capacity: ${SPIDER_SCHEDULER_READY_TASK_CAPACITY:?}
+            storage_poll_timeout_ms: ${SPIDER_SCHEDULER_STORAGE_POLL_TIMEOUT_MS:?}
+            tick_interval_ms: ${SPIDER_SCHEDULER_TICK_INTERVAL_MS:?}
+      storage_endpoint:
+        host: "spider-storage"
+        port: ${SPIDER_STORAGE_PORT:?}
   spider-storage-config:
-    file: "./config/storage.yaml"
+    content: |
+      host: "0.0.0.0"
+      port: ${SPIDER_STORAGE_PORT:?}
+      runtime:
+        db_config:
+          host: "spider-database"
+          max_connections: ${SPIDER_STORAGE_DB_MAX_CONNECTIONS:?}
+          name: "${SPIDER_DATABASE_NAME:?}"
+          port: ${SPIDER_DATABASE_PORT:?}
+        ready_queue_config:
+          cleanup_capacity: ${SPIDER_STORAGE_READY_QUEUE_CLEANUP_CAPACITY:?}
+          commit_capacity: ${SPIDER_STORAGE_READY_QUEUE_COMMIT_CAPACITY:?}
+          task_capacity: ${SPIDER_STORAGE_READY_QUEUE_TASK_CAPACITY:?}
   spider-worker-config:
-    file: "./config/worker.yaml"
+    content: |
+      connection_pool_size: ${SPIDER_WORKER_CONNECTION_POOL_SIZE:?}
+      liveness:
+        scheduler_heartbeat_interval_sec: ${SPIDER_WORKER_SCHEDULER_HEARTBEAT_INTERVAL_SEC:?}
+        storage_heartbeat_interval_sec: ${SPIDER_WORKER_STORAGE_HEARTBEAT_INTERVAL_SEC:?}
+      scheduler:
+        host: "spider-scheduler"
+        port: ${SPIDER_SCHEDULER_PORT:?}
+      scheduler_poll_wait_ms: ${SPIDER_WORKER_SCHEDULER_POLL_WAIT_MS:?}
+      storage:
+        host: "spider-storage"
+        port: ${SPIDER_STORAGE_PORT:?}
+      task_executor:
+        bin_path: "${SPIDER_WORKER_TASK_EXECUTOR_BIN_PATH:?}"
+        inherited_env: ${SPIDER_WORKER_INHERITED_ENV:?}
+        max_log_line_bytes: ${SPIDER_WORKER_MAX_LOG_LINE_BYTES:?}
+        package_dir: "${SPIDER_WORKER_PACKAGE_DIR:?}"
 
 networks:
   default:

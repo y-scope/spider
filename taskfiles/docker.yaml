@@ -25,7 +25,7 @@ tasks:
 
   compose:validate:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
-    cmd: "docker compose --file compose.yaml config --quiet"
+    cmd: "docker compose --env-file .env.example --file compose.yaml config --quiet"
 
   compose:up:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
