@@ -37,7 +37,7 @@ data:
     host: "0.0.0.0"
     port: {{ .Values.spiderConfig.storage.port }}
     runtime:
-      db_config:
+      db:
         host: {{ include "spider.databaseHost" . | quote }}
         max_connections: {{ .Values.spiderConfig.database.max_connections }}
         name: {{ .Values.spiderConfig.database.name | quote }}
