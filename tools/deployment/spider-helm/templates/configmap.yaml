@@ -27,7 +27,9 @@ data:
         host: {{ include "spider.componentFullname" (dict "root" . "component" "scheduler") | quote }}
         port: {{ .Values.spiderConfig.scheduler.port }}
       {{- with .Values.spiderConfig.scheduler.runtime }}
+      {{- with (omit . "advertised_endpoint") }}
       {{- toYaml . | nindent 6 }}
+      {{- end }}
       {{- end }}
     storage_endpoint:
       host: {{ include "spider.componentFullname" (dict "root" . "component" "storage") | quote }}
