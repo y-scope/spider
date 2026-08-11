@@ -201,10 +201,10 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
 /// while other configurations set to default.
 fn create_runtime_config() -> RuntimeConfig {
     RuntimeConfig {
-        db_config: create_mariadb_config(),
-        ready_queue_config: ReadyQueueConfig::default(),
-        task_instance_pool_config: TaskInstancePoolConfig::default(),
-        job_cache_gc_config: JobCacheGcConfig::default(),
+        db: create_mariadb_config(),
+        ready_queue: ReadyQueueConfig::default(),
+        task_instance_pool: TaskInstancePoolConfig::default(),
+        job_cache_gc: JobCacheGcConfig::default(),
     }
 }
 
