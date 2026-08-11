@@ -44,7 +44,7 @@ edition = "2024"
 [workspace.dependencies]
 anyhow = "1.0.104"
 async-channel = "2.5.0"
-async-trait = "0.1.91"
+async-trait = "0.1.92"
 bincode = "1.3.3"
 bytes = "1.12.1"
 clap = { version = "4.6.4", features = ["derive"] }
