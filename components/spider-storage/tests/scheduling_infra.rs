@@ -230,7 +230,6 @@ where
 }
 
 /// Creates a [`NoopDbConnector`] with default [`JobId`] and [`ResourceGroupId`].
-#[must_use]
 pub fn noop_db_connector_factory() -> impl DbConnectorFactory<NoopDbConnector> {
     async |_: &ValidatedJobSubmission| {
         (
@@ -458,7 +457,6 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
 /// # Panics
 ///
 /// Panics if job registration fails.
-#[must_use]
 pub fn mariadb_db_connector_factory(
     storage: MariaDbStorageConnector,
     rg_id: ResourceGroupId,
