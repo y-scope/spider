@@ -438,7 +438,7 @@ mod tests {
         let entries = receiver.recv_tasks(5, wait).await?;
         let elapsed = start.elapsed();
 
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [InboundQueueEntry<TaskIndex>; 0]);
         assert!(
             elapsed >= wait,
             "recv should block for the full wait duration when no entries arrive",
