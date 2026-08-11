@@ -24,36 +24,38 @@ use crate::cache::error::StaleStateError;
 use crate::cache::task::TaskGraph;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
+use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
-use crate::ready_queue::ReadyQueueSender;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 
 /// A shareable control block for a job.
 ///
-/// All mutable state, including the task graph, connectors, and queue sender, is held inside the
+/// All mutable state, including the task graph, connectors, and inbound-queue sender, is held
+/// inside the
 /// underlying [`JobExecutionState`] and protected by [`JobExecutionStateHandle`]'s read-write lock.
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 #[derive(Clone)]
 pub struct SharedJobControlBlock<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    inner:
-        Arc<JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>>,
+    inner: Arc<
+        JobControlBlock<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    >,
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> SharedJobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> SharedJobControlBlock<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Factory function.
     ///
@@ -70,7 +72,7 @@ impl<
         id: JobId,
         owner_id: ResourceGroupId,
         job_submission: ValidatedJobSubmission,
-        ready_queue_sender: ReadyQueueSenderType,
+        inbound_queue_sender: InboundQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
@@ -80,7 +82,7 @@ impl<
             state: JobState::Ready,
             task_graph,
             num_incomplete_tasks: AtomicUsize::new(num_tasks),
-            ready_queue_sender,
+            inbound_queue_sender,
             db_connector,
             task_instance_pool_connector,
         };
@@ -101,7 +103,7 @@ impl<
     /// # NOTE
     ///
     /// * This constructor does not mutate the storage states.
-    /// * This constructor does not send recovered tasks to the ready-queue.
+    /// * This constructor does not send recovered tasks to the inbound-queue.
     ///
     /// # Returns
     ///
@@ -119,7 +121,7 @@ impl<
     /// * Forwards [`TaskGraph::create`]'s return values on failure.
     pub async fn recover(
         recoverable_job_context: RecoverableJobContext,
-        ready_queue_sender: ReadyQueueSenderType,
+        inbound_queue_sender: InboundQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
     ) -> Result<Self, CacheError> {
@@ -181,7 +183,7 @@ impl<
             state,
             task_graph,
             num_incomplete_tasks: AtomicUsize::new(num_incomplete_tasks),
-            ready_queue_sender,
+            inbound_queue_sender,
             db_connector,
             task_instance_pool_connector,
         };
@@ -231,7 +233,7 @@ impl<
 
     /// Starts the job.
     ///
-    /// Any tasks in [`TaskState::Ready`] will be enqueued to the ready queue on success.
+    /// Any tasks in [`TaskState::Ready`] will be enqueued to the inbound queue on success.
     ///
     /// # Errors
     ///
@@ -239,7 +241,7 @@ impl<
     ///
     /// * Forwards [`JobExecutionStateHandle::write_ready`]'s return values on failure.
     /// * Forwards [`InternalJobOrchestration::start`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
     pub async fn start(&self) -> Result<(), CacheError> {
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_ready().await?;
@@ -257,22 +259,22 @@ impl<
         // JCB. If it happens to travel fast enough to go into the scheduler and then the executor,
         // the request from the executor for registering task instances will be blocked until this
         // method returns.
-        job.ready_queue_sender
+        job.inbound_queue_sender
             .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
             .await?;
         drop(job);
         Ok(())
     }
 
-    /// Resends all ready tasks to the ready queue.
+    /// Resends all ready tasks to the inbound queue.
     ///
     /// The method handles the following job states:
     ///
     /// * [`JobState::Running`] — all tasks in [`TaskState::Ready`] via
-    ///   [`ReadyQueueSender::send_task_ready`].
-    /// * [`JobState::CommitReady`] — the commit task via [`ReadyQueueSender::send_commit_ready`].
+    ///   [`InboundQueueSender::send_task_ready`].
+    /// * [`JobState::CommitReady`] — the commit task via [`InboundQueueSender::send_commit_ready`].
     /// * [`JobState::CleanupReady`] — the cleanup task via
-    ///   [`ReadyQueueSender::send_cleanup_ready`].
+    ///   [`InboundQueueSender::send_cleanup_ready`].
     ///
     /// For other job states, this method is a no-op and returns `Ok(())`.
     ///
@@ -280,16 +282,16 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_commit_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_cleanup_ready`]'s return values on failure.
     pub async fn resend_ready_tasks(&self) -> Result<(), CacheError> {
         let jcb = &self.inner;
 
         if let Ok(job) = jcb.job_execution_state.read_running().await {
             let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
             if !ready_task_indices.is_empty() {
-                job.ready_queue_sender
+                job.inbound_queue_sender
                     .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
                     .await?;
             }
@@ -297,14 +299,14 @@ impl<
         }
 
         if let Ok(job) = jcb.job_execution_state.read_commit_ready().await {
-            job.ready_queue_sender
+            job.inbound_queue_sender
                 .send_commit_ready(jcb.owner_id, jcb.id)
                 .await?;
             return Ok(());
         }
 
         if let Ok(job) = jcb.job_execution_state.read_cleanup_ready().await {
-            job.ready_queue_sender
+            job.inbound_queue_sender
                 .send_cleanup_ready(jcb.owner_id, jcb.id)
                 .await?;
             return Ok(());
@@ -344,8 +346,8 @@ impl<
     /// Marks the task instance as succeeded.
     ///
     /// If all tasks have succeeded, commits the job outputs, transitions the job state, and
-    /// enqueues the commit task (if any) to the ready queue. Otherwise, if the completed task
-    /// unblocks any child tasks, those child tasks are enqueued to the ready queue.
+    /// enqueues the commit task (if any) to the inbound queue. Otherwise, if the completed task
+    /// unblocks any child tasks, those child tasks are enqueued to the inbound queue.
     ///
     /// # Returns
     ///
@@ -365,8 +367,8 @@ impl<
     /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
     /// * Forwards [`JobExecutionStateHandle::write_running`]'s return values on failure.
     /// * Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::commit_outputs`]'s return values on failure.
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     /// * Forwards [`InternalJobOrchestration::commit_outputs`]'s return values on failure.
@@ -396,7 +398,7 @@ impl<
                 )
                 .into());
             }
-            job.ready_queue_sender
+            job.inbound_queue_sender
                 .send_task_ready(jcb.owner_id, jcb.id, ready_task_indices)
                 .await?;
             return Ok(job.state);
@@ -420,7 +422,7 @@ impl<
             JobState::Succeeded
         };
         if has_commit_task {
-            job.ready_queue_sender
+            job.inbound_queue_sender
                 .send_commit_ready(jcb.owner_id, jcb.id)
                 .await?;
         }
@@ -500,8 +502,8 @@ impl<
 
     /// Marks a task instance as failed.
     ///
-    /// If the task has remaining retries, it is re-enqueued to the ready queue. Otherwise, the job
-    /// transitions to [`JobState::Failed`].
+    /// If the task has remaining retries, it is re-enqueued to the inbound queue. Otherwise, the
+    /// job transitions to [`JobState::Failed`].
     ///
     /// # Returns
     ///
@@ -525,9 +527,9 @@ impl<
     /// * Forwards [`SharedTaskControlBlock::fail_task_instance`]'s return values on failure.
     /// * Forwards [`SharedTerminationTaskControlBlock::fail_task_instance`]'s return values on
     ///   failure.
-    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_commit_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_cleanup_ready`]'s return values on failure.
     /// * Forwards [`InternalJobOrchestration::fail`]'s return values on failure.
     pub async fn fail_task_instance(
         &self,
@@ -546,7 +548,7 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    job.ready_queue_sender
+                    job.inbound_queue_sender
                         .send_task_ready(jcb.owner_id, jcb.id, vec![task_index])
                         .await?;
                     return Ok(job.state);
@@ -561,7 +563,7 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    job.ready_queue_sender
+                    job.inbound_queue_sender
                         .send_commit_ready(jcb.owner_id, jcb.id)
                         .await?;
                     return Ok(job.state);
@@ -576,7 +578,7 @@ impl<
                     .fail_task_instance(task_instance_id, error_message.clone())
                     .await?;
                 if matches!(task_state, TaskState::Ready | TaskState::Running) {
-                    job.ready_queue_sender
+                    job.inbound_queue_sender
                         .send_cleanup_ready(jcb.owner_id, jcb.id)
                         .await?;
                     return Ok(job.state);
@@ -618,7 +620,7 @@ impl<
     ///
     /// * Forwards [`JobExecutionStateHandle::write_cancellable`]'s return values on failure.
     /// * Forwards [`InternalJobOrchestration::cancel`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_cleanup_ready`]'s return values on failure.
     pub async fn cancel(&self) -> Result<JobState, CacheError> {
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_cancellable().await?;
@@ -632,7 +634,7 @@ impl<
 
         job.task_graph.cancel_non_terminal().await;
         if has_cleanup_task {
-            job.ready_queue_sender
+            job.inbound_queue_sender
                 .send_cleanup_ready(jcb.owner_id, jcb.id)
                 .await?;
         }
@@ -656,7 +658,11 @@ impl<
     /// * Forwards [`SharedTaskControlBlock::register_task_instance`]'s return values on failure.
     /// * Forwards [`TaskInstancePoolConnector::register_task_instance`]'s return values on failure.
     async fn create_regular_task_instance(
-        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        jcb: &JobControlBlock<
+            InboundQueueSenderType,
+            DbConnectorType,
+            TaskInstancePoolConnectorType,
+        >,
         task_index: TaskIndex,
         execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
@@ -708,7 +714,11 @@ impl<
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     /// * Forwards [`SerializedTaskOutputs::serialize_with_size_hint`]'s return values on failure.
     async fn create_commit_task_instance(
-        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        jcb: &JobControlBlock<
+            InboundQueueSenderType,
+            DbConnectorType,
+            TaskInstancePoolConnectorType,
+        >,
         execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         let job = jcb.job_execution_state.read_commit_ready().await?;
@@ -766,7 +776,11 @@ impl<
     /// * Forwards [`TaskInstancePoolConnector::register_termination_task_instance`]'s return values
     ///   on failure.
     async fn create_cleanup_task_instance(
-        jcb: &JobControlBlock<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        jcb: &JobControlBlock<
+            InboundQueueSenderType,
+            DbConnectorType,
+            TaskInstancePoolConnectorType,
+        >,
         execution_manager_id: ExecutionManagerId,
     ) -> Result<ExecutionContext, CacheError> {
         let job = jcb.job_execution_state.read_cleanup_ready().await?;
@@ -810,18 +824,18 @@ impl<
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 struct JobControlBlock<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     id: JobId,
     owner_id: ResourceGroupId,
     job_execution_state: JobExecutionStateHandle<
-        ReadyQueueSenderType,
+        InboundQueueSenderType,
         DbConnectorType,
         TaskInstancePoolConnectorType,
     >,
@@ -842,14 +856,14 @@ struct JobControlBlock<
 /// * Avoid formatting issues, as `rustfmt` does not handle line wrapping well when using more
 ///   descriptive type parameter names in this particular struct.
 struct JobExecutionStateHandle<
-    R: ReadyQueueSender,
+    R: InboundQueueSender,
     D: InternalJobOrchestration,
     T: TaskInstancePoolConnector,
 > {
     inner: tokio::sync::RwLock<JobExecutionState<R, D, T>>,
 }
 
-impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
+impl<R: InboundQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnector>
     JobExecutionStateHandle<R, D, T>
 {
     /// # Returns
@@ -1058,32 +1072,33 @@ impl<R: ReadyQueueSender, D: InternalJobOrchestration, T: TaskInstancePoolConnec
 
 /// Represents the execution state of a job.
 ///
-/// This struct holds all mutable job state, including the task graph, connectors, and queue sender,
+/// This struct holds all mutable job state, including the task graph, connectors, and
+/// inbound-queue sender,
 /// so that concurrent access is synchronized through [`JobExecutionStateHandle`]'s read-write lock.
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 struct JobExecutionState<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     state: JobState,
     task_graph: TaskGraph,
     num_incomplete_tasks: AtomicUsize,
-    ready_queue_sender: ReadyQueueSenderType,
+    inbound_queue_sender: InboundQueueSenderType,
     db_connector: DbConnectorType,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> JobExecutionState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> JobExecutionState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Ensures that the job is currently in the [`JobState::Running`] state.
     ///

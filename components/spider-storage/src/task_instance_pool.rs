@@ -35,7 +35,7 @@ use crate::cache::error::InternalError;
 use crate::cache::task::SharedTaskControlBlock;
 use crate::cache::task::SharedTerminationTaskControlBlock;
 use crate::db::ExecutionManagerLivenessManagement;
-use crate::ready_queue::ReadyQueueSender;
+use crate::inbound_queue::InboundQueueSender;
 
 /// Configuration for a task instance pool actor.
 ///
@@ -268,13 +268,13 @@ enum PoolMessage {
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
+/// * `InboundQueueSenderType` - The inbound queue sender implementation for re-enqueue operations.
 /// * `LivenessStoreType` - The execution manager liveness store implementation.
 struct TaskInstancePool<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     LivenessStoreType: ExecutionManagerLivenessManagement,
 > {
-    ready_queue_sender: ReadyQueueSenderType,
+    inbound_queue_sender: InboundQueueSenderType,
     execution_manager_liveness_store: LivenessStoreType,
     execution_manager_pool: HashSet<ExecutionManagerId>,
     execution_manager_stale_after_sec: u64,
@@ -282,8 +282,10 @@ struct TaskInstancePool<
     receiver: mpsc::Receiver<PoolMessage>,
 }
 
-impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManagerLivenessManagement>
-    TaskInstancePool<ReadyQueueSenderType, LivenessStoreType>
+impl<
+    InboundQueueSenderType: InboundQueueSender,
+    LivenessStoreType: ExecutionManagerLivenessManagement,
+> TaskInstancePool<InboundQueueSenderType, LivenessStoreType>
 {
     /// Runs the coroutine loop, processing messages and GC timer ticks.
     ///
@@ -349,7 +351,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
                             // already terminated. In this case, the re-enqueue is redundant.
                             // However, checking this termination is expensive and this case should
                             // be rare. Besides, the downstream logic will gracefully handle the
-                            // re-enqueued task-ready message. Therefore, this re-enqueue is
+                            // re-enqueued inbound task message. Therefore, this re-enqueue is
                             // unconditionally performed.
                             self.re_enqueue_task(&metadata).await?;
                         }
@@ -451,13 +453,13 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ReadyQueueSender::send_task_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_commit_ready`]'s return values on failure.
-    /// * Forwards [`ReadyQueueSender::send_cleanup_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_commit_ready`]'s return values on failure.
+    /// * Forwards [`InboundQueueSender::send_cleanup_ready`]'s return values on failure.
     async fn re_enqueue_task(&self, metadata: &TaskInstanceMetadata) -> Result<(), InternalError> {
         match metadata.task_id {
             TaskId::Index(task_index) => {
-                self.ready_queue_sender
+                self.inbound_queue_sender
                     .send_task_ready(
                         metadata.resource_group_id,
                         metadata.job_id,
@@ -466,12 +468,12 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
                     .await
             }
             TaskId::Commit => {
-                self.ready_queue_sender
+                self.inbound_queue_sender
                     .send_commit_ready(metadata.resource_group_id, metadata.job_id)
                     .await
             }
             TaskId::Cleanup => {
-                self.ready_queue_sender
+                self.inbound_queue_sender
                     .send_cleanup_ready(metadata.resource_group_id, metadata.job_id)
                     .await
             }
@@ -483,7 +485,7 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The ready queue sender implementation for re-enqueue operations.
+/// * `InboundQueueSenderType` - The inbound queue sender implementation for re-enqueue operations.
 /// * `LivenessStoreType` - The execution manager liveness store implementation.
 ///
 /// # Returns
@@ -499,10 +501,10 @@ impl<ReadyQueueSenderType: ReadyQueueSender, LivenessStoreType: ExecutionManager
 ///
 /// * Forwards [`TaskInstancePoolConfig::validate`]'s return values on failure.
 pub fn create_task_instance_pool<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     LivenessStoreType: ExecutionManagerLivenessManagement + 'static,
 >(
-    ready_queue_sender: ReadyQueueSenderType,
+    inbound_queue_sender: InboundQueueSenderType,
     execution_manager_liveness_store: LivenessStoreType,
     cancellation_token: CancellationToken,
     config: &TaskInstancePoolConfig,
@@ -519,7 +521,7 @@ pub fn create_task_instance_pool<
     let (sender, receiver) = mpsc::channel(config.message_channel_capacity);
 
     let pool = TaskInstancePool {
-        ready_queue_sender,
+        inbound_queue_sender,
         execution_manager_liveness_store,
         execution_manager_stale_after_sec: config.execution_manager_stale_cutoff_sec,
         instances: Vec::new(),
@@ -608,19 +610,19 @@ mod tests {
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
-    enum ReadyMessage {
+    enum InboundMessage {
         Task(JobId, usize),
         Commit(JobId),
         Cleanup(JobId),
     }
 
     #[derive(Clone, Default)]
-    struct MockReadyQueueSender {
-        sent_messages: Arc<Mutex<Vec<ReadyMessage>>>,
+    struct MockInboundQueueSender {
+        sent_messages: Arc<Mutex<Vec<InboundMessage>>>,
     }
 
     #[async_trait]
-    impl ReadyQueueSender for MockReadyQueueSender {
+    impl InboundQueueSender for MockInboundQueueSender {
         async fn send_task_ready(
             &self,
             _rg_id: ResourceGroupId,
@@ -631,7 +633,7 @@ mod tests {
                 self.sent_messages
                     .lock()
                     .await
-                    .push(ReadyMessage::Task(job_id, task_index));
+                    .push(InboundMessage::Task(job_id, task_index));
             }
             Ok(())
         }
@@ -644,7 +646,7 @@ mod tests {
             self.sent_messages
                 .lock()
                 .await
-                .push(ReadyMessage::Commit(job_id));
+                .push(InboundMessage::Commit(job_id));
             Ok(())
         }
 
@@ -656,7 +658,7 @@ mod tests {
             self.sent_messages
                 .lock()
                 .await
-                .push(ReadyMessage::Cleanup(job_id));
+                .push(InboundMessage::Cleanup(job_id));
             Ok(())
         }
     }
@@ -749,13 +751,13 @@ mod tests {
     /// The `mpsc::Receiver` field is required by the struct but unused by these tests; the matching
     /// sender is dropped immediately.
     fn build_test_pool(
-        ready_queue_sender: MockReadyQueueSender,
+        inbound_queue_sender: MockInboundQueueSender,
         liveness_store: MockExecutionManagerLivenessManagement,
         execution_manager_stale_cutoff: Duration,
-    ) -> TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessManagement> {
+    ) -> TaskInstancePool<MockInboundQueueSender, MockExecutionManagerLivenessManagement> {
         let (_sender, receiver) = mpsc::channel(1);
         TaskInstancePool {
-            ready_queue_sender,
+            inbound_queue_sender,
             execution_manager_liveness_store: liveness_store,
             execution_manager_pool: HashSet::new(),
             execution_manager_stale_after_sec: execution_manager_stale_cutoff.as_secs(),
@@ -771,7 +773,7 @@ mod tests {
     ///
     /// The job ID assigned to the task, so callers can match it against re-enqueue messages.
     async fn register_task_in_pool(
-        pool: &mut TaskInstancePool<MockReadyQueueSender, MockExecutionManagerLivenessManagement>,
+        pool: &mut TaskInstancePool<MockInboundQueueSender, MockExecutionManagerLivenessManagement>,
         tcb: &SharedTaskControlBlock,
         task_id: TaskId,
         task_instance_id: TaskInstanceId,
@@ -800,10 +802,10 @@ mod tests {
 
     #[tokio::test]
     async fn dead_execution_manager_registration_triggers_recovery() {
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let cancellation_token = CancellationToken::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             RejectAllLivenessStore,
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
@@ -834,9 +836,9 @@ mod tests {
         // Give the pool coroutine time to process the message.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         assert!(
-            messages.contains(&ReadyMessage::Task(job_id, 0)),
+            messages.contains(&InboundMessage::Task(job_id, 0)),
             "task should be re-enqueued for dead EM, got: {messages:?}"
         );
         cancellation_token.cancel();
@@ -849,11 +851,11 @@ mod tests {
 
     #[tokio::test]
     async fn valid_em_is_cached_and_subsequent_registrations_skip_verify() {
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let cancellation_token = CancellationToken::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
-            ready_queue_sender,
+            inbound_queue_sender,
             liveness_store.clone(),
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
@@ -909,7 +911,7 @@ mod tests {
     async fn spawned_pool_exits_when_cancelled() {
         let cancellation_token = CancellationToken::new();
         let (_pool, pool_join_handle) = create_task_instance_pool(
-            MockReadyQueueSender::default(),
+            MockInboundQueueSender::default(),
             MockExecutionManagerLivenessManagement::default(),
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
@@ -931,10 +933,10 @@ mod tests {
 
     #[tokio::test]
     async fn spawned_pool_processes_registration_before_shutdown() {
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let cancellation_token = CancellationToken::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             RejectAllLivenessStore,
             cancellation_token.clone(),
             &TaskInstancePoolConfig {
@@ -969,9 +971,9 @@ mod tests {
             .expect("pool task should join successfully")
             .expect("pool task should return success");
 
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         assert!(
-            messages.contains(&ReadyMessage::Task(job_id, 0)),
+            messages.contains(&InboundMessage::Task(job_id, 0)),
             "registration should be processed before shutdown, got: {messages:?}"
         );
     }
@@ -980,10 +982,10 @@ mod tests {
     async fn gc_removes_all_terminated_tasks() {
         const NUM_TASKS: usize = 10;
 
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             liveness_store,
             Duration::from_mins(1),
         );
@@ -1013,7 +1015,7 @@ mod tests {
             "all terminated entries should be removed, remaining: {}",
             pool.instances.len()
         );
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         assert!(
             messages.is_empty(),
             "terminated tasks should not be re-enqueued, got: {messages:?}"
@@ -1024,10 +1026,10 @@ mod tests {
     async fn gc_re_enqueues_all_soft_timed_out_tasks_and_keeps_them() {
         const NUM_TASKS: usize = 10;
 
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             liveness_store,
             Duration::from_mins(1),
         );
@@ -1037,7 +1039,7 @@ mod tests {
         // deadline = now - 900ms
         let registered_at = gc_starting_time - Duration::from_secs(1);
 
-        let mut expected_messages: Vec<ReadyMessage> = Vec::new();
+        let mut expected_messages: Vec<InboundMessage> = Vec::new();
         for i in 0..NUM_TASKS {
             let tcb = build_single_task_tcb().await;
             let job_id = register_task_in_pool(
@@ -1049,7 +1051,7 @@ mod tests {
                 registered_at,
             )
             .await;
-            expected_messages.push(ReadyMessage::Task(job_id, i));
+            expected_messages.push(InboundMessage::Task(job_id, i));
         }
 
         pool.run_gc_cycle_at(gc_starting_time)
@@ -1068,7 +1070,7 @@ mod tests {
                 entry.metadata.task_instance_id
             );
         }
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         assert_eq!(messages.len(), expected_messages.len(), "got: {messages:?}");
         for expected in &expected_messages {
             assert!(
@@ -1082,17 +1084,17 @@ mod tests {
     async fn gc_re_enqueues_and_removes_all_tasks_for_dead_em() {
         const NUM_TASKS: usize = 10;
 
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             liveness_store.clone(),
             Duration::from_mins(1),
         );
         let em_id = ExecutionManagerId::random();
         let now = SystemTime::now();
 
-        let mut expected_messages: Vec<ReadyMessage> = Vec::new();
+        let mut expected_messages: Vec<InboundMessage> = Vec::new();
         for i in 0..NUM_TASKS {
             let tcb = build_single_task_tcb().await;
             let job_id = register_task_in_pool(
@@ -1104,7 +1106,7 @@ mod tests {
                 now,
             )
             .await;
-            expected_messages.push(ReadyMessage::Task(job_id, i));
+            expected_messages.push(InboundMessage::Task(job_id, i));
         }
 
         liveness_store
@@ -1126,7 +1128,7 @@ mod tests {
             !pool.execution_manager_pool.contains(&em_id),
             "dead EM should be pruned from execution_manager_pool"
         );
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         assert_eq!(messages.len(), expected_messages.len(), "got: {messages:?}");
         for expected in &expected_messages {
             assert!(
@@ -1140,10 +1142,10 @@ mod tests {
     async fn gc_removes_terminated_tasks_for_dead_em_without_re_enqueue() {
         const NUM_TASKS: usize = 10;
 
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             liveness_store.clone(),
             Duration::from_mins(1),
         );
@@ -1183,7 +1185,7 @@ mod tests {
             !pool.execution_manager_pool.contains(&em_id),
             "dead EM should be pruned from execution_manager_pool"
         );
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         assert!(
             messages.is_empty(),
             "terminated tasks should not be re-enqueued even with dead EM, got: {messages:?}"
@@ -1198,10 +1200,10 @@ mod tests {
         //   index 2: alive EM, healthy on-going -> kept, no re-enqueue
         //   index 3: dead EM, terminated -> removed, no re-enqueue (terminal wins)
         //   index 4: dead EM, on-going -> removed, re-enqueued
-        let ready_queue_sender = MockReadyQueueSender::default();
+        let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
         let mut pool = build_test_pool(
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             liveness_store.clone(),
             Duration::from_mins(1),
         );
@@ -1286,10 +1288,10 @@ mod tests {
             "alive EM should remain in execution_manager_pool"
         );
 
-        let messages = ready_queue_sender.sent_messages.lock().await.clone();
+        let messages = inbound_queue_sender.sent_messages.lock().await.clone();
         let expected = [
-            ReadyMessage::Task(job_id_1, 1),
-            ReadyMessage::Task(job_id_4, 4),
+            InboundMessage::Task(job_id_1, 1),
+            InboundMessage::Task(job_id_4, 4),
         ];
         assert_eq!(messages.len(), expected.len(), "got: {messages:?}");
         for msg in &expected {
