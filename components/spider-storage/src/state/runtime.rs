@@ -29,13 +29,13 @@ use crate::task_instance_pool::create_task_instance_pool;
 /// Runtime configuration for the storage service.
 #[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeConfig {
-    pub db_config: DatabaseConfig,
+    pub db: DatabaseConfig,
     #[serde(default)]
-    pub ready_queue_config: ReadyQueueConfig,
+    pub ready_queue: ReadyQueueConfig,
     #[serde(default)]
-    pub task_instance_pool_config: TaskInstancePoolConfig,
+    pub task_instance_pool: TaskInstancePoolConfig,
     #[serde(default)]
-    pub job_cache_gc_config: JobCacheGcConfig,
+    pub job_cache_gc: JobCacheGcConfig,
 }
 
 /// Runtime state for the storage service.
@@ -153,15 +153,15 @@ pub async fn create_runtime(
     StorageServerError,
 > {
     let cancellation_token = CancellationToken::new();
-    let db = MariaDbStorageConnector::connect(&config.db_config).await?;
+    let db = MariaDbStorageConnector::connect(&config.db).await?;
     let session_id = db.session_id();
     let (ready_queue_sender, ready_queue_receiver) =
-        create_ready_queue(&config.ready_queue_config).map_err(CacheError::from)?;
+        create_ready_queue(&config.ready_queue).map_err(CacheError::from)?;
     let (task_instance_pool_connector, task_instance_pool_join_handle) = create_task_instance_pool(
         ready_queue_sender.clone(),
         db.clone(),
         cancellation_token.clone(),
-        &config.task_instance_pool_config,
+        &config.task_instance_pool,
     )
     .map_err(CacheError::from)?;
 
@@ -174,7 +174,7 @@ pub async fn create_runtime(
     let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
         job_cache.clone(),
         cancellation_token.clone(),
-        &config.job_cache_gc_config,
+        &config.job_cache_gc,
     )
     .map_err(CacheError::from)?;
     let service_state = ServiceState::new(ServiceStateParams {

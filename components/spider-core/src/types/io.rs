@@ -671,7 +671,7 @@ mod tests {
         assert_eq!(wire, 0u32.to_le_bytes());
 
         let decoded: Vec<TaskOutput> = TaskOutputsSerializer::deserialize(&wire)?;
-        assert!(decoded.is_empty());
+        assert_eq!(decoded, [] as [std::vec::Vec<u8>; 0]);
         Ok(())
     }
 
@@ -801,7 +801,7 @@ mod tests {
     fn serialize_from_empty_tuple() -> anyhow::Result<()> {
         let wire = TaskOutputsSerializer::from_tuple(&())?;
         let payloads: Vec<TaskOutput> = TaskOutputsSerializer::deserialize(&wire)?;
-        assert!(payloads.is_empty());
+        assert_eq!(payloads, [] as [std::vec::Vec<u8>; 0]);
         Ok(())
     }
 
