@@ -72,7 +72,7 @@ spiderConfig:
     log_level: "INFO"
     port: 50051
     runtime:
-      ready_queue_config:
+      ready_queue:
         cleanup_capacity: 256
         commit_capacity: 256
         task_capacity: 1048576
