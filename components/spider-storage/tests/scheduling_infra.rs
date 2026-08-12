@@ -30,8 +30,8 @@
 //!
 //! # Mock components
 //!
-//! * [`MockReadyQueueSender`] -- backed by `async_channel` (true MPMC). Task-ready batches from the
-//!   JCB are flattened to one message per task index for maximum execution manager concurrency.
+//! * [`MockInboundQueueSender`] -- backed by `async_channel` (true MPMC). Task-ready batches from
+//!   the JCB are flattened to one message per task index for maximum execution manager concurrency.
 //! * [`NoopDbConnector`] -- stateless stub returning appropriate state transitions based on
 //!   commit/cleanup task presence. Generic over `DbConnectorType` so a real connector can be
 //!   swapped in.
@@ -41,7 +41,7 @@
 //!
 //! Each execution manager owns a cloned [`EmContext`] (no shared `Arc` indirection -- all fields
 //! are cheaply cloneable via `Arc` or built-in `Clone`). Execution managers `tokio::select!`
-//! between the ready-queue receiver and a done signal (`watch<bool>`).
+//! between the inbound-queue receiver and a done signal (`watch<bool>`).
 //!
 //! **Failure injection**: 50% of first-seen tasks spawn 2 concurrent `tokio::spawn` coroutines
 //! that each independently register and fail a task instance. This exercises both the retry
@@ -103,8 +103,8 @@ use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::RecoverableJobContext;
+use spider_storage::inbound_queue::InboundQueueSender;
 use spider_storage::job_submission::ValidatedJobSubmission;
-use spider_storage::ready_queue::ReadyQueueSender;
 use spider_storage::task_instance_pool::TaskInstanceMetadata;
 use spider_storage::task_instance_pool::TaskInstancePoolConnector;
 use tabled::Table;
@@ -333,9 +333,9 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
     // Create mock components.
-    let (ready_sender, ready_receiver) = async_channel::unbounded::<ReadyMessage>();
-    let ready_queue_sender = MockReadyQueueSender {
-        sender: ready_sender,
+    let (inbound_sender, inbound_receiver) = async_channel::unbounded::<InboundMessage>();
+    let inbound_queue_sender = MockInboundQueueSender {
+        sender: inbound_sender,
     };
     let (db_connector, job_id, resource_group_id) = db_connector_factory(&job_submission).await;
     let task_instance_pool = MockTaskInstancePool::new();
@@ -345,7 +345,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         job_id,
         resource_group_id,
         job_submission,
-        ready_queue_sender,
+        inbound_queue_sender,
         db_connector,
         task_instance_pool,
     )
@@ -367,7 +367,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let cleanup_count = Arc::new(AtomicUsize::new(0));
 
     let ctx = EmContext {
-        receiver: ready_receiver,
+        receiver: inbound_receiver,
         jcb: jcb.clone(),
         execution_manager_id: ExecutionManagerId::random(),
         terminal_state_sender: terminal_state_sender.clone(),
@@ -482,16 +482,16 @@ const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 ///
 /// * `DbConnectorType` - The DB-layer connector implementation.
 type TestJcb<DbConnectorType> =
-    SharedJobControlBlock<MockReadyQueueSender, DbConnectorType, MockTaskInstancePool>;
+    SharedJobControlBlock<MockInboundQueueSender, DbConnectorType, MockTaskInstancePool>;
 
-/// A message sent through the mock ready queue.
+/// A message sent through the mock inbound queue.
 ///
 /// Each message represents a single schedulable unit of work. Task-ready batches from the JCB are
 /// flattened into one message per task index so that execution managers receive tasks individually,
 /// enabling better concurrency across the execution manager pool.
 ///
 /// Since these tests run a single job at a time, messages do not carry a job ID.
-enum ReadyMessage {
+enum InboundMessage {
     /// A single task is ready to be scheduled.
     Task { task_index: TaskIndex },
 
@@ -502,18 +502,18 @@ enum ReadyMessage {
     Cleanup,
 }
 
-/// A mock [`ReadyQueueSender`] backed by an [`async_channel::Sender`].
+/// A mock [`InboundQueueSender`] backed by an [`async_channel::Sender`].
 ///
 /// Execution managers each hold a cloned [`async_channel::Receiver`] and can concurrently await
 /// messages without any mutex serialization. The `job_id` parameter in each trait method is
 /// discarded since only one job runs at a time.
 #[derive(Clone)]
-struct MockReadyQueueSender {
-    sender: async_channel::Sender<ReadyMessage>,
+struct MockInboundQueueSender {
+    sender: async_channel::Sender<InboundMessage>,
 }
 
 #[async_trait]
-impl ReadyQueueSender for MockReadyQueueSender {
+impl InboundQueueSender for MockInboundQueueSender {
     async fn send_task_ready(
         &self,
         _resource_group_id: ResourceGroupId,
@@ -522,9 +522,9 @@ impl ReadyQueueSender for MockReadyQueueSender {
     ) -> Result<(), InternalError> {
         for task_index in task_indices {
             self.sender
-                .send(ReadyMessage::Task { task_index })
+                .send(InboundMessage::Task { task_index })
                 .await
-                .map_err(|_| InternalError::ReadyQueueChannelClosed)?;
+                .map_err(|_| InternalError::InboundQueueChannelClosed)?;
         }
         Ok(())
     }
@@ -535,9 +535,9 @@ impl ReadyQueueSender for MockReadyQueueSender {
         _job_id: JobId,
     ) -> Result<(), InternalError> {
         self.sender
-            .send(ReadyMessage::Commit)
+            .send(InboundMessage::Commit)
             .await
-            .map_err(|_| InternalError::ReadyQueueChannelClosed)
+            .map_err(|_| InternalError::InboundQueueChannelClosed)
     }
 
     async fn send_cleanup_ready(
@@ -546,9 +546,9 @@ impl ReadyQueueSender for MockReadyQueueSender {
         _job_id: JobId,
     ) -> Result<(), InternalError> {
         self.sender
-            .send(ReadyMessage::Cleanup)
+            .send(InboundMessage::Cleanup)
             .await
-            .map_err(|_| InternalError::ReadyQueueChannelClosed)
+            .map_err(|_| InternalError::InboundQueueChannelClosed)
     }
 }
 
@@ -740,9 +740,9 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
 /// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
 struct EmContext<DbConnectorType: InternalJobOrchestration> {
-    /// The MPMC ready-queue receiver. Each clone can concurrently await messages without
+    /// The MPMC inbound-queue receiver. Each clone can concurrently await messages without
     /// serialization.
-    receiver: async_channel::Receiver<ReadyMessage>,
+    receiver: async_channel::Receiver<InboundMessage>,
 
     /// The instrumented JCB under test.
     jcb: InstrumentedJcb<DbConnectorType>,
@@ -895,8 +895,8 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
     Table::new(rows).to_string()
 }
 
-/// Runs a single execution manager that consumes [`ReadyMessage`]s from the shared queue and drives
-/// task execution through the JCB.
+/// Runs a single execution manager that consumes [`InboundMessage`]s from the shared queue and
+/// drives task execution through the JCB.
 ///
 /// The execution manager loops until either the done signal fires or the receiver is closed
 /// (returns `None`).
@@ -934,21 +934,21 @@ async fn run_execution_manager<DbConnectorType: InternalJobOrchestration + 'stat
         };
 
         match msg {
-            ReadyMessage::Task { task_index } => {
+            InboundMessage::Task { task_index } => {
                 if let Err(e) = process_task(&ctx, &mut rng, task_index).await
                     && !is_stale_state(&e)
                 {
                     bail!(e);
                 }
             }
-            ReadyMessage::Commit => {
+            InboundMessage::Commit => {
                 if let Err(e) = process_commit(&ctx).await
                     && !is_stale_state(&e)
                 {
                     bail!(e);
                 }
             }
-            ReadyMessage::Cleanup => {
+            InboundMessage::Cleanup => {
                 if let Err(e) = process_cleanup(&ctx).await
                     && !is_stale_state(&e)
                 {

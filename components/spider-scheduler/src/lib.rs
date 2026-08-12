@@ -6,11 +6,11 @@
 //! order* and *with what throttling* ready tasks are offered to the fleet.
 //!
 //! The crate defines three trait seams wired into a single pipeline — a storage client that polls
-//! the ready queue, a core that makes serial decisions, and a dispatching queue that fans those
+//! the inbound queue, a core that makes serial decisions, and a dispatching queue that fans those
 //! decisions out to execution managers:
 //!
 //! ```text
-//!   storage  ── authoritative ready queue (owned by the storage layer, not this crate)
+//!   storage  ── authoritative inbound queue (owned by the storage layer, not this crate)
 //!         │
 //!         │  poll_ready / poll_commit_ready / poll_cleanup_ready  (SchedulerStorageClient)
 //!         ▼
