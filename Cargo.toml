@@ -51,11 +51,7 @@ clap = { version = "4.6.4", features = ["derive"] }
 const_format = "0.2.36"
 const-str = "1.1.0"
 dashmap = "6.2.1"
-futures-util = {
-  version = "0.3.33",
-  default-features = false,
-  features = ["sink", "std"]
-}
+futures-util = { version = "0.3.33", default-features = false, features = ["sink", "std"] }
 huntsman-complex-types = { path = "examples/huntsman/complex/types" }
 huntsman-nn-core = { path = "examples/huntsman/nn/core" }
 integration-test-tasks = { path = "tests/huntsman/integration-test-tasks" }
