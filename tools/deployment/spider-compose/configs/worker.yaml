@@ -1,0 +1,19 @@
+configs:
+  spider-worker-config:
+    content: |
+      connection_pool_size: ${SPIDER_WORKER_CONNECTION_POOL_SIZE:-4}
+      liveness:
+        scheduler_heartbeat_interval_sec: ${SPIDER_WORKER_SCHEDULER_HEARTBEAT_INTERVAL_SEC:-1}
+        storage_heartbeat_interval_sec: ${SPIDER_WORKER_STORAGE_HEARTBEAT_INTERVAL_SEC:-1}
+      scheduler:
+        host: "spider-scheduler"
+        port: ${SPIDER_SCHEDULER_PORT:-50052}
+      scheduler_poll_wait_ms: ${SPIDER_WORKER_SCHEDULER_POLL_WAIT_MS:-1000}
+      storage:
+        host: "spider-storage"
+        port: ${SPIDER_STORAGE_PORT:-50051}
+      task_executor:
+        bin_path: "${SPIDER_WORKER_TASK_EXECUTOR_BIN_PATH:-/usr/local/bin/spider-task-executor}"
+        inherited_env: ${SPIDER_WORKER_INHERITED_ENV:-[]}
+        max_log_line_bytes: ${SPIDER_WORKER_MAX_LOG_LINE_BYTES:-65536}
+        package_dir: "${SPIDER_WORKER_PACKAGE_DIR:-/opt/spider/packages}"
