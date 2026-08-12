@@ -139,6 +139,10 @@ configs:
         advertised_endpoint:
           host: "spider-scheduler"
           port: ${SPIDER_SCHEDULER_PORT:-50052}
+        em_registry:
+          dead_em_cutoff_sec: ${SPIDER_SCHEDULER_EM_REGISTRY_DEAD_EM_CUTOFF_SEC:-30}
+          liveness_tracking_interval_ms:
+            ${SPIDER_SCHEDULER_EM_REGISTRY_LIVENESS_TRACKING_INTERVAL_MS:-1000}
         scheduler:
           policy: "${SPIDER_SCHEDULER_POLICY:-round_robin}"
           config:
@@ -151,6 +155,7 @@ configs:
             ready_task_capacity: ${SPIDER_SCHEDULER_READY_TASK_CAPACITY:-1048576}
             storage_poll_timeout_ms: ${SPIDER_SCHEDULER_STORAGE_POLL_TIMEOUT_MS:-10}
             tick_interval_ms: ${SPIDER_SCHEDULER_TICK_INTERVAL_MS:-5}
+        stop_timeout_sec: ${SPIDER_SCHEDULER_STOP_TIMEOUT_SEC:-30}
       storage_endpoint:
         host: "spider-storage"
         port: ${SPIDER_STORAGE_PORT:-50051}
@@ -164,10 +169,20 @@ configs:
           max_connections: ${SPIDER_STORAGE_DB_MAX_CONNECTIONS:-64}
           name: "${SPIDER_DATABASE_NAME:-spider-db}"
           port: ${SPIDER_DATABASE_PORT:-3306}
-        ready_queue:
-          cleanup_capacity: ${SPIDER_STORAGE_READY_QUEUE_CLEANUP_CAPACITY:-256}
-          commit_capacity: ${SPIDER_STORAGE_READY_QUEUE_COMMIT_CAPACITY:-256}
-          task_capacity: ${SPIDER_STORAGE_READY_QUEUE_TASK_CAPACITY:-1048576}
+        inbound_queue:
+          cleanup_capacity: ${SPIDER_STORAGE_INBOUND_QUEUE_CLEANUP_CAPACITY:-256}
+          commit_capacity: ${SPIDER_STORAGE_INBOUND_QUEUE_COMMIT_CAPACITY:-256}
+          task_capacity: ${SPIDER_STORAGE_INBOUND_QUEUE_TASK_CAPACITY:-1048576}
+        job_cache_gc:
+          gc_interval_sec: ${SPIDER_STORAGE_JOB_CACHE_GC_INTERVAL_SEC:-30}
+          terminated_job_retention_sec:
+            ${SPIDER_STORAGE_JOB_CACHE_TERMINATED_JOB_RETENTION_SEC:-300}
+        task_instance_pool:
+          execution_manager_stale_cutoff_sec:
+            ${SPIDER_STORAGE_TASK_INSTANCE_POOL_EXECUTION_MANAGER_STALE_CUTOFF_SEC:-60}
+          gc_interval_sec: ${SPIDER_STORAGE_TASK_INSTANCE_POOL_GC_INTERVAL_SEC:-30}
+          message_channel_capacity:
+            ${SPIDER_STORAGE_TASK_INSTANCE_POOL_MESSAGE_CHANNEL_CAPACITY:-128}
   spider-worker-config:
     content: |
       connection_pool_size: ${SPIDER_WORKER_CONNECTION_POOL_SIZE:-4}
