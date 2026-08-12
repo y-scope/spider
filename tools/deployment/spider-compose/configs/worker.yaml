@@ -3,8 +3,10 @@ configs:
     content: |
       connection_pool_size: ${SPIDER_WORKER_CONNECTION_POOL_SIZE:-4}
       liveness:
-        scheduler_heartbeat_interval_sec: ${SPIDER_WORKER_SCHEDULER_HEARTBEAT_INTERVAL_SEC:-1}
-        storage_heartbeat_interval_sec: ${SPIDER_WORKER_STORAGE_HEARTBEAT_INTERVAL_SEC:-1}
+        scheduler_heartbeat_interval_sec:
+          ${SPIDER_WORKER_LIVENESS_SCHEDULER_HEARTBEAT_INTERVAL_SEC:-1}
+        storage_heartbeat_interval_sec:
+          ${SPIDER_WORKER_LIVENESS_STORAGE_HEARTBEAT_INTERVAL_SEC:-1}
       scheduler:
         host: "spider-scheduler"
         port: ${SPIDER_SCHEDULER_PORT:-50052}
