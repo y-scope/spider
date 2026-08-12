@@ -20,8 +20,5 @@ spider-core = { workspace = true }
 spider-execution-manager = { workspace = true }
 spider-task-executor = { workspace = true }
 spider-tdl = { workspace = true }
-tokio = {
-  workspace = true,
-  features = ["io-util", "macros", "process", "rt", "sync", "time"]
-}
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["codec"] }

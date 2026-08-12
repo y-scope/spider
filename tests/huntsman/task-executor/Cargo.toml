@@ -29,8 +29,5 @@ spider-task-executor = { workspace = true }
 spider-tdl = { workspace = true }
 tabled = { workspace = true }
 test-utils = { workspace = true }
-tokio = {
-  workspace = true,
-  features = ["io-util", "macros", "rt", "rt-multi-thread", "time"]
-}
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "rt-multi-thread", "time"] }
 tokio-util = { workspace = true }
