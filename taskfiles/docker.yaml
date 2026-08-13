@@ -29,7 +29,7 @@ tasks:
 
   compose:up:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
-    cmd: "docker compose --file compose.yaml up --detach --wait"
+    cmd: "docker compose --file compose.yaml up --detach --wait --wait-timeout 300"
 
   compose:down:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
