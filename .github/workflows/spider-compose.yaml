@@ -65,7 +65,7 @@ jobs:
         shell: "bash"
         run: |-
           tag="nightly"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
