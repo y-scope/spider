@@ -1,0 +1,143 @@
+name: "spider"
+
+include:
+  - "./configs/scheduler.yaml"
+  - "./configs/storage.yaml"
+  - "./configs/worker.yaml"
+
+x-service-defaults: &service_defaults
+  logging:
+    driver: "local"
+  pull_policy: "${SPIDER_PULL_POLICY:-always}"
+  restart: "${SPIDER_RESTART_POLICY:-on-failure:3}"
+  stop_grace_period: "60s"
+
+x-healthcheck-defaults: &healthcheck_defaults
+  interval: "30s"
+  retries: 3
+  start_interval: "2s"
+  start_period: "60s"
+  timeout: "2s"
+
+services:
+  spider-database:
+    <<: *service_defaults
+    image: "${SPIDER_DATABASE_IMAGE_REF:-mariadb:10.11.16}"
+    networks:
+      - "spider-internal"
+    command: [
+      "--port=${SPIDER_DATABASE_PORT:-3306}",
+    ]
+    environment:
+      MYSQL_DATABASE: "${SPIDER_DATABASE_NAME:-spider-db}"
+      MYSQL_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:-spider-password}"
+      MYSQL_ROOT_PASSWORD: "${SPIDER_DATABASE_ROOT_PASSWORD:-spider-root-password}"
+      MYSQL_USER: "${SPIDER_STORAGE_DB_USERNAME:-spider-user}"
+    volumes:
+      - type: "volume"
+        source: "spider-database-data"
+        target: "/var/lib/mysql"
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: [
+        "CMD",
+        "mysqladmin", "ping",
+        "--silent",
+        "-h", "127.0.0.1",
+        "-P", "${SPIDER_DATABASE_PORT:-3306}",
+        "-u", "${SPIDER_STORAGE_DB_USERNAME:-spider-user}",
+        "--password=${SPIDER_STORAGE_DB_PASSWORD:-spider-password}",
+      ]
+
+  spider-storage:
+    <<: *service_defaults
+    image: "ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-main}"
+    networks:
+      - "default"
+      - "spider-internal"
+    command: [
+      "spider-storage",
+      "--config", "/etc/spider/storage.yaml",
+    ]
+    environment:
+      RUST_LOG: "${SPIDER_STORAGE_LOG_LEVEL:-INFO}"
+      SPIDER_STORAGE_DB_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:-spider-password}"
+      SPIDER_STORAGE_DB_USERNAME: "${SPIDER_STORAGE_DB_USERNAME:-spider-user}"
+    ports:
+      - host_ip: "${SPIDER_STORAGE_PUBLISHED_IP:-127.0.0.1}"
+        published: "${SPIDER_STORAGE_PUBLISHED_PORT:-50051}"
+        target: "${SPIDER_STORAGE_PORT:-50051}"
+    configs:
+      - source: "spider-storage-config"
+        target: "/etc/spider/storage.yaml"
+    depends_on:
+      spider-database:
+        condition: "service_healthy"
+        restart: true
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: [
+        "CMD",
+        "timeout", "2",
+        "bash", "-c", "</dev/tcp/127.0.0.1/${SPIDER_STORAGE_PORT:-50051}",
+      ]
+
+  spider-scheduler:
+    <<: *service_defaults
+    image: "ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}"
+    networks:
+      - "spider-internal"
+    command: [
+      "spider-scheduler",
+      "--config", "/etc/spider/scheduler.yaml",
+    ]
+    environment:
+      RUST_LOG: "${SPIDER_SCHEDULER_LOG_LEVEL:-INFO}"
+    configs:
+      - source: "spider-scheduler-config"
+        target: "/etc/spider/scheduler.yaml"
+    depends_on:
+      spider-storage:
+        condition: "service_healthy"
+        restart: true
+    healthcheck:
+      <<: *healthcheck_defaults
+      test: [
+        "CMD",
+        "timeout", "2",
+        "bash", "-c", "</dev/tcp/127.0.0.1/${SPIDER_SCHEDULER_PORT:-50052}",
+      ]
+
+  spider-worker:
+    <<: *service_defaults
+    image: >-
+      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
+    networks:
+      - "default"
+      - "spider-internal"
+    command: [
+      "spider-execution-manager",
+      "--config", "/etc/spider/worker.yaml",
+    ]
+    environment:
+      RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
+    configs:
+      - source: "spider-worker-config"
+        target: "/etc/spider/worker.yaml"
+    depends_on:
+      spider-scheduler:
+        condition: "service_healthy"
+        restart: true
+      spider-storage:
+        condition: "service_healthy"
+        restart: true
+    deploy:
+      replicas: "${SPIDER_WORKER_REPLICAS:-4}"
+
+networks:
+  default:
+  spider-internal:
+    internal: true
+
+volumes:
+  spider-database-data:
