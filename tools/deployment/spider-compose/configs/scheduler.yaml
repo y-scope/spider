@@ -1,0 +1,36 @@
+configs:
+  spider-scheduler-config:
+    content: |
+      connection_pool_size: ${SPIDER_SCHEDULER_CONNECTION_POOL_SIZE:-8}
+      host: "0.0.0.0"
+      port: ${SPIDER_SCHEDULER_PORT:-50052}
+      runtime:
+        advertised_endpoint:
+          host: "spider-scheduler"
+          port: ${SPIDER_SCHEDULER_PORT:-50052}
+        em_registry:
+          dead_em_cutoff_sec: ${SPIDER_SCHEDULER_EM_REGISTRY_DEAD_EM_CUTOFF_SEC:-30}
+          liveness_tracking_interval_ms:
+            ${SPIDER_SCHEDULER_EM_REGISTRY_LIVENESS_TRACKING_INTERVAL_MS:-1000}
+        scheduler:
+          policy: "${SPIDER_SCHEDULER_POLICY:-round_robin}"
+          config:
+            active_job_queue_capacity:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_ACTIVE_JOB_QUEUE_CAPACITY:-16}
+            cleanup_ready_task_capacity:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_CLEANUP_READY_TASK_CAPACITY:-256}
+            commit_ready_task_capacity:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_COMMIT_READY_TASK_CAPACITY:-256}
+            dispatch_queue_capacity:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_DISPATCH_QUEUE_CAPACITY:-16}
+            finalizing_job_expiration_timeout_sec:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_FINALIZING_JOB_EXPIRATION_TIMEOUT_SEC:-300}
+            ready_task_capacity:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_READY_TASK_CAPACITY:-1048576}
+            storage_poll_timeout_ms:
+              ${SPIDER_SCHEDULER_ROUND_ROBIN_STORAGE_POLL_TIMEOUT_MS:-10}
+            tick_interval_ms: ${SPIDER_SCHEDULER_ROUND_ROBIN_TICK_INTERVAL_MS:-5}
+        stop_timeout_sec: ${SPIDER_SCHEDULER_STOP_TIMEOUT_SEC:-30}
+      storage_endpoint:
+        host: "spider-storage"
+        port: ${SPIDER_STORAGE_PORT:-50051}
