@@ -80,4 +80,4 @@ jobs:
         shell: "bash"
         run: >-
           task docker:compose:publish
-          OCI_REFERENCE='ghcr.io/${{steps.repo.outputs.name}}/spider-compose:${{steps.artifact.outputs.tag}}'
+          OCI_REFERENCE='ghcr.io/${{steps.repo.outputs.name}}/compose:${{steps.artifact.outputs.tag}}'
