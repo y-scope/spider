@@ -51,7 +51,8 @@ services:
 
   spider-storage:
     <<: *service_defaults
-    image: "ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-main}"
+    image: >-
+      ${SPIDER_STORAGE_IMAGE_REF:-ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-main}}
     networks:
       - "default"
       - "spider-internal"
@@ -84,7 +85,8 @@ services:
 
   spider-scheduler:
     <<: *service_defaults
-    image: "ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}"
+    image: >-
+      ${SPIDER_SCHEDULER_IMAGE_REF:-ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}}
     networks:
       - "spider-internal"
     command: [
