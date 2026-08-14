@@ -9,6 +9,13 @@ Spider's docs are separated into the following categories:
 :gutter: 2
 
 :::{grid-item-card}
+:link: user-docs/index
+🧑 User docs
+^^^
+Docs for those interested in using and operating Spider.
+:::
+
+:::{grid-item-card}
 :link: dev-docs/index
 🛠 Developer docs
 ^^^
@@ -19,5 +26,6 @@ Docs for those interested in developing Spider.
 :::{toctree}
 :hidden:
 
+user-docs/index.md
 dev-docs/index.md
 :::
