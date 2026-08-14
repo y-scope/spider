@@ -12,7 +12,7 @@ Spider's docs are separated into the following categories:
 :link: user-docs/index
 🧑 User docs
 ^^^
-Docs for those interested in using and operating Spider.
+Docs for using Spider.
 :::
 
 :::{grid-item-card}
