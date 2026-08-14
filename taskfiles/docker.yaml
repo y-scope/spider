@@ -38,3 +38,26 @@ tasks:
   compose:clean:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --file compose.yaml down --volumes --remove-orphans"
+
+  # Starts a local Spider deployment with libraries mounted into every worker.
+  #
+  # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
+  compose:local:up:
+    env:
+      SPIDER_WORKER_LIBRARY_DIR: "{{.SPIDER_WORKER_LIBRARY_DIR}}"
+    requires:
+      vars: ["SPIDER_WORKER_LIBRARY_DIR"]
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: >-
+      docker compose --project-name spider-local --file compose.yaml
+      --file compose.local.yaml up --detach --wait --wait-timeout 300
+
+  compose:local:down:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --project-name spider-local --file compose.yaml down"
+
+  compose:local:clean:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: >-
+      docker compose --project-name spider-local --file compose.yaml down
+      --volumes --remove-orphans
