@@ -27,9 +27,6 @@ tasks:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --env-file .env.example --file compose.yaml config --quiet"
 
-  # Publishes the complete Docker Compose deployment directory as an OCI artifact.
-  #
-  # @param {string} OCI_REFERENCE The destination OCI reference, including its tag.
   compose:publish:
     requires:
       vars: ["OCI_REFERENCE"]
