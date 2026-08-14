@@ -44,9 +44,14 @@ tasks:
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:up:
     env:
-      SPIDER_WORKER_LIBRARY_DIR: "{{.SPIDER_WORKER_LIBRARY_DIR}}"
-    requires:
-      vars: ["SPIDER_WORKER_LIBRARY_DIR"]
+      SPIDER_WORKER_LIBRARY_DIR: >-
+        {{- if .SPIDER_WORKER_LIBRARY_DIR}}
+          {{- if osIsAbs .SPIDER_WORKER_LIBRARY_DIR}}
+            {{- osClean .SPIDER_WORKER_LIBRARY_DIR}}
+          {{- else}}
+            {{- joinPath .ROOT_DIR .SPIDER_WORKER_LIBRARY_DIR}}
+          {{- end}}
+        {{- end}}
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: >-
       docker compose --project-name spider-local --file compose.yaml
