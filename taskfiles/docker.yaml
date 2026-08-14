@@ -37,10 +37,10 @@ tasks:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}/.."
     cmd: >-
       oras push
-      --artifact-type "application/vnd.yscope.spider.compose.v1"
+      --artifact-type "application/vnd.yscope.spider.compose"
       '{{.OCI_REFERENCE}}'
       "spider-compose/compose.yaml:application/yaml"
-      "spider-compose/configs/:application/vnd.yscope.spider.compose.configs.v1.tar"
+      "spider-compose/configs/:application/vnd.yscope.spider.compose.configs.tar"
       "spider-compose/.env.example:text/plain"
 
   compose:up:
