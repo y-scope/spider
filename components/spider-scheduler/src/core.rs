@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU64;
 use async_trait::async_trait;
 use spider_core::types::id::TaskAssignmentId;
 
-use crate::dispatch_queue::DispatchQueueSink;
+use crate::dispatch_queue::DispatchQueueSource;
 use crate::error::SchedulerError;
 use crate::storage_client::SchedulerStorageClient;
 use crate::types::TaskAssignment;
@@ -39,22 +39,26 @@ impl TaskAssignmentIdIssuer {
 /// An abstracted core for a scheduling algorithm.
 ///
 /// A core owns its decision loop: it polls the inbound queue through a [`SchedulerStorageClient`],
-/// applies its algorithm (reading storage as needed for placement), and writes assignments to a
-/// [`DispatchQueueSink`]. Modeling the algorithm as a trait lets different scheduling strategies
-/// share the same runtime entry point.
+/// applies its algorithm (reading storage as needed for placement), and writes assignments into the
+/// dispatch structure it owns and constructs. Modeling the algorithm as a trait lets different
+/// scheduling strategies share the same runtime entry point while each picks the dispatch structure
+/// its algorithm needs.
 #[async_trait]
 pub trait SchedulerCore: Send {
-    /// The dispatch sink the core writes assignments to.
-    type Sink: DispatchQueueSink;
-
     /// The storage client used by the core to poll and read for placement decisions.
     type StorageClient: SchedulerStorageClient;
+
+    /// # Returns
+    ///
+    /// A read handle over the core's dispatch structure, for the execution-manager-facing service
+    /// to drain.
+    fn get_dispatch_queue_source(&self) -> Arc<dyn DispatchQueueSource>;
 
     /// Runs the scheduling loop until `cancellation_token` is triggered.
     ///
     /// The core polls the inbound queue through `storage_client`, applies its scheduling algorithm,
-    /// and writes assignments to `sink`, repeating until `cancellation_token` is fired, at which
-    /// point it returns.
+    /// and writes assignments into its dispatch structure, repeating until `cancellation_token` is
+    /// fired, at which point it returns.
     ///
     /// The implementation does not need to fire the cancellation token when exiting on error: this
     /// cancellation is handled by the runtime.
@@ -63,7 +67,6 @@ pub trait SchedulerCore: Send {
     ///
     /// * `storage_client` - The storage client used to poll the inbound queue and read state for
     ///   placement.
-    /// * `sink` - The dispatch sink that assignments are written to.
     /// * `reschedule_queue_reader` - The reader side of the re-schedule queue, delivering task
     ///   assignments returned for re-placement when an execution manager is lost.
     /// * `id_issuer` - The single-source ID issuer for creating globally unique IDs for task
@@ -76,7 +79,6 @@ pub trait SchedulerCore: Send {
     async fn run(
         self: Box<Self>,
         storage_client: Self::StorageClient,
-        sink: Self::Sink,
         reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: tokio_util::sync::CancellationToken,

@@ -1,23 +1,19 @@
 //! The scheduler runtime.
 //!
-//! This module registers the scheduler with the storage service, wires the scheduler core to a
-//! freshly created dispatch queue, hands the core the reschedule queue reader, and spawns the
-//! core's scheduling loop as a background coroutine alongside the execution manager registry. The
-//! resulting [`Runtime`] owns the spawned coroutine and is responsible for cancelling and joining
-//! it on shutdown.
+//! This module registers the scheduler with the storage service, builds the scheduler core and
+//! wires the execution-manager-facing service to the read handle of the dispatch queue the core
+//! owns, hands the core the reschedule queue reader, and spawns the core's scheduling loop as a
+//! background coroutine alongside the execution manager registry. The resulting [`Runtime`] owns
+//! the spawned coroutine and is responsible for cancelling and joining it on shutdown.
 
 use std::time::Duration;
 
 use serde::Deserialize;
-use spider_core::types::id::SessionId;
 use spider_utils::config::EndpointConfig;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
 use crate::core::TaskAssignmentIdIssuer;
-use crate::dispatch_queue::DispatchQueueReader;
-use crate::dispatch_queue::DispatchQueueWriter;
-use crate::dispatch_queue::create_dispatch_queue;
 use crate::error::SchedulerError;
 use crate::error::SchedulerRuntimeError;
 use crate::execution_manager_registry::ExecutionManagerRegistry;
@@ -88,9 +84,10 @@ impl Runtime {
 
 /// Creates a scheduler runtime from the given configuration and storage client.
 ///
-/// Registers this scheduler with the storage service, wires the scheduler core to a freshly created
-/// dispatch queue, hands the core the reschedule queue reader, and starts the core's scheduling
-/// loop as a background coroutine.
+/// Registers this scheduler with the storage service, builds the scheduler core and wires the
+/// execution-manager-facing service to the read handle of the dispatch queue the core owns, hands
+/// the core the reschedule queue reader, and starts the core's scheduling loop as a background
+/// coroutine.
 ///
 /// # Type Parameters
 ///
@@ -101,7 +98,7 @@ impl Runtime {
 /// A tuple on success, containing:
 ///
 /// * The newly created runtime instance.
-/// * The execution-manager-facing scheduler service, built over the dispatch queue reader.
+/// * The execution-manager-facing scheduler service, built over the core's dispatch queue source.
 /// * The runtime's cancellation token for cancelling the runtime on error.
 ///
 /// # Errors
@@ -112,14 +109,7 @@ impl Runtime {
 pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient + 'static>(
     config: RuntimeConfig,
     storage_client: SchedulerStorageClientType,
-) -> Result<
-    (
-        Runtime,
-        SchedulerServiceState<DispatchQueueReader>,
-        CancellationToken,
-    ),
-    SchedulerRuntimeError,
-> {
+) -> Result<(Runtime, SchedulerServiceState, CancellationToken), SchedulerRuntimeError> {
     let RuntimeConfig {
         scheduler: scheduler_config,
         em_registry: execution_manager_registry_config,
@@ -132,7 +122,6 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
         .register(advertised_endpoint.host, advertised_endpoint.port)
         .await?;
     tracing::info!(scheduler_id = % scheduler_id, "Scheduler registered with storage.");
-    let dispatch_queue_capacity = scheduler_config.dispatch_queue_capacity();
 
     let (reschedule_queue_sender, reschedule_queue_receiver) =
         tokio::sync::mpsc::unbounded_channel();
@@ -142,16 +131,14 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
         cancellation_token.clone(),
         reschedule_queue_sender,
     );
-    let (dispatch_queue_writer, dispatch_queue_reader) =
-        create_dispatch_queue(dispatch_queue_capacity.get(), SessionId::default());
-    let service = SchedulerServiceState::new(dispatch_queue_reader, registry, scheduler_id);
-    let core = scheduler_config.make_core::<SchedulerStorageClientType, DispatchQueueWriter>();
+    let core = scheduler_config.make_core::<SchedulerStorageClientType>();
+    let dispatch_queue_source = core.get_dispatch_queue_source();
+    let service = SchedulerServiceState::new(dispatch_queue_source, registry, scheduler_id);
 
     let core_cancellation_token = cancellation_token.clone();
     let core_join_handle = tokio::spawn(async move {
         core.run(
             storage_client,
-            dispatch_queue_writer,
             reschedule_queue_receiver,
             TaskAssignmentIdIssuer::new(),
             core_cancellation_token.clone(),
@@ -195,6 +182,7 @@ mod tests {
     use spider_core::job::JobState;
     use spider_core::types::id::JobId;
     use spider_core::types::id::SchedulerId;
+    use spider_core::types::id::SessionId;
     use spider_utils::config::Host;
 
     use super::*;

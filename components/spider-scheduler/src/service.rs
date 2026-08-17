@@ -3,8 +3,9 @@
 //! [`SchedulerServiceState`] is the domain layer behind the scheduler gRPC service. It serves
 //! execution managers by draining task assignments from the dispatch queue and bookkeeping them in
 //! the [`ExecutionManagerRegistry`]: assignment, completion, heartbeat, and shutdown. The service
-//! is generic over its dispatch source, so the runtime can drive it with the real dispatch queue in
-//! production or a mock in tests, while the [`ExecutionManagerRegistry`] is shared by value.
+//! holds its dispatch source as a trait object, so the runtime can drive it with the read handle of
+//! whichever dispatch structure the scheduler core owns in production, or with a mock in tests,
+//! while the [`ExecutionManagerRegistry`] is shared by value.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,18 +20,12 @@ use crate::execution_manager_registry::ExecutionManagerRegistry;
 use crate::types::TaskAssignment;
 
 /// The execution-manager-facing scheduler service.
-///
-/// # Type Parameters
-///
-/// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
 #[derive(Clone)]
-pub struct SchedulerServiceState<DispatchQueueSourceType: DispatchQueueSource + 'static> {
-    inner: Arc<SchedulerServiceStateInner<DispatchQueueSourceType>>,
+pub struct SchedulerServiceState {
+    inner: Arc<SchedulerServiceStateInner>,
 }
 
-impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
-    SchedulerServiceState<DispatchQueueSourceType>
-{
+impl SchedulerServiceState {
     /// Factory function.
     ///
     /// # Returns
@@ -38,7 +33,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
     /// A newly constructed [`SchedulerServiceState`].
     #[must_use]
     pub fn new(
-        dispatch_source: DispatchQueueSourceType,
+        dispatch_source: Arc<dyn DispatchQueueSource>,
         registry: ExecutionManagerRegistry,
         scheduler_id: SchedulerId,
     ) -> Self {
@@ -204,12 +199,8 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
 }
 
 /// The shared inner state of [`SchedulerServiceState`].
-///
-/// # Type Parameters
-///
-/// * `DispatchQueueSourceType` - The reader side of the dispatching queue the service drains.
-struct SchedulerServiceStateInner<DispatchQueueSourceType: DispatchQueueSource> {
-    dispatch_source: DispatchQueueSourceType,
+struct SchedulerServiceStateInner {
+    dispatch_source: Arc<dyn DispatchQueueSource>,
     registry: ExecutionManagerRegistry,
     scheduler_id: SchedulerId,
 }
@@ -255,15 +246,14 @@ mod tests {
     /// The maximum time to wait for a rescheduled assignment before failing a test.
     const RESCHEDULE_TIMEOUT: Duration = Duration::from_secs(2);
 
-    /// A [`DispatchQueueSource`] mock backed by a shared counter.
+    /// A [`DispatchQueueSource`] mock backed by a counter.
     ///
     /// Each [`DispatchQueueSource::dequeue`] claims one slot from the counter; while it is positive
     /// it returns a freshly minted task assignment, and once it reaches zero it returns [`None`]
     /// forever. Using a counter (rather than a canned list of assignments) lets the tests assert on
     /// dequeue behavior without coupling to recorded argument vectors.
-    #[derive(Clone)]
     struct CounterDispatchSource {
-        remaining: Arc<AtomicUsize>,
+        remaining: AtomicUsize,
     }
 
     impl CounterDispatchSource {
@@ -271,9 +261,9 @@ mod tests {
         ///
         /// A new [`CounterDispatchSource`] that hands out `remaining` assignments before reporting
         /// an empty queue.
-        fn new(remaining: usize) -> Self {
+        const fn new(remaining: usize) -> Self {
             Self {
-                remaining: Arc::new(AtomicUsize::new(remaining)),
+                remaining: AtomicUsize::new(remaining),
             }
         }
     }
@@ -370,13 +360,13 @@ mod tests {
     fn build_service(
         remaining: usize,
     ) -> (
-        SchedulerServiceState<CounterDispatchSource>,
+        SchedulerServiceState,
         UnboundedReceiver<TaskAssignment>,
         CancellationToken,
     ) {
         let (registry, reschedule_queue_receiver, cancellation_token) = build_registry();
         let service = SchedulerServiceState::new(
-            CounterDispatchSource::new(remaining),
+            Arc::new(CounterDispatchSource::new(remaining)),
             registry,
             SchedulerId::from(SCHEDULER_ID),
         );
