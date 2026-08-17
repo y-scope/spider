@@ -12,9 +12,6 @@ on:
     branches: ["main"]
     paths: *monitored_paths
     tags: ["spider-huntsman-v*"]
-  schedule:
-    # Run daily at 00:15 UTC (the 15 is to avoid periods of high load)
-    - cron: "15 0 * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -72,7 +69,7 @@ jobs:
         id: "artifact"
         shell: "bash"
         run: |-
-          tag="nightly"
+          tag="main"
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
           fi
