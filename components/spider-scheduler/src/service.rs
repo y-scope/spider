@@ -3,8 +3,8 @@
 //! [`SchedulerServiceState`] is the domain layer behind the scheduler gRPC service. It serves
 //! execution managers by draining task assignments from the dispatch queue and bookkeeping them in
 //! the [`ExecutionManagerRegistry`]: assignment, completion, heartbeat, and shutdown. The service
-//! holds its dispatch source as a trait object, so the runtime can drive it with the read handle of
-//! whichever dispatch structure the scheduler core owns in production, or with a mock in tests,
+//! holds its dispatch queue handle as a trait object, so the runtime can drive it with the handle
+//! of whichever dispatch structure the scheduler core owns in production, or with a mock in tests,
 //! while the [`ExecutionManagerRegistry`] is shared by value.
 
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 
-use crate::dispatch_queue::SharedDispatchQueueSource;
+use crate::dispatch_queue::SharedDispatchQueueHandle;
 use crate::error::SchedulerServiceError;
 use crate::execution_manager_registry::ExecutionManagerRegistry;
 use crate::types::TaskAssignment;
@@ -33,13 +33,13 @@ impl SchedulerServiceState {
     /// A newly constructed [`SchedulerServiceState`].
     #[must_use]
     pub fn new(
-        dispatch_source: SharedDispatchQueueSource,
+        dispatch_queue_handle: SharedDispatchQueueHandle,
         registry: ExecutionManagerRegistry,
         scheduler_id: SchedulerId,
     ) -> Self {
         Self {
             inner: Arc::new(SchedulerServiceStateInner {
-                dispatch_source,
+                dispatch_queue_handle,
                 registry,
                 scheduler_id,
             }),
@@ -73,7 +73,9 @@ impl SchedulerServiceState {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+    /// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
+    ///
+    /// [`DispatchQueueHandle::dequeue`]: crate::dispatch_queue::DispatchQueueHandle::dequeue
     pub async fn next_task(
         &self,
         em_id: ExecutionManagerId,
@@ -90,7 +92,7 @@ impl SchedulerServiceState {
                 prev,
             ));
         }
-        match self.inner.dispatch_source.dequeue(wait_time).await? {
+        match self.inner.dispatch_queue_handle.dequeue(wait_time).await? {
             None => {
                 tracing::info!(
                     scheduler_id = % self.scheduler_id(),
@@ -200,7 +202,7 @@ impl SchedulerServiceState {
 
 /// The shared inner state of [`SchedulerServiceState`].
 struct SchedulerServiceStateInner {
-    dispatch_source: SharedDispatchQueueSource,
+    dispatch_queue_handle: SharedDispatchQueueHandle,
     registry: ExecutionManagerRegistry,
     scheduler_id: SchedulerId,
 }
@@ -228,13 +230,13 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::SchedulerServiceState;
-    use crate::dispatch_queue::DispatchQueueSource;
+    use crate::dispatch_queue::DispatchQueueHandle;
     use crate::error::SchedulerError;
     use crate::execution_manager_registry::ExecutionManagerRegistry;
     use crate::execution_manager_registry::ExecutionManagerRegistryConfig;
     use crate::types::TaskAssignment;
 
-    /// The storage session the mock dispatch source pairs with every assignment it returns.
+    /// The storage session the mock dispatch queue handle pairs with every assignment it returns.
     const SESSION_ID: SessionId = 7;
 
     /// The scheduler identifier the service stamps onto assignments.
@@ -246,21 +248,21 @@ mod tests {
     /// The maximum time to wait for a rescheduled assignment before failing a test.
     const RESCHEDULE_TIMEOUT: Duration = Duration::from_secs(2);
 
-    /// A [`DispatchQueueSource`] mock backed by a counter.
+    /// A [`DispatchQueueHandle`] mock backed by a counter.
     ///
-    /// Each [`DispatchQueueSource::dequeue`] claims one slot from the counter; while it is positive
+    /// Each [`DispatchQueueHandle::dequeue`] claims one slot from the counter; while it is positive
     /// it returns a freshly minted task assignment, and once it reaches zero it returns [`None`]
     /// forever. Using a counter (rather than a canned list of assignments) lets the tests assert on
     /// dequeue behavior without coupling to recorded argument vectors.
-    struct CounterDispatchSource {
+    struct CounterDispatchQueueHandle {
         remaining: AtomicUsize,
     }
 
-    impl CounterDispatchSource {
+    impl CounterDispatchQueueHandle {
         /// # Returns
         ///
-        /// A new [`CounterDispatchSource`] that hands out `remaining` assignments before reporting
-        /// an empty queue.
+        /// A new [`CounterDispatchQueueHandle`] that hands out `remaining` assignments before
+        /// reporting an empty queue.
         const fn new(remaining: usize) -> Self {
             Self {
                 remaining: AtomicUsize::new(remaining),
@@ -269,7 +271,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl DispatchQueueSource for CounterDispatchSource {
+    impl DispatchQueueHandle for CounterDispatchQueueHandle {
         async fn dequeue(
             &self,
             _wait_time: Duration,
@@ -353,8 +355,8 @@ mod tests {
     ///
     /// A tuple containing:
     ///
-    /// * A [`SchedulerServiceState`] over a [`CounterDispatchSource`] with `remaining` assignments,
-    ///   backed by a fresh test registry.
+    /// * A [`SchedulerServiceState`] over a [`CounterDispatchQueueHandle`] with `remaining`
+    ///   assignments, backed by a fresh test registry.
     /// * The receiver end of the registry's re-schedule queue.
     /// * The registry-level cancellation token.
     fn build_service(
@@ -366,7 +368,7 @@ mod tests {
     ) {
         let (registry, reschedule_queue_receiver, cancellation_token) = build_registry();
         let service = SchedulerServiceState::new(
-            Arc::new(CounterDispatchSource::new(remaining)),
+            Arc::new(CounterDispatchQueueHandle::new(remaining)),
             registry,
             SchedulerId::from(SCHEDULER_ID),
         );

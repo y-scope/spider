@@ -27,7 +27,7 @@ use crate::StorageClientError;
 use crate::TaskAssignment;
 use crate::core::TaskAssignmentIdIssuer;
 use crate::dispatch_queue::DispatchQueueWriter;
-use crate::dispatch_queue::SharedDispatchQueueSource;
+use crate::dispatch_queue::SharedDispatchQueueHandle;
 use crate::dispatch_queue::create_dispatch_queue;
 
 /// The configuration of the round-robin scheduler core.
@@ -98,7 +98,7 @@ impl RoundRobinConfig {
 pub struct RoundRobinCore<SchedulerStorageClientType: SchedulerStorageClient + 'static> {
     config: RoundRobinConfig,
     dispatch_queue_writer: DispatchQueueWriter,
-    dispatch_queue_reader: SharedDispatchQueueSource,
+    dispatch_queue_reader: SharedDispatchQueueHandle,
     _marker: std::marker::PhantomData<SchedulerStorageClientType>,
 }
 
@@ -108,8 +108,8 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static> SchedulerCore
 {
     type StorageClient = SchedulerStorageClientType;
 
-    fn get_dispatch_queue_source(&self) -> SharedDispatchQueueSource {
-        Arc::clone(&self.dispatch_queue_reader)
+    fn get_dispatch_queue_handle(&self) -> SharedDispatchQueueHandle {
+        self.dispatch_queue_reader.clone()
     }
 
     async fn run(

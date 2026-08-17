@@ -8,7 +8,7 @@
 //! The crate defines three trait seams wired into a single pipeline — a storage client that polls
 //! the inbound queue, a core that makes serial decisions, and a dispatching queue that fans those
 //! decisions out to execution managers. The core owns and constructs its own dispatching queue,
-//! and exposes only a read handle to the service:
+//! and exposes only a handle to the service:
 //!
 //! ```text
 //!   storage  ── authoritative inbound queue (owned by the storage layer, not this crate)
@@ -26,7 +26,7 @@
 //!   │   └───────────────────────────────────────────┘   │
 //!   └───────────────────────────────────────────────────┘
 //!         │
-//!         │  dequeue             (DispatchQueueSource — read handle)
+//!         │  dequeue             (DispatchQueueHandle)
 //!         ▼
 //!   ┌───────────────────┐
 //!   │ scheduler service │ ──▶ execution managers (concurrent fan-out)
@@ -48,10 +48,10 @@ pub mod types;
 pub use crate::config::SchedulerConfig;
 pub use crate::config::ServerConfig;
 pub use crate::core::SchedulerCore;
+pub use crate::dispatch_queue::DispatchQueueHandle;
 pub use crate::dispatch_queue::DispatchQueueReader;
-pub use crate::dispatch_queue::DispatchQueueSource;
 pub use crate::dispatch_queue::DispatchQueueWriter;
-pub use crate::dispatch_queue::SharedDispatchQueueSource;
+pub use crate::dispatch_queue::SharedDispatchQueueHandle;
 pub use crate::error::SchedulerError;
 pub use crate::error::SchedulerRuntimeError;
 pub use crate::error::SchedulerServiceError;

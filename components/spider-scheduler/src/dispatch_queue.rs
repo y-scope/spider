@@ -11,9 +11,10 @@ use tokio::sync::RwLock;
 use crate::error::SchedulerError;
 use crate::types::TaskAssignment;
 
-/// The reader side of the dispatching queue, drained by the execution-manager-facing service.
+/// The access point to a scheduler core's dispatching queue, used by the execution-manager-facing
+/// service to drain the queue.
 #[async_trait]
-pub trait DispatchQueueSource: Send + Sync {
+pub trait DispatchQueueHandle: Send + Sync {
     /// Dequeues the next task assignment for an execution manager to execute.
     ///
     /// # Parameters
@@ -33,9 +34,9 @@ pub trait DispatchQueueSource: Send + Sync {
     async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError>;
 }
 
-/// The shared read handle over a dispatching queue that a scheduler core hands to the
+/// The shared handle over a dispatching queue that a scheduler core hands to the
 /// execution-manager-facing service.
-pub type SharedDispatchQueueSource = Arc<dyn DispatchQueueSource>;
+pub type SharedDispatchQueueHandle = Arc<dyn DispatchQueueHandle>;
 
 /// A cloneable writer handle for the dispatching queue, backed by an async channel.
 ///
@@ -98,7 +99,7 @@ impl DispatchQueueWriter {
     }
 }
 
-/// A cloneable reader handle for the dispatching queue, implementing [`DispatchQueueSource`] using
+/// A cloneable reader handle for the dispatching queue, implementing [`DispatchQueueHandle`] using
 /// an async channel.
 #[derive(Clone)]
 pub struct DispatchQueueReader {
@@ -107,7 +108,7 @@ pub struct DispatchQueueReader {
 }
 
 #[async_trait]
-impl DispatchQueueSource for DispatchQueueReader {
+impl DispatchQueueHandle for DispatchQueueReader {
     async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError> {
         // Lock session ID for the entire duration of the dequeue operation to exclude any
         // `bump_session_id` operations.

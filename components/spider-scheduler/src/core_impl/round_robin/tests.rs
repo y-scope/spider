@@ -31,9 +31,9 @@ use crate::SchedulerStorageClient;
 use crate::StorageClientError;
 use crate::TaskAssignment;
 use crate::core::TaskAssignmentIdIssuer;
+use crate::dispatch_queue::DispatchQueueHandle;
 use crate::dispatch_queue::DispatchQueueReader;
-use crate::dispatch_queue::DispatchQueueSource;
-use crate::dispatch_queue::SharedDispatchQueueSource;
+use crate::dispatch_queue::SharedDispatchQueueHandle;
 use crate::dispatch_queue::create_dispatch_queue;
 
 /// The session used by tests that never bump the session. Must stay equal to the session
@@ -303,18 +303,18 @@ fn make_reschedule_assignment(
 ///
 /// * The join handle yielding the scheduler's exit result.
 /// * The cancellation token that stops the scheduler.
-/// * The read handle over the dispatch queue the core owns, playing the execution manager's role.
+/// * The handle over the dispatch queue the core owns, playing the execution manager's role.
 fn spawn_scheduler(
     config: RoundRobinConfig,
     storage_client: MockStorageClient,
 ) -> (
     SchedulerJoinHandle,
     CancellationToken,
-    SharedDispatchQueueSource,
+    SharedDispatchQueueHandle,
 ) {
-    let (handle, cancellation_token, dispatch_queue_source, _reschedule_queue_sender) =
+    let (handle, cancellation_token, dispatch_queue_handle, _reschedule_queue_sender) =
         spawn_scheduler_with_reschedule(config, storage_client);
-    (handle, cancellation_token, dispatch_queue_source)
+    (handle, cancellation_token, dispatch_queue_handle)
 }
 
 /// Spawns the scheduler's public run loop as a background task, exposing the reschedule-queue
@@ -326,7 +326,7 @@ fn spawn_scheduler(
 ///
 /// * The join handle yielding the scheduler's exit result.
 /// * The cancellation token that stops the scheduler.
-/// * The read handle over the dispatch queue the core owns, playing the execution manager's role.
+/// * The handle over the dispatch queue the core owns, playing the execution manager's role.
 /// * The reschedule-queue sender a test uses to push assignments back as a lost execution manager
 ///   would have returned them.
 fn spawn_scheduler_with_reschedule(
@@ -335,11 +335,11 @@ fn spawn_scheduler_with_reschedule(
 ) -> (
     SchedulerJoinHandle,
     CancellationToken,
-    SharedDispatchQueueSource,
+    SharedDispatchQueueHandle,
     RescheduleQueueSender,
 ) {
     let core = Box::new(config.make_core::<MockStorageClient>());
-    let dispatch_queue_source = core.get_dispatch_queue_source();
+    let dispatch_queue_handle = core.get_dispatch_queue_handle();
     let cancellation_token = CancellationToken::new();
     let scheduler_token = cancellation_token.clone();
     let (reschedule_queue_sender, reschedule_queue_reader) = tokio::sync::mpsc::unbounded_channel();
@@ -355,7 +355,7 @@ fn spawn_scheduler_with_reschedule(
     (
         handle,
         cancellation_token,
-        dispatch_queue_source,
+        dispatch_queue_handle,
         reschedule_queue_sender,
     )
 }
@@ -372,9 +372,9 @@ fn spawn_scheduler_with_reschedule(
 /// Returns an error if:
 ///
 /// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
-/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+/// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 async fn drain_n(
-    dispatch_queue_source: &dyn DispatchQueueSource,
+    dispatch_queue_handle: &dyn DispatchQueueHandle,
     n: usize,
 ) -> anyhow::Result<Vec<TaskAssignment>> {
     const DEQUEUE_WAIT: Duration = Duration::from_millis(100);
@@ -387,7 +387,7 @@ async fn drain_n(
                 assignments.len(),
             );
         }
-        if let Some(assignment) = dispatch_queue_source.dequeue(DEQUEUE_WAIT).await? {
+        if let Some(assignment) = dispatch_queue_handle.dequeue(DEQUEUE_WAIT).await? {
             assignments.push(assignment);
         }
     }
@@ -401,16 +401,16 @@ async fn drain_n(
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+/// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 ///
 /// # Panics
 ///
 /// Panics if an assignment arrives within the observation window.
 async fn assert_no_more_assignments(
-    dispatch_queue_source: &dyn DispatchQueueSource,
+    dispatch_queue_handle: &dyn DispatchQueueHandle,
 ) -> anyhow::Result<()> {
     const OBSERVATION_WINDOW: Duration = Duration::from_secs(1);
-    let unexpected_assignment = dispatch_queue_source.dequeue(OBSERVATION_WINDOW).await?;
+    let unexpected_assignment = dispatch_queue_handle.dequeue(OBSERVATION_WINDOW).await?;
     assert_eq!(unexpected_assignment, None);
     Ok(())
 }
@@ -588,7 +588,7 @@ async fn tick_until(
 ///
 /// * Fewer than `n` assignments arrive within [`DRAIN_DEADLINE`].
 /// * Forwards [`RoundRobin::tick`]'s return values on failure.
-/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+/// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 async fn tick_and_drain_n(
     scheduler: &mut TestScheduler,
     reader: &DispatchQueueReader,
@@ -619,7 +619,7 @@ async fn tick_and_drain_n(
 /// Returns an error if:
 ///
 /// * Forwards [`RoundRobin::tick`]'s return values on failure.
-/// * Forwards [`DispatchQueueSource::dequeue`]'s return values on failure.
+/// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
 ///
 /// # Panics
 ///
@@ -869,11 +869,11 @@ async fn single_capacity_pool_schedules_jobs_serially() -> anyhow::Result<()> {
     );
 
     let config = make_config(1, DISPATCH_QUEUE_CAPACITY);
-    let (scheduler_handle, cancellation_token, dispatch_queue_source) =
+    let (scheduler_handle, cancellation_token, dispatch_queue_handle) =
         spawn_scheduler(config, storage_client);
 
-    let assignments = drain_n(&*dispatch_queue_source, NUM_JOBS * TASKS_PER_JOB).await?;
-    assert_no_more_assignments(&*dispatch_queue_source).await?;
+    let assignments = drain_n(&*dispatch_queue_handle, NUM_JOBS * TASKS_PER_JOB).await?;
+    assert_no_more_assignments(&*dispatch_queue_handle).await?;
 
     // With an active job pool of capacity 1, round-robin degenerates to serial job FIFO: the
     // rotation holds a single job at a time, so each job's tasks dispatch as one consecutive
@@ -902,11 +902,11 @@ async fn active_jobs_dispatch_in_round_robin_order() -> anyhow::Result<()> {
     );
 
     let config = make_config(NUM_JOBS, DISPATCH_QUEUE_CAPACITY);
-    let (scheduler_handle, cancellation_token, dispatch_queue_source) =
+    let (scheduler_handle, cancellation_token, dispatch_queue_handle) =
         spawn_scheduler(config, storage_client);
 
-    let assignments = drain_n(&*dispatch_queue_source, NUM_JOBS * TASKS_PER_JOB).await?;
-    assert_no_more_assignments(&*dispatch_queue_source).await?;
+    let assignments = drain_n(&*dispatch_queue_handle, NUM_JOBS * TASKS_PER_JOB).await?;
+    assert_no_more_assignments(&*dispatch_queue_handle).await?;
 
     // All 10 jobs fit into the active job pool, so no job ever pends and dispatch follows the
     // strict rotation: task 0 of every job in batch order, then task 1 of every job, and so on. The
@@ -935,11 +935,11 @@ async fn pending_jobs_promote_and_schedule_round_robin() -> anyhow::Result<()> {
     );
 
     let config = make_config(ACTIVE_JOB_QUEUE_CAPACITY, DISPATCH_QUEUE_CAPACITY);
-    let (scheduler_handle, cancellation_token, dispatch_queue_source) =
+    let (scheduler_handle, cancellation_token, dispatch_queue_handle) =
         spawn_scheduler(config, storage_client);
 
-    let assignments = drain_n(&*dispatch_queue_source, NUM_JOBS * TASKS_PER_JOB).await?;
-    assert_no_more_assignments(&*dispatch_queue_source).await?;
+    let assignments = drain_n(&*dispatch_queue_handle, NUM_JOBS * TASKS_PER_JOB).await?;
+    assert_no_more_assignments(&*dispatch_queue_handle).await?;
 
     let (active_jobs, pending_jobs) = jobs.split_at(ACTIVE_JOB_QUEUE_CAPACITY);
     let (phase1, phase2) = assignments.split_at(ACTIVE_JOB_QUEUE_CAPACITY * TASKS_PER_JOB);
@@ -986,13 +986,13 @@ async fn commit_drains_each_cycle_cleanup_dispatches_once() -> anyhow::Result<()
     );
 
     let config = make_config(NUM_ACTIVE_JOBS, DISPATCH_QUEUE_CAPACITY);
-    let (scheduler_handle, cancellation_token, dispatch_queue_source) =
+    let (scheduler_handle, cancellation_token, dispatch_queue_handle) =
         spawn_scheduler(config, storage_client);
 
     let num_assignments =
         NUM_ACTIVE_JOBS * TASKS_PER_JOB + NUM_COMMIT_READY_JOBS + NUM_CLEANUP_READY_JOBS;
-    let assignments = drain_n(&*dispatch_queue_source, num_assignments).await?;
-    assert_no_more_assignments(&*dispatch_queue_source).await?;
+    let assignments = drain_n(&*dispatch_queue_handle, num_assignments).await?;
+    assert_no_more_assignments(&*dispatch_queue_handle).await?;
 
     // The rotation is [commit lane, cleanup lane, active jobs...]. The commit lane drains up to
     // `active_job_queue_capacity` (== NUM_ACTIVE_JOBS) jobs per visit, so each cycle dispatches a
@@ -1250,7 +1250,7 @@ async fn randomly_rescheduled_assignments_are_eventually_redispatched() -> anyho
         make_ready_batch(&jobs, TASKS_PER_JOB, 0),
     );
 
-    let (scheduler_handle, cancellation_token, dispatch_queue_source, reschedule_sender) =
+    let (scheduler_handle, cancellation_token, dispatch_queue_handle, reschedule_sender) =
         spawn_scheduler_with_reschedule(
             make_config(NUM_JOBS, DISPATCH_QUEUE_CAPACITY),
             storage_client,
@@ -1270,7 +1270,7 @@ async fn randomly_rescheduled_assignments_are_eventually_redispatched() -> anyho
                 completed.len(),
             );
         }
-        let Some(assignment) = dispatch_queue_source
+        let Some(assignment) = dispatch_queue_handle
             .dequeue(Duration::from_millis(100))
             .await?
         else {

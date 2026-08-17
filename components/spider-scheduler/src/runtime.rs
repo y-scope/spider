@@ -1,8 +1,8 @@
 //! The scheduler runtime.
 //!
 //! This module registers the scheduler with the storage service, builds the scheduler core and
-//! wires the execution-manager-facing service to the read handle of the dispatch queue the core
-//! owns, hands the core the reschedule queue reader, and spawns the core's scheduling loop as a
+//! wires the execution-manager-facing service to the handle of the dispatch queue the core owns,
+//! hands the core the reschedule queue reader, and spawns the core's scheduling loop as a
 //! background coroutine alongside the execution manager registry. The resulting [`Runtime`] owns
 //! the spawned coroutine and is responsible for cancelling and joining it on shutdown.
 
@@ -85,8 +85,8 @@ impl Runtime {
 /// Creates a scheduler runtime from the given configuration and storage client.
 ///
 /// Registers this scheduler with the storage service, builds the scheduler core and wires the
-/// execution-manager-facing service to the read handle of the dispatch queue the core owns, hands
-/// the core the reschedule queue reader, and starts the core's scheduling loop as a background
+/// execution-manager-facing service to the handle of the dispatch queue the core owns, hands the
+/// core the reschedule queue reader, and starts the core's scheduling loop as a background
 /// coroutine.
 ///
 /// # Type Parameters
@@ -98,7 +98,7 @@ impl Runtime {
 /// A tuple on success, containing:
 ///
 /// * The newly created runtime instance.
-/// * The execution-manager-facing scheduler service, built over the core's dispatch queue source.
+/// * The execution-manager-facing scheduler service, built over the core's dispatch queue handle.
 /// * The runtime's cancellation token for cancelling the runtime on error.
 ///
 /// # Errors
@@ -132,8 +132,8 @@ pub async fn create_runtime<SchedulerStorageClientType: SchedulerStorageClient +
         reschedule_queue_sender,
     );
     let core = scheduler_config.make_core::<SchedulerStorageClientType>();
-    let dispatch_queue_source = core.get_dispatch_queue_source();
-    let service = SchedulerServiceState::new(dispatch_queue_source, registry, scheduler_id);
+    let dispatch_queue_handle = core.get_dispatch_queue_handle();
+    let service = SchedulerServiceState::new(dispatch_queue_handle, registry, scheduler_id);
 
     let core_cancellation_token = cancellation_token.clone();
     let core_join_handle = tokio::spawn(async move {
