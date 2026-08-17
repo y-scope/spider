@@ -51,6 +51,7 @@ pub use crate::core::SchedulerCore;
 pub use crate::dispatch_queue::DispatchQueueReader;
 pub use crate::dispatch_queue::DispatchQueueSource;
 pub use crate::dispatch_queue::DispatchQueueWriter;
+pub use crate::dispatch_queue::SharedDispatchQueueSource;
 pub use crate::error::SchedulerError;
 pub use crate::error::SchedulerRuntimeError;
 pub use crate::error::SchedulerServiceError;

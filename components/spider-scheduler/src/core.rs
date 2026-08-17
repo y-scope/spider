@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU64;
 use async_trait::async_trait;
 use spider_core::types::id::TaskAssignmentId;
 
-use crate::dispatch_queue::DispatchQueueSource;
+use crate::dispatch_queue::SharedDispatchQueueSource;
 use crate::error::SchedulerError;
 use crate::storage_client::SchedulerStorageClient;
 use crate::types::TaskAssignment;
@@ -52,7 +52,7 @@ pub trait SchedulerCore: Send {
     ///
     /// A read handle over the core's dispatch structure, for the execution-manager-facing service
     /// to drain.
-    fn get_dispatch_queue_source(&self) -> Arc<dyn DispatchQueueSource>;
+    fn get_dispatch_queue_source(&self) -> SharedDispatchQueueSource;
 
     /// Runs the scheduling loop until `cancellation_token` is triggered.
     ///

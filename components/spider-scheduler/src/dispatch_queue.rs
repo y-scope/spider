@@ -33,6 +33,10 @@ pub trait DispatchQueueSource: Send + Sync {
     async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError>;
 }
 
+/// The shared read handle over a dispatching queue that a scheduler core hands to the
+/// execution-manager-facing service.
+pub type SharedDispatchQueueSource = Arc<dyn DispatchQueueSource>;
+
 /// A cloneable writer handle for the dispatching queue, backed by an async channel.
 ///
 /// # NOTE

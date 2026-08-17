@@ -14,7 +14,7 @@ use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 
-use crate::dispatch_queue::DispatchQueueSource;
+use crate::dispatch_queue::SharedDispatchQueueSource;
 use crate::error::SchedulerServiceError;
 use crate::execution_manager_registry::ExecutionManagerRegistry;
 use crate::types::TaskAssignment;
@@ -33,7 +33,7 @@ impl SchedulerServiceState {
     /// A newly constructed [`SchedulerServiceState`].
     #[must_use]
     pub fn new(
-        dispatch_source: Arc<dyn DispatchQueueSource>,
+        dispatch_source: SharedDispatchQueueSource,
         registry: ExecutionManagerRegistry,
         scheduler_id: SchedulerId,
     ) -> Self {
@@ -200,7 +200,7 @@ impl SchedulerServiceState {
 
 /// The shared inner state of [`SchedulerServiceState`].
 struct SchedulerServiceStateInner {
-    dispatch_source: Arc<dyn DispatchQueueSource>,
+    dispatch_source: SharedDispatchQueueSource,
     registry: ExecutionManagerRegistry,
     scheduler_id: SchedulerId,
 }

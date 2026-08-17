@@ -33,6 +33,7 @@ use crate::TaskAssignment;
 use crate::core::TaskAssignmentIdIssuer;
 use crate::dispatch_queue::DispatchQueueReader;
 use crate::dispatch_queue::DispatchQueueSource;
+use crate::dispatch_queue::SharedDispatchQueueSource;
 use crate::dispatch_queue::create_dispatch_queue;
 
 /// The session used by tests that never bump the session. Must stay equal to the session
@@ -309,7 +310,7 @@ fn spawn_scheduler(
 ) -> (
     SchedulerJoinHandle,
     CancellationToken,
-    Arc<dyn DispatchQueueSource>,
+    SharedDispatchQueueSource,
 ) {
     let (handle, cancellation_token, dispatch_queue_source, _reschedule_queue_sender) =
         spawn_scheduler_with_reschedule(config, storage_client);
@@ -334,7 +335,7 @@ fn spawn_scheduler_with_reschedule(
 ) -> (
     SchedulerJoinHandle,
     CancellationToken,
-    Arc<dyn DispatchQueueSource>,
+    SharedDispatchQueueSource,
     RescheduleQueueSender,
 ) {
     let core = Box::new(config.make_core::<MockStorageClient>());
