@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -18,7 +19,6 @@ use spider_core::types::id::TaskId;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
-use crate::DispatchQueueSink;
 use crate::InboundEntry;
 use crate::SchedulerCore;
 use crate::SchedulerError;
@@ -26,6 +26,9 @@ use crate::SchedulerStorageClient;
 use crate::StorageClientError;
 use crate::TaskAssignment;
 use crate::core::TaskAssignmentIdIssuer;
+use crate::dispatch_queue::DispatchQueueWriter;
+use crate::dispatch_queue::SharedDispatchQueueHandle;
+use crate::dispatch_queue::create_dispatch_queue;
 
 /// The configuration of the round-robin scheduler core.
 #[derive(Clone, Debug, Deserialize)]
@@ -64,20 +67,20 @@ impl RoundRobinConfig {
     /// # Type Parameters
     ///
     /// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
-    /// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
     ///
     /// # Returns
     ///
-    /// A newly created round-robin scheduler core.
+    /// A newly created round-robin scheduler core, owning a freshly created dispatch queue.
     #[must_use]
-    pub const fn make_core<
-        SchedulerStorageClientType: SchedulerStorageClient + 'static,
-        DispatchQueueSinkType: DispatchQueueSink,
-    >(
+    pub fn make_core<SchedulerStorageClientType: SchedulerStorageClient + 'static>(
         self,
-    ) -> RoundRobinCore<SchedulerStorageClientType, DispatchQueueSinkType> {
+    ) -> RoundRobinCore<SchedulerStorageClientType> {
+        let (dispatch_queue_writer, dispatch_queue_reader) =
+            create_dispatch_queue(self.dispatch_queue_capacity.get(), SessionId::default());
         RoundRobinCore {
             config: self,
+            dispatch_queue_writer,
+            dispatch_queue_reader: Arc::new(dispatch_queue_reader),
             _marker: std::marker::PhantomData,
         }
     }
@@ -92,40 +95,43 @@ impl RoundRobinConfig {
 /// # Type Parameters
 ///
 /// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
-/// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
-pub struct RoundRobinCore<
-    SchedulerStorageClientType: SchedulerStorageClient + 'static,
-    DispatchQueueSinkType: DispatchQueueSink,
-> {
+pub struct RoundRobinCore<SchedulerStorageClientType: SchedulerStorageClient + 'static> {
     config: RoundRobinConfig,
-    _marker: std::marker::PhantomData<(SchedulerStorageClientType, DispatchQueueSinkType)>,
+    dispatch_queue_writer: DispatchQueueWriter,
+    dispatch_queue_reader: SharedDispatchQueueHandle,
+    _marker: std::marker::PhantomData<SchedulerStorageClientType>,
 }
 
 #[async_trait]
-impl<
-    SchedulerStorageClientType: SchedulerStorageClient + 'static,
-    DispatchQueueSinkType: DispatchQueueSink,
-> SchedulerCore for RoundRobinCore<SchedulerStorageClientType, DispatchQueueSinkType>
+impl<SchedulerStorageClientType: SchedulerStorageClient + 'static> SchedulerCore
+    for RoundRobinCore<SchedulerStorageClientType>
 {
-    type Sink = DispatchQueueSinkType;
     type StorageClient = SchedulerStorageClientType;
+
+    fn get_dispatch_queue_handle(&self) -> SharedDispatchQueueHandle {
+        self.dispatch_queue_reader.clone()
+    }
 
     async fn run(
         self: Box<Self>,
         storage_client: Self::StorageClient,
-        sink: Self::Sink,
         reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
     ) -> Result<(), SchedulerError> {
+        let Self {
+            config,
+            dispatch_queue_writer,
+            ..
+        } = *self;
         RoundRobin::new(
             SessionId::default(),
             storage_client,
-            sink,
+            dispatch_queue_writer,
             reschedule_queue_reader,
             id_issuer,
             cancellation_token,
-            self.config,
+            config,
         )
         .run()
         .await
@@ -172,17 +178,13 @@ impl JobTaskQueue {
 /// # Type Parameters
 ///
 /// * `SchedulerStorageClientType` - The storage client used to poll the inbound queue.
-/// * `DispatchQueueSinkType` - The dispatch sink that task assignments are written to.
 ///
 /// # Note
 ///
 /// All member variables are marked `pub(super)` to allow the test module to inspect the internal
 /// states.
-pub(super) struct RoundRobin<
-    SchedulerStorageClientType: SchedulerStorageClient + 'static,
-    DispatchQueueSinkType: DispatchQueueSink,
-> {
-    pub(super) sink: DispatchQueueSinkType,
+pub(super) struct RoundRobin<SchedulerStorageClientType: SchedulerStorageClient + 'static> {
+    pub(super) dispatch_queue_writer: DispatchQueueWriter,
     pub(super) cancellation_token: CancellationToken,
     pub(super) id_issuer: TaskAssignmentIdIssuer,
     pub(super) config: RoundRobinConfig,
@@ -207,10 +209,8 @@ pub(super) struct RoundRobin<
     pub(super) reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
 }
 
-impl<
-    SchedulerStorageClientType: SchedulerStorageClient + 'static,
-    DispatchQueueSinkType: DispatchQueueSink,
-> RoundRobin<SchedulerStorageClientType, DispatchQueueSinkType>
+impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
+    RoundRobin<SchedulerStorageClientType>
 {
     /// Factory function.
     ///
@@ -222,7 +222,7 @@ impl<
     pub(super) fn new(
         storage_session_id: SessionId,
         storage_client: SchedulerStorageClientType,
-        sink: DispatchQueueSinkType,
+        dispatch_queue_writer: DispatchQueueWriter,
         reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
@@ -242,7 +242,7 @@ impl<
         let finalizing_job_queue = VecDeque::new();
         let inbound_queue_reader = AsyncInboundQueueReader::new(storage_client);
         Self {
-            sink,
+            dispatch_queue_writer,
             cancellation_token,
             id_issuer,
             config,
@@ -461,7 +461,7 @@ impl<
     ///
     /// * [`SchedulerError::InvalidSessionId`] if the polled session is older than the current
     ///   session.
-    /// * Forwards [`DispatchQueueSink::bump_session_id`]'s return values on failure.
+    /// * Forwards [`DispatchQueueWriter::bump_session_id`]'s return values on failure.
     /// * Forwards [`Self::enqueue_commit_ready_entries`]'s return values on failure.
     /// * Forwards [`Self::enqueue_cleanup_ready_entries`]'s return values on failure.
     async fn ingest_inbound_entries(
@@ -484,7 +484,9 @@ impl<
             );
             self.storage_session_id = storage_session_id;
             self.clear();
-            self.sink.bump_session_id(storage_session_id).await?;
+            self.dispatch_queue_writer
+                .bump_session_id(storage_session_id)
+                .await?;
         }
 
         // Load commit-ready tasks and cleanup-ready tasks first to avoid loading a job that is
@@ -776,14 +778,14 @@ impl<
     ///
     /// * [`SchedulerError::Internal`] if the round-robin queue is inconsistent with the scheduler's
     ///   job bookkeeping.
-    /// * Forwards [`DispatchQueueSink::enqueue`]'s return values on failure.
+    /// * Forwards [`DispatchQueueWriter::enqueue`]'s return values on failure.
     /// * Forwards [`Self::retire_active_job`]'s return values on failure.
     async fn make_schedule_decisions(&mut self) -> Result<(), SchedulerError> {
         let dispatch_slots = self
             .config
             .dispatch_queue_capacity
             .get()
-            .saturating_sub(self.sink.size());
+            .saturating_sub(self.dispatch_queue_writer.size());
         let mut remaining_dispatch_slots = dispatch_slots;
         'fill_dispatch_queue: while remaining_dispatch_slots > 0 && !self.buffered_tasks.is_empty()
         {
@@ -806,7 +808,7 @@ impl<
                     else {
                         continue;
                     };
-                    self.sink
+                    self.dispatch_queue_writer
                         .enqueue(TaskAssignment {
                             id: self.id_issuer.next(),
                             job_id,
@@ -827,7 +829,7 @@ impl<
                         else {
                             break;
                         };
-                        self.sink
+                        self.dispatch_queue_writer
                             .enqueue(TaskAssignment {
                                 id: self.id_issuer.next(),
                                 job_id,
@@ -847,7 +849,7 @@ impl<
                         )));
                     };
                     if let Some(task_id) = job_entry.dequeue() {
-                        self.sink
+                        self.dispatch_queue_writer
                             .enqueue(TaskAssignment {
                                 id: self.id_issuer.next(),
                                 job_id,

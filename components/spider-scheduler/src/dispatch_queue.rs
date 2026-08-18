@@ -11,46 +11,10 @@ use tokio::sync::RwLock;
 use crate::error::SchedulerError;
 use crate::types::TaskAssignment;
 
-/// The writer side of the dispatching queue used by the scheduler core.
+/// The access point to a scheduler core's dispatching queue, used by the execution-manager-facing
+/// service to drain the queue.
 #[async_trait]
-pub trait DispatchQueueSink: Send + Sync + Clone {
-    /// Enqueues a task assignment for execution managers to consume.
-    ///
-    /// # Parameters
-    ///
-    /// * `assignment` - The task assignment to enqueue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
-    async fn enqueue(&self, assignment: TaskAssignment) -> Result<(), SchedulerError>;
-
-    /// Bumps the session ID and invalidates all queued task assignments.
-    ///
-    /// # Parameters
-    ///
-    /// * `new_session_id` - The new session ID. Must be greater than the current session ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
-    /// * [`SchedulerError::InvalidSessionId`] if the new session ID is not greater than the current
-    ///   session ID.
-    async fn bump_session_id(&self, new_session_id: SessionId) -> Result<(), SchedulerError>;
-
-    /// # Returns
-    ///
-    /// The current size of the dispatch queue.
-    fn size(&self) -> usize;
-}
-
-/// The reader side of the dispatching queue, drained by the execution-manager-facing service.
-#[async_trait]
-pub trait DispatchQueueSource: Send + Sync + Clone {
+pub trait DispatchQueueHandle: Send + Sync {
     /// Dequeues the next task assignment for an execution manager to execute.
     ///
     /// # Parameters
@@ -70,8 +34,11 @@ pub trait DispatchQueueSource: Send + Sync + Clone {
     async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError>;
 }
 
-/// A cloneable writer handle for the dispatching queue, implementing [`DispatchQueueSink`] using
-/// an async channel.
+/// The shared handle over a dispatching queue that a scheduler core hands to the
+/// execution-manager-facing service.
+pub type SharedDispatchQueueHandle = Arc<dyn DispatchQueueHandle>;
+
+/// A cloneable writer handle for the dispatching queue, backed by an async channel.
 ///
 /// # NOTE
 ///
@@ -83,9 +50,15 @@ pub struct DispatchQueueWriter {
     inner: Arc<DispatchQueueWriterInner>,
 }
 
-#[async_trait]
-impl DispatchQueueSink for DispatchQueueWriter {
-    async fn enqueue(&self, assignment: TaskAssignment) -> Result<(), SchedulerError> {
+impl DispatchQueueWriter {
+    /// Enqueues a task assignment for execution managers to consume.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
+    pub async fn enqueue(&self, assignment: TaskAssignment) -> Result<(), SchedulerError> {
         self.inner
             .assignment_sender
             .send(assignment)
@@ -93,7 +66,16 @@ impl DispatchQueueSink for DispatchQueueWriter {
             .map_err(|_| SchedulerError::DispatchQueueClosed)
     }
 
-    async fn bump_session_id(&self, new_session_id: SessionId) -> Result<(), SchedulerError> {
+    /// Bumps the session ID and invalidates all queued task assignments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
+    /// * [`SchedulerError::InvalidSessionId`] if the new session ID is not greater than the current
+    ///   session ID.
+    pub async fn bump_session_id(&self, new_session_id: SessionId) -> Result<(), SchedulerError> {
         let mut session_id_guard = self.inner.session_id.write().await;
         if new_session_id <= *session_id_guard {
             return Err(SchedulerError::InvalidSessionId(new_session_id));
@@ -108,26 +90,28 @@ impl DispatchQueueSink for DispatchQueueWriter {
         Ok(())
     }
 
-    fn size(&self) -> usize {
+    #[must_use]
+    pub fn size(&self) -> usize {
         self.inner.assignment_sender.len()
     }
 }
 
-/// A cloneable reader handle for the dispatching queue, implementing [`DispatchQueueSource`] using
+/// A cloneable reader handle for the dispatching queue, implementing [`DispatchQueueHandle`] using
 /// an async channel.
 #[derive(Clone)]
 pub struct DispatchQueueReader {
-    inner: Arc<DispatchQueueReaderInner>,
+    session_id: Arc<RwLock<SessionId>>,
+    assignment_receiver: async_channel::Receiver<TaskAssignment>,
 }
 
 #[async_trait]
-impl DispatchQueueSource for DispatchQueueReader {
+impl DispatchQueueHandle for DispatchQueueReader {
     async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError> {
         // Lock session ID for the entire duration of the dequeue operation to exclude any
         // `bump_session_id` operations.
-        let _session_id_guard = self.inner.session_id.read().await;
+        let _session_id_guard = self.session_id.read().await;
 
-        if let Ok(assignment) = self.inner.assignment_receiver.try_recv() {
+        if let Ok(assignment) = self.assignment_receiver.try_recv() {
             return Ok(Some(assignment));
         }
 
@@ -135,7 +119,7 @@ impl DispatchQueueSource for DispatchQueueReader {
             return Ok(None);
         }
 
-        match tokio::time::timeout(wait_time, self.inner.assignment_receiver.recv()).await {
+        match tokio::time::timeout(wait_time, self.assignment_receiver.recv()).await {
             Ok(Ok(assignment)) => Ok(Some(assignment)),
             Ok(Err(_)) => Err(SchedulerError::DispatchQueueClosed),
             Err(_) => Ok(None),
@@ -163,16 +147,13 @@ pub fn create_dispatch_queue(
         assignment_sender,
         assignment_receiver: assignment_receiver.clone(),
     });
-    let reader_inner = Arc::new(DispatchQueueReaderInner {
-        session_id,
-        assignment_receiver,
-    });
     (
         DispatchQueueWriter {
             inner: writer_inner,
         },
         DispatchQueueReader {
-            inner: reader_inner,
+            session_id,
+            assignment_receiver,
         },
     )
 }
@@ -180,11 +161,6 @@ pub fn create_dispatch_queue(
 struct DispatchQueueWriterInner {
     session_id: Arc<RwLock<SessionId>>,
     assignment_sender: async_channel::Sender<TaskAssignment>,
-    assignment_receiver: async_channel::Receiver<TaskAssignment>,
-}
-
-struct DispatchQueueReaderInner {
-    session_id: Arc<RwLock<SessionId>>,
     assignment_receiver: async_channel::Receiver<TaskAssignment>,
 }
 
