@@ -39,6 +39,23 @@ tasks:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --file compose.yaml down --volumes --remove-orphans"
 
+  # Builds Spider and its images, then starts a local deployment.
+  #
+  # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
+  compose:local:build-and-up:
+    cmds:
+      - task: ":build:rust"
+      - task: "build"
+      - task: "compose:local:up"
+        vars:
+          SPIDER_STORAGE_IMAGE_REF:
+            sh: "sed -n '1p' '{{.G_BUILD_DIR}}/spider-storage-image.id'"
+          SPIDER_SCHEDULER_IMAGE_REF:
+            sh: "sed -n '1p' '{{.G_BUILD_DIR}}/spider-scheduler-image.id'"
+          SPIDER_WORKER_IMAGE_REF:
+            sh: "sed -n '1p' '{{.G_BUILD_DIR}}/spider-worker-image.id'"
+          SPIDER_WORKER_LIBRARY_DIR: "{{.SPIDER_WORKER_LIBRARY_DIR}}"
+
   # Starts a local Spider deployment with libraries mounted into every worker.
   #
   # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
