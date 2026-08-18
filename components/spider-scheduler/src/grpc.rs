@@ -15,37 +15,26 @@ use tonic::Request;
 use tonic::Response;
 use tonic::Status;
 
-use crate::dispatch_queue::DispatchQueueSource;
 use crate::error::SchedulerError;
 use crate::error::SchedulerServiceError;
 use crate::execution_manager_registry::ExecutionManagerRegistryError;
 use crate::service::SchedulerServiceState;
 
 /// gRPC adapter over a [`SchedulerServiceState`].
-///
-/// # Type Parameters
-///
-/// * `DispatchQueueSourceType` - The reader side of the dispatching queue the underlying service
-///   drains.
 #[derive(Clone)]
-pub struct GrpcSchedulerService<DispatchQueueSourceType: DispatchQueueSource + 'static> {
-    inner: SchedulerServiceState<DispatchQueueSourceType>,
+pub struct GrpcSchedulerService {
+    inner: SchedulerServiceState,
     cancellation_token: CancellationToken,
 }
 
-impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
-    GrpcSchedulerService<DispatchQueueSourceType>
-{
+impl GrpcSchedulerService {
     /// Factory function.
     ///
     /// # Returns
     ///
     /// A new [`GrpcSchedulerService`] wrapping [`SchedulerServiceState`].
     #[must_use]
-    pub const fn new(
-        inner: SchedulerServiceState<DispatchQueueSourceType>,
-        cancellation_token: CancellationToken,
-    ) -> Self {
+    pub const fn new(inner: SchedulerServiceState, cancellation_token: CancellationToken) -> Self {
         Self {
             inner,
             cancellation_token,
@@ -117,9 +106,7 @@ impl<DispatchQueueSourceType: DispatchQueueSource + 'static>
 /// All possible errors that can occur during scheduling can be found in
 /// [`GrpcSchedulerService::service_error_handler`].
 #[async_trait]
-impl<DispatchQueueSourceType: DispatchQueueSource + 'static> SchedulerService
-    for GrpcSchedulerService<DispatchQueueSourceType>
-{
+impl SchedulerService for GrpcSchedulerService {
     async fn next_task(
         &self,
         request: Request<scheduler::NextTaskRequest>,
