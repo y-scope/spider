@@ -27,6 +27,19 @@ tasks:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --env-file .env.example --file compose.yaml config --quiet"
 
+  compose:publish:
+    requires:
+      vars: ["OCI_REFERENCE"]
+    deps: ["compose:validate"]
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}/.."
+    cmd: >-
+      oras push
+      --artifact-type "application/vnd.yscope.spider.compose"
+      '{{.OCI_REFERENCE}}'
+      "spider-compose/compose.yaml:application/yaml"
+      "spider-compose/configs/:application/vnd.yscope.spider.compose.configs.tar"
+      "spider-compose/.env.example:text/plain"
+
   compose:up:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --file compose.yaml up --detach --wait --wait-timeout 300"
