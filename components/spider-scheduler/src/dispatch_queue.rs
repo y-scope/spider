@@ -90,9 +90,6 @@ impl DispatchQueueWriter {
         Ok(())
     }
 
-    /// # Returns
-    ///
-    /// The current size of the dispatch queue.
     #[must_use]
     pub fn size(&self) -> usize {
         self.inner.assignment_sender.len()
