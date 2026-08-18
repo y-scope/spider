@@ -41,9 +41,15 @@ tasks:
 
   # Starts a local Spider deployment with libraries mounted into every worker.
   #
+  # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
+  # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
+  # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:up:
     env:
+      SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
+      SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
+      SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
       SPIDER_WORKER_LIBRARY_DIR: >-
         {{- if .SPIDER_WORKER_LIBRARY_DIR}}
           {{- if osIsAbs .SPIDER_WORKER_LIBRARY_DIR}}
