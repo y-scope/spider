@@ -2,6 +2,7 @@ version: "3"
 
 vars:
   G_BUILD_SCRIPT: "{{.ROOT_DIR}}/tools/docker/build.sh"
+  G_SPIDER_COMPOSE_DIR: "{{.ROOT_DIR}}/tools/deployment/spider-compose"
 
 tasks:
   build:
@@ -21,3 +22,32 @@ tasks:
   build-worker:
     deps: [":init"]
     cmd: "'{{.G_BUILD_SCRIPT}}' worker"
+
+  compose:validate:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --env-file .env.example --file compose.yaml config --quiet"
+
+  compose:publish:
+    requires:
+      vars: ["OCI_REFERENCE"]
+    deps: ["compose:validate"]
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}/.."
+    cmd: >-
+      oras push
+      --artifact-type "application/vnd.yscope.spider.compose"
+      '{{.OCI_REFERENCE}}'
+      "spider-compose/compose.yaml:application/yaml"
+      "spider-compose/configs/:application/vnd.yscope.spider.compose.configs.tar"
+      "spider-compose/.env.example:text/plain"
+
+  compose:up:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --file compose.yaml up --detach --wait --wait-timeout 300"
+
+  compose:down:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --file compose.yaml down"
+
+  compose:clean:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --file compose.yaml down --volumes --remove-orphans"

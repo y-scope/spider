@@ -11,10 +11,10 @@ use crate::config::DatabaseConfig;
 use crate::db::DbStorage;
 use crate::db::MariaDbStorageConnector;
 use crate::db::SessionManagement;
-use crate::ready_queue::ReadyQueueConfig;
-use crate::ready_queue::ReadyQueueSender;
-use crate::ready_queue::ReadyQueueSenderHandle;
-use crate::ready_queue::create_ready_queue;
+use crate::inbound_queue::InboundQueueConfig;
+use crate::inbound_queue::InboundQueueSender;
+use crate::inbound_queue::InboundQueueSenderHandle;
+use crate::inbound_queue::create_inbound_queue;
 use crate::state::JobCache;
 use crate::state::JobCacheGcConfig;
 use crate::state::ServiceState;
@@ -29,29 +29,29 @@ use crate::task_instance_pool::create_task_instance_pool;
 /// Runtime configuration for the storage service.
 #[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeConfig {
-    pub db_config: DatabaseConfig,
+    pub db: DatabaseConfig,
     #[serde(default)]
-    pub ready_queue_config: ReadyQueueConfig,
+    pub inbound_queue: InboundQueueConfig,
     #[serde(default)]
-    pub task_instance_pool_config: TaskInstancePoolConfig,
+    pub task_instance_pool: TaskInstancePoolConfig,
     #[serde(default)]
-    pub job_cache_gc_config: JobCacheGcConfig,
+    pub job_cache_gc: JobCacheGcConfig,
 }
 
 /// Runtime state for the storage service.
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The ready queue sender type.
+/// * `InboundQueueSenderType` - The inbound queue sender type.
 /// * `DbConnectorType` - The database connector type.
 /// * `TaskInstancePoolConnectorType` - The task instance pool connector type.
 pub struct Runtime<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     service_state:
-        ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     cancellation_token: CancellationToken,
     task_instance_pool_join_handle: JoinHandle<Result<(), InternalError>>,
     job_cache_gc_join_handle: JoinHandle<Result<(), InternalError>>,
@@ -59,10 +59,10 @@ pub struct Runtime<
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
-> Runtime<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> Runtime<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Stops the runtime.
     ///
@@ -121,7 +121,7 @@ impl<
     #[must_use]
     pub fn get_service_state(
         &self,
-    ) -> ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> {
+    ) -> ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType> {
         self.service_state.clone()
     }
 }
@@ -141,48 +141,48 @@ impl<
 ///
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
 /// * Forwards [`create_task_instance_pool`]'s return values on failure.
-/// * Forwards [`create_ready_queue`]'s return values on failure.
+/// * Forwards [`create_inbound_queue`]'s return values on failure.
 /// * Forwards [`create_job_cache_gc`]'s return values on failure.
 pub async fn create_runtime(
     config: &RuntimeConfig,
 ) -> Result<
     (
-        Runtime<ReadyQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
+        Runtime<InboundQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
         CancellationToken,
     ),
     StorageServerError,
 > {
     let cancellation_token = CancellationToken::new();
-    let db = MariaDbStorageConnector::connect(&config.db_config).await?;
+    let db = MariaDbStorageConnector::connect(&config.db).await?;
     let session_id = db.session_id();
-    let (ready_queue_sender, ready_queue_receiver) =
-        create_ready_queue(&config.ready_queue_config).map_err(CacheError::from)?;
+    let (inbound_queue_sender, inbound_queue_receiver) =
+        create_inbound_queue(&config.inbound_queue).map_err(CacheError::from)?;
     let (task_instance_pool_connector, task_instance_pool_join_handle) = create_task_instance_pool(
-        ready_queue_sender.clone(),
+        inbound_queue_sender.clone(),
         db.clone(),
         cancellation_token.clone(),
-        &config.task_instance_pool_config,
+        &config.task_instance_pool,
     )
     .map_err(CacheError::from)?;
 
     let job_cache = recover_job_cache(
         &db,
-        ready_queue_sender.clone(),
+        inbound_queue_sender.clone(),
         task_instance_pool_connector.clone(),
     )
     .await?;
     let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
         job_cache.clone(),
         cancellation_token.clone(),
-        &config.job_cache_gc_config,
+        &config.job_cache_gc,
     )
     .map_err(CacheError::from)?;
     let service_state = ServiceState::new(ServiceStateParams {
         db,
         session_id,
         job_cache,
-        ready_queue_sender,
-        ready_queue_receiver,
+        inbound_queue_sender,
+        inbound_queue_receiver,
         task_instance_pool_connector,
         job_cache_gc_handle,
         cancellation_token: cancellation_token.clone(),
@@ -216,15 +216,15 @@ const STOP_BACKGROUND_TASKS_TIMEOUT_SEC: u64 = 30;
 /// * Forwards [`SharedJobControlBlock::recover`]'s return values on failure.
 /// * Forwards [`JobCache::insert`]'s return values on failure.
 async fn recover_job_cache<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: DbStorage,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 >(
     db: &DbConnectorType,
-    ready_queue_sender: ReadyQueueSenderType,
+    inbound_queue_sender: InboundQueueSenderType,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
 ) -> Result<
-    JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     StorageServerError,
 > {
     let job_cache = JobCache::new();
@@ -233,7 +233,7 @@ async fn recover_job_cache<
         let state = recoverable_job.state;
         let jcb = SharedJobControlBlock::recover(
             recoverable_job,
-            ready_queue_sender.clone(),
+            inbound_queue_sender.clone(),
             db.clone(),
             task_instance_pool_connector.clone(),
         )
@@ -258,9 +258,9 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::db::SessionManagement;
-    use crate::ready_queue::ReadyQueueConfig;
-    use crate::ready_queue::ReadyQueueSenderHandle;
-    use crate::ready_queue::create_ready_queue;
+    use crate::inbound_queue::InboundQueueConfig;
+    use crate::inbound_queue::InboundQueueSenderHandle;
+    use crate::inbound_queue::create_inbound_queue;
     use crate::state::JobCache;
     use crate::state::ServiceState;
     use crate::state::ServiceStateParams;
@@ -269,7 +269,7 @@ mod tests {
     use crate::state::test_utils::MockTaskInstancePoolConnector;
 
     type TestServerRuntime =
-        Runtime<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
+        Runtime<InboundQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
 
     fn create_test_runtime(
         cancellation_token: CancellationToken,
@@ -279,7 +279,7 @@ mod tests {
         let db = MockDbConnector::default();
         let session_id = db.session_id();
         let (sender, receiver) =
-            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
+            create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
         let job_cache = JobCache::new();
         let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
             job_cache.clone(),
@@ -291,8 +291,8 @@ mod tests {
             db,
             session_id,
             job_cache,
-            ready_queue_sender: sender,
-            ready_queue_receiver: receiver,
+            inbound_queue_sender: sender,
+            inbound_queue_receiver: receiver,
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle,
             cancellation_token: cancellation_token.clone(),

@@ -18,7 +18,4 @@ spider-core = { workspace = true }
 spider-execution-manager = { workspace = true }
 spider-tdl = { workspace = true }
 test-utils = { workspace = true }
-tokio = {
-  workspace = true,
-  features = ["macros", "rt", "rt-multi-thread", "time"]
-}
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }

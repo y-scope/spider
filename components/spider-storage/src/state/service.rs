@@ -23,12 +23,12 @@ use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::db::DbStorage;
+use crate::inbound_queue::CleanupTaskMarker;
+use crate::inbound_queue::CommitTaskMarker;
+use crate::inbound_queue::InboundQueueEntry;
+use crate::inbound_queue::InboundQueueReceiverHandle;
+use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
-use crate::ready_queue::CleanupTaskMarker;
-use crate::ready_queue::CommitTaskMarker;
-use crate::ready_queue::ReadyQueueEntry;
-use crate::ready_queue::ReadyQueueReceiverHandle;
-use crate::ready_queue::ReadyQueueSender;
 use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
@@ -40,19 +40,19 @@ use crate::task_instance_pool::TaskInstancePoolConnector;
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 pub struct ServiceStateParams<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     pub db: DbConnectorType,
     pub session_id: SessionId,
-    pub job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    pub ready_queue_sender: ReadyQueueSenderType,
-    pub ready_queue_receiver: ReadyQueueReceiverHandle,
+    pub job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    pub inbound_queue_sender: InboundQueueSenderType,
+    pub inbound_queue_receiver: InboundQueueReceiverHandle,
     pub task_instance_pool_connector: TaskInstancePoolConnectorType,
     pub job_cache_gc_handle: JobCacheGcHandle,
     pub cancellation_token: CancellationToken,
@@ -65,25 +65,25 @@ pub struct ServiceStateParams<
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 #[derive(Clone)]
 pub struct ServiceState<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     inner: Arc<
-        ServiceStateInner<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        ServiceStateInner<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     >,
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
-> ServiceState<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// Factory function.
     ///
@@ -93,7 +93,7 @@ impl<
     #[must_use]
     pub fn new(
         params: ServiceStateParams<
-            ReadyQueueSenderType,
+            InboundQueueSenderType,
             DbConnectorType,
             TaskInstancePoolConnectorType,
         >,
@@ -102,8 +102,8 @@ impl<
             db,
             session_id,
             job_cache,
-            ready_queue_sender,
-            ready_queue_receiver,
+            inbound_queue_sender,
+            inbound_queue_receiver,
             task_instance_pool_connector,
             job_cache_gc_handle,
             cancellation_token,
@@ -113,8 +113,8 @@ impl<
                 db,
                 session_id,
                 job_cache,
-                ready_queue_sender,
-                ready_queue_receiver,
+                inbound_queue_sender,
+                inbound_queue_receiver,
                 task_instance_pool_connector,
                 job_cache_gc_handle,
                 has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
@@ -173,7 +173,7 @@ impl<
             job_id,
             resource_group_id,
             job_submission,
-            self.inner.ready_queue_sender.clone(),
+            self.inner.inbound_queue_sender.clone(),
             self.inner.db.clone(),
             self.inner.task_instance_pool_connector.clone(),
         )
@@ -307,7 +307,7 @@ impl<
         Ok(self.inner.db.get_error(job_id).await?)
     }
 
-    /// Resends ready tasks for all jobs in the cache to the ready queue.
+    /// Resends ready tasks for all jobs in the cache to the inbound queue.
     ///
     /// # Errors
     ///
@@ -567,71 +567,71 @@ impl<
             .map_err(StorageServerError::from)
     }
 
-    /// Polls the ready queue for task entries.
+    /// Polls the inbound queue for task entries.
     ///
     /// # Returns
     ///
-    /// Up to `max_tasks` ready queue entries received within the `wait` duration on success.
+    /// Up to `max_tasks` inbound queue entries received within the `wait` duration on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ReadyQueueReceiverHandle::recv_tasks`]'s return values on failure.
+    /// * Forwards [`InboundQueueReceiverHandle::recv_tasks`]'s return values on failure.
     pub async fn poll_ready_tasks(
         &self,
         max_tasks: usize,
         wait: Duration,
-    ) -> Result<Vec<ReadyQueueEntry<TaskIndex>>, StorageServerError> {
+    ) -> Result<Vec<InboundQueueEntry<TaskIndex>>, StorageServerError> {
         self.inner
-            .ready_queue_receiver
+            .inbound_queue_receiver
             .recv_tasks(max_tasks, wait)
             .await
             .map_err(|e| CacheError::Internal(e).into())
     }
 
-    /// Polls the ready queue for commit-ready task entries.
+    /// Polls the inbound queue for commit-ready task entries.
     ///
     /// # Returns
     ///
-    /// Up to `max_tasks` commit-ready queue entries received within the `wait` duration on success.
+    /// Up to `max_tasks` commit-ready task entries received within the `wait` duration on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ReadyQueueReceiverHandle::recv_commits`]'s return values on failure.
+    /// * Forwards [`InboundQueueReceiverHandle::recv_commits`]'s return values on failure.
     pub async fn poll_commit_ready_tasks(
         &self,
         max_tasks: usize,
         wait: Duration,
-    ) -> Result<Vec<ReadyQueueEntry<CommitTaskMarker>>, StorageServerError> {
+    ) -> Result<Vec<InboundQueueEntry<CommitTaskMarker>>, StorageServerError> {
         self.inner
-            .ready_queue_receiver
+            .inbound_queue_receiver
             .recv_commits(max_tasks, wait)
             .await
             .map_err(|e| CacheError::Internal(e).into())
     }
 
-    /// Polls the ready queue for cleanup-ready task entries.
+    /// Polls the inbound queue for cleanup-ready task entries.
     ///
     /// # Returns
     ///
-    /// Up to `max_tasks` cleanup-ready queue entries received within the `wait` duration on
+    /// Up to `max_tasks` cleanup-ready task entries received within the `wait` duration on
     /// success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`ReadyQueueReceiverHandle::recv_cleanups`]'s return values on failure.
+    /// * Forwards [`InboundQueueReceiverHandle::recv_cleanups`]'s return values on failure.
     pub async fn poll_cleanup_ready_tasks(
         &self,
         max_tasks: usize,
         wait: Duration,
-    ) -> Result<Vec<ReadyQueueEntry<CleanupTaskMarker>>, StorageServerError> {
+    ) -> Result<Vec<InboundQueueEntry<CleanupTaskMarker>>, StorageServerError> {
         self.inner
-            .ready_queue_receiver
+            .inbound_queue_receiver
             .recv_cleanups(max_tasks, wait)
             .await
             .map_err(|e| CacheError::Internal(e).into())
@@ -790,19 +790,19 @@ impl<
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender.
 /// * `DbConnectorType` - The type of the DB-layer connector.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector.
 struct ServiceStateInner<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: DbStorage + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     db: DbConnectorType,
     session_id: SessionId,
-    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    ready_queue_sender: ReadyQueueSenderType,
-    ready_queue_receiver: ReadyQueueReceiverHandle,
+    job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    inbound_queue_sender: InboundQueueSenderType,
+    inbound_queue_receiver: InboundQueueReceiverHandle,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
     job_cache_gc_handle: JobCacheGcHandle,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
@@ -828,21 +828,21 @@ mod tests {
     use super::*;
     use crate::cache::job::SharedJobControlBlock;
     use crate::db::DbError;
+    use crate::inbound_queue::InboundQueueSenderHandle;
     use crate::job_submission::compress_job_inputs;
     use crate::job_submission::compress_task_graph;
     use crate::job_submission::create_validated_submission;
-    use crate::ready_queue::ReadyQueueSenderHandle;
     use crate::state::JobCacheGcHandle;
     use crate::state::StorageServerError;
     use crate::state::test_utils::MockDbConnector;
-    use crate::state::test_utils::MockReadyQueueSender;
+    use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
 
     type TestServiceState =
-        ServiceState<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
+        ServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
-    type TestServiceStateWithReadyQueue =
-        ServiceState<ReadyQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
+    type TestServiceStateWithInboundQueue =
+        ServiceState<InboundQueueSenderHandle, MockDbConnector, MockTaskInstancePoolConnector>;
 
     const TEST_SESSION_ID: SessionId = 0;
 
@@ -862,40 +862,40 @@ mod tests {
             db,
             session_id,
             job_cache: JobCache::new(),
-            ready_queue_sender: MockReadyQueueSender,
-            ready_queue_receiver: create_ready_queue_receiver(),
+            inbound_queue_sender: MockInboundQueueSender,
+            inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             cancellation_token: CancellationToken::new(),
         })
     }
 
-    fn create_ready_queue_receiver() -> ReadyQueueReceiverHandle {
-        use crate::ready_queue::ReadyQueueConfig;
-        use crate::ready_queue::create_ready_queue;
+    fn create_inbound_queue_receiver() -> InboundQueueReceiverHandle {
+        use crate::inbound_queue::InboundQueueConfig;
+        use crate::inbound_queue::create_inbound_queue;
         let (_sender, receiver) =
-            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
+            create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
         receiver
     }
 
-    /// Creates a [`ServiceState`] backed by [`ReadyQueueReceiverHandle`].
+    /// Creates a [`ServiceState`] backed by [`InboundQueueReceiverHandle`].
     ///
     /// # Returns
     ///
-    /// A tuple of the service state and the ready queue sender handle on success.
-    fn create_test_service_with_ready_queue(
+    /// A tuple of the service state and the inbound queue sender handle on success.
+    fn create_test_service_with_inbound_queue(
         db: MockDbConnector,
-    ) -> (TestServiceStateWithReadyQueue, ReadyQueueSenderHandle) {
-        use crate::ready_queue::ReadyQueueConfig;
-        use crate::ready_queue::create_ready_queue;
+    ) -> (TestServiceStateWithInboundQueue, InboundQueueSenderHandle) {
+        use crate::inbound_queue::InboundQueueConfig;
+        use crate::inbound_queue::create_inbound_queue;
         let (sender, receiver) =
-            create_ready_queue(&ReadyQueueConfig::default()).expect("ready queue creation");
-        let service = TestServiceStateWithReadyQueue::new(ServiceStateParams {
+            create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
+        let service = TestServiceStateWithInboundQueue::new(ServiceStateParams {
             db,
             session_id: 0,
             job_cache: JobCache::new(),
-            ready_queue_sender: sender.clone(),
-            ready_queue_receiver: receiver,
+            inbound_queue_sender: sender.clone(),
+            inbound_queue_receiver: receiver,
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             cancellation_token: CancellationToken::new(),
@@ -941,10 +941,13 @@ mod tests {
         compress_job_inputs(&[])
     }
 
-    async fn create_test_jcb(
-        job_id: JobId,
-    ) -> SharedJobControlBlock<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>
-    {
+    type TestJcb = SharedJobControlBlock<
+        MockInboundQueueSender,
+        MockDbConnector,
+        MockTaskInstancePoolConnector,
+    >;
+
+    async fn create_test_jcb(job_id: JobId) -> TestJcb {
         let task_graph = create_test_task_graph();
         let inputs = vec![TaskInput::ValuePayload(vec![0u8; 4])];
         let job_submission = create_validated_submission(task_graph, inputs);
@@ -953,7 +956,7 @@ mod tests {
             job_id,
             ResourceGroupId::random(),
             job_submission,
-            MockReadyQueueSender,
+            MockInboundQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
         )
@@ -1435,8 +1438,8 @@ mod tests {
             db: MockDbConnector::default(),
             session_id: TEST_SESSION_ID,
             job_cache: JobCache::new(),
-            ready_queue_sender: MockReadyQueueSender,
-            ready_queue_receiver: create_ready_queue_receiver(),
+            inbound_queue_sender: MockInboundQueueSender,
+            inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             cancellation_token: CancellationToken::new(),
@@ -1462,8 +1465,8 @@ mod tests {
             db: MockDbConnector::default(),
             session_id: TEST_SESSION_ID,
             job_cache: JobCache::new(),
-            ready_queue_sender: MockReadyQueueSender,
-            ready_queue_receiver: create_ready_queue_receiver(),
+            inbound_queue_sender: MockInboundQueueSender,
+            inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             cancellation_token: CancellationToken::new(),
@@ -1512,8 +1515,8 @@ mod tests {
             db: MockDbConnector::default(),
             session_id: TEST_SESSION_ID,
             job_cache: JobCache::new(),
-            ready_queue_sender: MockReadyQueueSender,
-            ready_queue_receiver: create_ready_queue_receiver(),
+            inbound_queue_sender: MockInboundQueueSender,
+            inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             cancellation_token: CancellationToken::new(),
@@ -1662,9 +1665,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn poll_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
+    async fn poll_ready_tasks_returns_entries_from_inbound_queue() -> anyhow::Result<()> {
         const TASK_INDEX: TaskIndex = 0;
-        let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let (service, sender) = create_test_service_with_inbound_queue(MockDbConnector::default());
         let rg_id = ResourceGroupId::random();
         let job_id = JobId::random();
         sender
@@ -1675,7 +1678,7 @@ mod tests {
         let entries = service
             .poll_ready_tasks(10, Duration::from_millis(100))
             .await?;
-        assert_eq!(entries.len(), 1, "should receive one ready queue entry");
+        assert_eq!(entries.len(), 1, "should receive one inbound queue entry");
         assert_eq!(entries[0].job_id, job_id);
         assert_eq!(entries[0].task_kind, TASK_INDEX);
         assert_eq!(entries[0].resource_group_id, rg_id);
@@ -1684,20 +1687,20 @@ mod tests {
 
     #[tokio::test]
     async fn poll_ready_tasks_returns_empty_when_no_tasks() -> anyhow::Result<()> {
-        let (service, _sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let (service, _sender) = create_test_service_with_inbound_queue(MockDbConnector::default());
         let entries = service
             .poll_ready_tasks(10, Duration::from_millis(10))
             .await?;
         assert!(
             entries.is_empty(),
-            "should receive no entries from empty ready queue"
+            "should receive no entries from empty inbound queue"
         );
         Ok(())
     }
 
     #[tokio::test]
-    async fn poll_commit_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
-        let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+    async fn poll_commit_ready_tasks_returns_entries_from_inbound_queue() -> anyhow::Result<()> {
+        let (service, sender) = create_test_service_with_inbound_queue(MockDbConnector::default());
         let rg_id = ResourceGroupId::random();
         let job_id = JobId::random();
         sender
@@ -1716,8 +1719,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn poll_cleanup_ready_tasks_returns_entries_from_ready_queue() -> anyhow::Result<()> {
-        let (service, sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+    async fn poll_cleanup_ready_tasks_returns_entries_from_inbound_queue() -> anyhow::Result<()> {
+        let (service, sender) = create_test_service_with_inbound_queue(MockDbConnector::default());
         let rg_id = ResourceGroupId::random();
         let job_id = JobId::random();
         sender
@@ -1750,7 +1753,7 @@ mod tests {
     #[tokio::test]
     async fn register_scheduler_resends_ready_tasks_only_when_replacing_previous_scheduler()
     -> anyhow::Result<()> {
-        let (service, _sender) = create_test_service_with_ready_queue(MockDbConnector::default());
+        let (service, _sender) = create_test_service_with_inbound_queue(MockDbConnector::default());
 
         let (task_graph, inputs) = create_test_job_submission();
         let job_id = service

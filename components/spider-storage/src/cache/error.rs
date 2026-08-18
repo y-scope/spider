@@ -79,8 +79,8 @@ pub enum InternalError {
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),
 
-    #[error("invalid ready-queue config: {0}")]
-    ReadyQueueInvalidConfig(&'static str),
+    #[error("invalid inbound-queue config: {0}")]
+    InboundQueueInvalidConfig(&'static str),
 
     #[error("invalid task instance pool config: {0}")]
     TaskInstancePoolInvalidConfig(&'static str),
@@ -88,8 +88,8 @@ pub enum InternalError {
     #[error("invalid job cache GC config: {0}")]
     JobCacheGcInvalidConfig(&'static str),
 
-    #[error("ready queue channel is closed")]
-    ReadyQueueChannelClosed,
+    #[error("inbound queue channel is closed")]
+    InboundQueueChannelClosed,
 
     #[error("invalid recoverable job context: {0}")]
     InvalidRecoverableJobContext(String),

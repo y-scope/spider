@@ -41,8 +41,8 @@ spiderConfig:
   execution_manager:
     connection_pool_size: 4
     liveness:
-      scheduler_heartbeat_interval_sec: 10
-      storage_heartbeat_interval_sec: 10
+      scheduler_heartbeat_interval_sec: 1
+      storage_heartbeat_interval_sec: 1
     log_level: "INFO"
     scheduler_poll_wait_ms: 1000
     task_executor:
@@ -56,15 +56,18 @@ spiderConfig:
     log_level: "INFO"
     port: 50052
     runtime:
+      em_registry:
+        dead_em_cutoff_sec: 30
+        liveness_tracking_interval_ms: 1000
       scheduler:
         policy: "round_robin"
         config:
-          active_job_queue_capacity: 64
+          active_job_queue_capacity: 16
           cleanup_ready_task_capacity: 256
           commit_ready_task_capacity: 256
-          dispatch_queue_capacity: 64
+          dispatch_queue_capacity: 16
           finalizing_job_expiration_timeout_sec: 300
-          ready_task_capacity: 65536
+          ready_task_capacity: 1048576
           storage_poll_timeout_ms: 10
           tick_interval_ms: 5
 
@@ -72,10 +75,17 @@ spiderConfig:
     log_level: "INFO"
     port: 50051
     runtime:
-      ready_queue_config:
+      inbound_queue:
         cleanup_capacity: 256
         commit_capacity: 256
         task_capacity: 1048576
+      job_cache_gc:
+        gc_interval_sec: 30
+        terminated_job_retention_sec: 300
+      task_instance_pool:
+        execution_manager_stale_cutoff_sec: 60
+        gc_interval_sec: 30
+        message_channel_capacity: 128
 
   worker:
     extra_envs: []

@@ -8,8 +8,5 @@ publish = false
 anyhow = { workspace = true }
 spider-client = { workspace = true }
 spider-core = { workspace = true }
-tokio = {
-  workspace = true,
-  features = ["macros", "rt-multi-thread", "sync", "time"]
-}
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tonic = { workspace = true }

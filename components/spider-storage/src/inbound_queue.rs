@@ -1,13 +1,13 @@
-//! In-memory ready queue for schedulable tasks.
+//! In-memory inbound queue for schedulable tasks.
 //!
 //! The queue is a set of three independent MPMC async channels — one for regular tasks, one for
-//! commit tasks, and one for cleanup tasks. Each channel carries a [`ReadyQueueEntry`]
+//! commit tasks, and one for cleanup tasks. Each channel carries an [`InboundQueueEntry`]
 //! parameterized by the lane-specific task kind: [`TaskIndex`] for the regular lane,
 //! [`CommitTaskMarker`] for the commit lane, and [`CleanupTaskMarker`] for the cleanup lane.
 //!
-//! [`ReadyQueueSender`] routes each send to the matching channel, and [`ReadyQueueReceiverHandle`]
-//! exposes three `recv_*` methods that each read from one channel with a
-//! `(max_items, wait_duration)` signature.
+//! [`InboundQueueSender`] routes each send to the matching channel, and
+//! [`InboundQueueReceiverHandle`] exposes three `recv_*` methods that each read from one channel
+//! with a `(max_items, wait_duration)` signature.
 
 use std::time::Duration;
 
@@ -21,15 +21,15 @@ use spider_core::types::id::ResourceGroupId;
 
 use crate::cache::error::InternalError;
 
-/// Marker type for commit-task ready entries.
+/// Marker type for commit-task inbound-queue entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CommitTaskMarker;
 
-/// Marker type for cleanup-task ready entries.
+/// Marker type for cleanup-task inbound-queue entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CleanupTaskMarker;
 
-/// A ready queue entry.
+/// An inbound queue entry.
 ///
 /// # Type Parameters
 ///
@@ -38,7 +38,7 @@ pub struct CleanupTaskMarker;
 ///   * [`CommitTaskMarker`] for commit tasks, and
 ///   * [`CleanupTaskMarker`] for cleanup tasks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ReadyQueueEntry<TaskKind> {
+pub struct InboundQueueEntry<TaskKind> {
     /// The owning resource group for the ready job.
     pub resource_group_id: ResourceGroupId,
     /// The job that became schedulable.
@@ -47,10 +47,10 @@ pub struct ReadyQueueEntry<TaskKind> {
     pub task_kind: TaskKind,
 }
 
-/// Configuration of a ready queue.
+/// Configuration of an inbound queue.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default)]
-pub struct ReadyQueueConfig {
+pub struct InboundQueueConfig {
     /// The capacity of the task lane. Must be greater than zero.
     pub task_capacity: usize,
     /// The capacity of the commit lane. Must be greater than zero.
@@ -59,7 +59,7 @@ pub struct ReadyQueueConfig {
     pub cleanup_capacity: usize,
 }
 
-impl Default for ReadyQueueConfig {
+impl Default for InboundQueueConfig {
     fn default() -> Self {
         Self {
             task_capacity: DEFAULT_TASK_CAPACITY,
@@ -69,28 +69,28 @@ impl Default for ReadyQueueConfig {
     }
 }
 
-impl ReadyQueueConfig {
+impl InboundQueueConfig {
     /// Validates the config.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::ReadyQueueInvalidConfig`] if any of the configured capacity is 0.
+    /// * [`InternalError::InboundQueueInvalidConfig`] if any of the configured capacity is 0.
     const fn validate(self) -> Result<(), InternalError> {
         const ERROR_MESSAGE: &str = "capacity must be greater than 0";
         if self.task_capacity == 0 || self.commit_capacity == 0 || self.cleanup_capacity == 0 {
-            return Err(InternalError::ReadyQueueInvalidConfig(ERROR_MESSAGE));
+            return Err(InternalError::InboundQueueInvalidConfig(ERROR_MESSAGE));
         }
         Ok(())
     }
 }
 
-/// Connector for publishing task execution events to the ready queue.
+/// Connector for publishing task execution events to the inbound queue.
 ///
 /// This trait is invoked by the cache layer to enqueue tasks that are ready for scheduling.
 #[async_trait]
-pub trait ReadyQueueSender: Clone + Send + Sync {
+pub trait InboundQueueSender: Clone + Send + Sync {
     /// Enqueues a batch of tasks for the specified job which are ready to be scheduled. Each task
     /// index becomes one entry on the task lane.
     ///
@@ -145,16 +145,16 @@ pub trait ReadyQueueSender: Clone + Send + Sync {
     ) -> Result<(), InternalError>;
 }
 
-/// A shareable ready-queue sender backed by three MPMC channels.
+/// A shareable inbound-queue sender backed by three MPMC channels.
 #[derive(Clone)]
-pub struct ReadyQueueSenderHandle {
-    task: Sender<ReadyQueueEntry<TaskIndex>>,
-    commit: Sender<ReadyQueueEntry<CommitTaskMarker>>,
-    cleanup: Sender<ReadyQueueEntry<CleanupTaskMarker>>,
+pub struct InboundQueueSenderHandle {
+    task: Sender<InboundQueueEntry<TaskIndex>>,
+    commit: Sender<InboundQueueEntry<CommitTaskMarker>>,
+    cleanup: Sender<InboundQueueEntry<CleanupTaskMarker>>,
 }
 
 #[async_trait]
-impl ReadyQueueSender for ReadyQueueSenderHandle {
+impl InboundQueueSender for InboundQueueSenderHandle {
     async fn send_task_ready(
         &self,
         resource_group_id: ResourceGroupId,
@@ -162,7 +162,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         task_indices: Vec<TaskIndex>,
     ) -> Result<(), InternalError> {
         for task_index in task_indices {
-            let entry = ReadyQueueEntry {
+            let entry = InboundQueueEntry {
                 resource_group_id,
                 job_id,
                 task_kind: task_index,
@@ -170,7 +170,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
             self.task
                 .send(entry)
                 .await
-                .map_err(|_| InternalError::ReadyQueueChannelClosed)?;
+                .map_err(|_| InternalError::InboundQueueChannelClosed)?;
         }
         Ok(())
     }
@@ -180,7 +180,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         resource_group_id: ResourceGroupId,
         job_id: JobId,
     ) -> Result<(), InternalError> {
-        let entry = ReadyQueueEntry {
+        let entry = InboundQueueEntry {
             resource_group_id,
             job_id,
             task_kind: CommitTaskMarker,
@@ -188,7 +188,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         self.commit
             .send(entry)
             .await
-            .map_err(|_| InternalError::ReadyQueueChannelClosed)
+            .map_err(|_| InternalError::InboundQueueChannelClosed)
     }
 
     async fn send_cleanup_ready(
@@ -196,7 +196,7 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         resource_group_id: ResourceGroupId,
         job_id: JobId,
     ) -> Result<(), InternalError> {
-        let entry = ReadyQueueEntry {
+        let entry = InboundQueueEntry {
             resource_group_id,
             job_id,
             task_kind: CleanupTaskMarker,
@@ -204,28 +204,28 @@ impl ReadyQueueSender for ReadyQueueSenderHandle {
         self.cleanup
             .send(entry)
             .await
-            .map_err(|_| InternalError::ReadyQueueChannelClosed)
+            .map_err(|_| InternalError::InboundQueueChannelClosed)
     }
 }
 
-/// A cloneable ready-queue receiver that reads from all three lanes.
+/// A cloneable inbound-queue receiver that reads from all three lanes.
 ///
 /// Multiple consumers can clone this handle and concurrently receive from any lane; each entry is
 /// delivered to exactly one consumer.
 #[derive(Clone)]
-pub struct ReadyQueueReceiverHandle {
-    task: Receiver<ReadyQueueEntry<TaskIndex>>,
-    commit: Receiver<ReadyQueueEntry<CommitTaskMarker>>,
-    cleanup: Receiver<ReadyQueueEntry<CleanupTaskMarker>>,
+pub struct InboundQueueReceiverHandle {
+    task: Receiver<InboundQueueEntry<TaskIndex>>,
+    commit: Receiver<InboundQueueEntry<CommitTaskMarker>>,
+    cleanup: Receiver<InboundQueueEntry<CleanupTaskMarker>>,
 }
 
-impl ReadyQueueReceiverHandle {
+impl InboundQueueReceiverHandle {
     /// Receives up to `max_items` regular task entries within a total time interval specified by
     /// `wait`.
     ///
     /// # Returns
     ///
-    /// The ready queue entries received from the ready queue, up to `max_items`.
+    /// The inbound queue entries received from the inbound queue, up to `max_items`.
     ///
     /// # Errors
     ///
@@ -236,7 +236,7 @@ impl ReadyQueueReceiverHandle {
         &self,
         max_items: usize,
         wait: Duration,
-    ) -> Result<Vec<ReadyQueueEntry<TaskIndex>>, InternalError> {
+    ) -> Result<Vec<InboundQueueEntry<TaskIndex>>, InternalError> {
         recv_batch(&self.task, max_items, wait).await
     }
 
@@ -245,7 +245,7 @@ impl ReadyQueueReceiverHandle {
     ///
     /// # Returns
     ///
-    /// The ready queue entries received from the ready queue, up to `max_items`.
+    /// The inbound queue entries received from the inbound queue, up to `max_items`.
     ///
     /// # Errors
     ///
@@ -256,7 +256,7 @@ impl ReadyQueueReceiverHandle {
         &self,
         max_items: usize,
         wait: Duration,
-    ) -> Result<Vec<ReadyQueueEntry<CommitTaskMarker>>, InternalError> {
+    ) -> Result<Vec<InboundQueueEntry<CommitTaskMarker>>, InternalError> {
         recv_batch(&self.commit, max_items, wait).await
     }
 
@@ -265,7 +265,7 @@ impl ReadyQueueReceiverHandle {
     ///
     /// # Returns
     ///
-    /// The ready queue entries received from the ready queue, up to `max_items`.
+    /// The inbound queue entries received from the inbound queue, up to `max_items`.
     ///
     /// # Errors
     ///
@@ -276,42 +276,42 @@ impl ReadyQueueReceiverHandle {
         &self,
         max_items: usize,
         wait: Duration,
-    ) -> Result<Vec<ReadyQueueEntry<CleanupTaskMarker>>, InternalError> {
+    ) -> Result<Vec<InboundQueueEntry<CleanupTaskMarker>>, InternalError> {
         recv_batch(&self.cleanup, max_items, wait).await
     }
 }
 
 /// Factory function.
 ///
-/// Creates a ready queue and returns its paired sender and receiver handles.
+/// Creates an inbound queue and returns its paired sender and receiver handles.
 ///
 /// # Returns
 ///
 /// A pair on success, containing:
 ///
-/// * The sender handle of the ready queue.
-/// * The receiver handle of the ready queue.
+/// * The sender handle of the inbound queue.
+/// * The receiver handle of the inbound queue.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`ReadyQueueConfig::validate`]'s return values on failure.
-pub fn create_ready_queue(
-    config: &ReadyQueueConfig,
-) -> Result<(ReadyQueueSenderHandle, ReadyQueueReceiverHandle), InternalError> {
+/// * Forwards [`InboundQueueConfig::validate`]'s return values on failure.
+pub fn create_inbound_queue(
+    config: &InboundQueueConfig,
+) -> Result<(InboundQueueSenderHandle, InboundQueueReceiverHandle), InternalError> {
     config.validate()?;
 
     let (task_tx, task_rx) = async_channel::bounded(config.task_capacity);
     let (commit_tx, commit_rx) = async_channel::bounded(config.commit_capacity);
     let (cleanup_tx, cleanup_rx) = async_channel::bounded(config.cleanup_capacity);
 
-    let sender = ReadyQueueSenderHandle {
+    let sender = InboundQueueSenderHandle {
         task: task_tx,
         commit: commit_tx,
         cleanup: cleanup_tx,
     };
-    let receiver = ReadyQueueReceiverHandle {
+    let receiver = InboundQueueReceiverHandle {
         task: task_rx,
         commit: commit_rx,
         cleanup: cleanup_rx,
@@ -340,19 +340,19 @@ const DEFAULT_CLEANUP_CAPACITY: usize = 1024;
 ///
 /// # Returns
 ///
-/// The ready queue entries received from the lane, up to `max_items`.
+/// The inbound queue entries received from the lane, up to `max_items`.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * [`InternalError::ReadyQueueChannelClosed`] if the channel is closed. In a healthy storage
+/// * [`InternalError::InboundQueueChannelClosed`] if the channel is closed. In a healthy storage
 ///   service, the channel should only be closed when the service is shutting down.
 async fn recv_batch<TaskKind>(
-    receiver: &Receiver<ReadyQueueEntry<TaskKind>>,
+    receiver: &Receiver<InboundQueueEntry<TaskKind>>,
     max_items: usize,
     wait: Duration,
-) -> Result<Vec<ReadyQueueEntry<TaskKind>>, InternalError> {
+) -> Result<Vec<InboundQueueEntry<TaskKind>>, InternalError> {
     if max_items == 0 {
         return Ok(Vec::new());
     }
@@ -364,7 +364,7 @@ async fn recv_batch<TaskKind>(
             match result {
                 Ok(entry) => entries.push(entry),
                 Err(_) => {
-                    return Err(InternalError::ReadyQueueChannelClosed);
+                    return Err(InternalError::InboundQueueChannelClosed);
                 }
             }
         } else {
@@ -381,7 +381,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_returns_early_when_max_items_reached() -> anyhow::Result<()> {
-        let (sender, receiver) = create_ready_queue(&ReadyQueueConfig {
+        let (sender, receiver) = create_inbound_queue(&InboundQueueConfig {
             task_capacity: 1,
             commit_capacity: 1,
             cleanup_capacity: 1,
@@ -427,7 +427,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_returns_empty_when_wait_elapses() -> anyhow::Result<()> {
-        let (_sender, receiver) = create_ready_queue(&ReadyQueueConfig {
+        let (_sender, receiver) = create_inbound_queue(&InboundQueueConfig {
             task_capacity: 1,
             commit_capacity: 1,
             cleanup_capacity: 1,
@@ -438,7 +438,7 @@ mod tests {
         let entries = receiver.recv_tasks(5, wait).await?;
         let elapsed = start.elapsed();
 
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [InboundQueueEntry<TaskIndex>; 0]);
         assert!(
             elapsed >= wait,
             "recv should block for the full wait duration when no entries arrive",

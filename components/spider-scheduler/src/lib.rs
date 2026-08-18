@@ -6,25 +6,27 @@
 //! order* and *with what throttling* ready tasks are offered to the fleet.
 //!
 //! The crate defines three trait seams wired into a single pipeline — a storage client that polls
-//! the ready queue, a core that makes serial decisions, and a dispatching queue that fans those
-//! decisions out to execution managers:
+//! the inbound queue, a core that makes serial decisions, and a dispatching queue that fans those
+//! decisions out to execution managers. The core owns and constructs its own dispatching queue,
+//! and exposes only a handle to the service:
 //!
 //! ```text
-//!   storage  ── authoritative ready queue (owned by the storage layer, not this crate)
+//!   storage  ── authoritative inbound queue (owned by the storage layer, not this crate)
 //!         │
 //!         │  poll_ready / poll_commit_ready / poll_cleanup_ready  (SchedulerStorageClient)
 //!         ▼
-//!   ┌───────────────────┐
-//!   │   SchedulerCore   │  serial loop: poll → decide → enqueue
-//!   └───────────────────┘
+//!   ┌───────────────────────────────────────────────────┐
+//!   │ SchedulerCore                                     │
+//!   │   serial loop: poll → decide → enqueue            │
+//!   │                                                   │
+//!   │   ┌───────────────────────────────────────────┐   │
+//!   │   │ dispatch queue                            │   │
+//!   │   │   owned and constructed by the core;      │   │
+//!   │   │   a full queue back-pressures the core    │   │
+//!   │   └───────────────────────────────────────────┘   │
+//!   └───────────────────────────────────────────────────┘
 //!         │
-//!         │  enqueue             (DispatchQueueSink — writer side)
-//!         ▼
-//!   ┌───────────────────┐
-//!   │  dispatch queue   │  bounded SPMC; a full queue back-pressures the core
-//!   └───────────────────┘
-//!         │
-//!         │  dequeue             (DispatchQueueSource — reader side)
+//!         │  dequeue             (DispatchQueueHandle)
 //!         ▼
 //!   ┌───────────────────┐
 //!   │ scheduler service │ ──▶ execution managers (concurrent fan-out)
@@ -46,10 +48,10 @@ pub mod types;
 pub use crate::config::SchedulerConfig;
 pub use crate::config::ServerConfig;
 pub use crate::core::SchedulerCore;
+pub use crate::dispatch_queue::DispatchQueueHandle;
 pub use crate::dispatch_queue::DispatchQueueReader;
-pub use crate::dispatch_queue::DispatchQueueSink;
-pub use crate::dispatch_queue::DispatchQueueSource;
 pub use crate::dispatch_queue::DispatchQueueWriter;
+pub use crate::dispatch_queue::SharedDispatchQueueHandle;
 pub use crate::error::SchedulerError;
 pub use crate::error::SchedulerRuntimeError;
 pub use crate::error::SchedulerServiceError;
