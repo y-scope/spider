@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cache::error::InternalError;
 use crate::db::InternalJobOrchestration;
-use crate::ready_queue::ReadyQueueSender;
+use crate::inbound_queue::InboundQueueSender;
 use crate::state::JobCache;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 
@@ -88,7 +88,7 @@ impl JobCacheGcHandle {
 ///
 /// # Type Parameters
 ///
-/// * `ReadyQueueSenderType` - The type of the ready queue sender required by the job cache.
+/// * `InboundQueueSenderType` - The type of the inbound queue sender required by the job cache.
 /// * `DbConnectorType` - The type of the DB-layer connector required by the job cache.
 /// * `TaskInstancePoolConnectorType` - The type of the task instance pool connector required by the
 ///   job cache.
@@ -106,11 +106,11 @@ impl JobCacheGcHandle {
 ///
 /// * Forwards [`JobCacheGcConfig::validate`]'s return values on failure.
 pub fn create_job_cache_gc<
-    ReadyQueueSenderType: ReadyQueueSender + 'static,
+    InboundQueueSenderType: InboundQueueSender + 'static,
     DbConnectorType: InternalJobOrchestration + 'static,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
-    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     cancellation_token: CancellationToken,
     config: &JobCacheGcConfig,
 ) -> Result<(JobCacheGcHandle, JoinHandle<Result<(), InternalError>>), InternalError> {
@@ -137,27 +137,27 @@ struct TerminatedJob {
 }
 
 struct JobCacheGc<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
-    job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+    job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     terminated_jobs: VecDeque<TerminatedJob>,
     terminated_job_retention: Duration,
     receiver: UnboundedReceiver<JobId>,
 }
 
 impl<
-    ReadyQueueSenderType: ReadyQueueSender,
+    InboundQueueSenderType: InboundQueueSender,
     DbConnectorType: InternalJobOrchestration,
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> JobCacheGc<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+> JobCacheGc<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
     /// # Returns
     ///
     /// A new [`JobCacheGc`] actor over the given cache and message receiver.
     const fn new(
-        job_cache: JobCache<ReadyQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
+        job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
         terminated_job_retention: Duration,
         receiver: UnboundedReceiver<JobId>,
     ) -> Self {
@@ -255,11 +255,11 @@ mod tests {
     use super::JobCacheGcConfig;
     use crate::state::JobCache;
     use crate::state::test_utils::MockDbConnector;
-    use crate::state::test_utils::MockReadyQueueSender;
+    use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
 
     type TestJobCache =
-        JobCache<MockReadyQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
+        JobCache<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
 
     #[test]
     fn config_rejects_zero_values() {

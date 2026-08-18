@@ -7,6 +7,8 @@ include = ["**/*.toml"]
 exclude = ["tools/yscope-dev-utils/**", "build/**", ".cargo/config.toml"]
 
 [format]
+[format.rules]
+line-width = 100
 
 [lint]
 [lint.rules]
