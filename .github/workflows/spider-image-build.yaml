@@ -39,8 +39,7 @@ jobs:
       matrix:
         service: ["storage", "scheduler", "worker"]
         arch: ["amd64", "arm64"]
-        # Each arch is built on a native runner rather than through QEMU emulation, since
-        # emulating the Rust build would be an order of magnitude slower.
+        # Map each architecture to its native runner.
         include:
           - arch: "amd64"
             runner: "ubuntu-24.04"
