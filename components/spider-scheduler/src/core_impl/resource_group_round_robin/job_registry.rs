@@ -77,7 +77,7 @@ impl JobEntry {
     ///
     /// # Returns
     ///
-    /// The ready tasks the job still held.
+    /// The job's ready task queue before it was emptied by this call.
     pub(super) fn take_ready_tasks(&mut self) -> VecDeque<TaskIndex> {
         std::mem::take(&mut self.ready_task_queue)
     }
