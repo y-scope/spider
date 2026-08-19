@@ -57,11 +57,13 @@ tasks:
   #
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:build-and-up:
+    env:
     cmds:
       - task: ":build:rust"
       - task: ":docker:build"
       - task: "compose:local:up"
         vars:
+          SPIDER_PULL_POLICY: "never"
           SPIDER_STORAGE_IMAGE_REF:
             sh: "sed -n '1p' '{{.G_BUILD_DIR}}/spider-storage-image.id'"
           SPIDER_SCHEDULER_IMAGE_REF:
@@ -76,12 +78,14 @@ tasks:
   # NOTE: Users can override image refs for each service; when unset, each defaults to
   # `ghcr.io/y-scope/spider/<service>:${SPIDER_IMAGE_TAG:-main}`.
   #
+  # @param {string} SPIDER_PULL_POLICY The image pull policy.
   # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
   # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
   # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:up:
     env:
+      SPIDER_PULL_POLICY: "{{.SPIDER_PULL_POLICY}}"
       SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
       SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
       SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
