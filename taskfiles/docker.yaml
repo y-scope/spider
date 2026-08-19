@@ -52,7 +52,8 @@ tasks:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --file compose.yaml down --volumes --remove-orphans"
 
-  # Builds Spider and its images, then starts a local deployment.
+  # Builds Spider's Rust binaries and container images, then starts a local Docker Compose
+  # deployment that uses the freshly built images.
   #
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:build-and-up:
@@ -69,7 +70,11 @@ tasks:
             sh: "sed -n '1p' '{{.G_BUILD_DIR}}/spider-worker-image.id'"
           SPIDER_WORKER_LIBRARY_DIR: "{{.SPIDER_WORKER_LIBRARY_DIR}}"
 
-  # Starts a local Spider deployment with libraries mounted into every worker.
+  # Starts a local Docker Compose deployment with the library directory mounted
+  # into every worker.
+  #
+  # NOTE: Users can override image refs for each service; when unset, each defaults to
+  # `ghcr.io/y-scope/spider/<service>:${SPIDER_IMAGE_TAG:-main}`.
   #
   # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
   # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
