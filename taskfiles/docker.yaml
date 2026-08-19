@@ -58,7 +58,7 @@ tasks:
   compose:local:build-and-up:
     cmds:
       - task: ":build:rust"
-      - task: "build"
+      - task: ":docker:build"
       - task: "compose:local:up"
         vars:
           SPIDER_STORAGE_IMAGE_REF:
