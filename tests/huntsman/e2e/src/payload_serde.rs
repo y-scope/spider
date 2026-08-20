@@ -101,13 +101,6 @@ mod tests {
         }
     }
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct Sample {
-        flag: bool,
-        count: i64,
-        label: String,
-    }
-
     #[test]
     fn round_trip_preserves_struct() {
         let value = Sample {
@@ -148,5 +141,12 @@ mod tests {
             result.is_err(),
             "decoding an empty payload should fail, not panic"
         );
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Sample {
+        flag: bool,
+        count: i64,
+        label: String,
     }
 }
