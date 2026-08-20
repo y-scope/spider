@@ -26,9 +26,6 @@ const LAYER_SIZE: usize = 1000;
 
 #[tokio::test]
 async fn test_nn() -> anyhow::Result<()> {
-    if std::env::var("SPIDER_ENDPOINT").is_err() {
-        bail!("SPIDER_ENDPOINT is not set");
-    }
 
     let layer_specs = (0..NUM_LAYERS)
         .map(|i| {
