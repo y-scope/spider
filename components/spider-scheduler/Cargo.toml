@@ -16,6 +16,7 @@ async-channel = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
+slotmap = { workspace = true }
 spider-core = { workspace = true }
 spider-proto-rust = { workspace = true }
 spider-utils = { workspace = true }
