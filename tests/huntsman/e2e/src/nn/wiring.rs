@@ -18,7 +18,7 @@ use rand::seq::SliceRandom;
 ///
 /// Returns an error if:
 ///
-/// * [`anyhow::Error`] if an invariant is voilated.
+/// * [`anyhow::Error`] if an invariant is violated.
 pub fn validate(sizes: &[usize]) -> anyhow::Result<()> {
     anyhow::ensure!(!sizes.is_empty(), "at least one layer is required");
     for (i, &size) in sizes.iter().enumerate() {
@@ -51,10 +51,6 @@ pub fn validate(sizes: &[usize]) -> anyhow::Result<()> {
 ///
 /// The per-neuron fan-in wiring, indexed `[layer][neuron][fan_in]`. `wiring[0]` is empty since
 /// layer 0 reads graph inputs directly.
-///
-/// # Panics
-///
-/// Panics if the layer invariants do not hold.
 pub fn build_wiring(sizes: &[usize], rng: &mut StdRng) -> Vec<Vec<Vec<usize>>> {
     let mut wiring = Vec::with_capacity(sizes.len());
     wiring.push(Vec::new());

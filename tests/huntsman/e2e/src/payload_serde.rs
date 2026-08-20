@@ -24,9 +24,7 @@ use spider_core::types::io::TaskOutput;
 /// Returns an error if:
 ///
 /// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
-pub fn encode_input<T>(value: &T) -> anyhow::Result<TaskInput>
-where
-    T: Serialize, {
+pub fn encode_input<T: Serialize>(value: &T) -> anyhow::Result<TaskInput> {
     Ok(TaskInput::ValuePayload(rmp_serde::to_vec(value)?))
 }
 
