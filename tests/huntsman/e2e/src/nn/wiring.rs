@@ -64,24 +64,21 @@ pub fn build_wiring(sizes: &[usize], rng: &mut StdRng) -> Vec<Vec<Vec<usize>>> {
 
 /// Deals numbers from a shuffled deck, reshuffling a fresh permutation whenever the current deck
 /// runs out.
-struct Dealer<'a> {
-    rng: &'a mut StdRng,
+struct Dealer {
     range_size: usize,
     deck: Vec<usize>,
 }
 
-impl<'a> Dealer<'a> {
+impl Dealer {
     /// Factory function.
     ///
     /// # Returns
     ///
     /// The created [`Dealer`] with a freshly shuffled deck of 0..`range_size`.
-    fn new(rng: &'a mut StdRng, range_size: usize) -> Self {
-        let deck = shuffled_range(rng, range_size);
+    const fn new(range_size: usize) -> Self {
         Self {
-            rng,
             range_size,
-            deck,
+            deck: Vec::new(),
         }
     }
 
@@ -94,9 +91,9 @@ impl<'a> Dealer<'a> {
     /// # Panics
     ///
     /// Panics if a reshuffled deck is empty.
-    fn draw(&mut self) -> usize {
+    fn draw(&mut self, rng: &mut StdRng) -> usize {
         if self.deck.is_empty() {
-            self.deck = shuffled_range(self.rng, self.range_size);
+            self.deck = shuffled_range(rng, self.range_size);
         }
         self.deck.pop().expect("reshuffled deck must be non-empty")
     }
@@ -121,12 +118,12 @@ fn generate_layer_wiring(rng: &mut StdRng, prev_size: usize, next_size: usize) -
         "layer invariants do not hold",
     );
     let mut slots: Vec<Vec<usize>> = vec![Vec::new(); next_size];
-    let mut dealer = Dealer::new(rng, prev_size);
+    let mut dealer = Dealer::new(prev_size);
 
     for neuron_slots in &mut slots {
         for _ in 0..NUM_INPUTS {
             let output = loop {
-                let candidate = dealer.draw();
+                let candidate = dealer.draw(rng);
                 if !neuron_slots.contains(&candidate) {
                     break candidate;
                 }
