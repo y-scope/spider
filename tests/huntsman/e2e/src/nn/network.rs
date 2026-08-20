@@ -76,14 +76,14 @@ impl NeuralNetwork {
     pub fn to_task_graph(&self) -> anyhow::Result<TaskGraph> {
         let float64 = DataTypeDescriptor::Value(ValueTypeDescriptor::float64());
         let mut graph = TaskGraph::new(None, None)?;
-        let first = &self.layers[0];
-        let mut prev_layer: Vec<TaskIndex> = Vec::with_capacity(first.neuron_count);
+        let first_layer = &self.layers[0];
+        let mut prev_layer: Vec<TaskIndex> = Vec::with_capacity(first_layer.neuron_count);
 
-        for _ in 0..first.neuron_count {
+        for _ in 0..first_layer.neuron_count {
             let task_idx = graph.insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
                     package: PACKAGE.to_owned(),
-                    task_func: first.activation.task_name().to_owned(),
+                    task_func: first_layer.activation.task_name().to_owned(),
                 },
                 execution_policy: None,
                 inputs: vec![float64.clone(); NUM_INPUTS],
@@ -140,13 +140,13 @@ impl NeuralNetwork {
             inputs.len(),
         );
 
-        let first = &self.layers[0];
-        let mut layer_outputs: Vec<f64> = (0..first.neuron_count)
+        let first_layer = &self.layers[0];
+        let mut layer_outputs: Vec<f64> = (0..first_layer.neuron_count)
             .map(|i| {
                 let start = i * NUM_INPUTS;
                 let mut neuron_inputs = [0.0_f64; NUM_INPUTS];
                 neuron_inputs.copy_from_slice(&inputs[start..start + NUM_INPUTS]);
-                first.activation.evaluate_func()(&neuron_inputs)
+                first_layer.activation.evaluate_func()(&neuron_inputs)
             })
             .collect();
 
