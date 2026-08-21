@@ -43,9 +43,7 @@ pub fn encode_input<T: Serialize>(value: &T) -> anyhow::Result<TaskInput> {
 /// Returns an error if:
 ///
 /// * Forwards [`rmp_serde::from_slice`]'s return values on failure.
-pub fn decode_output<T>(output: &TaskOutput) -> anyhow::Result<T>
-where
-    T: DeserializeOwned, {
+pub fn decode_output<T: DeserializeOwned>(output: &TaskOutput) -> anyhow::Result<T> {
     Ok(rmp_serde::from_slice(output)?)
 }
 
@@ -68,9 +66,7 @@ mod tests {
     }
 
     /// Round-trips `value` through [`encode_input`] then [`decode_output`].
-    fn round_trip<T>(value: &T) -> T
-    where
-        T: Serialize + DeserializeOwned, {
+    fn round_trip<T: Serialize + DeserializeOwned>(value: &T) -> T {
         let encoded = encode_input(value).expect("encode_input should succeed");
         let TaskInput::ValuePayload(bytes) = encoded;
         decode_output(&bytes).expect("decode_output should succeed")
