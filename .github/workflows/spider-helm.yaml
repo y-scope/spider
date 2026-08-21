@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: >-
     ${{
       github.ref != 'refs/heads/main'
-      && !startsWith(github.ref, 'refs/heads/spider-huntsman-v')
+      && !startsWith(github.ref, 'refs/heads/release/')
     }}
 
 jobs:
@@ -50,11 +50,11 @@ jobs:
         run: "task lint:check-helm"
 
   publish:
-    # Publish from `main` and `spider-huntsman-vA.B.C` release branches.
+    # Publish from `main` and `release/*` release branches.
     if: >-
       github.event_name != 'pull_request'
       && (github.ref == 'refs/heads/main'
-      || startsWith(github.ref, 'refs/heads/spider-huntsman-v'))
+      || startsWith(github.ref, 'refs/heads/release/'))
     needs: "lint"
     runs-on: "ubuntu-latest"
     concurrency:
