@@ -60,6 +60,13 @@ mod tests {
     use super::decode_output;
     use super::encode_input;
 
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Sample {
+        flag: bool,
+        count: i64,
+        label: String,
+    }
+
     /// Round-trips `value` through [`encode_input`] then [`decode_output`].
     fn round_trip<T>(value: &T) -> T
     where
@@ -141,12 +148,5 @@ mod tests {
             result.is_err(),
             "decoding an empty payload should fail, not panic"
         );
-    }
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct Sample {
-        flag: bool,
-        count: i64,
-        label: String,
     }
 }
