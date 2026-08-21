@@ -4,6 +4,10 @@ version = { workspace = true }
 edition = { workspace = true }
 publish = false
 
+[[test]]
+name = "nn"
+test = false
+
 [dependencies]
 anyhow = { workspace = true }
 huntsman-nn-core = { path = "../../../examples/huntsman/nn/core" }
