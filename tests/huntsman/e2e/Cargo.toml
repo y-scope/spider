@@ -4,8 +4,16 @@ version = { workspace = true }
 edition = { workspace = true }
 publish = false
 
+[[test]]
+name = "nn"
+test = false
+
 [dependencies]
 anyhow = { workspace = true }
+huntsman-nn-core = { path = "../../../examples/huntsman/nn/core" }
+rand = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
 spider-client = { workspace = true }
 spider-core = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
