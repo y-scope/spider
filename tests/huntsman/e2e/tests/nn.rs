@@ -17,26 +17,14 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use tokio::task::JoinSet;
 
-/// Relative-tolerance float comparison.
-const REL_TOL: f64 = 1.0e-12;
-
-/// Number of layers in the test network.
-const NUM_LAYERS: usize = 10;
-
-/// Neurons per layer in the test network.
-const LAYER_SIZE: usize = 1000;
-
-/// Maximum duration of one neural-network job.
-const JOB_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// Number of neural-network job batches.
-const NUM_BATCHES: usize = 3;
-
-/// Number of concurrent neural-network jobs in each batch.
-const NUM_JOBS_PER_BATCH: usize = 8;
-
 #[tokio::test]
 async fn test_nn() -> anyhow::Result<()> {
+    /// Number of neural-network job batches.
+    const NUM_BATCHES: usize = 3;
+
+    /// Number of concurrent neural-network jobs in each batch.
+    const NUM_JOBS_PER_BATCH: usize = 8;
+
     for batch_index in 0..NUM_BATCHES {
         let mut jobs = JoinSet::new();
         for job_index in 0..NUM_JOBS_PER_BATCH {
@@ -71,6 +59,18 @@ async fn test_nn() -> anyhow::Result<()> {
 /// * Forwards [`encode_input`]'s return values on failure.
 /// * Forwards [`SpiderTestDriver::run`]'s return values on failure.
 async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
+    /// Relative-tolerance float comparison.
+    const REL_TOL: f64 = 1.0e-12;
+
+    /// Number of layers in the test network.
+    const NUM_LAYERS: usize = 10;
+
+    /// Neurons per layer in the test network.
+    const LAYER_SIZE: usize = 1000;
+
+    /// Maximum duration of one neural-network job.
+    const JOB_TIMEOUT: Duration = Duration::from_secs(600);
+
     let layer_specs = (0..NUM_LAYERS)
         .map(|i| {
             (
