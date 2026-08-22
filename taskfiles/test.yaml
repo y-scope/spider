@@ -305,5 +305,5 @@ tasks:
           . "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env"
         fi
         SPIDER_ENDPOINT="http://127.0.0.1:${SPIDER_STORAGE_PUBLISHED_PORT:-50051}" \
-        SPIDER_CONCURRENCY="1" \
+        SPIDER_CONCURRENCY="8" \
           cargo test --release --package e2e --test nn -- --nocapture
