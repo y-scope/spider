@@ -40,6 +40,12 @@ tasks:
         vars:
           STORAGE_TASK: "spider-huntsman-unit-tests-executor"
 
+  rust-e2e-tests:
+    cmds:
+      - task: ":build:rust"
+      - task: ":docker:build"
+      - task: "spider-huntsman-e2e-executor"
+
   build-unit-test:
     internal: true
     deps:
@@ -257,3 +263,47 @@ tasks:
             echo ""
           fi
         done
+
+  spider-huntsman-e2e-executor:
+    internal: true
+    vars:
+      G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
+      G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
+      SPIDER_STORAGE_IMAGE_REF:
+        sh: "cat '{{.G_BUILD_DIR}}/spider-storage-image.id'"
+      SPIDER_SCHEDULER_IMAGE_REF:
+        sh: "cat '{{.G_BUILD_DIR}}/spider-scheduler-image.id'"
+      SPIDER_WORKER_IMAGE_REF:
+        sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
+    dir: "{{.ROOT_DIR}}"
+    deps: ["toolchains:rust"]
+    cmds:
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        cargo build --release --package huntsman-nn-tasks
+        mkdir -p "{{.G_TDL_PACKAGES_DIR}}/nn"
+        cp "{{.G_RUST_RELEASE_DIR}}/libnn.so" \
+           "{{.G_TDL_PACKAGES_DIR}}/nn/libnn.so"
+      - |-
+        if [ -f "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env" ]; then
+          . "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env"
+        fi
+        docker pull "${SPIDER_DATABASE_IMAGE_REF:-mariadb:10.11.16}"
+      - task: ":docker:compose:local:clean"
+      - defer:
+          task: ":docker:compose:local:clean"
+      - task: ":docker:compose:local:up"
+        vars:
+          SPIDER_PULL_POLICY: "never"
+          SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
+          SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
+          SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
+          SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        if [ -f "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env" ]; then
+          . "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env"
+        fi
+        SPIDER_ENDPOINT="http://127.0.0.1:${SPIDER_STORAGE_PUBLISHED_PORT:-50051}" \
+        SPIDER_CONCURRENCY="8" \
+          cargo test --release --package e2e --test nn -- --nocapture

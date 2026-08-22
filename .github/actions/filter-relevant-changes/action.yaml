@@ -16,6 +16,12 @@ outputs:
   rust_changed:
     description: "Whether Rust related files have changed."
     value: "${{steps.paths-filter.outputs.rust}}"
+  rust_unit_tests_changed:
+    description: "Whether Rust unit-test related files have changed."
+    value: "${{steps.paths-filter.outputs.rust_unit_tests}}"
+  rust_e2e_tests_changed:
+    description: "Whether Rust end-to-end-test related files have changed."
+    value: "${{steps.paths-filter.outputs.rust_e2e_tests}}"
 
 runs:
   using: "composite"
@@ -36,6 +42,13 @@ runs:
             - "taskfiles/**"
             - "tools/scripts/**"
             - "tools/yscope-dev-utils"
+          # NOTE: This filter defines a reusable YAML anchor; its output is unused.
+          _rust_common: &_rust_common
+            - *_common
+            - ".cargo/**"
+            - "Cargo.lock"
+            - "Cargo.toml"
+            - "components/**"
           cpp:
             - *_common
             - ".gersemirc"
@@ -51,8 +64,20 @@ runs:
             - "ruff.toml"
             - "tests/wolf/**"
           rust:
-            - *_common
-            - ".cargo/**"
-            - "Cargo.lock"
-            - "Cargo.toml"
-            - "components/**"
+            - *_rust_common
+            - "examples/huntsman/**"
+            - "tests/huntsman/**"
+          rust_unit_tests:
+            - *_rust_common
+            - "examples/huntsman/**"
+            - "tests/huntsman/em-runtime/**"
+            - "tests/huntsman/integration-test-tasks/**"
+            - "tests/huntsman/task-executor/**"
+            - "tests/huntsman/tdl-integration/**"
+            - "tests/huntsman/test-utils/**"
+          rust_e2e_tests:
+            - *_rust_common
+            - "examples/huntsman/nn/**"
+            - "tests/huntsman/e2e/**"
+            - "tools/deployment/spider-compose/**"
+            - "tools/docker/**"
