@@ -9,15 +9,15 @@ image:
   scheduler:
     pullPolicy: "Always"
     repository: "ghcr.io/y-scope/spider/scheduler"
-    tag: "main"
+    tag: "v0.1.0-rc.0-huntsman"
   storage:
     pullPolicy: "Always"
     repository: "ghcr.io/y-scope/spider/storage"
-    tag: "main"
+    tag: "v0.1.0-rc.0-huntsman"
   worker:
     pullPolicy: "Always"
     repository: "ghcr.io/y-scope/spider/worker"
-    tag: "main"
+    tag: "v0.1.0-rc.0-huntsman"
 
 spiderConfig:
   # List of third-party services bundled (deployed) as part of the chart.

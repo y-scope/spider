@@ -38,7 +38,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.0-dev"
+version = "0.1.0-rc.0"
 edition = "2024"
 
 [workspace.dependencies]
