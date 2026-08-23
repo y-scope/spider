@@ -17,7 +17,7 @@ on:
   push:
     branches: ["main"]
     paths: *monitored_paths
-    tags: ["spider-huntsman-v*"]
+    tags: ["v*-huntsman"]
   workflow_dispatch:
 
 permissions: {}
@@ -147,6 +147,7 @@ jobs:
         id: "meta"
         with:
           images: "ghcr.io/${{steps.repo.outputs.name}}/${{matrix.service}}"
+          flavor: "latest=false"
           tags: |
             type=ref,event=branch
             type=ref,event=tag
