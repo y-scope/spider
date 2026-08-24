@@ -155,6 +155,10 @@ pub struct VerifyResourceGroupRequest {
 pub struct RegisterExecutionManagerRequest {
     #[prost(string, tag = "1")]
     pub ip_address: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub external_resource_group_id: ::core::option::Option<
+        ::prost::alloc::string::String,
+    >,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ExecutionManagerIdRequest {
@@ -167,6 +171,8 @@ pub struct ExecutionManagerRegistration {
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "2")]
     pub session_id: u64,
+    #[prost(uint64, optional, tag = "3")]
+    pub resource_group_id: ::core::option::Option<u64>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterExecutionManagerResponse {
