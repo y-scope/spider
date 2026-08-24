@@ -55,6 +55,7 @@ impl LivenessClient for GrpcLivenessClient {
     async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError> {
         let request = storage::RegisterExecutionManagerRequest {
             ip_address: ip.to_string(),
+            external_resource_group_id: None,
         };
         let response = self
             .connection_pool
@@ -156,6 +157,7 @@ mod tests {
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: EM_ID.get(),
                 session_id: SESSION_ID,
+                resource_group_id: None,
             }),
         };
 
@@ -187,6 +189,7 @@ mod tests {
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: 5,
                 session_id: 0,
+                resource_group_id: None,
             }),
         };
 

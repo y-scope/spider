@@ -817,6 +817,7 @@ impl<
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: em_id.get(),
                 session_id: self.inner.session_id(),
+                resource_group_id: None,
             }),
         }))
     }
