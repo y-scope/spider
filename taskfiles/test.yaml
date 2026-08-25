@@ -44,6 +44,10 @@ tasks:
 
   huntsman-e2e-tests:
     vars:
+      SPIDER_STORAGE_PUBLISHED_PORT: >-
+        {{.SPIDER_STORAGE_PUBLISHED_PORT | default "50051"}}
+      SPIDER_DATABASE_IMAGE_REF: >-
+        {{.SPIDER_DATABASE_IMAGE_REF | default "mariadb:10.11.16"}}
       SPIDER_STORAGE_IMAGE_REF:
         sh: "cat '{{.G_BUILD_DIR}}/spider-storage-image.id'"
       SPIDER_SCHEDULER_IMAGE_REF:
@@ -59,27 +63,22 @@ tasks:
         vars:
           PACKAGE_NAME: "nn"
           BUILD_LIBRARY_NAME: "nn"
-      - |-
-        if [ -f "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env" ]; then
-          . "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env"
-        fi
-        docker pull "${SPIDER_DATABASE_IMAGE_REF:-mariadb:10.11.16}"
+      - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
       - task: ":docker:compose:local:clean"
       - defer:
           task: ":docker:compose:local:clean"
       - task: ":docker:compose:local:up"
         vars:
           SPIDER_PULL_POLICY: "never"
+          SPIDER_STORAGE_PUBLISHED_PORT: "{{.SPIDER_STORAGE_PUBLISHED_PORT}}"
+          SPIDER_DATABASE_IMAGE_REF: "{{.SPIDER_DATABASE_IMAGE_REF}}"
           SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
           SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
           SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
           SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        if [ -f "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env" ]; then
-          . "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env"
-        fi
-        SPIDER_ENDPOINT="http://127.0.0.1:${SPIDER_STORAGE_PUBLISHED_PORT:-50051}" \
+        SPIDER_ENDPOINT="http://127.0.0.1:{{.SPIDER_STORAGE_PUBLISHED_PORT}}" \
         SPIDER_CONCURRENCY="8" \
           cargo nextest run --release --package e2e --test nn -- --nocapture
 

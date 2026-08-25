@@ -59,13 +59,19 @@ tasks:
   # `ghcr.io/y-scope/spider/<service>:${SPIDER_IMAGE_TAG:-main}`.
   #
   # @param {string} SPIDER_PULL_POLICY The image pull policy. If not set, default to "always".
+  # @param {string} SPIDER_STORAGE_PUBLISHED_PORT The host port for Spider Storage.
+  # @param {string} SPIDER_DATABASE_IMAGE_REF The database image reference.
   # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
   # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
   # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:up:
+    requires:
+      vars: ["SPIDER_STORAGE_PUBLISHED_PORT", "SPIDER_DATABASE_IMAGE_REF"]
     env:
       SPIDER_PULL_POLICY: "{{.SPIDER_PULL_POLICY}}"
+      SPIDER_STORAGE_PUBLISHED_PORT: "{{.SPIDER_STORAGE_PUBLISHED_PORT}}"
+      SPIDER_DATABASE_IMAGE_REF: "{{.SPIDER_DATABASE_IMAGE_REF}}"
       SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
       SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
       SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
