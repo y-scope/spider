@@ -137,4 +137,4 @@ jobs:
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
-      - run: "task test:rust-e2e-tests"
+      - run: "task test:huntsman-e2e-tests"
