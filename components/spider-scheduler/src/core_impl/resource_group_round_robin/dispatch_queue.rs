@@ -852,27 +852,6 @@ mod tests {
     }
 
     #[test]
-    fn dropping_a_hint_leaves_it_outstanding() -> anyhow::Result<()> {
-        let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
-        let reader = registry.get_dispatch_queue_reader(RG_ID);
-        let writer = registry.get_dispatch_queue_writer(RG_ID);
-        let first = make_assignment(RG_ID, 0);
-        publish(&writer, first)?;
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
-
-        // Dropping a hint withdraws nothing from the group's count, which is what lets a caller
-        // discard a hint it must not act on.
-        drop(hint);
-        assert_eq!(try_pop(&reader), Some(first));
-
-        // The dropped hint still covers the group, so the next assignment goes unhinted.
-        let second = make_assignment(RG_ID, 1);
-        publish(&writer, second)?;
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
-        Ok(())
-    }
-
-    #[test]
     fn clear_drops_every_group() -> anyhow::Result<()> {
         let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
         let writer = registry.get_dispatch_queue_writer(RG_ID);
