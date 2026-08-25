@@ -160,13 +160,8 @@ impl RgDispatchQueueWriter {
     ///
     /// Returns an error if:
     ///
-    /// * [`SchedulerError::DispatchQueueClosed`] if either queue this publication writes into is
-    ///   closed: the group's dispatch queue, in which case no hint is published, or the broadcast
-    ///   queue, in which case the assignment is queued but uncovered. The two are indistinguishable
-    ///   to the caller, and a running scheduler never observes the latter: the registry holds both
-    ///   ends of the broadcast queue, so it can only close once the registry itself is gone, i.e.
-    ///   once the scheduler is shutting down; the error is unreachable in a running scheduler but
-    ///   stays fatal to the core.
+    /// * [`SchedulerError::DispatchQueueClosed`] if either the group's dispatch queue is closed or
+    ///   the broadcast queue is closed.
     pub(super) fn try_send(&self, assignment: TaskAssignment) -> Result<(), SchedulerError> {
         self.sender
             .try_send(assignment)
