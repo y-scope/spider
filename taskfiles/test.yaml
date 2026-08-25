@@ -7,6 +7,8 @@ vars:
   G_UNIT_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/wolf/unitTest"
   G_TEST_VENV_DIR: "{{.G_BUILD_DIR}}/test-venv"
   G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
+  G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
+  G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
 
   # MariaDB testing config
   G_MARIADB_DATABASE: "spider-db"
@@ -42,8 +44,6 @@ tasks:
 
   huntsman-e2e-tests:
     vars:
-      G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
-      G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
       SPIDER_STORAGE_IMAGE_REF:
         sh: "cat '{{.G_BUILD_DIR}}/spider-storage-image.id'"
       SPIDER_SCHEDULER_IMAGE_REF:
@@ -55,12 +55,10 @@ tasks:
       - ":build:rust"
       - ":docker:build"
     cmds:
-      - |-
-        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo build --release --package huntsman-nn-tasks
-        mkdir -p "{{.G_TDL_PACKAGES_DIR}}/nn"
-        cp "{{.G_RUST_RELEASE_DIR}}/libnn.so" \
-           "{{.G_TDL_PACKAGES_DIR}}/nn/libnn.so"
+      - task: "stage-huntsman-tdl-package"
+        vars:
+          PACKAGE_NAME: "nn"
+          BUILD_LIBRARY_NAME: "nn"
       - |-
         if [ -f "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env" ]; then
           . "{{.ROOT_DIR}}/tools/deployment/spider-compose/.env"
@@ -83,7 +81,7 @@ tasks:
         fi
         SPIDER_ENDPOINT="http://127.0.0.1:${SPIDER_STORAGE_PUBLISHED_PORT:-50051}" \
         SPIDER_CONCURRENCY="8" \
-          cargo nexttest --release --package e2e --test nn -- --nocapture
+          cargo nextest run --release --package e2e --test nn -- --nocapture
 
   build-unit-test:
     internal: true
@@ -256,12 +254,6 @@ tasks:
   # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
   spider-huntsman-unit-tests-executor:
     internal: true
-    vars:
-      # TDL packages are staged under `${G_TDL_PACKAGES_DIR}/<package_name>/lib<package_name>.so`
-      # so that the `spider-task-executor` binary can resolve them via the on-disk layout it
-      # documents.
-      G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
-      G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
     env:
       MARIADB_PORT: "{{.MARIADB_PORT}}"
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
@@ -284,15 +276,16 @@ tasks:
     cmds:
       - "mkdir -p ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
+      - task: "stage-huntsman-tdl-package"
+        vars:
+          PACKAGE_NAME: "complex"
+          BUILD_LIBRARY_NAME: "huntsman_complex"
+      - task: "stage-huntsman-tdl-package"
+        vars:
+          PACKAGE_NAME: "integration_test_tasks"
+          BUILD_LIBRARY_NAME: "integration_test_tasks"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo build --release --workspace --all-features
-        mkdir -p "{{.G_TDL_PACKAGES_DIR}}/complex" \
-                 "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks"
-        cp "{{.G_RUST_RELEASE_DIR}}/libhuntsman_complex.so" \
-           "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
-        cp "{{.G_RUST_RELEASE_DIR}}/libintegration_test_tasks.so" \
-           "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks/libintegration_test_tasks.so"
         cargo nextest run --all --all-features --run-ignored all --release
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
@@ -302,3 +295,18 @@ tasks:
             echo ""
           fi
         done
+
+  # Stages a built Huntsman TDL package library in the task executor's package layout.
+  #
+  # @param {string} PACKAGE_NAME The package directory and runtime library name.
+  # @param {string} BUILD_LIBRARY_NAME The built library name in the Rust release directory.
+  stage-huntsman-tdl-package:
+    internal: true
+    requires:
+      vars: ["PACKAGE_NAME", "BUILD_LIBRARY_NAME"]
+    cmds:
+      - "mkdir -p '{{.G_TDL_PACKAGES_DIR}}/{{.PACKAGE_NAME}}'"
+      - >-
+        cp
+        '{{.G_RUST_RELEASE_DIR}}/lib{{.BUILD_LIBRARY_NAME}}.so'
+        '{{.G_TDL_PACKAGES_DIR}}/{{.PACKAGE_NAME}}/lib{{.PACKAGE_NAME}}.so'
