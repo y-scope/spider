@@ -1,0 +1,7 @@
+services:
+  spider-worker:
+    volumes:
+      - type: "bind"
+        source: "${SPIDER_WORKER_LIBRARY_DIR:?}"
+        target: "${SPIDER_WORKER_PACKAGE_DIR:-/opt/spider/packages}"
+        read_only: true
