@@ -65,6 +65,8 @@ tasks:
           BUILD_LIBRARY_NAME: "nn"
       - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
       - task: ":docker:compose:local:clean"
+      # Register cleanup before startup so a partially created Compose deployment is removed if
+      # `docker:compose:local:up` fails.
       - defer:
           task: ":docker:compose:local:clean"
       - task: ":docker:compose:local:up"
