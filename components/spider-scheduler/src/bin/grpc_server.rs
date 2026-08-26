@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(listen_addr).await.inspect_err(
         |error| tracing::error!(error = % error, "Failed to bind scheduler listen address."),
     )?;
-    let incoming = TcpIncoming::from(listener);
+    let incoming = TcpIncoming::from(listener).with_nodelay(Some(true));
     let mut sigterm = signal(SignalKind::terminate()).inspect_err(
         |error| tracing::error!(error = % error, "Failed to register SIGTERM handler."),
     )?;
