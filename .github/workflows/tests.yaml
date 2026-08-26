@@ -76,7 +76,7 @@ jobs:
 
       - run: "task test:spider-py-unit-tests"
 
-  huntsman-tests:
+  rust-unit-tests:
     needs: "filter-relevant-changes"
     if: >-
       github.event_name == 'schedule'
