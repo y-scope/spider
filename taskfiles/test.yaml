@@ -53,10 +53,11 @@ tasks:
       - ":build:rust"
       - ":docker:build"
     cmds:
-      - task: "stage-huntsman-tdl-package"
+      - task: "build-and-stage-huntsman-tdl-package"
         vars:
-          PACKAGE_NAME: "nn"
-          BUILD_LIBRARY_NAME: "nn"
+          CARGO_PACKAGE_NAME: "huntsman-nn-tasks"
+          CARGO_LIBRARY_NAME: "nn"
+          TDL_PACKAGE_NAME: "nn"
       - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
       - task: ":docker:compose:local:clean"
       # Register cleanup before startup so a partially created Compose deployment is removed if
@@ -274,14 +275,16 @@ tasks:
     cmds:
       - "mkdir -p ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
-      - task: "stage-huntsman-tdl-package"
+      - task: "build-and-stage-huntsman-tdl-package"
         vars:
-          PACKAGE_NAME: "complex"
-          BUILD_LIBRARY_NAME: "huntsman_complex"
-      - task: "stage-huntsman-tdl-package"
+          CARGO_PACKAGE_NAME: "huntsman-complex"
+          CARGO_LIBRARY_NAME: "huntsman_complex"
+          TDL_PACKAGE_NAME: "complex"
+      - task: "build-and-stage-huntsman-tdl-package"
         vars:
-          PACKAGE_NAME: "integration_test_tasks"
-          BUILD_LIBRARY_NAME: "integration_test_tasks"
+          CARGO_PACKAGE_NAME: "integration-test-tasks"
+          CARGO_LIBRARY_NAME: "integration_test_tasks"
+          TDL_PACKAGE_NAME: "integration_test_tasks"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
         cargo nextest run --all --all-features --run-ignored all --release
@@ -294,17 +297,22 @@ tasks:
           fi
         done
 
-  # Stages a built Huntsman TDL package library in the task executor's package layout.
+  # Builds and stages a Huntsman TDL package library in the task executor's package layout.
   #
-  # @param {string} PACKAGE_NAME The package directory and runtime library name.
-  # @param {string} BUILD_LIBRARY_NAME The built library name in the Rust release directory.
-  stage-huntsman-tdl-package:
+  # @param {string} CARGO_PACKAGE_NAME The Cargo package that builds the library.
+  # @param {string} CARGO_LIBRARY_NAME The Cargo library target name.
+  # @param {string} TDL_PACKAGE_NAME The TDL package directory and runtime library name.
+  build-and-stage-huntsman-tdl-package:
     internal: true
     requires:
-      vars: ["PACKAGE_NAME", "BUILD_LIBRARY_NAME"]
+      vars: ["CARGO_PACKAGE_NAME", "CARGO_LIBRARY_NAME", "TDL_PACKAGE_NAME"]
+    deps: ["toolchains:rust"]
     cmds:
-      - "mkdir -p '{{.G_TDL_PACKAGES_DIR}}/{{.PACKAGE_NAME}}'"
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        cargo build --release --package '{{.CARGO_PACKAGE_NAME}}'
+      - "mkdir -p '{{.G_TDL_PACKAGES_DIR}}/{{.TDL_PACKAGE_NAME}}'"
       - >-
         cp
-        '{{.G_RUST_RELEASE_DIR}}/lib{{.BUILD_LIBRARY_NAME}}.so'
-        '{{.G_TDL_PACKAGES_DIR}}/{{.PACKAGE_NAME}}/lib{{.PACKAGE_NAME}}.so'
+        '{{.G_RUST_RELEASE_DIR}}/lib{{.CARGO_LIBRARY_NAME}}.so'
+        '{{.G_TDL_PACKAGES_DIR}}/{{.TDL_PACKAGE_NAME}}/lib{{.TDL_PACKAGE_NAME}}.so'
