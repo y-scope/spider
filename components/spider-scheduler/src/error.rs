@@ -32,7 +32,6 @@ pub enum SchedulerError {
     #[error(transparent)]
     Storage(#[from] StorageClientError),
 
-    /// The dispatching queue is closed and can no longer accept assignments.
     #[error("dispatching queue is closed")]
     DispatchQueueClosed,
 
