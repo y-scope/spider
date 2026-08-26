@@ -454,7 +454,7 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "e2e"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "huntsman-nn-core",
@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "em-runtime-tests"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "spider-core",
@@ -849,7 +849,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "huntsman-complex"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "huntsman-complex-types",
  "serde",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "huntsman-complex-types"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "serde",
  "spider-tdl",
@@ -866,11 +866,11 @@ dependencies = [
 
 [[package]]
 name = "huntsman-nn-core"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 
 [[package]]
 name = "huntsman-nn-tasks"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "huntsman-nn-core",
  "serde",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "integration-test-tasks"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "rmp-serde",
  "serde",
@@ -1952,7 +1952,7 @@ dependencies = [
 
 [[package]]
 name = "spider-client"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "spider-core",
  "spider-proto-rust",
@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "spider-core"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "non-empty-string",
@@ -1985,7 +1985,7 @@ dependencies = [
 
 [[package]]
 name = "spider-derive"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1995,7 +1995,7 @@ dependencies = [
 
 [[package]]
 name = "spider-execution-manager"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2019,7 +2019,7 @@ dependencies = [
 
 [[package]]
 name = "spider-proto-rust"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "prost",
  "spider-core",
@@ -2033,7 +2033,7 @@ dependencies = [
 
 [[package]]
 name = "spider-scheduler"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "spider-storage"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "spider-task-executor"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "spider-tdl"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "const-str",
@@ -2118,7 +2118,7 @@ dependencies = [
 
 [[package]]
 name = "spider-tdl-derive"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "spider-utils"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "non-empty-string",
  "rand 0.9.5",
@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "task-executor-tests"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "integration-test-tasks",
  "rmp-serde",
@@ -2496,7 +2496,7 @@ dependencies = [
 
 [[package]]
 name = "tdl-integration"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "huntsman-complex-types",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "test-utils"
-version = "0.1.0-dev"
+version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
  "bincode",
