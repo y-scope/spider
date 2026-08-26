@@ -52,7 +52,7 @@ services:
   spider-storage:
     <<: *service_defaults
     image: >-
-      ${SPIDER_STORAGE_IMAGE_REF:-ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-main}}
+      ${SPIDER_STORAGE_IMAGE_REF:-ghcr.io/y-scope/spider/storage:${SPIDER_IMAGE_TAG:-v0.1.0-rc.1-huntsman}}
     networks:
       - "default"
       - "spider-internal"
@@ -86,7 +86,7 @@ services:
   spider-scheduler:
     <<: *service_defaults
     image: >-
-      ${SPIDER_SCHEDULER_IMAGE_REF:-ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-main}}
+      ${SPIDER_SCHEDULER_IMAGE_REF:-ghcr.io/y-scope/spider/scheduler:${SPIDER_IMAGE_TAG:-v0.1.0-rc.1-huntsman}}
     networks:
       - "spider-internal"
     command: [
@@ -113,7 +113,7 @@ services:
   spider-worker:
     <<: *service_defaults
     image: >-
-      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
+      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-v0.1.0-rc.1-huntsman}}
     networks:
       - "default"
       - "spider-internal"
