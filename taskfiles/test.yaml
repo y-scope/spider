@@ -49,9 +49,7 @@ tasks:
       SPIDER_DATABASE_IMAGE_REF: >-
         {{.SPIDER_DATABASE_IMAGE_REF | default "mariadb:10.11.16"}}
     dir: "{{.ROOT_DIR}}"
-    deps:
-      - ":build:rust"
-      - ":docker:build"
+    deps: [":docker:build"]
     cmds:
       - task: "build-and-stage-huntsman-tdl-package"
         vars:
@@ -59,10 +57,9 @@ tasks:
           CARGO_LIBRARY_NAME: "nn"
           TDL_PACKAGE_NAME: "nn"
       - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
-      - task: ":docker:compose:local:clean"
-      # Register cleanup before startup so a partially created Compose deployment is removed if
-      # `docker:compose:local:up` fails.
       - defer:
+          # Register cleanup in advance so a partially created Compose deployment is removed if
+          # `docker:compose:local:up` fails.
           task: ":docker:compose:local:clean"
       - task: ":docker:compose:local:up"
         vars:
@@ -301,7 +298,7 @@ tasks:
   #
   # @param {string} CARGO_PACKAGE_NAME The Cargo package that builds the library.
   # @param {string} CARGO_LIBRARY_NAME The Cargo library target name.
-  # @param {string} TDL_PACKAGE_NAME The TDL package directory and runtime library name.
+  # @param {string} TDL_PACKAGE_NAME The TDL package name.
   build-and-stage-huntsman-tdl-package:
     internal: true
     requires:
