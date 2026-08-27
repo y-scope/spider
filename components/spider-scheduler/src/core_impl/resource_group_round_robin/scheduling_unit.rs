@@ -1,9 +1,4 @@
 //! The core-private scheduling state of a single resource group.
-//!
-//! The unit owns everything the core decides with for one group -- its job lists, its pending
-//! finalizations, and the write side of its dispatch queue. The jobs themselves are owned by the
-//! job registry, so every scheduling position here holds a [`JobKey`] and resolves it against the
-//! registry the core hands in; a key that fails to resolve is a job that has been removed.
 
 use std::collections::VecDeque;
 
@@ -19,26 +14,7 @@ use super::job_registry::JobKey;
 use super::job_registry::JobRegistry;
 use crate::core::TaskAssignmentIdIssuer;
 
-/// The way a job reached its terminal state, determining which task finalizes it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum FinalizeKind {
-    /// The job completed and must run its commit task.
-    Commit,
-
-    /// The job was cancelled or failed and must run its cleanup task.
-    Cleanup,
-}
-
-impl From<FinalizeKind> for TaskId {
-    fn from(kind: FinalizeKind) -> Self {
-        match kind {
-            FinalizeKind::Commit => Self::Commit,
-            FinalizeKind::Cleanup => Self::Cleanup,
-        }
-    }
-}
-
-/// Errors returned by [`RgSchedulingUnit::try_make_assignment`].
+/// Errors returned by assignment decision-making.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(super) enum MakeAssignmentError {
     /// The resource group has nothing left to schedule this tick.
@@ -50,13 +26,27 @@ pub(super) enum MakeAssignmentError {
     DispatchQueueFull,
 
     /// A queue the write side publishes into is closed: either the resource group's own dispatch
-    /// queue, which can no longer accept assignments, or the broadcast queue, which can no longer
-    /// carry hints to general execution managers. The two are indistinguishable to every caller --
-    /// both are fatal, both stop the core, and neither leaves anything to recover -- and a closed
-    /// broadcast queue is moreover unreachable while the registry lives, since the registry holds
-    /// both of that queue's ends.
+    /// queue or the broadcast queue.
+    ///
+    /// This is considered a fatal error.
     #[error("dispatch queue is closed")]
     DispatchQueueClosed,
+}
+
+/// The job's terminal state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum FinalizeKind {
+    Commit,
+    Cleanup,
+}
+
+impl From<FinalizeKind> for TaskId {
+    fn from(kind: FinalizeKind) -> Self {
+        match kind {
+            FinalizeKind::Commit => Self::Commit,
+            FinalizeKind::Cleanup => Self::Cleanup,
+        }
+    }
 }
 
 /// The scheduling state of one resource group.
