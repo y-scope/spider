@@ -10,6 +10,7 @@ use spider_core::types::id::TaskId;
 use spider_core::types::scheduler::TaskAssignment;
 
 use super::dispatch_queue::RgDispatchQueueWriter;
+use super::job_registry::DOWNGRADE_LIVES;
 use super::job_registry::JobKey;
 use super::job_registry::JobRegistry;
 use crate::core::TaskAssignmentIdIssuer;
@@ -70,7 +71,8 @@ pub(super) struct RgSchedulingState {
     num_buffered_commits: usize,
     num_buffered_cleanups: usize,
     writer: RgDispatchQueueWriter,
-    downgrade_buffer: Vec<JobKey>,
+    active_to_pending_downgrade_buffer: Vec<JobKey>,
+    pending_downgrade_buffer: Vec<JobKey>,
     active_job_list_capacity: usize,
 }
 
@@ -95,7 +97,8 @@ impl RgSchedulingState {
             num_buffered_commits: 0,
             num_buffered_cleanups: 0,
             writer,
-            downgrade_buffer: Vec::new(),
+            active_to_pending_downgrade_buffer: Vec::new(),
+            pending_downgrade_buffer: Vec::new(),
             active_job_list_capacity,
         }
     }
@@ -109,7 +112,7 @@ impl RgSchedulingState {
 
     /// # Returns
     ///
-    /// Whether the group holds anything an assignment could still be drawn from.
+    /// Whether the group holds any assignments.
     pub(super) fn has_schedulable_task(&self) -> bool {
         !self.finalize_queue.is_empty()
             || !self.active_jobs.is_empty()
@@ -122,14 +125,17 @@ impl RgSchedulingState {
     ///
     /// * The number of commit tasks the group has buffered.
     /// * The number of cleanup tasks the group has buffered.
-    pub(super) const fn num_buffered_finalizations(&self) -> (usize, usize) {
+    pub(super) const fn num_buffered_finalize_tasks(&self) -> (usize, usize) {
         (self.num_buffered_commits, self.num_buffered_cleanups)
     }
 
     /// Records that `job_id` has reached the finalization named by `kind`.
     pub(super) fn push_finalization(&mut self, job_id: JobId, kind: FinalizeKind) {
         self.finalize_queue.push_back((job_id, kind));
-        self.count_finalization(kind);
+        match kind {
+            FinalizeKind::Commit => self.num_buffered_commits += 1,
+            FinalizeKind::Cleanup => self.num_buffered_cleanups += 1,
+        }
     }
 
     /// Gives a newly registered job its scheduling position in this group.
@@ -143,7 +149,7 @@ impl RgSchedulingState {
 
     /// Tops the active job list up to capacity from the pending job queue.
     ///
-    /// Pending jobs that yield nothing spend a downgrade life, and are collected into
+    /// Pending jobs that yield nothing spend a downgrade life count, and are collected into
     /// `jobs_to_retire` once they have none left.
     pub(super) fn promote_pending_jobs(
         &mut self,
@@ -161,15 +167,12 @@ impl RgSchedulingState {
     /// Publishes at most one assignment for this group.
     ///
     /// `free` is the tick's remaining free space in the whole dispatch buffer, read but not
-    /// modified here -- the caller decrements it once the assignment is published.
-    ///
-    /// The state and the job arena are borrowed mutably at the same time, which is why this is a
-    /// method on the state rather than on the core: the caller destructures the core's fields so
-    /// that the two borrows name different fields and the borrow checker accepts them.
+    /// modified here -- the caller decrements it once the assignment is published. This is only
+    /// used to determine the admission threshold.
     ///
     /// # Returns
     ///
-    /// The job and task the published assignment carries, on success.
+    /// The job and task the published assignment carries on success.
     ///
     /// # Errors
     ///
@@ -194,64 +197,47 @@ impl RgSchedulingState {
             return Err(MakeAssignmentError::DispatchQueueFull);
         }
 
-        // The task is only taken out of the structure that buffered it once its publication has
-        // succeeded: the core removes it from the dedup set only on success, so a task dropped by a
-        // rejected publication would be in neither place and could never be re-admitted.
-        if let Some((job_id, kind)) = self.peek_finalization() {
+        // NOTE: Prioritize finalization tasks, if any.
+        if let Some((job_id, kind)) = self.pop_finalization() {
             let task_id = TaskId::from(kind);
             self.publish(job_id, task_id, session_id, id_issuer)?;
-            self.commit_finalization();
             return Ok((job_id, task_id));
         }
 
-        let (job_key, job_id, task_index) = self
-            .peek_regular_task(job_registry, jobs_to_retire)
+        let (job_id, task_index) = self
+            .pop_regular_task(job_registry, jobs_to_retire)
             .ok_or(MakeAssignmentError::NoTask)?;
         let task_id = TaskId::Index(task_index);
         self.publish(job_id, task_id, session_id, id_issuer)?;
-        Self::commit_regular_task(job_key, job_registry);
         Ok((job_id, task_id))
     }
 
-    /// Returns every job buffered for downgrade to the head of the pending job queue, with its
-    /// downgrade budget restored.
+    /// Re-inserts every job buffered for downgrade to the pending job queue:
+    ///
+    /// * A job demoted out of the active job list goes to the queue's head with its downgrade
+    ///   budget restored.
+    /// * A job that was already pending goes to its tail with its budget untouched.
     pub(super) fn apply_downgrades(&mut self, job_registry: &mut JobRegistry) {
-        for job_key in std::mem::take(&mut self.downgrade_buffer) {
+        for job_key in std::mem::take(&mut self.active_to_pending_downgrade_buffer)
+            .into_iter()
+            .rev()
+        {
             if let Some(entry) = job_registry.get_mut(job_key) {
                 entry.reset_downgrade_counter();
             }
             self.pending_jobs.push_front(job_key);
         }
+        self.pending_jobs
+            .extend(std::mem::take(&mut self.pending_downgrade_buffer));
     }
 
-    /// Reads the group's next owed finalization without taking it.
+    /// Takes the group's next owed finalization off its finalize queue.
     ///
     /// # Returns
     ///
-    /// The job to finalize and how, or [`None`] if the group owes no finalization.
-    fn peek_finalization(&self) -> Option<(JobId, FinalizeKind)> {
-        self.finalize_queue.front().copied()
-    }
-
-    /// Takes the finalization read by [`Self::peek_finalization`] off the group's finalize queue.
-    ///
-    /// The call is a no-op if the group owes no finalization.
-    fn commit_finalization(&mut self) {
-        if let Some((_, kind)) = self.finalize_queue.pop_front() {
-            self.discount_finalization(kind);
-        }
-    }
-
-    /// Adds one buffered finalization of `kind` to the group's running counts.
-    const fn count_finalization(&mut self, kind: FinalizeKind) {
-        match kind {
-            FinalizeKind::Commit => self.num_buffered_commits += 1,
-            FinalizeKind::Cleanup => self.num_buffered_cleanups += 1,
-        }
-    }
-
-    /// Takes one buffered finalization of `kind` off the group's running counts.
-    const fn discount_finalization(&mut self, kind: FinalizeKind) {
+    /// The finalization to schedule, or [`None`] if the group owes no finalization.
+    fn pop_finalization(&mut self) -> Option<(JobId, FinalizeKind)> {
+        let (job_id, kind) = self.finalize_queue.pop_front()?;
         match kind {
             FinalizeKind::Commit => {
                 self.num_buffered_commits = self.num_buffered_commits.saturating_sub(1);
@@ -260,91 +246,72 @@ impl RgSchedulingState {
                 self.num_buffered_cleanups = self.num_buffered_cleanups.saturating_sub(1);
             }
         }
+        Some((job_id, kind))
     }
 
-    /// Finds the next regular task to dispatch without taking it out of the job that buffers it,
-    /// rotating the arm and refilling the active job list from the pending job queue as jobs run
-    /// dry.
+    /// Takes the next regular task to dispatch out of the job that buffers it, rotating the arm
+    /// and refilling the active job list from the pending job queue as jobs run dry.
     ///
     /// # Returns
     ///
-    /// A tuple on success, containing:
-    ///
-    /// * The key of the job the task was found in.
-    /// * That job's ID.
-    /// * The task index to dispatch.
-    ///
-    /// [`None`] is returned if no active or pending job yields a task.
-    fn peek_regular_task(
+    /// * A tuple on success, containing:
+    ///  * That job's ID.
+    ///  * The task index to dispatch.
+    /// * [`None`] if no active or pending job yields a task.
+    fn pop_regular_task(
         &mut self,
         job_registry: &mut JobRegistry,
         jobs_to_retire: &mut Vec<JobKey>,
-    ) -> Option<(JobKey, JobId, TaskIndex)> {
-        let mut remaining_visits = self.active_jobs.len();
+    ) -> Option<(JobId, TaskIndex)> {
+        const _: () = assert!(
+            1 == DOWNGRADE_LIVES,
+            "An barren active job with no tasks is demoted on its first visit, so this loop never \
+             revisits one; a larger downgrade budget needs a per-tick buffer for active jobs \
+             already visited."
+        );
+
         loop {
             if self.active_jobs.is_empty() {
                 let job_key = self.pop_promotable_job(job_registry, jobs_to_retire)?;
                 self.rr_arm = 0;
                 self.active_jobs.push(job_key);
-                remaining_visits = 1;
-            } else if 0 == remaining_visits {
-                return None;
             }
-            remaining_visits -= 1;
 
             if self.rr_arm >= self.active_jobs.len() {
                 self.rr_arm = 0;
             }
             let job_key = self.active_jobs[self.rr_arm];
             let Some(entry) = job_registry.get_mut(job_key) else {
-                if self.swap_in_pending_job(job_registry, jobs_to_retire) {
-                    remaining_visits += 1;
-                }
+                self.swap_in_pending_job(job_registry, jobs_to_retire);
                 continue;
             };
-            let Some(task_index) = entry.peek_next_task() else {
-                entry.decrement_downgrade_counter();
-                if 0 == entry.downgrade_counter() {
-                    self.downgrade_buffer.push(job_key);
-                    if self.swap_in_pending_job(job_registry, jobs_to_retire) {
-                        remaining_visits += 1;
-                    }
-                } else {
-                    self.rr_arm += 1;
-                }
-                continue;
-            };
-            let job_id = entry.job_id();
-            self.rr_arm += 1;
-            return Some((job_key, job_id, task_index));
+            if let Some(task_index) = entry.pop_next_task() {
+                let job_id = entry.job_id();
+                self.rr_arm += 1;
+                return Some((job_id, task_index));
+            }
+
+            entry.decrement_downgrade_counter();
+            if 0 == entry.downgrade_counter() {
+                self.active_to_pending_downgrade_buffer.push(job_key);
+                self.swap_in_pending_job(job_registry, jobs_to_retire);
+            } else {
+                self.rr_arm += 1;
+            }
         }
     }
 
-    /// Takes the task read by [`Self::peek_regular_task`] out of the job `job_key` refers to.
-    ///
-    /// The call is a no-op if the job has been removed from the registry.
-    fn commit_regular_task(job_key: JobKey, job_registry: &mut JobRegistry) {
-        if let Some(entry) = job_registry.get_mut(job_key) {
-            entry.pop_next_task();
-        }
-    }
-
-    /// Replaces the active job the arm points at with the next promotable pending job.
-    ///
-    /// # Returns
-    ///
-    /// Whether a pending job took the vacated slot. When none did, the slot itself is removed.
+    /// Replaces the active job the arm points at with the next promotable pending job, or removes
+    /// the slot when no pending job is promotable.
     fn swap_in_pending_job(
         &mut self,
         job_registry: &mut JobRegistry,
         jobs_to_retire: &mut Vec<JobKey>,
-    ) -> bool {
+    ) {
         if let Some(job_key) = self.pop_promotable_job(job_registry, jobs_to_retire) {
             self.active_jobs[self.rr_arm] = job_key;
-            true
         } else {
             self.active_jobs.swap_remove(self.rr_arm);
-            false
         }
     }
 
@@ -352,8 +319,11 @@ impl RgSchedulingState {
     /// at most once.
     ///
     /// A key that no longer resolves belongs to a job that has been removed from the registry and
-    /// is discarded outright; a job that yields nothing spends a downgrade life and goes to the
-    /// back of the queue, or is collected into `jobs_to_retire` if it has none left.
+    /// is discarded outright.
+    ///
+    /// A job that yields nothing spends a downgrade life and is held back until
+    /// [`Self::apply_downgrades`] runs, or is collected into `jobs_to_retire` if it has no
+    /// downgrade budget left.
     ///
     /// # Returns
     ///
@@ -363,10 +333,7 @@ impl RgSchedulingState {
         job_registry: &mut JobRegistry,
         jobs_to_retire: &mut Vec<JobKey>,
     ) -> Option<JobKey> {
-        let mut remaining_visits = self.pending_jobs.len();
-        while 0 != remaining_visits {
-            remaining_visits -= 1;
-            let job_key = self.pending_jobs.pop_front()?;
+        while let Some(job_key) = self.pending_jobs.pop_front() {
             let Some(entry) = job_registry.get_mut(job_key) else {
                 continue;
             };
@@ -377,7 +344,7 @@ impl RgSchedulingState {
                 jobs_to_retire.push(job_key);
             } else {
                 entry.decrement_downgrade_counter();
-                self.pending_jobs.push_back(job_key);
+                self.pending_downgrade_buffer.push(job_key);
             }
         }
         None
@@ -599,6 +566,13 @@ mod tests {
 
         /// # Returns
         ///
+        /// The keys of the group's pending jobs, in queue order.
+        fn pending_job_keys(&self) -> Vec<JobKey> {
+            self.state.pending_jobs.iter().copied().collect()
+        }
+
+        /// # Returns
+        ///
         /// The number of assignments currently queued for the group.
         fn queue_len(&self) -> usize {
             self.dispatch_queue_registry
@@ -756,6 +730,11 @@ mod tests {
         assert_eq!(jobs_to_retire.as_slice(), &[]);
         assert_eq!(fixture.state.active_jobs.len(), 0);
         assert_eq!(fixture.downgrade_counter(job_a), 0);
+        assert_eq!(fixture.state.pending_jobs.len(), 0);
+
+        fixture.state.apply_downgrades(&mut fixture.registry);
+        assert_eq!(fixture.pending_job_keys(), vec![job_a]);
+        assert_eq!(fixture.downgrade_counter(job_a), 0);
 
         assert_eq!(
             fixture.try_make(FREE_SPACE),
@@ -764,6 +743,52 @@ mod tests {
         assert_eq!(fixture.jobs_to_retire.as_slice(), &[job_a]);
         assert_eq!(fixture.state.pending_jobs.len(), 0);
         assert!(!fixture.state.has_schedulable_task());
+        Ok(())
+    }
+
+    #[test]
+    fn a_pending_job_is_downgraded_at_most_once_per_tick() -> anyhow::Result<()> {
+        let mut fixture = StateFixture::new(1);
+        let job_a = fixture.add_job(JOB_A, 1)?;
+        let job_b = fixture.add_job(JOB_B, 0)?;
+
+        assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_A, TaskId::Index(0))));
+        assert_eq!(
+            fixture.try_make(FREE_SPACE),
+            Err(MakeAssignmentError::NoTask)
+        );
+        assert_eq!(fixture.downgrade_counter(job_b), 0);
+
+        fixture
+            .state
+            .promote_pending_jobs(&mut fixture.registry, &mut fixture.jobs_to_retire);
+        assert_eq!(fixture.jobs_to_retire.as_slice(), &[]);
+        assert_eq!(fixture.downgrade_counter(job_b), 0);
+        assert!(!fixture.state.has_schedulable_task());
+
+        fixture.state.apply_downgrades(&mut fixture.registry);
+        assert_eq!(fixture.pending_job_keys(), vec![job_a, job_b]);
+        assert_eq!(fixture.downgrade_counter(job_a), DOWNGRADE_LIVES);
+        assert_eq!(fixture.downgrade_counter(job_b), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn demoted_jobs_keep_their_order_at_the_head_of_the_pending_queue() -> anyhow::Result<()> {
+        let mut fixture = StateFixture::new(2);
+        let job_a = fixture.add_job(JOB_A, 1)?;
+        let job_b = fixture.add_job(JOB_B, 1)?;
+
+        assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_A, TaskId::Index(0))));
+        assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_B, TaskId::Index(0))));
+        assert_eq!(
+            fixture.try_make(FREE_SPACE),
+            Err(MakeAssignmentError::NoTask)
+        );
+        assert_eq!(fixture.jobs_to_retire.as_slice(), &[]);
+
+        fixture.state.apply_downgrades(&mut fixture.registry);
+        assert_eq!(fixture.pending_job_keys(), vec![job_a, job_b]);
         Ok(())
     }
 
@@ -793,9 +818,8 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_publication_leaves_the_finalization_buffered() -> anyhow::Result<()> {
+    fn a_rejected_publication_discards_the_finalization() {
         let mut fixture = StateFixture::new(1);
-        fixture.add_job(JOB_A, 1)?;
         fixture.state.push_finalization(JOB_B, FinalizeKind::Commit);
         fixture.close_dispatch_queue();
 
@@ -803,19 +827,11 @@ mod tests {
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::DispatchQueueClosed)
         );
-        assert_eq!(fixture.state.num_buffered_finalizations(), (1, 0));
-
-        assert_eq!(
-            fixture.try_make(FREE_SPACE),
-            Err(MakeAssignmentError::DispatchQueueClosed)
-        );
-        assert_eq!(fixture.state.num_buffered_finalizations(), (1, 0));
-        assert!(fixture.state.has_schedulable_task());
-        Ok(())
+        assert_eq!(fixture.state.num_buffered_finalize_tasks(), (0, 0));
     }
 
     #[test]
-    fn a_rejected_publication_leaves_the_regular_task_buffered() -> anyhow::Result<()> {
+    fn a_rejected_publication_discards_the_regular_task() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         fixture.close_dispatch_queue();
@@ -824,14 +840,7 @@ mod tests {
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::DispatchQueueClosed)
         );
-        assert!(fixture.has_ready_task(job_a));
-
-        assert_eq!(
-            fixture.try_make(FREE_SPACE),
-            Err(MakeAssignmentError::DispatchQueueClosed)
-        );
-        assert!(fixture.has_ready_task(job_a));
-        assert!(fixture.state.has_schedulable_task());
+        assert!(!fixture.has_ready_task(job_a));
         Ok(())
     }
 

@@ -7,6 +7,9 @@ use slotmap::SlotMap;
 use spider_core::task::TaskIndex;
 use spider_core::types::id::JobId;
 
+/// The number of chances a job that produced no task gets before it is retired.
+pub(super) const DOWNGRADE_LIVES: u32 = 1;
+
 slotmap::new_key_type! {
     /// A generational handle to a job entry owned by a [`JobRegistry`].
     pub(super) struct JobKey;
@@ -53,15 +56,6 @@ impl JobEntry {
     pub(super) fn insert_tasks(&mut self, task_indices: Vec<TaskIndex>) {
         self.ready_task_queue.extend(task_indices);
         self.downgrade_counter = DOWNGRADE_LIVES;
-    }
-
-    /// Reads the job's next ready task from the queue without taking it.
-    ///
-    /// # Returns
-    ///
-    /// The next ready task, or [`None`] if the queue is empty.
-    pub(super) fn peek_next_task(&self) -> Option<TaskIndex> {
-        self.ready_task_queue.front().copied()
     }
 
     /// Pops the job's next ready task from the queue.
@@ -190,9 +184,6 @@ impl JobRegistry {
         self.entries.len()
     }
 }
-
-/// The number of chances a job that produced no task gets before it is retired.
-pub(super) const DOWNGRADE_LIVES: u32 = 1;
 
 #[cfg(test)]
 mod tests {
