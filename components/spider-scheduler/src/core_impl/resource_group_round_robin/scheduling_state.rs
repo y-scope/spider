@@ -168,7 +168,7 @@ impl RgSchedulingState {
     ///
     /// `free` is the tick's remaining free space in the whole dispatch buffer, read but not
     /// modified here -- the caller decrements it once the assignment is published. This is only
-    /// used to determine the admission threshold.
+    /// used by the admission threshold.
     ///
     /// # Returns
     ///
@@ -193,7 +193,8 @@ impl RgSchedulingState {
         if !self.has_schedulable_task() {
             return Err(MakeAssignmentError::NoTask);
         }
-        if self.dispatch_queue_size() >= free {
+        if self.dispatch_queue_size() >= free * SHARING_COEFFICIENT {
+            // Admission threshold reached.
             return Err(MakeAssignmentError::DispatchQueueFull);
         }
 
@@ -379,6 +380,9 @@ impl RgSchedulingState {
     }
 }
 
+/// The sharing coefficient used by Choudhury & Hahne's dynamic threshold algorithm.
+const SHARING_COEFFICIENT: usize = 1;
+
 #[cfg(test)]
 mod tests {
     use anyhow::bail;
@@ -411,44 +415,6 @@ mod tests {
 
     /// The free space passed to an assignment attempt that is not meant to reach the threshold.
     const FREE_SPACE: usize = 32;
-
-    /// # Returns
-    ///
-    /// A newly created, inactive scheduling state publishing into `rg_id`'s dispatch queue.
-    fn make_state(
-        dispatch_queue_registry: &DispatchQueueRegistry,
-        rg_id: ResourceGroupId,
-        active_job_list_capacity: usize,
-    ) -> RgSchedulingState {
-        RgSchedulingState::new(
-            rg_id,
-            dispatch_queue_registry.get_dispatch_queue_writer(rg_id),
-            active_job_list_capacity,
-        )
-    }
-
-    /// Registers a job of `num_tasks` buffered ready tasks, whose task indices are `0..num_tasks`.
-    ///
-    /// # Returns
-    ///
-    /// The key of the registered job, which still needs a scheduling position.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`anyhow::Error`] if the job is already registered.
-    fn make_job_entry(
-        registry: &mut JobRegistry,
-        job_id: JobId,
-        num_tasks: usize,
-    ) -> anyhow::Result<JobKey> {
-        let task_indices: Vec<TaskIndex> = (0..num_tasks).collect();
-        let UpsertOutcome::New(job_key) = registry.upsert(job_id, task_indices) else {
-            bail!("job {job_id} is already registered");
-        };
-        Ok(job_key)
-    }
 
     /// One scheduling state and the structures it publishes into.
     struct StateFixture {
@@ -591,6 +557,44 @@ mod tests {
         }
     }
 
+    /// # Returns
+    ///
+    /// A newly created, inactive scheduling state publishing into `rg_id`'s dispatch queue.
+    fn make_state(
+        dispatch_queue_registry: &DispatchQueueRegistry,
+        rg_id: ResourceGroupId,
+        active_job_list_capacity: usize,
+    ) -> RgSchedulingState {
+        RgSchedulingState::new(
+            rg_id,
+            dispatch_queue_registry.get_dispatch_queue_writer(rg_id),
+            active_job_list_capacity,
+        )
+    }
+
+    /// Registers a job of `num_tasks` buffered ready tasks, whose task indices are `0..num_tasks`.
+    ///
+    /// # Returns
+    ///
+    /// The key of the registered job, which still needs a scheduling position.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`anyhow::Error`] if the job is already registered.
+    fn make_job_entry(
+        registry: &mut JobRegistry,
+        job_id: JobId,
+        num_tasks: usize,
+    ) -> anyhow::Result<JobKey> {
+        let task_indices: Vec<TaskIndex> = (0..num_tasks).collect();
+        let UpsertOutcome::New(job_key) = registry.upsert(job_id, task_indices) else {
+            bail!("job {job_id} is already registered");
+        };
+        Ok(job_key)
+    }
+
     #[test]
     fn finalization_tasks_are_dispatched_ahead_of_regular_ones() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(2);
@@ -615,7 +619,7 @@ mod tests {
             Err(MakeAssignmentError::NoTask)
         );
 
-        // A job with nothing buffered still counts as a schedulable position, but yields no task.
+        // A job with nothing buffered still considered schedulable, but yields no task.
         fixture.add_job(JOB_A, 0)?;
         assert!(fixture.state.has_schedulable_task());
         assert_eq!(
@@ -689,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_active_job_is_swapped_out_for_a_pending_one() -> anyhow::Result<()> {
+    fn removed_active_job_swapped_by_pending() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         fixture.add_job(JOB_A, 1)?;
         fixture.add_job(JOB_B, 1)?;
@@ -705,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn a_job_that_stops_producing_tasks_is_downgraded_and_then_retired() -> anyhow::Result<()> {
+    fn job_downgrade_lifecycle() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         assert_eq!(fixture.downgrade_counter(job_a), DOWNGRADE_LIVES);
@@ -747,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pending_job_is_downgraded_at_most_once_per_tick() -> anyhow::Result<()> {
+    fn each_pending_job_is_downgraded_at_most_once_per_tick() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         let job_b = fixture.add_job(JOB_B, 0)?;
@@ -793,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn an_arriving_task_restores_a_downgraded_job() -> anyhow::Result<()> {
+    fn arriving_task_restores_a_downgraded_job() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
 
@@ -818,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_publication_discards_the_finalization() {
+    fn rejected_publication_discards_the_finalization() {
         let mut fixture = StateFixture::new(1);
         fixture.state.push_finalization(JOB_B, FinalizeKind::Commit);
         fixture.close_dispatch_queue();
@@ -831,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_publication_discards_the_regular_task() -> anyhow::Result<()> {
+    fn rejected_publication_discards_the_regular_task() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         fixture.close_dispatch_queue();
@@ -845,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_broadcast_queue_fails_the_publication() -> anyhow::Result<()> {
+    fn closed_broadcast_queue_fails_the_publication() -> anyhow::Result<()> {
         let mut fixture = StateFixture::new(1);
         fixture.add_job(JOB_A, 1)?;
         fixture.close_broadcast_queue();
