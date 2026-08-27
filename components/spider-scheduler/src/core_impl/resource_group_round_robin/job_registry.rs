@@ -192,7 +192,7 @@ impl JobRegistry {
 }
 
 /// The number of chances a job that produced no task gets before it is retired.
-const DOWNGRADE_LIVES: u32 = 1;
+pub(super) const DOWNGRADE_LIVES: u32 = 1;
 
 #[cfg(test)]
 mod tests {

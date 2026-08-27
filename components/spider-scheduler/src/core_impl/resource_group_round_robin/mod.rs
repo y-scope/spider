@@ -16,11 +16,23 @@
 )]
 mod dispatch_queue;
 
-// The registry has no consumer until the rest of the core lands, so every item it exposes reads as
-// dead. `expect` rather than `allow`: once `implementation.rs` uses the registry, this attribute
-// becomes unfulfilled and the compiler flags it for removal.
-#[expect(
-    dead_code,
-    reason = "the core that consumes the registry has not landed yet"
+// The registry has no consumer outside tests until the rest of the core lands, so every item it
+// exposes reads as dead. `expect` rather than `allow`: once `implementation.rs` uses the registry,
+// this attribute becomes unfulfilled and the compiler flags it for removal.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the core that consumes the registry has not landed yet"
+    )
 )]
 mod job_registry;
+
+// The scheduling unit has no consumer until the rest of the core lands, so every item it exposes
+// reads as dead. `expect` rather than `allow`: once `implementation.rs` uses the unit, this
+// attribute becomes unfulfilled and the compiler flags it for removal.
+#[expect(
+    dead_code,
+    reason = "the core that consumes the scheduling unit has not landed yet"
+)]
+mod scheduling_unit;
