@@ -581,7 +581,8 @@ mod tests {
         async fn register_execution_manager(
             &self,
             _ip_address: IpAddr,
-        ) -> Result<ExecutionManagerId, DbError> {
+            _external_resource_group_id: Option<&str>,
+        ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
             unimplemented!("not needed by pool tests")
         }
 
@@ -672,7 +673,8 @@ mod tests {
         async fn register_execution_manager(
             &self,
             _ip_address: IpAddr,
-        ) -> Result<ExecutionManagerId, DbError> {
+            _external_resource_group_id: Option<&str>,
+        ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
             unimplemented!("not needed by pool tests")
         }
 
