@@ -281,7 +281,8 @@ mod tests {
             bail!("re-registering a job must not hand out a second key to place");
         };
 
-        // The entry the registry appended to must be the one the scheduling unit's key resolves to.
+        // The entry the registry appended to must be the one the scheduling state's key resolves
+        // to.
         let entry = entry_of(&mut registry, job_key);
         assert_eq!(entry.pop_next_task(), Some(0));
         assert_eq!(entry.pop_next_task(), Some(1));

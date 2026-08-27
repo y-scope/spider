@@ -50,8 +50,8 @@ impl From<FinalizeKind> for TaskId {
 }
 
 /// The scheduling state of one resource group.
-pub(super) struct RgSchedulingUnit {
-    /// The resource group this unit schedules for.
+pub(super) struct RgSchedulingState {
+    /// The resource group this state schedules for.
     pub(super) rg_id: ResourceGroupId,
 
     /// The jobs assignments are currently drawn from, rotated over by [`Self::rr_arm`].
@@ -74,12 +74,12 @@ pub(super) struct RgSchedulingUnit {
     active_job_list_capacity: usize,
 }
 
-impl RgSchedulingUnit {
+impl RgSchedulingState {
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// A newly created, inactive unit publishing through `writer`.
+    /// A newly created, inactive state publishing through `writer`.
     pub(super) fn new(
         rg_id: ResourceGroupId,
         writer: RgDispatchQueueWriter,
@@ -163,8 +163,8 @@ impl RgSchedulingUnit {
     /// `free` is the tick's remaining free space in the whole dispatch buffer, read but not
     /// modified here -- the caller decrements it once the assignment is published.
     ///
-    /// The unit and the job arena are borrowed mutably at the same time, which is why this is a
-    /// method on the unit rather than on the core: the caller destructures the core's fields so
+    /// The state and the job arena are borrowed mutably at the same time, which is why this is a
+    /// method on the state rather than on the core: the caller destructures the core's fields so
     /// that the two borrows name different fields and the borrow checker accepts them.
     ///
     /// # Returns
@@ -447,13 +447,13 @@ mod tests {
 
     /// # Returns
     ///
-    /// A newly created, inactive scheduling unit publishing into `rg_id`'s dispatch queue.
-    fn make_unit(
+    /// A newly created, inactive scheduling state publishing into `rg_id`'s dispatch queue.
+    fn make_state(
         dispatch_queue_registry: &DispatchQueueRegistry,
         rg_id: ResourceGroupId,
         active_job_list_capacity: usize,
-    ) -> RgSchedulingUnit {
-        RgSchedulingUnit::new(
+    ) -> RgSchedulingState {
+        RgSchedulingState::new(
             rg_id,
             dispatch_queue_registry.get_dispatch_queue_writer(rg_id),
             active_job_list_capacity,
@@ -483,26 +483,26 @@ mod tests {
         Ok(job_key)
     }
 
-    /// One scheduling unit and the structures it publishes into.
-    struct UnitFixture {
-        unit: RgSchedulingUnit,
+    /// One scheduling state and the structures it publishes into.
+    struct StateFixture {
+        state: RgSchedulingState,
         registry: JobRegistry,
         jobs_to_retire: Vec<JobKey>,
         id_issuer: TaskAssignmentIdIssuer,
         dispatch_queue_registry: DispatchQueueRegistry,
     }
 
-    impl UnitFixture {
+    impl StateFixture {
         /// Factory function.
         ///
         /// # Returns
         ///
-        /// A newly created fixture whose unit holds no job.
+        /// A newly created fixture whose state holds no job.
         fn new(active_job_list_capacity: usize) -> Self {
             let dispatch_queue_registry =
                 DispatchQueueRegistry::new(SessionTracker::new(DEFAULT_SESSION_ID));
             Self {
-                unit: make_unit(&dispatch_queue_registry, RG_ID, active_job_list_capacity),
+                state: make_state(&dispatch_queue_registry, RG_ID, active_job_list_capacity),
                 registry: JobRegistry::new(),
                 jobs_to_retire: Vec::new(),
                 id_issuer: TaskAssignmentIdIssuer::new(),
@@ -524,7 +524,7 @@ mod tests {
         /// * Forwards [`make_job_entry`]'s return values on failure.
         fn add_job(&mut self, job_id: JobId, num_tasks: usize) -> anyhow::Result<JobKey> {
             let job_key = make_job_entry(&mut self.registry, job_id, num_tasks)?;
-            self.unit.place_new_job(job_key);
+            self.state.place_new_job(job_key);
             Ok(job_key)
         }
 
@@ -539,16 +539,16 @@ mod tests {
         ///
         /// Returns an error if:
         ///
-        /// * Forwards [`RgSchedulingUnit::try_make_assignment`]'s return values on failure.
+        /// * Forwards [`RgSchedulingState::try_make_assignment`]'s return values on failure.
         fn try_make(&mut self, free: usize) -> Result<(JobId, TaskId), MakeAssignmentError> {
             let Self {
-                unit,
+                state,
                 registry,
                 jobs_to_retire,
                 id_issuer,
                 ..
             } = self;
-            unit.try_make_assignment(
+            state.try_make_assignment(
                 free,
                 DEFAULT_SESSION_ID,
                 id_issuer,
@@ -619,10 +619,12 @@ mod tests {
 
     #[test]
     fn finalization_tasks_are_dispatched_ahead_of_regular_ones() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(2);
+        let mut fixture = StateFixture::new(2);
         fixture.add_job(JOB_A, 2)?;
-        fixture.unit.push_finalization(JOB_B, FinalizeKind::Commit);
-        fixture.unit.push_finalization(JOB_C, FinalizeKind::Cleanup);
+        fixture.state.push_finalization(JOB_B, FinalizeKind::Commit);
+        fixture
+            .state
+            .push_finalization(JOB_C, FinalizeKind::Cleanup);
 
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_B, TaskId::Commit)));
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_C, TaskId::Cleanup)));
@@ -632,8 +634,8 @@ mod tests {
 
     #[test]
     fn an_empty_unit_reports_no_task() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(2);
-        assert!(!fixture.unit.has_schedulable_task());
+        let mut fixture = StateFixture::new(2);
+        assert!(!fixture.state.has_schedulable_task());
         assert_eq!(
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::NoTask)
@@ -641,7 +643,7 @@ mod tests {
 
         // A job with nothing buffered still counts as a schedulable position, but yields no task.
         fixture.add_job(JOB_A, 0)?;
-        assert!(fixture.unit.has_schedulable_task());
+        assert!(fixture.state.has_schedulable_task());
         assert_eq!(
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::NoTask)
@@ -653,7 +655,7 @@ mod tests {
     fn the_admission_threshold_binds_at_the_free_space_boundary() -> anyhow::Result<()> {
         const OCCUPANCY: usize = 3;
 
-        let mut fixture = UnitFixture::new(2);
+        let mut fixture = StateFixture::new(2);
         fixture.add_job(JOB_A, 8)?;
         for task_index in 0..OCCUPANCY {
             assert_eq!(
@@ -661,13 +663,13 @@ mod tests {
                 Ok((JOB_A, TaskId::Index(task_index)))
             );
         }
-        assert_eq!(fixture.unit.dispatch_queue_size(), OCCUPANCY);
+        assert_eq!(fixture.state.dispatch_queue_size(), OCCUPANCY);
 
         assert_eq!(
             fixture.try_make(OCCUPANCY),
             Err(MakeAssignmentError::DispatchQueueFull)
         );
-        assert_eq!(fixture.unit.dispatch_queue_size(), OCCUPANCY);
+        assert_eq!(fixture.state.dispatch_queue_size(), OCCUPANCY);
 
         assert_eq!(
             fixture.try_make(OCCUPANCY + 1),
@@ -678,17 +680,17 @@ mod tests {
 
     #[test]
     fn an_exhausted_active_job_is_replaced_by_a_pending_one() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         fixture.add_job(JOB_B, 1)?;
-        assert_eq!(fixture.unit.active_jobs.len(), 1);
-        assert_eq!(fixture.unit.pending_jobs.len(), 1);
+        assert_eq!(fixture.state.active_jobs.len(), 1);
+        assert_eq!(fixture.state.pending_jobs.len(), 1);
 
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_A, TaskId::Index(0))));
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_B, TaskId::Index(0))));
 
-        assert_eq!(fixture.unit.active_jobs.len(), 1);
-        assert_eq!(fixture.unit.pending_jobs.len(), 0);
+        assert_eq!(fixture.state.active_jobs.len(), 1);
+        assert_eq!(fixture.state.pending_jobs.len(), 0);
         assert_eq!(fixture.downgrade_counter(job_a), 0);
         assert_eq!(fixture.jobs_to_retire.as_slice(), &[]);
         Ok(())
@@ -696,7 +698,7 @@ mod tests {
 
     #[test]
     fn promotion_discards_a_removed_pending_job() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         fixture.add_job(JOB_A, 1)?;
         fixture.add_job(JOB_B, 1)?;
         fixture.add_job(JOB_C, 1)?;
@@ -707,14 +709,14 @@ mod tests {
 
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_A, TaskId::Index(0))));
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_C, TaskId::Index(0))));
-        assert_eq!(fixture.unit.pending_jobs.len(), 0);
+        assert_eq!(fixture.state.pending_jobs.len(), 0);
         assert_eq!(fixture.jobs_to_retire.as_slice(), &[]);
         Ok(())
     }
 
     #[test]
     fn a_removed_active_job_is_swapped_out_for_a_pending_one() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         fixture.add_job(JOB_A, 1)?;
         fixture.add_job(JOB_B, 1)?;
         fixture
@@ -723,14 +725,14 @@ mod tests {
             .expect("the registered job is removed by its finalization");
 
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_B, TaskId::Index(0))));
-        assert_eq!(fixture.unit.active_jobs.len(), 1);
-        assert_eq!(fixture.unit.pending_jobs.len(), 0);
+        assert_eq!(fixture.state.active_jobs.len(), 1);
+        assert_eq!(fixture.state.pending_jobs.len(), 0);
         Ok(())
     }
 
     #[test]
     fn a_job_that_stops_producing_tasks_is_downgraded_and_then_retired() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         assert_eq!(fixture.downgrade_counter(job_a), DOWNGRADE_LIVES);
 
@@ -740,19 +742,19 @@ mod tests {
             Err(MakeAssignmentError::NoTask)
         );
         assert_eq!(fixture.downgrade_counter(job_a), 0);
-        assert_eq!(fixture.unit.active_jobs.len(), 0);
+        assert_eq!(fixture.state.active_jobs.len(), 0);
         assert_eq!(fixture.jobs_to_retire.as_slice(), &[]);
 
-        fixture.unit.apply_downgrades(&mut fixture.registry);
-        assert_eq!(fixture.unit.pending_jobs.len(), 1);
+        fixture.state.apply_downgrades(&mut fixture.registry);
+        assert_eq!(fixture.state.pending_jobs.len(), 1);
         assert_eq!(fixture.downgrade_counter(job_a), DOWNGRADE_LIVES);
 
         let mut jobs_to_retire = Vec::new();
         fixture
-            .unit
+            .state
             .promote_pending_jobs(&mut fixture.registry, &mut jobs_to_retire);
         assert_eq!(jobs_to_retire.as_slice(), &[]);
-        assert_eq!(fixture.unit.active_jobs.len(), 0);
+        assert_eq!(fixture.state.active_jobs.len(), 0);
         assert_eq!(fixture.downgrade_counter(job_a), 0);
 
         assert_eq!(
@@ -760,14 +762,14 @@ mod tests {
             Err(MakeAssignmentError::NoTask)
         );
         assert_eq!(fixture.jobs_to_retire.as_slice(), &[job_a]);
-        assert_eq!(fixture.unit.pending_jobs.len(), 0);
-        assert!(!fixture.unit.has_schedulable_task());
+        assert_eq!(fixture.state.pending_jobs.len(), 0);
+        assert!(!fixture.state.has_schedulable_task());
         Ok(())
     }
 
     #[test]
     fn an_arriving_task_restores_a_downgraded_job() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
 
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_A, TaskId::Index(0))));
@@ -775,15 +777,15 @@ mod tests {
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::NoTask)
         );
-        fixture.unit.apply_downgrades(&mut fixture.registry);
+        fixture.state.apply_downgrades(&mut fixture.registry);
 
         fixture.insert_tasks(job_a, vec![1]);
         let mut jobs_to_retire = Vec::new();
         fixture
-            .unit
+            .state
             .promote_pending_jobs(&mut fixture.registry, &mut jobs_to_retire);
         assert_eq!(jobs_to_retire.as_slice(), &[]);
-        assert_eq!(fixture.unit.active_jobs.len(), 1);
+        assert_eq!(fixture.state.active_jobs.len(), 1);
 
         assert_eq!(fixture.try_make(FREE_SPACE), Ok((JOB_A, TaskId::Index(1))));
         assert_eq!(fixture.downgrade_counter(job_a), DOWNGRADE_LIVES);
@@ -792,29 +794,29 @@ mod tests {
 
     #[test]
     fn a_rejected_publication_leaves_the_finalization_buffered() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         fixture.add_job(JOB_A, 1)?;
-        fixture.unit.push_finalization(JOB_B, FinalizeKind::Commit);
+        fixture.state.push_finalization(JOB_B, FinalizeKind::Commit);
         fixture.close_dispatch_queue();
 
         assert_eq!(
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::DispatchQueueClosed)
         );
-        assert_eq!(fixture.unit.num_buffered_finalizations(), (1, 0));
+        assert_eq!(fixture.state.num_buffered_finalizations(), (1, 0));
 
         assert_eq!(
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::DispatchQueueClosed)
         );
-        assert_eq!(fixture.unit.num_buffered_finalizations(), (1, 0));
-        assert!(fixture.unit.has_schedulable_task());
+        assert_eq!(fixture.state.num_buffered_finalizations(), (1, 0));
+        assert!(fixture.state.has_schedulable_task());
         Ok(())
     }
 
     #[test]
     fn a_rejected_publication_leaves_the_regular_task_buffered() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         let job_a = fixture.add_job(JOB_A, 1)?;
         fixture.close_dispatch_queue();
 
@@ -829,13 +831,13 @@ mod tests {
             Err(MakeAssignmentError::DispatchQueueClosed)
         );
         assert!(fixture.has_ready_task(job_a));
-        assert!(fixture.unit.has_schedulable_task());
+        assert!(fixture.state.has_schedulable_task());
         Ok(())
     }
 
     #[test]
     fn a_closed_broadcast_queue_fails_the_publication() -> anyhow::Result<()> {
-        let mut fixture = UnitFixture::new(1);
+        let mut fixture = StateFixture::new(1);
         fixture.add_job(JOB_A, 1)?;
         fixture.close_broadcast_queue();
 
