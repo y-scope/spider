@@ -295,6 +295,7 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
+    /// * `UNAUTHENTICATED` for an unknown resource group.
     /// * `FAILED_PRECONDITION` when the execution manager has already been reaped.
     /// * `INVALID_ARGUMENT` for an illegal execution manager ID.
     /// * `INTERNAL` for:
@@ -307,6 +308,16 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "ExecutionManagerLiveness";
         match error {
+            error @ StorageServerError::Db(DbError::ExternalResourceGroupNotFound(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Invalid resource group."
+                );
+                Status::unauthenticated("invalid resource group")
+            }
+
             error @ StorageServerError::Db(DbError::ExecutionManagerAlreadyDead(_)) => {
                 tracing::warn!(
                     error = % error,
@@ -801,11 +812,11 @@ impl<
         &self,
         request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
-        let ip_address = request.into_inner().unpack()?;
+        let (ip_address, external_resource_group_id) = request.into_inner().unpack()?;
         tracing::info!(% ip_address, "Execution manager registration request received.");
-        let em_id = self
+        let (em_id, resource_group_id) = self
             .inner
-            .register_execution_manager(ip_address)
+            .register_execution_manager(ip_address, external_resource_group_id.as_deref())
             .await
             .map_err(|error| {
                 self.execution_manager_liveness_service_error_handler(
@@ -817,7 +828,8 @@ impl<
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: em_id.get(),
                 session_id: self.inner.session_id(),
-                resource_group_id: None,
+                resource_group_id: resource_group_id
+                    .map(|resource_group_id| resource_group_id.get()),
             }),
         }))
     }
