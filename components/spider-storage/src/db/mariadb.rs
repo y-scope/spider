@@ -501,18 +501,42 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-    ) -> Result<ExecutionManagerId, DbError> {
+        external_resource_group_id: Option<&str>,
+    ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`ip_address`) VALUES (?);",
+            "INSERT INTO `{table}` (`ip_address`, `resource_group_id`) VALUES (?, ?);",
             table = EXECUTION_MANAGERS_TABLE_NAME,
         );
+        const SELECT_RESOURCE_GROUP_QUERY: &str = formatcp!(
+            "SELECT `id` FROM `{table}` WHERE `external_id` = ?;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
 
-        sqlx::query(INSERT_QUERY)
+        let resource_group_id = if let Some(external_resource_group_id) = external_resource_group_id
+        {
+            Some(
+                sqlx::query_scalar::<_, ResourceGroupId>(SELECT_RESOURCE_GROUP_QUERY)
+                    .bind(external_resource_group_id)
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or_else(|| {
+                        DbError::ExternalResourceGroupNotFound(
+                            external_resource_group_id.to_owned(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        let execution_manager_id = sqlx::query(INSERT_QUERY)
             .bind(ip_address.to_string())
+            .bind(resource_group_id)
             .execute(&self.pool)
             .await
             .map(|result| ExecutionManagerId::from(result.last_insert_id()))
-            .map_err(Into::into)
+            .map_err(DbError::from)?;
+        Ok((execution_manager_id, resource_group_id))
     }
 
     async fn update_execution_manager_heartbeat(
@@ -707,12 +731,16 @@ const fn execution_managers_creation_query() -> &'static str {
 CREATE TABLE IF NOT EXISTS `{EXECUTION_MANAGERS_TABLE_NAME}` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `ip_address` VARCHAR(45) NOT NULL,
+  `resource_group_id` BIGINT UNSIGNED,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `last_heartbeat_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `death_confirmed_at` TIMESTAMP NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  INDEX `execution_manager_liveness` (`state`, `last_heartbeat_at`)
+  INDEX `execution_manager_liveness` (`state`, `last_heartbeat_at`),
+  CONSTRAINT `execution_manager_resource_group` FOREIGN KEY (`resource_group_id`)
+    REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
 );",
         state_enum = ExecutionManagerState::as_mysql_enum_decl(),
         default_state = ExecutionManagerState::Alive.as_quoted_str(),
