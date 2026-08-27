@@ -641,7 +641,7 @@ impl<
     ///
     /// # Returns
     ///
-    /// The ID of the registered execution manager on success.
+    /// The ID of the registered execution manager and its resource group ID on success.
     ///
     /// # Errors
     ///
@@ -652,14 +652,20 @@ impl<
     pub async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-    ) -> Result<ExecutionManagerId, StorageServerError> {
-        let em_id = self.inner.db.register_execution_manager(ip_address).await?;
+        external_resource_group_id: Option<&str>,
+    ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), StorageServerError> {
+        let registration = self
+            .inner
+            .db
+            .register_execution_manager(ip_address, external_resource_group_id)
+            .await?;
         tracing::info!(
-            em_id = ? em_id,
+            em_id = ? registration.0,
+            rg_id = ? registration.1,
             ip = ? ip_address,
             "Execution manager registered.",
         );
-        Ok(em_id)
+        Ok(registration)
     }
 
     /// Updates the heartbeat of an execution manager.
@@ -1741,12 +1747,42 @@ mod tests {
     #[tokio::test]
     async fn register_execution_manager_returns_id() -> anyhow::Result<()> {
         let service = create_test_service();
-        assert!(
-            service
-                .register_execution_manager("127.0.0.1".parse()?)
-                .await
-                .is_ok()
-        );
+        let (_, resource_group_id) = service
+            .register_execution_manager("127.0.0.1".parse()?, None)
+            .await?;
+        assert_eq!(resource_group_id, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_execution_manager_resolves_resource_group() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let resource_group_id = service
+            .add_resource_group("external_123".to_owned(), Vec::new())
+            .await?;
+
+        let (_, registered_resource_group_id) = service
+            .register_execution_manager("127.0.0.1".parse()?, Some("external_123"))
+            .await?;
+
+        assert_eq!(registered_resource_group_id, Some(resource_group_id));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_execution_manager_rejects_unknown_resource_group() -> anyhow::Result<()> {
+        let service = create_test_service();
+
+        let result = service
+            .register_execution_manager("127.0.0.1".parse()?, Some("unknown"))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(StorageServerError::Db(
+                DbError::ExternalResourceGroupNotFound(_)
+            ))
+        ));
         Ok(())
     }
 
@@ -1815,8 +1851,9 @@ mod tests {
     async fn update_execution_manager_heartbeat_succeeds_for_registered_em() -> anyhow::Result<()> {
         let service = create_test_service();
         let em_id = service
-            .register_execution_manager("127.0.0.1".parse()?)
-            .await?;
+            .register_execution_manager("127.0.0.1".parse()?, None)
+            .await?
+            .0;
         service.update_execution_manager_heartbeat(em_id).await?;
         Ok(())
     }
