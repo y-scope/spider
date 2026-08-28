@@ -22,8 +22,8 @@ jobs:
     outputs:
       cpp_changed: "${{steps.filter.outputs.cpp_changed}}"
       python_changed: "${{steps.filter.outputs.python_changed}}"
-      rust_unit_tests_changed: "${{steps.filter.outputs.rust_unit_tests_changed}}"
-      rust_e2e_tests_changed: "${{steps.filter.outputs.rust_e2e_tests_changed}}"
+      rust_changed: "${{steps.filter.outputs.rust_changed}}"
+      huntsman_e2e_tests_required: "${{steps.filter.outputs.huntsman_e2e_tests_required}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
@@ -115,12 +115,22 @@ jobs:
       matrix:
         include:
           - platform: "linux/amd64"
-            runner: "${{vars.GH_RUNNER_LINUX_HEAVY_X64}}"
+            runner: &huntsman_runner_x64 >-
+              ${{
+                github.repository_owner == 'y-scope'
+                && fromJSON('["self-hosted","x64","ubuntu-noble","docker"]')
+                || 'ubuntu-24.04'
+              }}
             tag_suffix: "amd64"
           - platform: "linux/arm64"
-            runner: "${{vars.GH_RUNNER_LINUX_HEAVY_ARM64}}"
+            runner: &huntsman_runner_arm64 >-
+              ${{
+                github.repository_owner == 'y-scope'
+                && fromJSON('["self-hosted","arm64","ubuntu-noble","docker"]')
+                || 'ubuntu-24.04-arm'
+              }}
             tag_suffix: "arm64"
-    runs-on: "${{fromJSON(matrix.runner)}}"
+    runs-on: "${{matrix.runner}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
