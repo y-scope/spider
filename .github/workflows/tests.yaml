@@ -113,8 +113,6 @@ jobs:
     timeout-minutes: 90
     strategy:
       matrix:
-        arch: ["amd64", "arm64"]
-        # Map each architecture to its native runner.
         include:
           - platform: "linux/amd64"
             runner: "${{vars.GH_RUNNER_LINUX_HEAVY_X64}}"
