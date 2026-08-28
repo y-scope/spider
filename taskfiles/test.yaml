@@ -48,6 +48,8 @@ tasks:
         {{.SPIDER_STORAGE_PUBLISHED_PORT | default "50051"}}
       SPIDER_DATABASE_IMAGE_REF: >-
         {{.SPIDER_DATABASE_IMAGE_REF | default "mariadb:10.11.16"}}
+      SPIDER_WORKER_REPLICAS: "{{numCPU}}"
+      SPIDER_ENV_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e.env"
     dir: "{{.ROOT_DIR}}"
     deps: [":docker:build"]
     cmds:
@@ -57,15 +59,24 @@ tasks:
           CARGO_LIBRARY_NAME: "nn"
           TDL_PACKAGE_NAME: "nn"
       - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
+      - |-
+        cat > "{{.SPIDER_ENV_FILE}}" << 'EOF'
+        SPIDER_STORAGE_PUBLISHED_PORT={{.SPIDER_STORAGE_PUBLISHED_PORT}}
+        SPIDER_DATABASE_IMAGE_REF={{.SPIDER_DATABASE_IMAGE_REF}}
+        SPIDER_WORKER_REPLICAS={{.SPIDER_WORKER_REPLICAS}}
+        SPIDER_SCHEDULER_ROUND_ROBIN_DISPATCH_QUEUE_CAPACITY={{mul .SPIDER_WORKER_REPLICAS 4}}
+        SPIDER_SCHEDULER_ROUND_ROBIN_TICK_INTERVAL_MS=1
+        SPIDER_WORKER_SCHEDULER_POLL_WAIT_MS=1
+        EOF
+      - defer: "rm {{.SPIDER_ENV_FILE}}"
       - defer:
           # Register cleanup in advance so a partially created Compose deployment is removed if
           # `docker:compose:local:up` fails.
           task: ":docker:compose:local:clean"
       - task: ":docker:compose:local:up"
         vars:
+          SPIDER_ENV_FILE: "{{.SPIDER_ENV_FILE}}"
           SPIDER_PULL_POLICY: "never"
-          SPIDER_STORAGE_PUBLISHED_PORT: "{{.SPIDER_STORAGE_PUBLISHED_PORT}}"
-          SPIDER_DATABASE_IMAGE_REF: "{{.SPIDER_DATABASE_IMAGE_REF}}"
           SPIDER_STORAGE_IMAGE_REF:
             sh: "cat '{{.G_BUILD_DIR}}/spider-storage-image.id'"
           SPIDER_SCHEDULER_IMAGE_REF:
