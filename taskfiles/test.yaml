@@ -50,6 +50,9 @@ tasks:
         {{.SPIDER_DATABASE_IMAGE_REF | default "mariadb:10.11.16"}}
       SPIDER_WORKER_REPLICAS: "{{numCPU}}"
       SPIDER_ENV_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e.env"
+      SPIDER_ENDPOINT_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e-spider-endpoint"
+      SPIDER_COMPOSE_NETWORK: "spider-local_default"
+      SPIDER_STORAGE_PORT: "50051"
     dir: "{{.ROOT_DIR}}"
     deps: [":docker:build"]
     cmds:
@@ -84,14 +87,19 @@ tasks:
           SPIDER_WORKER_IMAGE_REF:
             sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
           SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
+      - >-
+        tools/scripts/docker/resolve-huntsman-e2e-endpoint.py connect
+          --network "{{.SPIDER_COMPOSE_NETWORK}}"
+          --storage-port "{{.SPIDER_STORAGE_PORT}}"
+          --published-port "{{.SPIDER_STORAGE_PUBLISHED_PORT}}"
+        > "{{.SPIDER_ENDPOINT_FILE}}"
       - defer: >-
-          ./tools/scripts/docker/resolve-huntsman-e2e-endpoint.sh disconnect spider-local_default
+          tools/scripts/docker/resolve-huntsman-e2e-endpoint.py disconnect
+            --network "{{.SPIDER_COMPOSE_NETWORK}}"
+      - defer: "rm {{.SPIDER_ENDPOINT_FILE}}"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        SPIDER_ENDPOINT="$(
-          ./tools/scripts/docker/resolve-huntsman-e2e-endpoint.sh connect spider-local_default \
-            50051 {{.SPIDER_STORAGE_PUBLISHED_PORT}}
-        )" \
+        SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')" \
         SPIDER_CONCURRENCY="8" \
           cargo nextest run --release --package e2e --test nn -- --nocapture
 
