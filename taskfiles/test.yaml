@@ -7,6 +7,8 @@ vars:
   G_UNIT_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/wolf/unitTest"
   G_TEST_VENV_DIR: "{{.G_BUILD_DIR}}/test-venv"
   G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
+  G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
+  G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
 
   # MariaDB testing config
   G_MARIADB_DATABASE: "spider-db"
@@ -39,6 +41,67 @@ tasks:
       - task: "huntsman-mariadb-storage-task-executor"
         vars:
           STORAGE_TASK: "spider-huntsman-unit-tests-executor"
+
+  huntsman-e2e-tests:
+    vars:
+      SPIDER_STORAGE_PUBLISHED_PORT: >-
+        {{.SPIDER_STORAGE_PUBLISHED_PORT | default "50051"}}
+      SPIDER_DATABASE_IMAGE_REF: >-
+        {{.SPIDER_DATABASE_IMAGE_REF | default "mariadb:10.11.16"}}
+      SPIDER_WORKER_REPLICAS: "{{numCPU}}"
+      SPIDER_ENV_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e.env"
+      SPIDER_ENDPOINT_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e-spider-endpoint"
+      SPIDER_COMPOSE_NETWORK: "spider-local_default"
+      SPIDER_STORAGE_PORT: "50051"
+    dir: "{{.ROOT_DIR}}"
+    deps: [":docker:build"]
+    cmds:
+      - task: "build-and-stage-huntsman-tdl-package"
+        vars:
+          CARGO_PACKAGE_NAME: "huntsman-nn-tasks"
+          CARGO_LIBRARY_NAME: "nn"
+          TDL_PACKAGE_NAME: "nn"
+      - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
+      - |-
+        cat > "{{.SPIDER_ENV_FILE}}" << 'EOF'
+        SPIDER_STORAGE_PUBLISHED_PORT={{.SPIDER_STORAGE_PUBLISHED_PORT}}
+        SPIDER_DATABASE_IMAGE_REF={{.SPIDER_DATABASE_IMAGE_REF}}
+        SPIDER_WORKER_REPLICAS={{.SPIDER_WORKER_REPLICAS}}
+        SPIDER_SCHEDULER_ROUND_ROBIN_DISPATCH_QUEUE_CAPACITY={{mul .SPIDER_WORKER_REPLICAS 4}}
+        SPIDER_SCHEDULER_ROUND_ROBIN_TICK_INTERVAL_MS=1
+        SPIDER_WORKER_SCHEDULER_POLL_WAIT_MS=1
+        EOF
+      - defer: "rm {{.SPIDER_ENV_FILE}}"
+      - defer:
+          # Register cleanup in advance so a partially created Compose deployment is removed if
+          # `docker:compose:local:up` fails.
+          task: ":docker:compose:local:clean"
+      - task: ":docker:compose:local:up"
+        vars:
+          SPIDER_ENV_FILE: "{{.SPIDER_ENV_FILE}}"
+          SPIDER_PULL_POLICY: "never"
+          SPIDER_STORAGE_IMAGE_REF:
+            sh: "cat '{{.G_BUILD_DIR}}/spider-storage-image.id'"
+          SPIDER_SCHEDULER_IMAGE_REF:
+            sh: "cat '{{.G_BUILD_DIR}}/spider-scheduler-image.id'"
+          SPIDER_WORKER_IMAGE_REF:
+            sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
+          SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
+      - >-
+        tools/scripts/docker/resolve-huntsman-e2e-endpoint.py connect \
+          --network "{{.SPIDER_COMPOSE_NETWORK}}" \
+          --storage-port "{{.SPIDER_STORAGE_PORT}}" \
+          --published-port "{{.SPIDER_STORAGE_PUBLISHED_PORT}}" \
+        > "{{.SPIDER_ENDPOINT_FILE}}"
+      - defer: >-
+          tools/scripts/docker/resolve-huntsman-e2e-endpoint.py disconnect \
+            --network "{{.SPIDER_COMPOSE_NETWORK}}"
+      - defer: "rm {{.SPIDER_ENDPOINT_FILE}}"
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')" \
+        SPIDER_CONCURRENCY="8" \
+          cargo nextest run --release --package e2e --test nn -- --nocapture
 
   build-unit-test:
     internal: true
@@ -211,12 +274,6 @@ tasks:
   # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
   spider-huntsman-unit-tests-executor:
     internal: true
-    vars:
-      # TDL packages are staged under `${G_TDL_PACKAGES_DIR}/<package_name>/lib<package_name>.so`
-      # so that the `spider-task-executor` binary can resolve them via the on-disk layout it
-      # documents.
-      G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
-      G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
     env:
       MARIADB_PORT: "{{.MARIADB_PORT}}"
       MARIADB_DATABASE: "{{.MARIADB_DATABASE}}"
@@ -239,15 +296,18 @@ tasks:
     cmds:
       - "mkdir -p ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
       - defer: "rm -rf ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}"
+      - task: "build-and-stage-huntsman-tdl-package"
+        vars:
+          CARGO_PACKAGE_NAME: "huntsman-complex"
+          CARGO_LIBRARY_NAME: "huntsman_complex"
+          TDL_PACKAGE_NAME: "complex"
+      - task: "build-and-stage-huntsman-tdl-package"
+        vars:
+          CARGO_PACKAGE_NAME: "integration-test-tasks"
+          CARGO_LIBRARY_NAME: "integration_test_tasks"
+          TDL_PACKAGE_NAME: "integration_test_tasks"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        cargo build --release --workspace --all-features
-        mkdir -p "{{.G_TDL_PACKAGES_DIR}}/complex" \
-                 "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks"
-        cp "{{.G_RUST_RELEASE_DIR}}/libhuntsman_complex.so" \
-           "{{.G_TDL_PACKAGES_DIR}}/complex/libcomplex.so"
-        cp "{{.G_RUST_RELEASE_DIR}}/libintegration_test_tasks.so" \
-           "{{.G_TDL_PACKAGES_DIR}}/integration_test_tasks/libintegration_test_tasks.so"
         cargo nextest run --all --all-features --run-ignored all --release
       - |-
         for f in ${SPIDER_TEST_INSTRUMENT_OUTPUT_DIR}/*; do
@@ -257,3 +317,23 @@ tasks:
             echo ""
           fi
         done
+
+  # Builds and stages a Huntsman TDL package library in the task executor's package layout.
+  #
+  # @param {string} CARGO_PACKAGE_NAME The Cargo package that builds the library.
+  # @param {string} CARGO_LIBRARY_NAME The Cargo library target name.
+  # @param {string} TDL_PACKAGE_NAME The TDL package name.
+  build-and-stage-huntsman-tdl-package:
+    internal: true
+    requires:
+      vars: ["CARGO_PACKAGE_NAME", "CARGO_LIBRARY_NAME", "TDL_PACKAGE_NAME"]
+    deps: ["toolchains:rust"]
+    cmds:
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        cargo build --release --package '{{.CARGO_PACKAGE_NAME}}'
+      - "mkdir -p '{{.G_TDL_PACKAGES_DIR}}/{{.TDL_PACKAGE_NAME}}'"
+      - >-
+        cp
+        '{{.G_RUST_RELEASE_DIR}}/lib{{.CARGO_LIBRARY_NAME}}.so'
+        '{{.G_TDL_PACKAGES_DIR}}/{{.TDL_PACKAGE_NAME}}/lib{{.TDL_PACKAGE_NAME}}.so'
