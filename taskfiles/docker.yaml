@@ -55,15 +55,23 @@ tasks:
   # Starts a local Docker Compose deployment with the library directory mounted
   # into every worker.
   #
-  # NOTE: Users can override image refs for each service; when unset, each defaults to
-  # `ghcr.io/y-scope/spider/<service>:${SPIDER_IMAGE_TAG:-main}`.
+  # NOTE:
   #
+  # * Users can override image refs for each service; when unset, each defaults to
+  #   `ghcr.io/y-scope/spider/<service>:${SPIDER_IMAGE_TAG:-main}`.
+  # * Values in the `env` section take precedence over those loaded from the dotenv file.
+  #
+  # @param {string} SPIDER_ENV_FILE An absolute path to a dotenv file to load into the deployment's
+  # environment. If not set, no dotenv file is loaded.
   # @param {string} SPIDER_PULL_POLICY The image pull policy. If not set, default to "always".
   # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
   # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
   # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
   compose:local:up:
+    dotenv:
+      - >-
+        {{.SPIDER_ENV_FILE | default "/dev/null"}}
     env:
       SPIDER_PULL_POLICY: "{{.SPIDER_PULL_POLICY}}"
       SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
