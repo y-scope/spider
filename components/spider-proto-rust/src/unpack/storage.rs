@@ -171,6 +171,12 @@ impl RequestUnpack for RegisterExecutionManagerRequest {
     type Unpacked = IpAddr;
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        if self.external_resource_group_id.is_some() {
+            return Err(UnpackError {
+                code: Code::Unimplemented,
+                message: "`external_resource_group_id` is not supported yet".to_owned(),
+            });
+        }
         self.ip_address
             .parse::<IpAddr>()
             .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))
