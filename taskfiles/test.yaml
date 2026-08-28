@@ -84,9 +84,14 @@ tasks:
           SPIDER_WORKER_IMAGE_REF:
             sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
           SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
+      - defer: >-
+          ./tools/scripts/docker/resolve-huntsman-e2e-endpoint.sh disconnect spider-local_default
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
-        SPIDER_ENDPOINT="http://127.0.0.1:{{.SPIDER_STORAGE_PUBLISHED_PORT}}" \
+        SPIDER_ENDPOINT="$(
+          ./tools/scripts/docker/resolve-huntsman-e2e-endpoint.sh connect spider-local_default \
+            50051 {{.SPIDER_STORAGE_PUBLISHED_PORT}}
+        )" \
         SPIDER_CONCURRENCY="8" \
           cargo nextest run --release --package e2e --test nn -- --nocapture
 
