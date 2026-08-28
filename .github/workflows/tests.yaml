@@ -81,7 +81,7 @@ jobs:
     if: >-
       github.event_name == 'schedule'
       || github.event_name == 'workflow_dispatch'
-      || needs.filter-relevant-changes.outputs.rust_unit_tests_changed == 'true'
+      || needs.filter-relevant-changes.outputs.rust_changed == 'true'
     strategy:
       matrix:
         os: ["ubuntu-22.04", "ubuntu-22.04-arm", "ubuntu-24.04", "ubuntu-24.04-arm"]
@@ -109,7 +109,7 @@ jobs:
     if: >-
       github.event_name == 'schedule'
       || github.event_name == 'workflow_dispatch'
-      || needs.filter-relevant-changes.outputs.rust_e2e_tests_changed == 'true'
+      || needs.filter-relevant-changes.outputs.huntsman_e2e_tests_required == 'true'
     timeout-minutes: 90
     strategy:
       matrix:

@@ -16,11 +16,8 @@ outputs:
   rust_changed:
     description: "Whether Rust related files have changed."
     value: "${{steps.paths-filter.outputs.rust}}"
-  rust_unit_tests_changed:
-    description: "Whether Rust unit-test related files have changed."
-    value: "${{steps.paths-filter.outputs.rust_unit_tests}}"
-  rust_e2e_tests_changed:
-    description: "Whether Rust end-to-end-test related files have changed."
+  huntsman_e2e_tests_required:
+    description: "Whether Huntsman end-to-end-test needs to run."
     value: "${{steps.paths-filter.outputs.rust_e2e_tests}}"
 
 runs:
@@ -67,14 +64,6 @@ runs:
             - *_rust_common
             - "examples/huntsman/**"
             - "tests/huntsman/**"
-          rust_unit_tests:
-            - *_rust_common
-            - "examples/huntsman/**"
-            - "tests/huntsman/em-runtime/**"
-            - "tests/huntsman/integration-test-tasks/**"
-            - "tests/huntsman/task-executor/**"
-            - "tests/huntsman/tdl-integration/**"
-            - "tests/huntsman/test-utils/**"
           rust_e2e_tests:
             - *_rust_common
             - "examples/huntsman/nn/**"
