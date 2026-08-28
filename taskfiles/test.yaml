@@ -88,13 +88,13 @@ tasks:
             sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
           SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
       - >-
-        tools/scripts/docker/resolve-huntsman-e2e-endpoint.py connect
-          --network "{{.SPIDER_COMPOSE_NETWORK}}"
-          --storage-port "{{.SPIDER_STORAGE_PORT}}"
-          --published-port "{{.SPIDER_STORAGE_PUBLISHED_PORT}}"
+        tools/scripts/docker/resolve-huntsman-e2e-endpoint.py connect \
+          --network "{{.SPIDER_COMPOSE_NETWORK}}" \
+          --storage-port "{{.SPIDER_STORAGE_PORT}}" \
+          --published-port "{{.SPIDER_STORAGE_PUBLISHED_PORT}}" \
         > "{{.SPIDER_ENDPOINT_FILE}}"
       - defer: >-
-          tools/scripts/docker/resolve-huntsman-e2e-endpoint.py disconnect
+          tools/scripts/docker/resolve-huntsman-e2e-endpoint.py disconnect \
             --network "{{.SPIDER_COMPOSE_NETWORK}}"
       - defer: "rm {{.SPIDER_ENDPOINT_FILE}}"
       - |-
