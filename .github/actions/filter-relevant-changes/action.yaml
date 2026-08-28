@@ -18,7 +18,7 @@ outputs:
     value: "${{steps.paths-filter.outputs.rust}}"
   huntsman_e2e_tests_required:
     description: "Whether Huntsman end-to-end-test needs to run."
-    value: "${{steps.paths-filter.outputs.rust_e2e_tests}}"
+    value: "${{steps.paths-filter.outputs.huntsman_e2e_tests}}"
 
 runs:
   using: "composite"
@@ -64,7 +64,7 @@ runs:
             - *_rust_common
             - "examples/huntsman/**"
             - "tests/huntsman/**"
-          rust_e2e_tests:
+          huntsman_e2e_tests:
             - *_rust_common
             - "examples/huntsman/nn/**"
             - "tests/huntsman/e2e/**"
