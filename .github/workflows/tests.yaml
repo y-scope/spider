@@ -147,4 +147,16 @@ jobs:
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
+      # Registry `src/` is excluded: cargo regenerates it locally from `registry/cache` without
+      # a network fetch, so caching it just adds size for no benefit.
+      - uses: "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"  # v6.1.0
+        with:
+          path: |-
+            build/rust-targets
+            build/toolchains/rust/.cargo/registry/cache
+            build/toolchains/rust/.cargo/registry/index
+          key: "huntsman-e2e-${{matrix.tag_suffix}}-${{hashFiles('Cargo.lock')}}"
+          restore-keys: |-
+            huntsman-e2e-${{matrix.tag_suffix}}-
+
       - run: "task test:huntsman-e2e-tests"
