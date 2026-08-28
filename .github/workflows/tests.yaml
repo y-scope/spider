@@ -113,14 +113,14 @@ jobs:
     timeout-minutes: 90
     strategy:
       matrix:
-        arch: ["amd64", "arm64"]
-        # Map each architecture to its native runner.
         include:
-          - arch: "amd64"
-            runner: "ubuntu-22.04"
-          - arch: "arm64"
-            runner: "ubuntu-22.04-arm"
-    runs-on: ["self-hosted", "linux", "${{matrix.runner}}"]
+          - platform: "linux/amd64"
+            runner: "${{vars.GH_RUNNER_LINUX_HEAVY_X64}}"
+            tag_suffix: "amd64"
+          - platform: "linux/arm64"
+            runner: "${{vars.GH_RUNNER_LINUX_HEAVY_ARM64}}"
+            tag_suffix: "arm64"
+    runs-on: "${{fromJSON(matrix.runner)}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
         with:
