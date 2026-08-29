@@ -166,20 +166,22 @@ impl RequestUnpack for VerifyResourceGroupRequest {
     }
 }
 
-/// Unpacks [`RegisterExecutionManagerRequest`] into the execution manager's IP address.
+/// Unpacks [`RegisterExecutionManagerRequest`] into a tuple containing:
+///
+/// * The execution manager's IP address.
+/// * The external resource group credentials, if present.
 impl RequestUnpack for RegisterExecutionManagerRequest {
-    type Unpacked = IpAddr;
+    type Unpacked = (IpAddr, Option<(String, Vec<u8>)>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        if self.external_resource_group_id.is_some() {
-            return Err(UnpackError {
-                code: Code::Unimplemented,
-                message: "`external_resource_group_id` is not supported yet".to_owned(),
-            });
-        }
-        self.ip_address
+        let ip_address = self
+            .ip_address
             .parse::<IpAddr>()
-            .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))
+            .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))?;
+        let resource_group_credentials = self
+            .resource_group_credentials
+            .map(|credentials| (credentials.external_resource_group_id, credentials.password));
+        Ok((ip_address, resource_group_credentials))
     }
 }
 
