@@ -31,14 +31,14 @@ tasks:
     requires:
       vars: ["OCI_REFERENCE"]
     deps: ["compose:validate"]
-    dir: "{{.G_SPIDER_COMPOSE_DIR}}/.."
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: >-
       oras push
       --artifact-type "application/vnd.yscope.spider.compose"
       '{{.OCI_REFERENCE}}'
-      "spider-compose/compose.yaml:application/yaml"
-      "spider-compose/configs/:application/vnd.yscope.spider.compose.configs.tar"
-      "spider-compose/.env.example:text/plain"
+      "compose.yaml:application/yaml"
+      "configs/:application/vnd.yscope.spider.compose.configs.tar"
+      ".env.example:text/plain"
 
   compose:up:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
@@ -51,3 +51,51 @@ tasks:
   compose:clean:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: "docker compose --file compose.yaml down --volumes --remove-orphans"
+
+  # Starts a local Docker Compose deployment with the library directory mounted
+  # into every worker.
+  #
+  # NOTE:
+  #
+  # * Users can override image refs for each service; when unset, each defaults to
+  #   `ghcr.io/y-scope/spider/<service>:${SPIDER_IMAGE_TAG:-main}`.
+  # * Values in the `env` section take precedence over those loaded from the dotenv file.
+  #
+  # @param {string} SPIDER_ENV_FILE An absolute path to a dotenv file to load into the deployment's
+  # environment. If not set, no dotenv file is loaded.
+  # @param {string} SPIDER_PULL_POLICY The image pull policy. If not set, default to "always".
+  # @param {string} SPIDER_STORAGE_IMAGE_REF The storage image reference.
+  # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
+  # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
+  # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
+  compose:local:up:
+    dotenv:
+      - >-
+        {{.SPIDER_ENV_FILE | default "/dev/null"}}
+    env:
+      SPIDER_PULL_POLICY: "{{.SPIDER_PULL_POLICY}}"
+      SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
+      SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
+      SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
+      SPIDER_WORKER_LIBRARY_DIR: >-
+        {{- if .SPIDER_WORKER_LIBRARY_DIR}}
+          {{- if osIsAbs .SPIDER_WORKER_LIBRARY_DIR}}
+            {{- osClean .SPIDER_WORKER_LIBRARY_DIR}}
+          {{- else}}
+            {{- joinPath .ROOT_DIR .SPIDER_WORKER_LIBRARY_DIR}}
+          {{- end}}
+        {{- end}}
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: >-
+      docker compose --project-name spider-local --file compose.yaml
+      --file compose.local.yaml up --detach --wait --wait-timeout 300
+
+  compose:local:down:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: "docker compose --project-name spider-local --file compose.yaml down"
+
+  compose:local:clean:
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: >-
+      docker compose --project-name spider-local --file compose.yaml down
+      --volumes --remove-orphans

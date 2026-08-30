@@ -55,10 +55,9 @@ impl MariaDbStorageConnector {
     ///
     /// * Forwards [`sqlx::mysql::MySqlPoolOptions::connect`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
-    /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, DbError> {
         const BUMP_SESSION_ID_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` () VALUES () RETURNING `session_id`;",
+            "INSERT INTO `{table}` () VALUES ();",
             table = SESSIONS_TABLE_NAME,
         );
 
@@ -91,9 +90,12 @@ impl MariaDbStorageConnector {
             .execute(&pool)
             .await?;
 
-        let session_id = sqlx::query_scalar::<_, SessionId>(BUMP_SESSION_ID_QUERY)
-            .fetch_one(&pool)
-            .await?;
+        let session_id = SessionId::from(
+            sqlx::query(BUMP_SESSION_ID_QUERY)
+                .execute(&pool)
+                .await?
+                .last_insert_id(),
+        );
 
         Ok(Self { pool, session_id })
     }
@@ -108,18 +110,18 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
-             `compressed_serialized_job_inputs`) VALUES (?, ?, ?) RETURNING `id`;",
+             `compressed_serialized_job_inputs`) VALUES (?, ?, ?);",
             table = JOBS_TABLE_NAME,
         );
 
         let compressed_serialized_task_graph = job_submission.compressed_serialized_task_graph();
         let compressed_serialized_job_inputs = job_submission.compressed_serialized_job_inputs();
 
-        let job_id: JobId = sqlx::query_scalar(INSERT_QUERY)
+        let job_id = sqlx::query(INSERT_QUERY)
             .bind(resource_group_id)
             .bind(compressed_serialized_task_graph)
             .bind(compressed_serialized_job_inputs)
-            .fetch_one(&self.pool)
+            .execute(&self.pool)
             .await
             .map_err(|e| match e {
                 sqlx::Error::Database(e)
@@ -129,8 +131,9 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                     DbError::ResourceGroupNotFound(resource_group_id)
                 }
                 e => e.into(),
-            })?;
-        Ok(job_id)
+            })?
+            .last_insert_id();
+        Ok(JobId::from(job_id))
     }
 
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
@@ -432,14 +435,14 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         password: Vec<u8>,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) RETURNING `id`;",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?);",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let resource_group_id = sqlx::query_scalar(QUERY)
+        let resource_group_id = sqlx::query(QUERY)
             .bind(&external_resource_group_id)
             .bind(password)
-            .fetch_one(&self.pool)
+            .execute(&self.pool)
             .await
             .map_err(|e| match e {
                 sqlx::Error::Database(e)
@@ -449,9 +452,10 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
                     DbError::ResourceGroupAlreadyExists(external_resource_group_id)
                 }
                 e => e.into(),
-            })?;
+            })?
+            .last_insert_id();
 
-        Ok(resource_group_id)
+        Ok(ResourceGroupId::from(resource_group_id))
     }
 
     async fn verify(
@@ -499,14 +503,15 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         ip_address: IpAddr,
     ) -> Result<ExecutionManagerId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`ip_address`) VALUES (?) RETURNING `id`;",
+            "INSERT INTO `{table}` (`ip_address`) VALUES (?);",
             table = EXECUTION_MANAGERS_TABLE_NAME,
         );
 
-        sqlx::query_scalar(INSERT_QUERY)
+        sqlx::query(INSERT_QUERY)
             .bind(ip_address.to_string())
-            .fetch_one(&self.pool)
+            .execute(&self.pool)
             .await
+            .map(|result| ExecutionManagerId::from(result.last_insert_id()))
             .map_err(Into::into)
     }
 
@@ -586,19 +591,20 @@ impl SchedulerRegistrationManagement for MariaDbStorageConnector {
         const DELETE_QUERY: &str =
             formatcp!("DELETE FROM `{table}`;", table = SCHEDULERS_TABLE_NAME,);
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`host`, `port`) VALUES (?, ?) RETURNING `id`;",
+            "INSERT INTO `{table}` (`host`, `port`) VALUES (?, ?);",
             table = SCHEDULERS_TABLE_NAME,
         );
 
         let mut tx = self.pool.begin().await?;
         sqlx::query(DELETE_QUERY).execute(&mut *tx).await?;
-        let scheduler_id = sqlx::query_scalar(INSERT_QUERY)
+        let scheduler_id = sqlx::query(INSERT_QUERY)
             .bind(host)
             .bind(port)
-            .fetch_one(&mut *tx)
-            .await?;
+            .execute(&mut *tx)
+            .await?
+            .last_insert_id();
         tx.commit().await?;
-        Ok(scheduler_id)
+        Ok(SchedulerId::from(scheduler_id))
     }
 
     async fn get_schedulers(&self) -> Result<Vec<RegisteredScheduler>, DbError> {

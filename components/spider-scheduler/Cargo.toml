@@ -15,7 +15,9 @@ path = "src/bin/grpc_server.rs"
 async-channel = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
+dashmap = { workspace = true }
 serde = { workspace = true }
+slotmap = { workspace = true }
 spider-core = { workspace = true }
 spider-proto-rust = { workspace = true }
 spider-utils = { workspace = true }
@@ -30,7 +32,6 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-dashmap = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util = { workspace = true, features = ["rt"] }

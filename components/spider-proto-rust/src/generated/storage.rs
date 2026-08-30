@@ -152,9 +152,20 @@ pub struct VerifyResourceGroupRequest {
     pub password: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalResourceGroupCredentials {
+    #[prost(string, tag = "1")]
+    pub external_resource_group_id: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "2")]
+    pub password: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterExecutionManagerRequest {
     #[prost(string, tag = "1")]
     pub ip_address: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub resource_group_credentials: ::core::option::Option<
+        ExternalResourceGroupCredentials,
+    >,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ExecutionManagerIdRequest {
@@ -167,6 +178,8 @@ pub struct ExecutionManagerRegistration {
     pub execution_manager_id: u64,
     #[prost(uint64, tag = "2")]
     pub session_id: u64,
+    #[prost(uint64, optional, tag = "3")]
+    pub resource_group_id: ::core::option::Option<u64>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterExecutionManagerResponse {

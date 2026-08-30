@@ -7,6 +7,8 @@ pub struct NextTaskRequest {
     pub prev_assignment: ::core::option::Option<TaskAssignmentRecord>,
     #[prost(uint64, tag = "3")]
     pub wait_time_ms: u64,
+    #[prost(uint64, optional, tag = "4")]
+    pub resource_group_id: ::core::option::Option<u64>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct NextTaskResponse {

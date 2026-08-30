@@ -67,6 +67,7 @@ semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serial_test = { version = "3.5.0", features = ["file_locks"] }
+slotmap = "1.1.1"
 spider-client = { path = "components/spider-client" }
 spider-core = { path = "components/spider-core" }
 spider-derive = { path = "components/spider-derive" }
