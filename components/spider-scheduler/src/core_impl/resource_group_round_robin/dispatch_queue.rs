@@ -144,7 +144,7 @@ impl Hint {
     }
 }
 
-/// The writer side of one resource group's dispatch queue, owned by the group's scheduling unit.
+/// The writer side of one resource group's dispatch queue, owned by the group's scheduling state.
 #[derive(Debug)]
 pub(super) struct RgDispatchQueueWriter {
     sender: async_channel::Sender<TaskAssignment>,
@@ -313,6 +313,33 @@ impl DispatchQueueRegistry {
         while self.inner.broadcast_receiver.try_recv().is_ok() {}
     }
 
+    /// Closes the broadcast queue, so that every later hint publication is rejected.
+    ///
+    /// No production path closes the queue; this exists so that a test can drive the core into the
+    /// failure the closure represents.
+    #[cfg(test)]
+    pub(super) fn close_broadcast_queue(&self) {
+        self.inner.broadcast_sender.close();
+    }
+
+    /// Closes `rg_id`'s dispatch queue, creating the group if it has none, so that every later
+    /// publication into it is rejected.
+    ///
+    /// No production path closes a group's queue on its own; this exists so that a test can drive
+    /// the core into the failure the closure represents.
+    #[cfg(test)]
+    pub(super) fn close_dispatch_queue(&self, rg_id: ResourceGroupId) {
+        self.get_or_create(rg_id).sender.close();
+    }
+
+    /// # Returns
+    ///
+    /// The number of hints waiting in the broadcast queue.
+    #[cfg(test)]
+    pub(super) fn num_outstanding_hints(&self) -> usize {
+        self.inner.broadcast_receiver.len()
+    }
+
     /// # Returns
     ///
     /// Both ends of `rg_id`'s dispatch queue, creating the group if it has none.
@@ -339,7 +366,7 @@ impl DispatchQueueRegistry {
 /// Both ends of one resource group's dispatch queue.
 #[derive(Clone, Debug)]
 struct RgDispatchQueueEndpoints {
-    /// The write side, from which the core builds the group's scheduling unit.
+    /// The write side, from which the core builds the group's scheduling state.
     sender: async_channel::Sender<TaskAssignment>,
 
     /// The read side, cloned into every execution manager request that touches the group.
