@@ -652,12 +652,12 @@ impl<
     pub async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        external_resource_group_id: Option<&str>,
+        resource_group_credentials: Option<(&str, &[u8])>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), StorageServerError> {
         let registration = self
             .inner
             .db
-            .register_execution_manager(ip_address, external_resource_group_id)
+            .register_execution_manager(ip_address, resource_group_credentials)
             .await?;
         tracing::info!(
             em_id = ? registration.0,
@@ -1757,12 +1757,16 @@ mod tests {
     #[tokio::test]
     async fn register_execution_manager_resolves_resource_group() -> anyhow::Result<()> {
         let service = create_test_service();
+        let password = b"password";
         let resource_group_id = service
-            .add_resource_group("external_123".to_owned(), Vec::new())
+            .add_resource_group("external_123".to_owned(), password.to_vec())
             .await?;
 
         let (_, registered_resource_group_id) = service
-            .register_execution_manager("127.0.0.1".parse()?, Some("external_123"))
+            .register_execution_manager(
+                "127.0.0.1".parse()?,
+                Some(("external_123", password.as_slice())),
+            )
             .await?;
 
         assert_eq!(registered_resource_group_id, Some(resource_group_id));
@@ -1774,7 +1778,7 @@ mod tests {
         let service = create_test_service();
 
         let result = service
-            .register_execution_manager("127.0.0.1".parse()?, Some("unknown"))
+            .register_execution_manager("127.0.0.1".parse()?, Some(("unknown", b"password")))
             .await;
 
         assert!(matches!(
@@ -1782,6 +1786,27 @@ mod tests {
             Err(StorageServerError::Db(
                 DbError::ExternalResourceGroupNotFound(_)
             ))
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn register_execution_manager_rejects_invalid_password() -> anyhow::Result<()> {
+        let service = create_test_service();
+        service
+            .add_resource_group("external_123".to_owned(), b"password".to_vec())
+            .await?;
+
+        let result = service
+            .register_execution_manager(
+                "127.0.0.1".parse()?,
+                Some(("external_123", b"wrong-password")),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(StorageServerError::Db(DbError::InvalidPassword(_)))
         ));
         Ok(())
     }

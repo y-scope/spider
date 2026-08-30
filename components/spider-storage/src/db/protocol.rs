@@ -350,8 +350,8 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     /// # Parameters
     ///
     /// * `ip_address` - The execution manager IP address.
-    /// * `external_resource_group_id` - The external ID of the resource group to bind the execution
-    ///   manager to, or [`None`] for a general execution manager.
+    /// * `resource_group_credentials` - The external ID and password of the resource group to bind
+    ///   the execution manager to, or [`None`] for a general execution manager.
     ///
     /// # Returns
     ///
@@ -361,12 +361,14 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::ExternalResourceGroupNotFound`] if `external_resource_group_id` does not exist.
+    /// * [`DbError::ExternalResourceGroupNotFound`] if the external resource group ID does not
+    ///   exist.
+    /// * [`DbError::InvalidPassword`] if the resource group password is incorrect.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        external_resource_group_id: Option<&str>,
+        resource_group_credentials: Option<(&str, &[u8])>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError>;
 
     /// Updates the heartbeat of an alive execution manager.

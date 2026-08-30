@@ -501,7 +501,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        external_resource_group_id: Option<&str>,
+        resource_group_credentials: Option<(&str, &[u8])>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`ip_address`, `resource_group_id`) VALUES (?, ?);",
@@ -512,22 +512,23 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let resource_group_id = if let Some(external_resource_group_id) = external_resource_group_id
-        {
-            Some(
-                sqlx::query_scalar::<_, ResourceGroupId>(SELECT_RESOURCE_GROUP_QUERY)
-                    .bind(external_resource_group_id)
-                    .fetch_optional(&self.pool)
-                    .await?
-                    .ok_or_else(|| {
-                        DbError::ExternalResourceGroupNotFound(
-                            external_resource_group_id.to_owned(),
-                        )
-                    })?,
-            )
-        } else {
-            None
-        };
+        let resource_group_id =
+            if let Some((external_resource_group_id, password)) = resource_group_credentials {
+                let resource_group_id =
+                    sqlx::query_scalar::<_, ResourceGroupId>(SELECT_RESOURCE_GROUP_QUERY)
+                        .bind(external_resource_group_id)
+                        .fetch_optional(&self.pool)
+                        .await?
+                        .ok_or_else(|| {
+                            DbError::ExternalResourceGroupNotFound(
+                                external_resource_group_id.to_owned(),
+                            )
+                        })?;
+                ResourceGroupManagement::verify(self, resource_group_id, password).await?;
+                Some(resource_group_id)
+            } else {
+                None
+            };
 
         let execution_manager_id = sqlx::query(INSERT_QUERY)
             .bind(ip_address.to_string())

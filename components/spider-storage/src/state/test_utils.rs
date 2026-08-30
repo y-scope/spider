@@ -220,20 +220,24 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        external_resource_group_id: Option<&str>,
+        resource_group_credentials: Option<(&str, &[u8])>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
-        let resource_group_id = external_resource_group_id
-            .map(|external_resource_group_id| {
-                self.resource_group_ids
+        let resource_group_id = match resource_group_credentials {
+            Some((external_resource_group_id, password)) => {
+                let resource_group_id = self
+                    .resource_group_ids
                     .get(external_resource_group_id)
                     .map(|entry| *entry.value())
                     .ok_or_else(|| {
                         DbError::ExternalResourceGroupNotFound(
                             external_resource_group_id.to_owned(),
                         )
-                    })
-            })
-            .transpose()?;
+                    })?;
+                ResourceGroupManagement::verify(self, resource_group_id, password).await?;
+                Some(resource_group_id)
+            }
+            None => None,
+        };
         let counter = self
             .next_execution_manager_id
             .fetch_add(1, Ordering::Relaxed);

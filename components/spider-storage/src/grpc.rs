@@ -295,7 +295,7 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
-    /// * `UNAUTHENTICATED` for an unknown resource group.
+    /// * `UNAUTHENTICATED` for an unknown resource group or an invalid password.
     /// * `FAILED_PRECONDITION` when the execution manager has already been reaped.
     /// * `INVALID_ARGUMENT` for an illegal execution manager ID.
     /// * `INTERNAL` for:
@@ -308,7 +308,9 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "ExecutionManagerLiveness";
         match error {
-            error @ StorageServerError::Db(DbError::ExternalResourceGroupNotFound(_)) => {
+            error @ StorageServerError::Db(
+                DbError::ExternalResourceGroupNotFound(_) | DbError::InvalidPassword(_),
+            ) => {
                 tracing::warn!(
                     error = % error,
                     service = SERVICE_NAME,
@@ -812,11 +814,16 @@ impl<
         &self,
         request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
-        let (ip_address, external_resource_group_id) = request.into_inner().unpack()?;
+        let (ip_address, resource_group_credentials) = request.into_inner().unpack()?;
         tracing::info!(% ip_address, "Execution manager registration request received.");
         let (em_id, resource_group_id) = self
             .inner
-            .register_execution_manager(ip_address, external_resource_group_id.as_deref())
+            .register_execution_manager(
+                ip_address,
+                resource_group_credentials
+                    .as_ref()
+                    .map(|(external_id, password)| (external_id.as_str(), password.as_slice())),
+            )
             .await
             .map_err(|error| {
                 self.execution_manager_liveness_service_error_handler(

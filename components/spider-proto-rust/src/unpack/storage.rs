@@ -169,16 +169,19 @@ impl RequestUnpack for VerifyResourceGroupRequest {
 /// Unpacks [`RegisterExecutionManagerRequest`] into a tuple containing:
 ///
 /// * The execution manager's IP address.
-/// * The external resource group ID.
+/// * The external resource group credentials, if present.
 impl RequestUnpack for RegisterExecutionManagerRequest {
-    type Unpacked = (IpAddr, Option<String>);
+    type Unpacked = (IpAddr, Option<(String, Vec<u8>)>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
         let ip_address = self
             .ip_address
             .parse::<IpAddr>()
             .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))?;
-        Ok((ip_address, self.external_resource_group_id))
+        let resource_group_credentials = self
+            .resource_group_credentials
+            .map(|credentials| (credentials.external_resource_group_id, credentials.password));
+        Ok((ip_address, resource_group_credentials))
     }
 }
 

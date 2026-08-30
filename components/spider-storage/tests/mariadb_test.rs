@@ -804,15 +804,16 @@ async fn test_register_execution_manager() {
 async fn test_register_execution_manager_with_resource_group() {
     let storage = create_mariadb_connector().await;
     let external_resource_group_id = format!("test-resource-group-{}", rand::random::<u64>());
+    let password = b"password";
     let resource_group_id = storage
-        .add(external_resource_group_id.clone(), Vec::new())
+        .add(external_resource_group_id.clone(), password.to_vec())
         .await
         .expect("add should succeed");
 
     let (_, registered_resource_group_id) = storage
         .register_execution_manager(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            Some(&external_resource_group_id),
+            Some((&external_resource_group_id, password.as_slice())),
         )
         .await
         .expect("register_execution_manager should succeed");
@@ -829,13 +830,36 @@ async fn test_register_execution_manager_with_unknown_resource_group() {
     let result = storage
         .register_execution_manager(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            Some(&external_resource_group_id),
+            Some((&external_resource_group_id, b"password")),
         )
         .await;
 
     assert!(
         matches!(result, Err(DbError::ExternalResourceGroupNotFound(_))),
         "expected ExternalResourceGroupNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_register_execution_manager_with_invalid_password() {
+    let storage = create_mariadb_connector().await;
+    let external_resource_group_id = format!("test-resource-group-{}", rand::random::<u64>());
+    let resource_group_id = storage
+        .add(external_resource_group_id.clone(), b"password".to_vec())
+        .await
+        .expect("add should succeed");
+
+    let result = storage
+        .register_execution_manager(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            Some((&external_resource_group_id, b"wrong-password")),
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(DbError::InvalidPassword(id)) if id == resource_group_id),
+        "expected InvalidPassword, got {result:?}"
     );
 }
 

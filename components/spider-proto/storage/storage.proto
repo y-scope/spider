@@ -152,9 +152,14 @@ message VerifyResourceGroupRequest {
   bytes password = 2;
 }
 
+message ExternalResourceGroupCredentials {
+  string external_resource_group_id = 1;
+  bytes password = 2;
+}
+
 message RegisterExecutionManagerRequest {
   string ip_address = 1;
-  optional string external_resource_group_id = 2;
+  ExternalResourceGroupCredentials resource_group_credentials = 2;
 }
 
 message ExecutionManagerIdRequest {
