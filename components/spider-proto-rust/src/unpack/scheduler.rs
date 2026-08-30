@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::scheduler::TaskAssignmentRecord;
+use tonic::Code;
 
 use crate::scheduler::HeartbeatRequest;
 use crate::scheduler::NextTaskRequest;
@@ -21,6 +22,12 @@ impl RequestUnpack for NextTaskRequest {
     type Unpacked = (ExecutionManagerId, Option<TaskAssignmentRecord>, Duration);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
+        if self.resource_group_id.is_some() {
+            return Err(UnpackError {
+                code: Code::Unimplemented,
+                message: "`resource_group_id` is not supported yet".to_owned(),
+            });
+        }
         Ok((
             ExecutionManagerId::from(self.execution_manager_id),
             self.prev_assignment.map(ProtoTaskAssignmentRecord::into),
