@@ -67,6 +67,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                     execution_manager_id: em_id.get(),
                     prev_assignment: prev_assignment.take().map(Into::into),
                     wait_time_ms,
+                    resource_group_id: None,
                 })
                 .await
                 .map_err(|status| status_to_error(&status))?

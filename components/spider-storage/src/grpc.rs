@@ -801,7 +801,12 @@ impl<
         &self,
         request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
-        let ip_address = request.into_inner().unpack()?;
+        let (ip_address, resource_group_credentials) = request.into_inner().unpack()?;
+        if resource_group_credentials.is_some() {
+            return Err(Status::unimplemented(
+                "`resource_group_credentials` is not supported yet",
+            ));
+        }
         tracing::info!(% ip_address, "Execution manager registration request received.");
         let em_id = self
             .inner
@@ -817,6 +822,7 @@ impl<
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: em_id.get(),
                 session_id: self.inner.session_id(),
+                resource_group_id: None,
             }),
         }))
     }
