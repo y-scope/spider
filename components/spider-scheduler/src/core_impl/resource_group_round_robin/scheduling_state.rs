@@ -15,7 +15,10 @@ use super::job_registry::JobKey;
 use super::job_registry::JobRegistry;
 use crate::core::TaskAssignmentIdIssuer;
 
-/// Errors returned by assignment decision-making.
+/// Errors returned by [`RgSchedulingState::try_make_assignment`].
+///
+/// Most variants are not fatal; they tell the core why no assignment could be made so it can move
+/// on. Variants that require the core to act are documented explicitly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(super) enum MakeAssignmentError {
     /// The resource group has nothing left to schedule this tick.
@@ -29,7 +32,9 @@ pub(super) enum MakeAssignmentError {
     /// A queue the write side publishes into is closed: either the resource group's own dispatch
     /// queue or the broadcast queue.
     ///
-    /// This is considered a fatal error.
+    /// This is considered a fatal error, and it may result an unrecoverable scheduling state. The
+    /// core should forward it as [`crate::SchedulerError::DispatchQueueClosed`] to terminate the
+    /// scheduler service.
     #[error("dispatch queue is closed")]
     DispatchQueueClosed,
 }
@@ -147,7 +152,7 @@ impl RgSchedulingState {
         }
     }
 
-    /// Tops the active job list up to capacity from the pending job queue.
+    /// Tops up the active job list to capacity from the pending job queue.
     ///
     /// Pending jobs that yield nothing spend a downgrade life count, and are collected into
     /// `jobs_to_retire` once they have none left.
@@ -266,9 +271,9 @@ impl RgSchedulingState {
     ) -> Option<(JobId, TaskIndex)> {
         const _: () = assert!(
             1 == DOWNGRADE_LIVES,
-            "An barren active job with no tasks is demoted on its first visit, so this loop never \
-             revisits one; a larger downgrade budget needs a per-tick buffer for active jobs \
-             already visited."
+            "An exhausted active job with no tasks is demoted on its first visit, so this loop \
+             never revisits one; a larger downgrade budget needs a per-tick buffer for active \
+             jobs already visited."
         );
 
         loop {
