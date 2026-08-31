@@ -16,6 +16,18 @@
 )]
 mod dispatch_queue;
 
+// The formatter has no consumer outside its own tests until the rest of the core lands, so every
+// item it exposes reads as dead. `expect` rather than `allow`: once `implementation.rs` polls with
+// the formatter, this attribute becomes unfulfilled and the compiler flags it for removal.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the core that polls with the inbound-poll result formatter has not landed yet"
+    )
+)]
+mod inbound_queue_reader;
+
 // The registry has no consumer outside tests until the rest of the core lands, so every item it
 // exposes reads as dead. `expect` rather than `allow`: once `implementation.rs` uses the registry,
 // this attribute becomes unfulfilled and the compiler flags it for removal.
