@@ -746,9 +746,9 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         match inbound_poll_state {
             InboundPollState::Ready {
                 session_id: storage_session_id,
-                ready_entries,
-                commit_ready_entries,
-                cleanup_ready_entries,
+                ready_result: ready_entries,
+                commit_ready_result: commit_ready_entries,
+                cleanup_ready_result: cleanup_ready_entries,
             } => {
                 tracing::info!("Inbound poll completed.");
                 self.ingest_inbound_entries(

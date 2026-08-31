@@ -9,15 +9,69 @@ use crate::error::StorageClientError;
 use crate::storage_client::SchedulerStorageClient;
 use crate::types::InboundEntry;
 
+/// The reshaping a core applies to the entries drained from each inbound-queue lane.
+///
+/// The formatting runs inside the lane's background polling task, so it is kept off the core's
+/// critical path.
+pub(super) trait InboundPollResultFormatter: Send + 'static {
+    /// The formatted result of the regular-task lane.
+    type ReadyResult: Default + Send + 'static;
+
+    /// The formatted result of a finalization lane.
+    type FinalizedResult: Default + Send + 'static;
+
+    /// Formats the entries drained from the regular-task lane.
+    ///
+    /// # Parameters
+    ///
+    /// * `entries` - The entries drained from the lane.
+    ///
+    /// # Returns
+    ///
+    /// The formatted lane result.
+    fn format_ready(entries: Vec<InboundEntry>) -> Self::ReadyResult;
+
+    /// Formats the entries drained from a finalization lane.
+    ///
+    /// # Parameters
+    ///
+    /// * `entries` - The entries drained from the lane.
+    ///
+    /// # Returns
+    ///
+    /// The formatted lane result.
+    fn format_finalized(entries: Vec<InboundEntry>) -> Self::FinalizedResult;
+}
+
+/// The formatter of a core that consumes the drained entries as they are.
+pub(super) struct RawInboundEntries;
+
+impl InboundPollResultFormatter for RawInboundEntries {
+    type FinalizedResult = Vec<InboundEntry>;
+    type ReadyResult = Vec<InboundEntry>;
+
+    fn format_ready(entries: Vec<InboundEntry>) -> Self::ReadyResult {
+        entries
+    }
+
+    fn format_finalized(entries: Vec<InboundEntry>) -> Self::FinalizedResult {
+        entries
+    }
+}
+
 /// The state of an asynchronous inbound-queue poll.
-pub(super) enum InboundPollState {
-    /// The poll has completed, carrying the polled session and the entries drained from each
+///
+/// # Type Parameters
+///
+/// * `FormatterType` - The formatter applied to the entries drained from each inbound-queue lane.
+pub(super) enum InboundPollState<FormatterType: InboundPollResultFormatter = RawInboundEntries> {
+    /// The poll has completed, carrying the polled session and the formatted result of each
     /// inbound-queue lane.
     Ready {
         session_id: SessionId,
-        ready_entries: Vec<InboundEntry>,
-        commit_ready_entries: Vec<InboundEntry>,
-        cleanup_ready_entries: Vec<InboundEntry>,
+        ready_result: FormatterType::ReadyResult,
+        commit_ready_result: FormatterType::FinalizedResult,
+        cleanup_ready_result: FormatterType::FinalizedResult,
     },
 
     /// The poll is still in flight.
@@ -33,13 +87,17 @@ pub(super) enum InboundPollState {
 /// # Type Parameters
 ///
 /// * `StorageClientType` - The storage client used to poll the inbound queue.
-pub(super) struct AsyncInboundQueueReader<StorageClientType: SchedulerStorageClient + 'static> {
+/// * `FormatterType` - The formatter applied to the entries drained from each inbound-queue lane.
+pub(super) struct AsyncInboundQueueReader<
+    StorageClientType: SchedulerStorageClient + 'static,
+    FormatterType: InboundPollResultFormatter = RawInboundEntries,
+> {
     storage_client: StorageClientType,
-    handle: Option<InboundPollHandles>,
+    handle: Option<InboundPollHandles<FormatterType>>,
 }
 
-impl<StorageClientType: SchedulerStorageClient + 'static>
-    AsyncInboundQueueReader<StorageClientType>
+impl<StorageClientType: SchedulerStorageClient + 'static, FormatterType: InboundPollResultFormatter>
+    AsyncInboundQueueReader<StorageClientType, FormatterType>
 {
     /// Factory function.
     ///
@@ -71,7 +129,7 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
     pub(super) async fn try_collect_result(
         &mut self,
         curr_session_id: SessionId,
-    ) -> Result<InboundPollState, SchedulerError> {
+    ) -> Result<InboundPollState<FormatterType>, SchedulerError> {
         match &mut self.handle {
             None => Ok(InboundPollState::NotStarted),
             Some(handle) => {
@@ -84,7 +142,8 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
         }
     }
 
-    /// Starts a new inbound poll, polling each inbound-queue lane as a background task.
+    /// Starts a new inbound poll, polling and formatting each inbound-queue lane as a background
+    /// task.
     ///
     /// Lanes whose entry limit is 0 are not polled; if all limits are 0, no poll is started.
     ///
@@ -115,31 +174,34 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
         let ready_storage_client = self.storage_client.clone();
         let ready_handle = tokio::task::spawn(async move {
             if max_ready_entries == 0 {
-                return Ok((0, Vec::new()));
+                return Ok((0, Default::default()));
             }
-            ready_storage_client
+            let (session_id, entries) = ready_storage_client
                 .poll_ready(max_ready_entries, storage_poll_timeout)
-                .await
+                .await?;
+            Ok((session_id, FormatterType::format_ready(entries)))
         });
 
         let commit_ready_storage_client = self.storage_client.clone();
         let commit_ready_handle = tokio::task::spawn(async move {
             if max_commit_ready_entries == 0 {
-                return Ok((0, Vec::new()));
+                return Ok((0, Default::default()));
             }
-            commit_ready_storage_client
+            let (session_id, entries) = commit_ready_storage_client
                 .poll_commit_ready(max_commit_ready_entries, storage_poll_timeout)
-                .await
+                .await?;
+            Ok((session_id, FormatterType::format_finalized(entries)))
         });
 
         let cleanup_ready_storage_client = self.storage_client.clone();
         let cleanup_ready_handle = tokio::task::spawn(async move {
             if max_cleanup_ready_entries == 0 {
-                return Ok((0, Vec::new()));
+                return Ok((0, Default::default()));
             }
-            cleanup_ready_storage_client
+            let (session_id, entries) = cleanup_ready_storage_client
                 .poll_cleanup_ready(max_cleanup_ready_entries, storage_poll_timeout)
-                .await
+                .await?;
+            Ok((session_id, FormatterType::format_finalized(entries)))
         });
 
         self.handle = Some(InboundPollHandles {
@@ -160,20 +222,27 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
 }
 
 /// The join handles of one in-flight inbound poll, one per inbound-queue lane.
+///
+/// # Type Parameters
+///
+/// * `FormatterType` - The formatter applied to the entries drained from each inbound-queue lane.
 #[allow(clippy::struct_field_names)]
-struct InboundPollHandles {
-    ready_handle:
-        tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
-    commit_ready_handle:
-        tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
-    cleanup_ready_handle:
-        tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
+struct InboundPollHandles<FormatterType: InboundPollResultFormatter> {
+    ready_handle: tokio::task::JoinHandle<
+        Result<(SessionId, FormatterType::ReadyResult), StorageClientError>,
+    >,
+    commit_ready_handle: tokio::task::JoinHandle<
+        Result<(SessionId, FormatterType::FinalizedResult), StorageClientError>,
+    >,
+    cleanup_ready_handle: tokio::task::JoinHandle<
+        Result<(SessionId, FormatterType::FinalizedResult), StorageClientError>,
+    >,
 }
 
-impl InboundPollHandles {
+impl<FormatterType: InboundPollResultFormatter> InboundPollHandles<FormatterType> {
     /// Tries to collect the results of all lane polls without blocking.
     ///
-    /// Entries from lanes that report an older session than the latest observed session are
+    /// Results from lanes that report an older session than the latest observed session are
     /// dropped.
     ///
     /// # Returns
@@ -181,7 +250,7 @@ impl InboundPollHandles {
     /// On success:
     ///
     /// * [`InboundPollState::Pending`] if any lane poll is still in flight.
-    /// * [`InboundPollState::Ready`] with the latest observed session and its entries otherwise.
+    /// * [`InboundPollState::Ready`] with the latest observed session and its results otherwise.
     ///
     /// # Errors
     ///
@@ -194,7 +263,7 @@ impl InboundPollHandles {
     async fn try_collect_result(
         &mut self,
         curr_session_id: SessionId,
-    ) -> Result<InboundPollState, SchedulerError> {
+    ) -> Result<InboundPollState<FormatterType>, SchedulerError> {
         if !self.ready_handle.is_finished()
             || !self.commit_ready_handle.is_finished()
             || !self.cleanup_ready_handle.is_finished()
@@ -202,13 +271,13 @@ impl InboundPollHandles {
             return Ok(InboundPollState::Pending);
         }
 
-        let (ready_session_id, ready_entries) = (&mut self.ready_handle)
+        let (ready_session_id, ready_result) = (&mut self.ready_handle)
             .await
             .map_err(|e| SchedulerError::Internal(e.to_string()))??;
-        let (commit_session_id, commit_ready_entries) = (&mut self.commit_ready_handle)
+        let (commit_session_id, commit_ready_result) = (&mut self.commit_ready_handle)
             .await
             .map_err(|e| SchedulerError::Internal(e.to_string()))??;
-        let (cleanup_session_id, cleanup_ready_entries) =
+        let (cleanup_session_id, cleanup_ready_result) =
             (&mut self.cleanup_ready_handle)
                 .await
                 .map_err(|e| SchedulerError::Internal(e.to_string()))??;
@@ -220,32 +289,37 @@ impl InboundPollHandles {
 
         Ok(InboundPollState::Ready {
             session_id: latest_session_id,
-            ready_entries: Self::drop_if_stale(ready_session_id, latest_session_id, ready_entries),
-            commit_ready_entries: Self::drop_if_stale(
+            ready_result: Self::drop_if_stale(ready_session_id, latest_session_id, ready_result),
+            commit_ready_result: Self::drop_if_stale(
                 commit_session_id,
                 latest_session_id,
-                commit_ready_entries,
+                commit_ready_result,
             ),
-            cleanup_ready_entries: Self::drop_if_stale(
+            cleanup_ready_result: Self::drop_if_stale(
                 cleanup_session_id,
                 latest_session_id,
-                cleanup_ready_entries,
+                cleanup_ready_result,
             ),
         })
     }
 
+    /// # Type Parameters
+    ///
+    /// * `LaneResultType` - The formatted result of a single inbound-queue lane.
+    ///
     /// # Returns
     ///
-    /// `entries` if `session_id` matches `latest_session_id`, or an empty vector otherwise.
-    fn drop_if_stale(
+    /// `lane_result` if `session_id` matches `latest_session_id`, or a default-constructed result
+    /// otherwise.
+    fn drop_if_stale<LaneResultType: Default>(
         session_id: SessionId,
         latest_session_id: SessionId,
-        entries: Vec<InboundEntry>,
-    ) -> Vec<InboundEntry> {
+        lane_result: LaneResultType,
+    ) -> LaneResultType {
         if session_id == latest_session_id {
-            entries
+            lane_result
         } else {
-            Vec::new()
+            LaneResultType::default()
         }
     }
 }
