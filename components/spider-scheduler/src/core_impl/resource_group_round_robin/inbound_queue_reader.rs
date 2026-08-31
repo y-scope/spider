@@ -1,9 +1,8 @@
 //! The inbound-poll result formatter of the resource-group-aware round-robin scheduler.
 //!
 //! The core schedules a resource group's jobs one batch at a time, so the entries drained from the
-//! inbound queue are grouped by job before they reach it. The grouping is driven through
-//! [`crate::core_impl::inbound_queue_reader::AsyncInboundQueueReader`], which applies it inside
-//! each lane's background polling task.
+//! inbound queue are grouped by job before they reach it. [`RgInboundQueueReader`] applies the
+//! grouping inside each lane's background polling task.
 
 use std::collections::HashMap;
 
@@ -12,7 +11,9 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 
+use crate::core_impl::inbound_queue_reader::AsyncInboundQueueReader;
 use crate::core_impl::inbound_queue_reader::InboundPollResultFormatter;
+use crate::core_impl::inbound_queue_reader::InboundPollState;
 use crate::types::InboundEntry;
 
 /// The regular tasks a single poll drained for one job.
@@ -54,6 +55,18 @@ impl InboundPollResultFormatter for GroupedJobs {
         format_finalized_jobs(entries)
     }
 }
+
+/// The inbound-queue reader of the resource-group-aware core, which formats the entries drained
+/// from every lane with [`GroupedJobs`].
+///
+/// # Type Parameters
+///
+/// * `StorageClientType` - The storage client used to poll the inbound queue.
+pub(super) type RgInboundQueueReader<StorageClientType> =
+    AsyncInboundQueueReader<StorageClientType, GroupedJobs>;
+
+/// The state of an inbound-queue poll started by the resource-group-aware core.
+pub(super) type RgInboundPollState = InboundPollState<GroupedJobs>;
 
 /// Groups the entries drained from the regular-task lane by job, discarding every entry that does
 /// not carry a task index.
@@ -120,14 +133,12 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use super::*;
-    use crate::core_impl::inbound_queue_reader::AsyncInboundQueueReader;
-    use crate::core_impl::inbound_queue_reader::InboundPollState;
     use crate::error::SchedulerError;
     use crate::error::StorageClientError;
     use crate::storage_client::SchedulerStorageClient;
 
     /// The reader under test, which formats every lane's entries with [`GroupedJobs`].
-    type TestReader = AsyncInboundQueueReader<MockStorageClient, GroupedJobs>;
+    type TestReader = RgInboundQueueReader<MockStorageClient>;
 
     /// The session the mock storage client serves polls under unless a test scripts otherwise.
     const DEFAULT_SESSION_ID: SessionId = 0;
@@ -402,7 +413,7 @@ mod tests {
         let deadline = tokio::time::Instant::now() + COLLECT_DEADLINE;
         loop {
             match reader.try_collect_result(curr_session_id).await? {
-                InboundPollState::Ready {
+                RgInboundPollState::Ready {
                     session_id,
                     ready_result: ready_jobs,
                     commit_ready_result: commit_ready_jobs,
@@ -415,8 +426,8 @@ mod tests {
                         cleanup_ready_jobs,
                     });
                 }
-                InboundPollState::NotStarted => bail!("no inbound poll is in flight"),
-                InboundPollState::Pending => {
+                RgInboundPollState::NotStarted => bail!("no inbound poll is in flight"),
+                RgInboundPollState::Pending => {
                     if deadline <= tokio::time::Instant::now() {
                         bail!("the inbound poll did not complete in time");
                     }
@@ -431,7 +442,7 @@ mod tests {
         let mut reader = TestReader::new(MockStorageClient::new());
         assert!(matches!(
             reader.try_collect_result(DEFAULT_SESSION_ID).await?,
-            InboundPollState::NotStarted
+            RgInboundPollState::NotStarted
         ));
         Ok(())
     }
@@ -449,11 +460,11 @@ mod tests {
 
         assert!(matches!(
             reader.try_collect_result(DEFAULT_SESSION_ID).await?,
-            InboundPollState::Pending
+            RgInboundPollState::Pending
         ));
         assert!(matches!(
             reader.try_collect_result(DEFAULT_SESSION_ID).await?,
-            InboundPollState::Pending
+            RgInboundPollState::Pending
         ));
 
         storage_client.admit_ready_poll();
@@ -462,7 +473,7 @@ mod tests {
 
         assert!(matches!(
             reader.try_collect_result(DEFAULT_SESSION_ID).await?,
-            InboundPollState::NotStarted
+            RgInboundPollState::NotStarted
         ));
         Ok(())
     }
@@ -636,7 +647,7 @@ mod tests {
 
         assert!(matches!(
             reader.try_collect_result(DEFAULT_SESSION_ID).await?,
-            InboundPollState::NotStarted
+            RgInboundPollState::NotStarted
         ));
         assert_eq!(storage_client.num_polls(), (0, 0, 0));
         Ok(())
