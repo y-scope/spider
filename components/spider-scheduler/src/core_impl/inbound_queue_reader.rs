@@ -47,8 +47,8 @@ pub(super) trait InboundPollResultFormatter: Send + 'static {
 pub(super) struct RawInboundEntries;
 
 impl InboundPollResultFormatter for RawInboundEntries {
-    type ReadyResult = Vec<InboundEntry>;
     type FinalizedResult = Vec<InboundEntry>;
+    type ReadyResult = Vec<InboundEntry>;
 
     fn format_ready(entries: Vec<InboundEntry>) -> Self::ReadyResult {
         entries
@@ -96,10 +96,8 @@ pub(super) struct AsyncInboundQueueReader<
     handle: Option<InboundPollHandles<FormatterType>>,
 }
 
-impl<
-    StorageClientType: SchedulerStorageClient + 'static,
-    FormatterType: InboundPollResultFormatter,
-> AsyncInboundQueueReader<StorageClientType, FormatterType>
+impl<StorageClientType: SchedulerStorageClient + 'static, FormatterType: InboundPollResultFormatter>
+    AsyncInboundQueueReader<StorageClientType, FormatterType>
 {
     /// Factory function.
     ///
@@ -279,9 +277,10 @@ impl<FormatterType: InboundPollResultFormatter> InboundPollHandles<FormatterType
         let (commit_session_id, commit_ready_result) = (&mut self.commit_ready_handle)
             .await
             .map_err(|e| SchedulerError::Internal(e.to_string()))??;
-        let (cleanup_session_id, cleanup_ready_result) = (&mut self.cleanup_ready_handle)
-            .await
-            .map_err(|e| SchedulerError::Internal(e.to_string()))??;
+        let (cleanup_session_id, cleanup_ready_result) =
+            (&mut self.cleanup_ready_handle)
+                .await
+                .map_err(|e| SchedulerError::Internal(e.to_string()))??;
 
         let latest_session_id = curr_session_id
             .max(ready_session_id)
