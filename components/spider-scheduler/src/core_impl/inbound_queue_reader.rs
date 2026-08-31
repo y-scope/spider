@@ -35,7 +35,7 @@ pub(super) enum InboundPollState {
 /// * `StorageClientType` - The storage client used to poll the inbound queue.
 pub(super) struct AsyncInboundQueueReader<StorageClientType: SchedulerStorageClient + 'static> {
     storage_client: StorageClientType,
-    handles: Option<InboundPollHandles>,
+    handle: Option<InboundPollHandles>,
 }
 
 impl<StorageClientType: SchedulerStorageClient + 'static>
@@ -49,7 +49,7 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
     pub(super) const fn new(storage_client: StorageClientType) -> Self {
         Self {
             storage_client,
-            handles: None,
+            handle: None,
         }
     }
 
@@ -72,12 +72,12 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
         &mut self,
         curr_session_id: SessionId,
     ) -> Result<InboundPollState, SchedulerError> {
-        match &mut self.handles {
+        match &mut self.handle {
             None => Ok(InboundPollState::NotStarted),
-            Some(handles) => {
-                let inbound_poll_state = handles.try_collect_result(curr_session_id).await?;
+            Some(handle) => {
+                let inbound_poll_state = handle.try_collect_result(curr_session_id).await?;
                 if !matches!(inbound_poll_state, InboundPollState::Pending) {
-                    self.handles = None;
+                    self.handle = None;
                 }
                 Ok(inbound_poll_state)
             }
@@ -100,21 +100,21 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
         max_commit_ready_entries: usize,
         max_cleanup_ready_entries: usize,
     ) -> Result<(), SchedulerError> {
-        if self.handles.is_some() {
+        if self.handle.is_some() {
             return Err(SchedulerError::Internal(
-                "inbound poll handle already exists".to_owned(),
+                "inbound poll handle already exists".to_string(),
             ));
         }
 
-        if 0 == max_ready_entries && 0 == max_commit_ready_entries && 0 == max_cleanup_ready_entries
+        if max_ready_entries == 0 && max_commit_ready_entries == 0 && max_cleanup_ready_entries == 0
         {
             tracing::info!("Inbound poll skipped: all entry limits are 0.");
             return Ok(());
         }
 
         let ready_storage_client = self.storage_client.clone();
-        let regular = tokio::task::spawn(async move {
-            if 0 == max_ready_entries {
+        let ready_handle = tokio::task::spawn(async move {
+            if max_ready_entries == 0 {
                 return Ok((0, Vec::new()));
             }
             ready_storage_client
@@ -123,8 +123,8 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
         });
 
         let commit_ready_storage_client = self.storage_client.clone();
-        let commit = tokio::task::spawn(async move {
-            if 0 == max_commit_ready_entries {
+        let commit_ready_handle = tokio::task::spawn(async move {
+            if max_commit_ready_entries == 0 {
                 return Ok((0, Vec::new()));
             }
             commit_ready_storage_client
@@ -133,8 +133,8 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
         });
 
         let cleanup_ready_storage_client = self.storage_client.clone();
-        let cleanup = tokio::task::spawn(async move {
-            if 0 == max_cleanup_ready_entries {
+        let cleanup_ready_handle = tokio::task::spawn(async move {
+            if max_cleanup_ready_entries == 0 {
                 return Ok((0, Vec::new()));
             }
             cleanup_ready_storage_client
@@ -142,10 +142,10 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
                 .await
         });
 
-        self.handles = Some(InboundPollHandles {
-            regular,
-            commit,
-            cleanup,
+        self.handle = Some(InboundPollHandles {
+            ready_handle,
+            commit_ready_handle,
+            cleanup_ready_handle,
         });
 
         tracing::info!(
@@ -160,10 +160,14 @@ impl<StorageClientType: SchedulerStorageClient + 'static>
 }
 
 /// The join handles of one in-flight inbound poll, one per inbound-queue lane.
+#[allow(clippy::struct_field_names)]
 struct InboundPollHandles {
-    regular: tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
-    commit: tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
-    cleanup: tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
+    ready_handle:
+        tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
+    commit_ready_handle:
+        tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
+    cleanup_ready_handle:
+        tokio::task::JoinHandle<Result<(SessionId, Vec<InboundEntry>), StorageClientError>>,
 }
 
 impl InboundPollHandles {
@@ -191,20 +195,23 @@ impl InboundPollHandles {
         &mut self,
         curr_session_id: SessionId,
     ) -> Result<InboundPollState, SchedulerError> {
-        if !self.regular.is_finished() || !self.commit.is_finished() || !self.cleanup.is_finished()
+        if !self.ready_handle.is_finished()
+            || !self.commit_ready_handle.is_finished()
+            || !self.cleanup_ready_handle.is_finished()
         {
             return Ok(InboundPollState::Pending);
         }
 
-        let (ready_session_id, ready_entries) = (&mut self.regular)
+        let (ready_session_id, ready_entries) = (&mut self.ready_handle)
             .await
             .map_err(|e| SchedulerError::Internal(e.to_string()))??;
-        let (commit_session_id, commit_ready_entries) = (&mut self.commit)
+        let (commit_session_id, commit_ready_entries) = (&mut self.commit_ready_handle)
             .await
             .map_err(|e| SchedulerError::Internal(e.to_string()))??;
-        let (cleanup_session_id, cleanup_ready_entries) = (&mut self.cleanup)
-            .await
-            .map_err(|e| SchedulerError::Internal(e.to_string()))??;
+        let (cleanup_session_id, cleanup_ready_entries) =
+            (&mut self.cleanup_ready_handle)
+                .await
+                .map_err(|e| SchedulerError::Internal(e.to_string()))??;
 
         let latest_session_id = curr_session_id
             .max(ready_session_id)
@@ -242,4 +249,3 @@ impl InboundPollHandles {
         }
     }
 }
-
