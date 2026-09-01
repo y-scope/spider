@@ -22,7 +22,6 @@ use tonic::Status;
 use crate::cache::error::CacheError;
 use crate::db::DbError;
 use crate::db::DbStorage;
-use crate::db::ExternalResourceGroupCredentials;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueSender;
 use crate::state::ServiceState;
@@ -770,14 +769,14 @@ impl<
         &self,
         request: Request<storage::AddResourceGroupRequest>,
     ) -> Result<Response<storage::ResourceGroupIdResponse>, Status> {
-        let (external_id, password) = request.into_inner().unpack()?;
-        tracing::info!(external_id = % external_id, "Add resource group request received.");
+        let credentials = request.into_inner().unpack()?;
+        tracing::info!(
+            external_id = % credentials.external_resource_group_id,
+            "Add resource group request received."
+        );
         let rg_id = self
             .inner
-            .add_resource_group(ExternalResourceGroupCredentials {
-                external_resource_group_id: external_id,
-                password,
-            })
+            .add_resource_group(credentials)
             .await
             .map_err(|error| {
                 self.resource_group_management_service_error_handler(error, "add_resource_group")
@@ -822,15 +821,7 @@ impl<
         tracing::info!(% ip_address, "Execution manager registration request received.");
         let (em_id, resource_group_id) = self
             .inner
-            .register_execution_manager(
-                ip_address,
-                resource_group_credentials.map(|(external_resource_group_id, password)| {
-                    ExternalResourceGroupCredentials {
-                        external_resource_group_id,
-                        password,
-                    }
-                }),
-            )
+            .register_execution_manager(ip_address, resource_group_credentials)
             .await
             .map_err(|error| {
                 self.execution_manager_liveness_service_error_handler(

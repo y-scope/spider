@@ -15,6 +15,7 @@ use spider_client::SpiderClient;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
@@ -190,7 +191,10 @@ impl SpiderTestDriver {
             return Ok(*resource_group_id);
         }
         let resource_group_id = client
-            .add_resource_group(external_resource_group_id.to_owned(), Vec::new())
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: external_resource_group_id.to_owned(),
+                password: Vec::new(),
+            })
             .await?;
         resource_groups.insert(external_resource_group_id.to_owned(), resource_group_id);
         drop(resource_groups);

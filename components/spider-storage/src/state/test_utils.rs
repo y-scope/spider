@@ -12,6 +12,7 @@ use spider_core::types::id::SchedulerId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::TaskOutput;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 
 use crate::cache::error::InternalError;
@@ -21,7 +22,6 @@ use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::db::ExecutionManagerLivenessManagement;
 use crate::db::ExternalJobOrchestration;
-use crate::db::ExternalResourceGroupCredentials;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
 use crate::db::ResourceGroupManagement;

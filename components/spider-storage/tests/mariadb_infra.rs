@@ -1,7 +1,7 @@
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::DatabaseConfig;
 use spider_storage::DatabaseCredentials;
-use spider_storage::db::ExternalResourceGroupCredentials;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
 
