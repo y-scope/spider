@@ -134,10 +134,8 @@ pub struct ReportTaskFailureRequest {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddResourceGroupRequest {
-    #[prost(string, tag = "1")]
-    pub external_resource_group_id: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "2")]
-    pub password: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "1")]
+    pub credentials: ::core::option::Option<ExternalResourceGroupCredentials>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ResourceGroupIdResponse {
