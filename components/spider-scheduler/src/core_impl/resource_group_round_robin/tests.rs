@@ -1,8 +1,8 @@
 //! Unit tests for the resource-group-aware round-robin scheduler core.
 //!
-//! The tests drive [`RgRoundRobin::tick`] and the structures it decides with directly. Whatever an
-//! execution manager would do -- draining a group's queue -- a test body does by hand through the
-//! same entry points the dispatch service will use.
+//! The tests drive [`RgRoundRobin::tick`] and the structures it decides with directly.
+//! Whatever an execution manager would do -- draining a group's queue -- a test body does by hand
+//! through the same entry points the dispatch service will use.
 
 /// Drives ticks on `core` until `predicate` holds, failing the calling test if it does not hold
 /// within [`TICK_DEADLINE`].
@@ -73,6 +73,26 @@ const NEXT_SESSION_ID: SessionId = DEFAULT_SESSION_ID + 1;
 /// The storage poll timeout every test runs with. The mock storage never blocks on it.
 const STORAGE_POLL_TIMEOUT_MS: u64 = 10;
 
+/// The regular-task buffer capacity every test runs with.
+const READY_TASK_CAPACITY: usize = 16_384;
+
+/// The commit-task buffer capacity every test runs with.
+const COMMIT_READY_TASK_CAPACITY: usize = 64;
+
+/// The cleanup-task buffer capacity every test runs with.
+const CLEANUP_READY_TASK_CAPACITY: usize = 64;
+
+/// A finalized job table expiry long enough that no test sweeps an entry unless it asks to.
+const NEVER_EXPIRING_TIMEOUT_SEC: u64 = 6 * 60 * 60;
+
+/// The finalized job table expiry an expiry test runs with.
+const SHORT_EXPIRATION_TIMEOUT_SEC: u64 = 1;
+
+/// How long an expiry test waits before the tick that must sweep an entry stamped
+/// [`SHORT_EXPIRATION_TIMEOUT_SEC`] seconds ago. A sleep is a lower bound on the time that passes,
+/// so the margin only has to cover the sweep reading a monotonic clock, never scheduling delay.
+const EXPIRATION_WAIT: Duration = Duration::from_millis(1_200);
+
 /// The longest a test waits for the ticks it drives to reach the state it expects.
 const TICK_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -126,7 +146,7 @@ impl CoreFixture {
     ///
     /// The position of the group's scheduling state in the core's state vector.
     fn activate_group(&mut self, rg_id: ResourceGroupId) -> usize {
-        if let Some(state_index) = self.core.rg_index.get(&rg_id) {
+        if let Some(state_index) = self.core.rg_id_to_index_map.get(&rg_id) {
             return *state_index;
         }
 
@@ -139,7 +159,7 @@ impl CoreFixture {
         rg_state.is_active = true;
         let state_index = self.core.rg_states.len();
         self.core.rg_states.push(rg_state);
-        self.core.rg_index.insert(rg_id, state_index);
+        self.core.rg_id_to_index_map.insert(rg_id, state_index);
         self.core.active_rg_list.push(state_index);
         state_index
     }
@@ -161,7 +181,7 @@ impl CoreFixture {
         for task_index in 0..num_tasks {
             self.core
                 .global_task_set
-                .insert((job_id, TaskId::Index(task_index)));
+                .insert(job_id, TaskId::Index(task_index));
         }
         let job_key = make_job_entry(&mut self.core.job_registry, job_id, num_tasks)?;
         let state_index = self.activate_group(rg_id);
@@ -311,7 +331,7 @@ async fn dispatching_and_retirement_run_while_a_storage_poll_is_in_flight() -> a
     );
     fixture.core.tick().await?;
     assert_eq!(fixture.queue_len(RG_A), NUM_TASKS_PER_TICK);
-    assert_eq!(fixture.core.global_task_set, HashSet::new());
+    assert_eq!(fixture.core.global_task_set.tasks, HashSet::new());
 
     fixture.core.tick().await?;
     assert_eq!(fixture.core.job_registry.len(), 1);
@@ -342,7 +362,7 @@ async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> an
     fixture
         .core
         .global_task_set
-        .insert((SENTINEL_JOB_ID, TaskId::Index(0)));
+        .insert(SENTINEL_JOB_ID, TaskId::Index(0));
     fixture.core.finalized_jobs.insert(SENTINEL_JOB_ID);
 
     fixture
@@ -357,6 +377,7 @@ async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> an
         !fixture
             .core
             .global_task_set
+            .tasks
             .contains(&(SENTINEL_JOB_ID, TaskId::Index(0)))
     );
     assert!(!fixture.core.finalized_jobs.contains(&SENTINEL_JOB_ID));
@@ -490,6 +511,347 @@ async fn a_closed_broadcast_queue_fails_the_tick() -> anyhow::Result<()> {
     // Both closures fail the tick with the same error, so the queue is what tells them apart: this
     // assignment reached the group's queue first and lost only the hint covering it.
     assert_eq!(fixture.queue_len(RG_A), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 8;
+    const EXPIRING_JOB_ID: JobId = JobId::from(0);
+    const FRESH_JOB_ID: JobId = JobId::from(1);
+
+    let storage = MockStorageClient::new();
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, EXPIRING_JOB_ID, TaskId::Commit)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_expiring_config(
+            DISPATCH_QUEUE_CAPACITY,
+            ACTIVE_JOB_LIST_CAPACITY,
+            SHORT_EXPIRATION_TIMEOUT_SEC,
+        ),
+        storage,
+    );
+    tick_until!(
+        fixture.core,
+        fixture.core.finalized_jobs.contains(&EXPIRING_JOB_ID)
+    );
+    assert_eq!(finalized_job_ids(&fixture), vec![EXPIRING_JOB_ID]);
+
+    tokio::time::sleep(EXPIRATION_WAIT).await;
+    fixture.storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, FRESH_JOB_ID, TaskId::Commit)],
+    );
+    tick_until!(
+        fixture.core,
+        fixture.core.finalized_jobs.contains(&FRESH_JOB_ID)
+    );
+
+    assert_eq!(fixture.core.finalized_jobs, HashSet::from([FRESH_JOB_ID]));
+    assert_eq!(finalized_job_ids(&fixture), vec![FRESH_JOB_ID]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_cleanup_is_scheduled_after_the_same_job_committed() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 8;
+    const JOB_ID: JobId = JobId::from(0);
+
+    let storage = MockStorageClient::new();
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        storage,
+    );
+    tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
+
+    fixture.storage.push_cleanup_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Cleanup)],
+    );
+    tick_until!(fixture.core, 2 == fixture.queue_len(RG_A));
+
+    let task_ids: Vec<TaskId> = drain_reader(&fixture.reader(RG_A))
+        .await
+        .into_iter()
+        .map(|assignment| assignment.task_id)
+        .collect();
+    assert_eq!(task_ids, vec![TaskId::Commit, TaskId::Cleanup]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_repeated_finalization_is_scheduled_once() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 8;
+    const JOB_ID: JobId = JobId::from(0);
+
+    let storage = MockStorageClient::new();
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        storage,
+    );
+    tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
+
+    fixture.storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
+    );
+    fixture.core.tick().await?;
+    fixture.core.tick().await?;
+
+    assert_eq!(fixture.queue_len(RG_A), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 8;
+    const JOB_ID: JobId = JobId::from(0);
+    const LATE_TASK_ID: TaskId = TaskId::Index(0);
+
+    let storage = MockStorageClient::new();
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_expiring_config(
+            DISPATCH_QUEUE_CAPACITY,
+            ACTIVE_JOB_LIST_CAPACITY,
+            SHORT_EXPIRATION_TIMEOUT_SEC,
+        ),
+        storage,
+    );
+    tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
+    let finalization = drain_reader(&fixture.reader(RG_A)).await;
+    assert_eq!(finalization.len(), 1);
+    assert_eq!(finalization[0].task_id, TaskId::Commit);
+
+    let num_polls_before = fixture.storage.num_polls().0;
+    fixture.storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, LATE_TASK_ID)],
+    );
+    tick_until!(
+        fixture.core,
+        num_polls_before + 2 <= fixture.storage.num_polls().0
+    );
+    assert_eq!(fixture.queue_len(RG_A), 0);
+    assert_eq!(fixture.core.global_task_set.tasks, HashSet::new());
+    assert_eq!(fixture.core.job_registry.len(), 0);
+
+    tokio::time::sleep(EXPIRATION_WAIT).await;
+    tick_until!(fixture.core, fixture.core.finalized_jobs.is_empty());
+
+    fixture.storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, LATE_TASK_ID)],
+    );
+    tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
+    let readmitted = drain_reader(&fixture.reader(RG_A)).await;
+    assert_eq!(readmitted.len(), 1);
+    assert_eq!(readmitted[0].task_id, LATE_TASK_ID);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 8;
+    const JOB_ID: JobId = JobId::from(0);
+
+    let storage = MockStorageClient::new();
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        storage,
+    );
+    tick_until!(fixture.core, fixture.core.finalized_jobs.contains(&JOB_ID));
+    assert_eq!(finalized_job_ids(&fixture), vec![JOB_ID]);
+
+    fixture
+        .storage
+        .push_ready_batch(NEXT_SESSION_ID, Vec::new());
+    tick_until!(
+        fixture.core,
+        NEXT_SESSION_ID == fixture.session_tracker.current()
+    );
+
+    assert_eq!(fixture.core.finalized_jobs, HashSet::new());
+    assert_eq!(finalized_job_ids(&fixture), Vec::<JobId>::new());
+    Ok(())
+}
+
+#[tokio::test]
+async fn publishing_an_assignment_discounts_the_lane_that_buffered_it() -> anyhow::Result<()> {
+    // One assignment preloaded into the group's queue leaves the tick no free space, so every task
+    // the batches deliver stays buffered until the test drains the queue.
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+    const REGULAR_JOB_ID: JobId = JobId::from(0);
+    const COMMIT_JOB_ID: JobId = JobId::from(1);
+    const NUM_REGULAR_TASKS: usize = 2;
+
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, REGULAR_JOB_ID, TaskId::Index(0)),
+            make_entry(RG_A, REGULAR_JOB_ID, TaskId::Index(1)),
+        ],
+    );
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, COMMIT_JOB_ID, TaskId::Commit)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        storage,
+    );
+    fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
+
+    tick_until!(
+        fixture.core,
+        fixture.core.finalized_jobs.contains(&COMMIT_JOB_ID)
+    );
+    assert_eq!(lane_counts(&fixture), (NUM_REGULAR_TASKS, 1, 0));
+    assert_eq!(
+        fixture.core.global_task_set.len(),
+        NUM_REGULAR_TASKS + 1,
+        "every buffered task is counted exactly once"
+    );
+
+    // Draining the preloaded assignment frees exactly one slot, so the next tick publishes exactly
+    // one assignment: the finalization, which outranks the regular tasks.
+    assert_eq!(drain_reader(&fixture.reader(RG_A)).await.len(), 1);
+    fixture.core.tick().await?;
+    let published = drain_reader(&fixture.reader(RG_A)).await;
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0].task_id, TaskId::Commit);
+    assert_eq!(lane_counts(&fixture), (NUM_REGULAR_TASKS, 0, 0));
+
+    fixture.core.tick().await?;
+    let published = drain_reader(&fixture.reader(RG_A)).await;
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0].job_id, REGULAR_JOB_ID);
+    assert_eq!(lane_counts(&fixture), (NUM_REGULAR_TASKS - 1, 0, 0));
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_inbound_poll_is_sized_from_the_lane_counters() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+    const NUM_REGULAR_TASKS: usize = 3;
+    const NUM_COMMIT_READY_JOBS: usize = 2;
+    const NUM_CLEANUP_READY_JOBS: usize = 2;
+
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, JobId::from(0), TaskId::Index(0)),
+            make_entry(RG_A, JobId::from(0), TaskId::Index(1)),
+            make_entry(RG_A, JobId::from(0), TaskId::Index(2)),
+        ],
+    );
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, JobId::from(1), TaskId::Commit),
+            make_entry(RG_A, JobId::from(2), TaskId::Commit),
+        ],
+    );
+    storage.push_cleanup_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, JobId::from(3), TaskId::Cleanup),
+            make_entry(RG_A, JobId::from(4), TaskId::Cleanup),
+        ],
+    );
+    let mut fixture = CoreFixture::new(
+        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        storage,
+    );
+    fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
+
+    let num_finalized_jobs = NUM_COMMIT_READY_JOBS + NUM_CLEANUP_READY_JOBS;
+    tick_until!(
+        fixture.core,
+        num_finalized_jobs == fixture.core.finalized_jobs.len()
+    );
+    assert_eq!(
+        lane_counts(&fixture),
+        (
+            NUM_REGULAR_TASKS,
+            NUM_COMMIT_READY_JOBS,
+            NUM_CLEANUP_READY_JOBS
+        )
+    );
+
+    // Every later poll is sized from the same counts, because nothing is published while the
+    // preloaded assignment holds the buffer full.
+    let (_, num_commit_ready_polls_before, _) = fixture.storage.num_polls();
+    tick_until!(
+        fixture.core,
+        num_commit_ready_polls_before < fixture.storage.num_polls().1
+    );
+    assert_eq!(
+        fixture.storage.last_poll_limits(),
+        (
+            READY_TASK_CAPACITY - NUM_REGULAR_TASKS,
+            COMMIT_READY_TASK_CAPACITY - NUM_COMMIT_READY_JOBS,
+            CLEANUP_READY_TASK_CAPACITY - NUM_CLEANUP_READY_JOBS
+        )
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_session_bump_zeroes_every_lane_counter() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JobId::from(0), TaskId::Index(0))],
+    );
+    storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JobId::from(1), TaskId::Commit)],
+    );
+    storage.push_cleanup_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JobId::from(2), TaskId::Cleanup)],
+    );
+    let mut fixture = CoreFixture::new(
+        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        storage,
+    );
+    fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
+
+    tick_until!(fixture.core, 2 == fixture.core.finalized_jobs.len());
+    assert_eq!(lane_counts(&fixture), (1, 1, 1));
+
+    fixture
+        .storage
+        .push_ready_batch(NEXT_SESSION_ID, Vec::new());
+    tick_until!(
+        fixture.core,
+        NEXT_SESSION_ID == fixture.session_tracker.current()
+    );
+
+    assert_eq!(lane_counts(&fixture), (0, 0, 0));
+    assert_eq!(fixture.core.global_task_set.tasks, HashSet::new());
     Ok(())
 }
 
@@ -649,16 +1011,40 @@ fn make_config(
     dispatch_queue_capacity: usize,
     active_job_list_capacity: usize,
 ) -> RgRoundRobinConfig {
+    make_expiring_config(
+        dispatch_queue_capacity,
+        active_job_list_capacity,
+        NEVER_EXPIRING_TIMEOUT_SEC,
+    )
+}
+
+/// # Returns
+///
+/// A core config as [`make_config`] builds it, sweeping its finalized job table after
+/// `finalized_job_expiration_timeout_sec`.
+///
+/// # Panics
+///
+/// Panics if either capacity is zero.
+fn make_expiring_config(
+    dispatch_queue_capacity: usize,
+    active_job_list_capacity: usize,
+    finalized_job_expiration_timeout_sec: u64,
+) -> RgRoundRobinConfig {
     RgRoundRobinConfig {
         dispatch_queue_capacity: NonZeroUsize::new(dispatch_queue_capacity)
             .expect("the dispatch queue capacity is non-zero"),
         active_job_list_capacity: NonZeroUsize::new(active_job_list_capacity)
             .expect("the active job list capacity is non-zero"),
-        ready_task_capacity: NonZeroUsize::new(16_384).expect("16384 is non-zero"),
-        commit_ready_task_capacity: NonZeroUsize::new(64).expect("64 is non-zero"),
-        cleanup_ready_task_capacity: NonZeroUsize::new(64).expect("64 is non-zero"),
+        ready_task_capacity: NonZeroUsize::new(READY_TASK_CAPACITY)
+            .expect("the regular-task buffer capacity is non-zero"),
+        commit_ready_task_capacity: NonZeroUsize::new(COMMIT_READY_TASK_CAPACITY)
+            .expect("the commit-task buffer capacity is non-zero"),
+        cleanup_ready_task_capacity: NonZeroUsize::new(CLEANUP_READY_TASK_CAPACITY)
+            .expect("the cleanup-task buffer capacity is non-zero"),
         storage_poll_timeout_ms: STORAGE_POLL_TIMEOUT_MS,
         tick_interval_ms: NonZeroU64::new(1).expect("1 is non-zero"),
+        finalized_job_expiration_timeout_sec,
     }
 }
 
@@ -750,6 +1136,34 @@ fn occupancies_of(fixture: &CoreFixture, num_groups: usize) -> Vec<usize> {
 
 /// # Returns
 ///
+/// A tuple containing the core's per-lane counts of buffered tasks:
+///
+/// * The number of buffered regular tasks.
+/// * The number of buffered commit tasks.
+/// * The number of buffered cleanup tasks.
+fn lane_counts(fixture: &CoreFixture) -> (usize, usize, usize) {
+    let global_task_set = &fixture.core.global_task_set;
+    (
+        global_task_set.num_ready(),
+        global_task_set.num_commit_ready(),
+        global_task_set.num_cleanup_ready(),
+    )
+}
+
+/// # Returns
+///
+/// The jobs the core's finalized job table holds, in the order they were finalized.
+fn finalized_job_ids(fixture: &CoreFixture) -> Vec<JobId> {
+    fixture
+        .core
+        .finalized_job_queue
+        .iter()
+        .map(|(job_id, _)| *job_id)
+        .collect()
+}
+
+/// # Returns
+///
 /// Whether the core still holds `rg_id` on its active resource group list.
 ///
 /// # Panics
@@ -758,7 +1172,7 @@ fn occupancies_of(fixture: &CoreFixture, num_groups: usize) -> Vec<usize> {
 fn is_active(fixture: &CoreFixture, rg_id: ResourceGroupId) -> bool {
     let state_index = *fixture
         .core
-        .rg_index
+        .rg_id_to_index_map
         .get(&rg_id)
         .expect("the core holds a scheduling state for the group");
     fixture.core.rg_states[state_index].is_active

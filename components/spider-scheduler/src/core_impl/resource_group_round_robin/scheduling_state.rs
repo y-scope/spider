@@ -73,8 +73,6 @@ pub(super) struct RgSchedulingState {
     pub(super) is_active: bool,
 
     finalize_queue: VecDeque<(JobId, FinalizeKind)>,
-    num_buffered_commits: usize,
-    num_buffered_cleanups: usize,
     writer: RgDispatchQueueWriter,
     active_to_pending_downgrade_buffer: Vec<JobKey>,
     pending_downgrade_buffer: Vec<JobKey>,
@@ -99,8 +97,6 @@ impl RgSchedulingState {
             rr_arm: 0,
             is_active: false,
             finalize_queue: VecDeque::new(),
-            num_buffered_commits: 0,
-            num_buffered_cleanups: 0,
             writer,
             active_to_pending_downgrade_buffer: Vec::new(),
             pending_downgrade_buffer: Vec::new(),
@@ -124,23 +120,9 @@ impl RgSchedulingState {
             || !self.pending_jobs.is_empty()
     }
 
-    /// # Returns
-    ///
-    /// A tuple containing:
-    ///
-    /// * The number of commit tasks the group has buffered.
-    /// * The number of cleanup tasks the group has buffered.
-    pub(super) const fn num_buffered_finalize_tasks(&self) -> (usize, usize) {
-        (self.num_buffered_commits, self.num_buffered_cleanups)
-    }
-
     /// Records that `job_id` has reached the finalization named by `kind`.
     pub(super) fn push_finalization(&mut self, job_id: JobId, kind: FinalizeKind) {
         self.finalize_queue.push_back((job_id, kind));
-        match kind {
-            FinalizeKind::Commit => self.num_buffered_commits += 1,
-            FinalizeKind::Cleanup => self.num_buffered_cleanups += 1,
-        }
     }
 
     /// Gives a newly registered job its scheduling position in this group.
@@ -243,16 +225,7 @@ impl RgSchedulingState {
     ///
     /// The finalization to schedule, or [`None`] if the group owes no finalization.
     fn pop_finalization(&mut self) -> Option<(JobId, FinalizeKind)> {
-        let (job_id, kind) = self.finalize_queue.pop_front()?;
-        match kind {
-            FinalizeKind::Commit => {
-                self.num_buffered_commits = self.num_buffered_commits.saturating_sub(1);
-            }
-            FinalizeKind::Cleanup => {
-                self.num_buffered_cleanups = self.num_buffered_cleanups.saturating_sub(1);
-            }
-        }
-        Some((job_id, kind))
+        self.finalize_queue.pop_front()
     }
 
     /// Takes the next regular task to dispatch out of the job that buffers it, rotating the arm
@@ -836,7 +809,7 @@ mod tests {
             fixture.try_make(FREE_SPACE),
             Err(MakeAssignmentError::DispatchQueueClosed)
         );
-        assert_eq!(fixture.state.num_buffered_finalize_tasks(), (0, 0));
+        assert!(!fixture.state.has_schedulable_task());
     }
 
     #[test]

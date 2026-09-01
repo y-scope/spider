@@ -3,9 +3,11 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::time::Duration;
+use std::time::Instant;
 
 use serde::Deserialize;
 use spider_core::session::SessionTracker;
@@ -58,16 +60,16 @@ pub(super) struct RgRoundRobinConfig {
     /// fill the inbound-queue reading request.
     pub(super) storage_poll_timeout_ms: u64,
 
-    /// The time (in milliseconds) that the scheduler will spend on each tick.
+    /// The time (in milliseconds) that the scheduler will spend on each tick. If the tick spends
+    /// less than the configured interval, the core will sleep for the remainder.
     pub(super) tick_interval_ms: NonZeroU64,
+
+    /// The time (in seconds) that a job may remain in the finalized job table before the scheduler
+    /// drops it from the table.
+    pub(super) finalized_job_expiration_timeout_sec: u64,
 }
 
 /// The resource-group-aware round-robin scheduler core created from a [`RgRoundRobinConfig`].
-///
-/// The core owns all of the state it decides with -- job entries in a generational arena, per
-/// resource group scheduling states in an append-only vector, and the dispatch queue registry the
-/// execution-manager-facing service reads from -- so nothing it holds across an await point is
-/// thread-bound.
 ///
 /// # Type Parameters
 ///
@@ -78,8 +80,12 @@ pub(super) struct RgRoundRobinConfig {
 /// All member variables are marked `pub(super)` to allow the test module to inspect the internal
 /// states.
 pub(super) struct RgRoundRobin<SchedulerStorageClientType: SchedulerStorageClient + 'static> {
-    pub(super) global_task_set: HashSet<(JobId, TaskId)>,
+    pub(super) global_task_set: GlobalTaskSet,
     pub(super) finalized_jobs: HashSet<JobId>,
+
+    /// The insertion time of every job in [`Self::finalized_jobs`], in insertion order.
+    pub(super) finalized_job_queue: VecDeque<(JobId, Instant)>,
+
     pub(super) job_registry: JobRegistry,
 
     /// The scheduling states of every resource group the core has seen this session.
@@ -122,8 +128,9 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         let session_tracker = SessionTracker::new(SessionId::default());
         let dispatch_queue_registry = DispatchQueueRegistry::new(session_tracker.clone());
         Self {
-            global_task_set: HashSet::new(),
+            global_task_set: GlobalTaskSet::new(),
             finalized_jobs: HashSet::new(),
+            finalized_job_queue: VecDeque::new(),
             job_registry: JobRegistry::new(),
             rg_states: Vec::new(),
             rg_id_to_index_map: HashMap::new(),
@@ -200,14 +207,17 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// Returns an error if:
     ///
     /// * Forwards [`RgInboundQueueReader::try_collect_result`]'s return values on failure.
+    /// * Forwards [`Self::apply_session_bump`]'s return values on failure.
     /// * Forwards [`Self::start_inbound_poll`]'s return values on failure.
-    /// * Forwards [`Self::fill_dispatch_queues`]'s return values on failure.
+    /// * Forwards [`Self::publish_task_assignments_into_dispatch_queues`]'s return values on
+    ///   failure.
+    /// * Forwards [`Self::retire_jobs`]'s return values on failure.
     pub(super) async fn tick(&mut self) -> Result<(), SchedulerError> {
-        let poll_state = self
+        match self
             .inbound_queue_reader
             .try_collect_result(self.session_tracker.current())
-            .await?;
-        match poll_state {
+            .await?
+        {
             RgInboundPollState::Ready {
                 session_id,
                 ready_result,
@@ -215,7 +225,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 cleanup_ready_result,
             } => {
                 if session_id != self.session_tracker.current() {
-                    self.apply_session_bump(session_id);
+                    self.apply_session_bump(session_id)?;
                 }
                 let rescheduled_entries = self.drain_reschedule_queue(session_id);
 
@@ -233,49 +243,39 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             RgInboundPollState::Pending => (),
         }
 
-        let jobs_to_retire = self.fill_dispatch_queues()?;
-        self.retire_jobs(jobs_to_retire);
+        let jobs_to_retire = self.publish_task_assignments_into_dispatch_queues()?;
+        self.retire_jobs(jobs_to_retire)?;
+        self.retire_expired_finalized_jobs();
         Ok(())
     }
 
     /// Discards every piece of state published in a session older than `new_session_id`.
     ///
-    /// Clearing the dedup set is load-bearing rather than tidy: storage replays its ready tasks
-    /// after a bump, and a stale dedup entry would drop a replayed task while the registry no
-    /// longer holds anything to schedule it from.
+    /// # Errors
     ///
-    /// [`Self::rg_states`], [`Self::rg_index`], and [`Self::active_rg_list`] must be cleared as one
-    /// operation, and this is the only place any of them is cleared. Positions in `rg_states` carry
-    /// no generation, so an index that outlives the flush does not fail: it resolves against the
-    /// new session's states, either out of bounds or -- once the new session has re-created a few
-    /// groups -- silently against the wrong group. Nothing in the type system checks this.
+    /// Returns an error if:
     ///
-    /// [`Self::dispatch_queue_registry`] must be cleared together with them, and that too is a
-    /// correctness requirement rather than tidiness. A group's queue closes only once every sender
-    /// has been dropped, and a scheduling state's write side is one of them; a state that survived
-    /// the registry's flush would therefore hold a write side onto a queue whose readers are gone,
-    /// and publishing into a closed queue is fatal to the core. Clearing the registry is also what
-    /// discards the hints published in the session being left behind.
-    fn apply_session_bump(&mut self, new_session_id: SessionId) {
+    /// * [`SchedulerError::InvalidSessionId`] if `new_session_id` is no newer than the tracked
+    ///   session. Storage only ever moves its session forward, so a session that does not advance
+    ///   the tracker is unreachable in a healthy deployment.
+    fn apply_session_bump(&mut self, new_session_id: SessionId) -> Result<(), SchedulerError> {
         let previous_session_id = self.session_tracker.current();
-        if self.session_tracker.try_advance(new_session_id) {
-            tracing::info!(
-                from = previous_session_id,
-                to = new_session_id,
-                num_resource_groups = self.dispatch_queue_registry.len(),
-                num_jobs = self.job_registry.len(),
-                "Storage session bumped. Flushing the core."
-            );
-        } else {
+        if !self.session_tracker.try_advance(new_session_id) {
             tracing::error!(
                 from = previous_session_id,
                 to = new_session_id,
-                "Storage reported a session no newer than the tracked one. Flushing the core \
-                 anyway, but it keeps serving the tracked session."
+                "Storage reported a session no newer than the tracked one."
             );
+            return Err(SchedulerError::InvalidSessionId(new_session_id));
         }
+        tracing::info!(
+            from = previous_session_id,
+            to = new_session_id,
+            num_resource_groups = self.dispatch_queue_registry.len(),
+            num_jobs = self.job_registry.len(),
+            "Storage session bumped. Flushing the core."
+        );
 
-        self.dispatch_queue_registry.clear();
         self.rg_states.clear();
         self.rg_id_to_index_map.clear();
         self.active_rg_list.clear();
@@ -283,6 +283,10 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         self.job_registry.clear();
         self.global_task_set.clear();
         self.finalized_jobs.clear();
+        self.finalized_job_queue.clear();
+        self.dispatch_queue_registry.clear();
+
+        Ok(())
     }
 
     /// Drains the reschedule queue, dropping assignments published in a session other than
@@ -306,11 +310,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         entries
     }
 
-    /// Folds the tick's ready tasks into the finalized job table, the global task set, and the job
-    /// registry.
-    ///
-    /// Finalizations are processed before regular tasks, so a regular task arriving in the same
-    /// batch as its job's finalization is discarded rather than scheduled.
+    /// Processes the inbound polling results along with the assignments to reschedule.
     ///
     /// # Returns
     ///
@@ -346,17 +346,25 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             (cleanup_ready, FinalizeKind::Cleanup),
         ] {
             for finalized_job in finalized_jobs {
-                if !self.finalized_jobs.insert(finalized_job.job_id) {
+                // A job reaches at most one of each finalization, so the dedup key is the
+                // finalization rather than the job: a cleanup that follows a commit is a distinct
+                // task and must still be scheduled.
+                if !self
+                    .global_task_set
+                    .insert(finalized_job.job_id, TaskId::from(kind))
+                {
                     continue;
                 }
-                // The job's still-buffered regular tasks will never be published, so they must
-                // leave the dedup set with it or nothing would ever remove them.
-                if let Some(mut job_entry) =
-                    self.job_registry.remove_by_job_id(finalized_job.job_id)
+                // Only the first finalization has a registry entry to drop: the job's
+                // still-buffered regular tasks will never be published, so they must leave the
+                // dedup set with it or nothing would ever remove them.
+                if self.mark_job_finalized(finalized_job.job_id)
+                    && let Some(mut job_entry) =
+                        self.job_registry.remove_by_job_id(finalized_job.job_id)
                 {
                     for task_index in job_entry.take_ready_tasks() {
                         self.global_task_set
-                            .remove(&(finalized_job.job_id, TaskId::Index(task_index)));
+                            .remove(finalized_job.job_id, TaskId::Index(task_index));
                     }
                 }
                 rg_updates
@@ -378,7 +386,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             }
             let global_task_set = &mut self.global_task_set;
             task_indices
-                .retain(|task_index| global_task_set.insert((job_id, TaskId::Index(*task_index))));
+                .retain(|task_index| global_task_set.insert(job_id, TaskId::Index(*task_index)));
             if task_indices.is_empty() {
                 continue;
             }
@@ -406,11 +414,11 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             for job_key in update.new_jobs {
                 rg_state.place_new_job(job_key);
             }
-            let activated = !rg_state.is_active;
-            rg_state.is_active = true;
-            if activated {
-                self.active_rg_list.push(state_index);
+            if rg_state.is_active {
+                continue;
             }
+            rg_state.is_active = true;
+            self.active_rg_list.push(state_index);
         }
     }
 
@@ -450,7 +458,9 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// * [`SchedulerError::DispatchQueueClosed`] if a group's dispatch queue or the broadcast queue
     ///   is closed, in which case the assignments the core makes can no longer reach an execution
     ///   manager.
-    fn fill_dispatch_queues(&mut self) -> Result<Vec<JobKey>, SchedulerError> {
+    fn publish_task_assignments_into_dispatch_queues(
+        &mut self,
+    ) -> Result<Vec<JobKey>, SchedulerError> {
         let mut jobs_to_retire = Vec::new();
         if self.active_rg_list.is_empty() {
             return Ok(jobs_to_retire);
@@ -509,7 +519,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             );
             match result {
                 Ok((job_id, task_id)) => {
-                    global_task_set.remove(&(job_id, task_id));
+                    global_task_set.remove(job_id, task_id);
                     free -= 1;
                     *last_served_rg = Some(rg_state.rg_id);
                     arm = (arm + 1) % rg_rr_list.len();
@@ -563,10 +573,59 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         }
     }
 
-    /// Drops the registry's entry for every job that ran out of downgrade lives.
-    fn retire_jobs(&mut self, jobs_to_retire: Vec<JobKey>) {
+    /// Records that `job_id` has reached a finalizing state, so that its later regular tasks are
+    /// discarded rather than scheduled.
+    ///
+    /// A job that reaches both of its finalizations is recorded once: the table gates the job's
+    /// regular tasks, which the first finalization already settles.
+    ///
+    /// # Returns
+    ///
+    /// Whether this is the job's first finalization.
+    fn mark_job_finalized(&mut self, job_id: JobId) -> bool {
+        if !self.finalized_jobs.insert(job_id) {
+            return false;
+        }
+        self.finalized_job_queue.push_back((job_id, Instant::now()));
+        true
+    }
+
+    /// Drops the job registry's entry for every job that ran out of downgrade lives.
+    ///
+    /// A key that no longer resolves is skipped rather than reported: the job it referred to was
+    /// removed when it finalized, and the key was buffered before that.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`SchedulerError::Internal`] if a retired job still buffers a ready task.
+    fn retire_jobs(&mut self, jobs_to_retire: Vec<JobKey>) -> Result<(), SchedulerError> {
         for job_key in jobs_to_retire {
-            self.job_registry.remove(job_key);
+            let Some(job_entry) = self.job_registry.remove(job_key) else {
+                continue;
+            };
+            if job_entry.has_ready_task() {
+                return Err(SchedulerError::Internal(format!(
+                    "retired job {:?} still buffers ready tasks",
+                    job_entry.job_id()
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drops every expired entry from the finalized job table.
+    fn retire_expired_finalized_jobs(&mut self) {
+        let expiration_time = Duration::from_secs(self.config.finalized_job_expiration_timeout_sec);
+        while let Some((job_id, insertion_time)) = self.finalized_job_queue.front() {
+            if insertion_time.elapsed() <= expiration_time {
+                break;
+            }
+            tracing::info!(job_id = ? job_id, "Finalized job table entry expired.");
+            self.finalized_jobs.remove(job_id);
+            self.finalized_job_queue.pop_front();
         }
     }
 
@@ -579,22 +638,21 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     ///
     /// * Forwards [`RgInboundQueueReader::start`]'s return values on failure.
     fn start_inbound_poll(&mut self) -> Result<(), SchedulerError> {
-        let (num_commit_ready, num_cleanup_ready) = self.count_buffered_finalizations();
         let max_ready_entries = self
             .config
             .ready_task_capacity
             .get()
-            .saturating_sub(self.global_task_set.len());
+            .saturating_sub(self.global_task_set.num_ready());
         let max_commit_ready_entries = self
             .config
             .commit_ready_task_capacity
             .get()
-            .saturating_sub(num_commit_ready);
+            .saturating_sub(self.global_task_set.num_commit_ready());
         let max_cleanup_ready_entries = self
             .config
             .cleanup_ready_task_capacity
             .get()
-            .saturating_sub(num_cleanup_ready);
+            .saturating_sub(self.global_task_set.num_cleanup_ready());
 
         self.inbound_queue_reader.start(
             Duration::from_millis(self.config.storage_poll_timeout_ms),
@@ -603,22 +661,106 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             max_cleanup_ready_entries,
         )
     }
+}
+
+/// The core's set of buffered tasks, carrying a running count of the tasks each inbound-queue lane
+/// contributed.
+///
+/// # Note
+///
+/// [`Self::tasks`] is marked `pub(super)` to allow the test module to inspect the internal state.
+pub(super) struct GlobalTaskSet {
+    pub(super) tasks: HashSet<(JobId, TaskId)>,
+    num_ready: usize,
+    num_commit_ready: usize,
+    num_cleanup_ready: usize,
+}
+
+impl GlobalTaskSet {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created set.
+    pub(super) fn new() -> Self {
+        Self {
+            tasks: HashSet::new(),
+            num_ready: 0,
+            num_commit_ready: 0,
+            num_cleanup_ready: 0,
+        }
+    }
+
+    /// Buffers `job_id`'s `task_id`, counting it against the lane it arrived on.
+    ///
+    /// # Returns
+    ///
+    /// Whether this call buffered the task. A task already buffered is not counted twice.
+    pub(super) fn insert(&mut self, job_id: JobId, task_id: TaskId) -> bool {
+        if !self.tasks.insert((job_id, task_id)) {
+            return false;
+        }
+        *self.lane_count_mut(task_id) += 1;
+        true
+    }
+
+    /// Takes `job_id`'s `task_id` out of the buffer, discounting it from the lane it arrived on.
+    ///
+    /// A task that is not buffered leaves every count untouched.
+    pub(super) fn remove(&mut self, job_id: JobId, task_id: TaskId) {
+        if !self.tasks.remove(&(job_id, task_id)) {
+            return;
+        }
+        // The count and the set membership only ever move together, so the guard above is what
+        // makes this decrement unable to underflow.
+        *self.lane_count_mut(task_id) -= 1;
+    }
+
+    /// Empties the buffer, zeroing every lane count with it.
+    pub(super) fn clear(&mut self) {
+        self.tasks.clear();
+        self.num_ready = 0;
+        self.num_commit_ready = 0;
+        self.num_cleanup_ready = 0;
+    }
 
     /// # Returns
     ///
-    /// A tuple containing:
+    /// The number of buffered tasks, across every lane.
+    pub(super) fn len(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// # Returns
     ///
-    /// * The number of buffered commit tasks.
-    /// * The number of buffered cleanup tasks.
-    fn count_buffered_finalizations(&self) -> (usize, usize) {
-        let mut num_commit_ready = 0;
-        let mut num_cleanup_ready = 0;
-        for rg_state in &self.rg_states {
-            let (num_commits, num_cleanups) = rg_state.num_buffered_finalize_tasks();
-            num_commit_ready += num_commits;
-            num_cleanup_ready += num_cleanups;
+    /// The number of buffered regular tasks.
+    pub(super) const fn num_ready(&self) -> usize {
+        self.num_ready
+    }
+
+    /// # Returns
+    ///
+    /// The number of buffered commit tasks.
+    pub(super) const fn num_commit_ready(&self) -> usize {
+        self.num_commit_ready
+    }
+
+    /// # Returns
+    ///
+    /// The number of buffered cleanup tasks.
+    pub(super) const fn num_cleanup_ready(&self) -> usize {
+        self.num_cleanup_ready
+    }
+
+    /// # Returns
+    ///
+    /// The count of the lane `task_id` arrives on.
+    const fn lane_count_mut(&mut self, task_id: TaskId) -> &mut usize {
+        match task_id {
+            TaskId::Index(_) => &mut self.num_ready,
+            TaskId::Commit => &mut self.num_commit_ready,
+            TaskId::Cleanup => &mut self.num_cleanup_ready,
         }
-        (num_commit_ready, num_cleanup_ready)
     }
 }
 
