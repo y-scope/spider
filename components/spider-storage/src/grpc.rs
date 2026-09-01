@@ -22,6 +22,7 @@ use tonic::Status;
 use crate::cache::error::CacheError;
 use crate::db::DbError;
 use crate::db::DbStorage;
+use crate::db::ExternalResourceGroupCredentials;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueSender;
 use crate::state::ServiceState;
@@ -773,7 +774,10 @@ impl<
         tracing::info!(external_id = % external_id, "Add resource group request received.");
         let rg_id = self
             .inner
-            .add_resource_group(external_id, password)
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: external_id,
+                password,
+            })
             .await
             .map_err(|error| {
                 self.resource_group_management_service_error_handler(error, "add_resource_group")
@@ -820,9 +824,12 @@ impl<
             .inner
             .register_execution_manager(
                 ip_address,
-                resource_group_credentials
-                    .as_ref()
-                    .map(|(external_id, password)| (external_id.as_str(), password.as_slice())),
+                resource_group_credentials.map(|(external_resource_group_id, password)| {
+                    ExternalResourceGroupCredentials {
+                        external_resource_group_id,
+                        password,
+                    }
+                }),
             )
             .await
             .map_err(|error| {

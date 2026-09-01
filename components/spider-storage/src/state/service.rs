@@ -23,6 +23,7 @@ use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::db::DbStorage;
+use crate::db::ExternalResourceGroupCredentials;
 use crate::inbound_queue::CleanupTaskMarker;
 use crate::inbound_queue::CommitTaskMarker;
 use crate::inbound_queue::InboundQueueEntry;
@@ -524,7 +525,7 @@ impl<
         Ok(state)
     }
 
-    /// Adds a resource group with the given external ID and password.
+    /// Adds a resource group with the given credentials.
     ///
     /// # Returns
     ///
@@ -537,10 +538,9 @@ impl<
     /// * Forwards [`ResourceGroupManagement::add`]'s return values on failure.
     pub async fn add_resource_group(
         &self,
-        external_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, StorageServerError> {
-        let rg_id = self.inner.db.add(external_id, password).await?;
+        let rg_id = self.inner.db.add(credentials).await?;
         tracing::info!(
             rg_id = ? rg_id,
             "Resource group added.",
@@ -655,7 +655,7 @@ impl<
     pub async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        resource_group_credentials: Option<(&str, &[u8])>,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), StorageServerError> {
         let registration = self
             .inner
@@ -1644,7 +1644,10 @@ mod tests {
         let service = create_test_service();
         assert!(
             service
-                .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+                .add_resource_group(ExternalResourceGroupCredentials {
+                    external_resource_group_id: "external_123".to_owned(),
+                    password: vec![1, 2, 3],
+                })
                 .await
                 .is_ok()
         );
@@ -1656,7 +1659,10 @@ mod tests {
         let service = create_test_service();
         let password = vec![1, 2, 3];
         let rg_id = service
-            .add_resource_group("external_123".to_owned(), password.clone())
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: "external_123".to_owned(),
+                password: password.clone(),
+            })
             .await?;
         service.verify_resource_group(rg_id, &password).await?;
         Ok(())
@@ -1666,7 +1672,10 @@ mod tests {
     async fn verify_resource_group_fails_for_wrong_password() -> anyhow::Result<()> {
         let service = create_test_service();
         let rg_id = service
-            .add_resource_group("external_123".to_owned(), vec![1, 2, 3])
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: "external_123".to_owned(),
+                password: vec![1, 2, 3],
+            })
             .await?;
         let result = service.verify_resource_group(rg_id, &[4, 5, 6]).await;
         assert!(result.is_err(), "verify should fail for wrong password");
@@ -1762,13 +1771,19 @@ mod tests {
         let service = create_test_service();
         let password = b"password";
         let resource_group_id = service
-            .add_resource_group("external_123".to_owned(), password.to_vec())
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: "external_123".to_owned(),
+                password: password.to_vec(),
+            })
             .await?;
 
         let (_, registered_resource_group_id) = service
             .register_execution_manager(
                 "127.0.0.1".parse()?,
-                Some(("external_123", password.as_slice())),
+                Some(ExternalResourceGroupCredentials {
+                    external_resource_group_id: "external_123".to_owned(),
+                    password: password.to_vec(),
+                }),
             )
             .await?;
 
@@ -1781,7 +1796,13 @@ mod tests {
         let service = create_test_service();
 
         let result = service
-            .register_execution_manager("127.0.0.1".parse()?, Some(("unknown", b"password")))
+            .register_execution_manager(
+                "127.0.0.1".parse()?,
+                Some(ExternalResourceGroupCredentials {
+                    external_resource_group_id: "unknown".to_owned(),
+                    password: b"password".to_vec(),
+                }),
+            )
             .await;
 
         assert!(matches!(
@@ -1797,13 +1818,19 @@ mod tests {
     async fn register_execution_manager_rejects_invalid_password() -> anyhow::Result<()> {
         let service = create_test_service();
         service
-            .add_resource_group("external_123".to_owned(), b"password".to_vec())
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: "external_123".to_owned(),
+                password: b"password".to_vec(),
+            })
             .await?;
 
         let result = service
             .register_execution_manager(
                 "127.0.0.1".parse()?,
-                Some(("external_123", b"wrong-password")),
+                Some(ExternalResourceGroupCredentials {
+                    external_resource_group_id: "external_123".to_owned(),
+                    password: b"wrong-password".to_vec(),
+                }),
             )
             .await;
 

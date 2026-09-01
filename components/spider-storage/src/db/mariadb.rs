@@ -23,6 +23,7 @@ use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::db::ExecutionManagerLivenessManagement;
 use crate::db::ExternalJobOrchestration;
+use crate::db::ExternalResourceGroupCredentials;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
 use crate::db::ResourceGroupManagement;
@@ -431,14 +432,17 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 impl ResourceGroupManagement for MariaDbStorageConnector {
     async fn add(
         &self,
-        external_resource_group_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError> {
         const QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?);",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
+        let ExternalResourceGroupCredentials {
+            external_resource_group_id,
+            password,
+        } = credentials;
         let resource_group_id = sqlx::query(QUERY)
             .bind(&external_resource_group_id)
             .bind(password)
@@ -501,7 +505,7 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        resource_group_credentials: Option<(&str, &[u8])>,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
         const INSERT_QUERY: &str = formatcp!(
             "INSERT INTO `{table}` (`ip_address`, `resource_group_id`) VALUES (?, ?);",
@@ -512,23 +516,24 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let resource_group_id =
-            if let Some((external_resource_group_id, password)) = resource_group_credentials {
-                let resource_group_id =
-                    sqlx::query_scalar::<_, ResourceGroupId>(SELECT_RESOURCE_GROUP_QUERY)
-                        .bind(external_resource_group_id)
-                        .fetch_optional(&self.pool)
-                        .await?
-                        .ok_or_else(|| {
-                            DbError::ExternalResourceGroupNotFound(
-                                external_resource_group_id.to_owned(),
-                            )
-                        })?;
-                ResourceGroupManagement::verify(self, resource_group_id, password).await?;
-                Some(resource_group_id)
-            } else {
-                None
-            };
+        let resource_group_id = if let Some(ExternalResourceGroupCredentials {
+            external_resource_group_id,
+            password,
+        }) = resource_group_credentials
+        {
+            let resource_group_id =
+                sqlx::query_scalar::<_, ResourceGroupId>(SELECT_RESOURCE_GROUP_QUERY)
+                    .bind(&external_resource_group_id)
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or_else(|| {
+                        DbError::ExternalResourceGroupNotFound(external_resource_group_id)
+                    })?;
+            ResourceGroupManagement::verify(self, resource_group_id, &password).await?;
+            Some(resource_group_id)
+        } else {
+            None
+        };
 
         let execution_manager_id = sqlx::query(INSERT_QUERY)
             .bind(ip_address.to_string())

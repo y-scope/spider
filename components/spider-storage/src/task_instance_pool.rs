@@ -564,6 +564,7 @@ mod tests {
 
     use super::*;
     use crate::db::DbError;
+    use crate::db::ExternalResourceGroupCredentials;
     use crate::job_submission::create_validated_submission;
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;
@@ -581,7 +582,7 @@ mod tests {
         async fn register_execution_manager(
             &self,
             _ip_address: IpAddr,
-            _resource_group_credentials: Option<(&str, &[u8])>,
+            _resource_group_credentials: Option<ExternalResourceGroupCredentials>,
         ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
             unimplemented!("not needed by pool tests")
         }
@@ -673,7 +674,7 @@ mod tests {
         async fn register_execution_manager(
             &self,
             _ip_address: IpAddr,
-            _resource_group_credentials: Option<(&str, &[u8])>,
+            _resource_group_credentials: Option<ExternalResourceGroupCredentials>,
         ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
             unimplemented!("not needed by pool tests")
         }

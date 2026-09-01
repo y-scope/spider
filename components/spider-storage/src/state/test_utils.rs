@@ -21,6 +21,7 @@ use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::db::ExecutionManagerLivenessManagement;
 use crate::db::ExternalJobOrchestration;
+use crate::db::ExternalResourceGroupCredentials;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
 use crate::db::ResourceGroupManagement;
@@ -177,9 +178,12 @@ impl InternalJobOrchestration for MockDbConnector {
 impl ResourceGroupManagement for MockDbConnector {
     async fn add(
         &self,
-        external_resource_group_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError> {
+        let ExternalResourceGroupCredentials {
+            external_resource_group_id,
+            password,
+        } = credentials;
         let counter = self.next_resource_group_id.fetch_add(1, Ordering::Relaxed);
         let id = ResourceGroupId::from(counter as u64);
         self.resource_groups.insert(id, password);
@@ -220,20 +224,21 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-        resource_group_credentials: Option<(&str, &[u8])>,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
         let resource_group_id = match resource_group_credentials {
-            Some((external_resource_group_id, password)) => {
+            Some(ExternalResourceGroupCredentials {
+                external_resource_group_id,
+                password,
+            }) => {
                 let resource_group_id = self
                     .resource_group_ids
-                    .get(external_resource_group_id)
+                    .get(&external_resource_group_id)
                     .map(|entry| *entry.value())
                     .ok_or_else(|| {
-                        DbError::ExternalResourceGroupNotFound(
-                            external_resource_group_id.to_owned(),
-                        )
+                        DbError::ExternalResourceGroupNotFound(external_resource_group_id)
                     })?;
-                ResourceGroupManagement::verify(self, resource_group_id, password).await?;
+                ResourceGroupManagement::verify(self, resource_group_id, &password).await?;
                 Some(resource_group_id)
             }
             None => None,
