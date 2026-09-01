@@ -95,11 +95,13 @@ impl LivenessClient for GrpcLivenessClient {
 ///
 /// * [`LivenessResponseError::MarkedDead`] for `FAILED_PRECONDITION`.
 /// * [`LivenessResponseError::IllegalId`] for `INVALID_ARGUMENT`.
+/// * [`LivenessResponseError::ResourceGroupAuth`] for `UNAUTHENTICATED`.
 /// * [`LivenessResponseError::Transport`] for any other code.
 fn status_to_error(status: &Status) -> LivenessResponseError {
     match status.code() {
         Code::FailedPrecondition => LivenessResponseError::MarkedDead,
         Code::InvalidArgument => LivenessResponseError::IllegalId(status.message().to_owned()),
+        Code::Unauthenticated => LivenessResponseError::ResourceGroupAuth,
         _ => LivenessResponseError::Transport(status.message().to_owned()),
     }
 }
@@ -238,6 +240,16 @@ mod tests {
             LivenessResponseError::IllegalId(message) => assert_eq!(message, ERROR_MSG),
             error => panic!("unexpected liveness status mapping: {error:?}"),
         }
+    }
+
+    #[test]
+    fn status_maps_unauthenticated_to_resource_group_auth() {
+        let status = tonic::Status::unauthenticated("invalid resource group");
+
+        assert!(matches!(
+            status_to_error(&status),
+            LivenessResponseError::ResourceGroupAuth
+        ));
     }
 
     #[test]

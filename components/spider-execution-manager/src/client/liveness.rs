@@ -24,6 +24,10 @@ pub enum LivenessResponseError {
     #[error("execution manager already marked dead")]
     MarkedDead,
 
+    /// Resource group authentication failed.
+    #[error("resource group authentication failed")]
+    ResourceGroupAuth,
+
     /// Connection lost, request timeout, or wire-format serialization failure. Callers may back off
     /// and retry.
     #[error("transport error: {0}")]
@@ -53,6 +57,7 @@ pub trait LivenessClient: Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`LivenessResponseError::ResourceGroupAuth`] if resource group authentication fails.
     /// * [`LivenessResponseError::Transport`] if the connection was lost or timed out.
     async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError>;
 
