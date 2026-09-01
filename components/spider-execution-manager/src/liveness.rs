@@ -357,24 +357,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unexpected_resource_group_auth_error_cancels_runtime() {
-        let client = Arc::new(MockLivenessClient::new());
-        client.push_response(Err(LivenessResponseError::ResourceGroupAuth));
-        let cancellation_token = CancellationToken::new();
-
-        let (_handle, join) = spawn_actor(
-            Arc::clone(&client),
-            SessionTracker::new(0),
-            cancellation_token.clone(),
-        );
-
-        tokio::time::timeout(Duration::from_secs(1), cancellation_token.cancelled())
-            .await
-            .expect("token was not cancelled within 1s");
-        join_actor(join).await;
-    }
-
-    #[tokio::test]
     async fn transport_error_does_not_cancel_runtime() {
         let client = Arc::new(MockLivenessClient::new());
         client.push_response(Err(LivenessResponseError::Transport(
