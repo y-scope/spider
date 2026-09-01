@@ -62,7 +62,7 @@ impl LivenessClient for GrpcLivenessClient {
             .get_client()
             .register_execution_manager(request)
             .await
-            .map_err(|status| registration_status_to_error(&status, None))?
+            .map_err(|status| registration_status_to_error(&status))?
             .into_inner();
 
         register_response_to_result(response)
@@ -110,19 +110,11 @@ fn status_to_error(status: &Status) -> LivenessResponseError {
 ///
 /// The [`LivenessResponseError`] for `status`'s code:
 ///
-/// * [`LivenessResponseError::IllegalExternalResourceGroupId`] for `UNAUTHENTICATED` when an
-///   external resource group ID was requested.
+/// * [`LivenessResponseError::ResourceGroupAuth`] for `UNAUTHENTICATED`.
 /// * The result of [`status_to_error`] otherwise.
-fn registration_status_to_error(
-    status: &Status,
-    external_resource_group_id: Option<&str>,
-) -> LivenessResponseError {
-    match (status.code(), external_resource_group_id) {
-        (Code::Unauthenticated, Some(external_resource_group_id)) => {
-            LivenessResponseError::IllegalExternalResourceGroupId(
-                external_resource_group_id.to_owned(),
-            )
-        }
+fn registration_status_to_error(status: &Status) -> LivenessResponseError {
+    match status.code() {
+        Code::Unauthenticated => LivenessResponseError::ResourceGroupAuth,
         _ => status_to_error(status),
     }
 }
@@ -264,16 +256,13 @@ mod tests {
     }
 
     #[test]
-    fn status_maps_unauthenticated_to_illegal_external_resource_group_id() {
-        const EXTERNAL_RESOURCE_GROUP_ID: &str = "resource-group-a";
+    fn status_maps_unauthenticated_to_resource_group_auth() {
         let status = tonic::Status::unauthenticated("invalid resource group");
 
-        match registration_status_to_error(&status, Some(EXTERNAL_RESOURCE_GROUP_ID)) {
-            LivenessResponseError::IllegalExternalResourceGroupId(external_resource_group_id) => {
-                assert_eq!(external_resource_group_id, EXTERNAL_RESOURCE_GROUP_ID);
-            }
-            error => panic!("unexpected registration status mapping: {error:?}"),
-        }
+        assert!(matches!(
+            registration_status_to_error(&status),
+            LivenessResponseError::ResourceGroupAuth
+        ));
     }
 
     #[test]

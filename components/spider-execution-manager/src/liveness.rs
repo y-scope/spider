@@ -156,13 +156,8 @@ impl<LivenessClientType: LivenessClient + Clone> LivenessActor<LivenessClientTyp
                 );
                 self.cancellation_token.cancel();
             }
-            Err(LivenessResponseError::IllegalExternalResourceGroupId(
-                external_resource_group_id,
-            )) => {
-                tracing::error!(
-                    external_resource_group_id,
-                    "Storage rejected the external resource group ID. Cancelling the runtime."
-                );
+            Err(LivenessResponseError::ResourceGroupAuth) => {
+                tracing::error!("Resource group authentication failed. Cancelling the runtime.");
                 self.cancellation_token.cancel();
             }
             Err(LivenessResponseError::IllegalId(msg)) => {
@@ -359,11 +354,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn illegal_external_resource_group_id_cancels_runtime() {
+    async fn resource_group_auth_error_cancels_runtime() {
         let client = Arc::new(MockLivenessClient::new());
-        client.push_response(Err(LivenessResponseError::IllegalExternalResourceGroupId(
-            "resource-group-a".to_owned(),
-        )));
+        client.push_response(Err(LivenessResponseError::ResourceGroupAuth));
         let cancellation_token = CancellationToken::new();
 
         let (_handle, join) = spawn_actor(
