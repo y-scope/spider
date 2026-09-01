@@ -62,7 +62,7 @@ impl LivenessClient for GrpcLivenessClient {
             .get_client()
             .register_execution_manager(request)
             .await
-            .map_err(|status| registration_status_to_error(&status))?
+            .map_err(|status| status_to_error(&status))?
             .into_inner();
 
         register_response_to_result(response)
@@ -95,27 +95,14 @@ impl LivenessClient for GrpcLivenessClient {
 ///
 /// * [`LivenessResponseError::MarkedDead`] for `FAILED_PRECONDITION`.
 /// * [`LivenessResponseError::IllegalId`] for `INVALID_ARGUMENT`.
+/// * [`LivenessResponseError::ResourceGroupAuth`] for `UNAUTHENTICATED`.
 /// * [`LivenessResponseError::Transport`] for any other code.
 fn status_to_error(status: &Status) -> LivenessResponseError {
     match status.code() {
         Code::FailedPrecondition => LivenessResponseError::MarkedDead,
         Code::InvalidArgument => LivenessResponseError::IllegalId(status.message().to_owned()),
-        _ => LivenessResponseError::Transport(status.message().to_owned()),
-    }
-}
-
-/// Maps a registration gRPC [`Status`] to a [`LivenessResponseError`].
-///
-/// # Returns
-///
-/// The [`LivenessResponseError`] for `status`'s code:
-///
-/// * [`LivenessResponseError::ResourceGroupAuth`] for `UNAUTHENTICATED`.
-/// * The result of [`status_to_error`] otherwise.
-fn registration_status_to_error(status: &Status) -> LivenessResponseError {
-    match status.code() {
         Code::Unauthenticated => LivenessResponseError::ResourceGroupAuth,
-        _ => status_to_error(status),
+        _ => LivenessResponseError::Transport(status.message().to_owned()),
     }
 }
 
@@ -260,7 +247,7 @@ mod tests {
         let status = tonic::Status::unauthenticated("invalid resource group");
 
         assert!(matches!(
-            registration_status_to_error(&status),
+            status_to_error(&status),
             LivenessResponseError::ResourceGroupAuth
         ));
     }
