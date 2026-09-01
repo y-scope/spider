@@ -62,7 +62,7 @@ impl LivenessClient for GrpcLivenessClient {
             .get_client()
             .register_execution_manager(request)
             .await
-            .map_err(|status| status_to_error(&status))?
+            .map_err(|status| registration_status_to_error(&status, None))?
             .into_inner();
 
         register_response_to_result(response)
@@ -101,6 +101,29 @@ fn status_to_error(status: &Status) -> LivenessResponseError {
         Code::FailedPrecondition => LivenessResponseError::MarkedDead,
         Code::InvalidArgument => LivenessResponseError::IllegalId(status.message().to_owned()),
         _ => LivenessResponseError::Transport(status.message().to_owned()),
+    }
+}
+
+/// Maps a registration gRPC [`Status`] to a [`LivenessResponseError`].
+///
+/// # Returns
+///
+/// The [`LivenessResponseError`] for `status`'s code:
+///
+/// * [`LivenessResponseError::IllegalExternalResourceGroupId`] for `UNAUTHENTICATED` when an
+///   external resource group ID was requested.
+/// * The result of [`status_to_error`] otherwise.
+fn registration_status_to_error(
+    status: &Status,
+    external_resource_group_id: Option<&str>,
+) -> LivenessResponseError {
+    match (status.code(), external_resource_group_id) {
+        (Code::Unauthenticated, Some(external_resource_group_id)) => {
+            LivenessResponseError::IllegalExternalResourceGroupId(
+                external_resource_group_id.to_owned(),
+            )
+        }
+        _ => status_to_error(status),
     }
 }
 
@@ -237,6 +260,19 @@ mod tests {
         match status_to_error(&status) {
             LivenessResponseError::IllegalId(message) => assert_eq!(message, ERROR_MSG),
             error => panic!("unexpected liveness status mapping: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn status_maps_unauthenticated_to_illegal_external_resource_group_id() {
+        const EXTERNAL_RESOURCE_GROUP_ID: &str = "resource-group-a";
+        let status = tonic::Status::unauthenticated("invalid resource group");
+
+        match registration_status_to_error(&status, Some(EXTERNAL_RESOURCE_GROUP_ID)) {
+            LivenessResponseError::IllegalExternalResourceGroupId(external_resource_group_id) => {
+                assert_eq!(external_resource_group_id, EXTERNAL_RESOURCE_GROUP_ID);
+            }
+            error => panic!("unexpected registration status mapping: {error:?}"),
         }
     }
 

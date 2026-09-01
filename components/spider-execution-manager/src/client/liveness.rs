@@ -24,6 +24,10 @@ pub enum LivenessResponseError {
     #[error("execution manager already marked dead")]
     MarkedDead,
 
+    /// The external resource group id rejected by storage.
+    #[error("external resource group id rejected: `{0}`")]
+    IllegalExternalResourceGroupId(String),
+
     /// Connection lost, request timeout, or wire-format serialization failure. Callers may back off
     /// and retry.
     #[error("transport error: {0}")]
@@ -53,6 +57,8 @@ pub trait LivenessClient: Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`LivenessResponseError::IllegalExternalResourceGroupId`] if storage rejects the external
+    ///   resource group ID.
     /// * [`LivenessResponseError::Transport`] if the connection was lost or timed out.
     async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError>;
 
