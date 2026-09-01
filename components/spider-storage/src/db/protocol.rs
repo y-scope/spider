@@ -355,7 +355,10 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     ///
     /// # Returns
     ///
-    /// The ID of the registered execution manager and its resource group ID on success.
+    /// A tuple on success, containing:
+    ///
+    /// * The ID of the registered execution manager.
+    /// * The ID of the resource group to which the execution manager is dedicated, if any.
     ///
     /// # Errors
     ///
