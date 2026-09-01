@@ -157,7 +157,10 @@ impl<LivenessClientType: LivenessClient + Clone> LivenessActor<LivenessClientTyp
                 self.cancellation_token.cancel();
             }
             Err(LivenessResponseError::ResourceGroupAuth) => {
-                tracing::error!("Resource group authentication failed. Cancelling the runtime.");
+                tracing::error!(
+                    "Storage returned an unexpected resource group authentication error for a \
+                     heartbeat. Cancelling the runtime."
+                );
                 self.cancellation_token.cancel();
             }
             Err(LivenessResponseError::IllegalId(msg)) => {
@@ -354,7 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resource_group_auth_error_cancels_runtime() {
+    async fn unexpected_resource_group_auth_error_cancels_runtime() {
         let client = Arc::new(MockLivenessClient::new());
         client.push_response(Err(LivenessResponseError::ResourceGroupAuth));
         let cancellation_token = CancellationToken::new();
