@@ -94,7 +94,7 @@ pub(super) struct RgRoundRobin<SchedulerStorageClientType: SchedulerStorageClien
     /// vector is stable until [`Self::apply_session_bump`] flushes the whole of it.
     pub(super) rg_states: Vec<RgSchedulingState>,
 
-    pub(super) rg_id_to_index_map: HashMap<ResourceGroupId, usize>,
+    pub(super) rg_id_to_idx_map: HashMap<ResourceGroupId, usize>,
     pub(super) active_rg_list: Vec<usize>,
     pub(super) last_served_rg: Option<ResourceGroupId>,
 
@@ -133,7 +133,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             finalized_job_queue: VecDeque::new(),
             job_registry: JobRegistry::new(),
             rg_states: Vec::new(),
-            rg_id_to_index_map: HashMap::new(),
+            rg_id_to_idx_map: HashMap::new(),
             active_rg_list: Vec::new(),
             last_served_rg: None,
             config,
@@ -277,7 +277,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         );
 
         self.rg_states.clear();
-        self.rg_id_to_index_map.clear();
+        self.rg_id_to_idx_map.clear();
         self.active_rg_list.clear();
         self.last_served_rg = None;
         self.job_registry.clear();
@@ -406,8 +406,8 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// group the updates touch.
     fn apply_rg_updates(&mut self, rg_updates: HashMap<ResourceGroupId, RgUpdate>) {
         for (rg_id, update) in rg_updates {
-            let state_index = self.get_or_create_state(rg_id);
-            let rg_state = &mut self.rg_states[state_index];
+            let state_idx = self.get_or_create_state(rg_id);
+            let rg_state = &mut self.rg_states[state_idx];
             for (job_id, kind) in update.finalized {
                 rg_state.push_finalization(job_id, kind);
             }
@@ -418,7 +418,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 continue;
             }
             rg_state.is_active = true;
-            self.active_rg_list.push(state_index);
+            self.active_rg_list.push(state_idx);
         }
     }
 
@@ -427,21 +427,21 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// The position of `rg_id`'s scheduling state in [`Self::rg_states`], appending a state built
     /// against the write side of the group's dispatch queue if the core has none.
     fn get_or_create_state(&mut self, rg_id: ResourceGroupId) -> usize {
-        if let Some(state_index) = self.rg_id_to_index_map.get(&rg_id) {
-            return *state_index;
+        if let Some(state_idx) = self.rg_id_to_idx_map.get(&rg_id) {
+            return *state_idx;
         }
 
         let writer = self
             .dispatch_queue_registry
             .get_dispatch_queue_writer(rg_id);
-        let state_index = self.rg_states.len();
+        let state_idx = self.rg_states.len();
         self.rg_states.push(RgSchedulingState::new(
             rg_id,
             writer,
             self.config.active_job_list_capacity.get(),
         ));
-        self.rg_id_to_index_map.insert(rg_id, state_index);
-        state_index
+        self.rg_id_to_idx_map.insert(rg_id, state_idx);
+        state_idx
     }
 
     /// Publishes assignments into the per-resource-group dispatch queues under the admission
@@ -480,70 +480,66 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             ..
         } = self;
 
-        let mut rg_rr_list = Vec::with_capacity(active_rg_list.len());
+        let mut rr_candidates = Vec::with_capacity(active_rg_list.len());
         let mut occupancy = 0;
-        let mut last_served_index = None;
-        for (index, state_index) in active_rg_list.iter().enumerate() {
-            let rg_state = &rg_states[*state_index];
+        let mut last_served_idx = None;
+        for (rr_idx, state_idx) in active_rg_list.iter().enumerate() {
+            let rg_state = &mut rg_states[*state_idx];
             occupancy += rg_state.dispatch_queue_size();
             if Some(rg_state.rg_id) == *last_served_rg {
-                last_served_index = Some(index);
+                last_served_idx = Some(rr_idx);
             }
-            rg_rr_list.push(*state_index);
+            rg_state.promote_pending_jobs(job_registry, &mut jobs_to_retire);
+            rr_candidates.push(*state_idx);
         }
+
         // Bounding by the free space measured here is what makes the loop terminate: the queues
         // drain concurrently, so the true free space only ever grows.
         let mut free = config
             .dispatch_queue_capacity
             .get()
             .saturating_sub(occupancy);
+
         // Rotating the arm rather than the list keeps the same group from always being visited
         // first, which matters because `free` shrinks as the tick proceeds.
-        let mut arm = last_served_index.map_or(0, |index| (index + 1) % rg_rr_list.len());
-
-        for state_index in &rg_rr_list {
-            rg_states[*state_index].promote_pending_jobs(job_registry, &mut jobs_to_retire);
-        }
+        let mut arm = last_served_idx.map_or(0, |idx| (idx + 1) % rr_candidates.len());
 
         let session_id = session_tracker.current();
         let mut exhausted_states = Vec::new();
-        while 0 != free && !rg_rr_list.is_empty() {
-            let state_index = rg_rr_list[arm];
-            let rg_state = &mut rg_states[state_index];
-            let result = rg_state.try_make_assignment(
+        while 0 != free && !rr_candidates.is_empty() {
+            if arm == rr_candidates.len() {
+                arm = 0;
+            }
+            let state_idx = rr_candidates[arm];
+            let rg_state = &mut rg_states[state_idx];
+            match rg_state.try_make_assignment(
                 free,
                 session_id,
                 id_issuer,
                 job_registry,
                 &mut jobs_to_retire,
-            );
-            match result {
+            ) {
                 Ok((job_id, task_id)) => {
                     global_task_set.remove(job_id, task_id);
                     free -= 1;
                     *last_served_rg = Some(rg_state.rg_id);
-                    arm = (arm + 1) % rg_rr_list.len();
+                    arm += 1;
                 }
                 Err(err) => {
                     match err {
-                        MakeAssignmentError::NoTask => exhausted_states.push(state_index),
+                        MakeAssignmentError::NoTask => exhausted_states.push(state_idx),
                         MakeAssignmentError::DispatchQueueFull => (),
                         MakeAssignmentError::DispatchQueueClosed => {
                             return Err(SchedulerError::DispatchQueueClosed);
                         }
                     }
-                    rg_rr_list.swap_remove(arm);
-                    // `swap_remove` moved the tail element into this slot, so advancing the arm
-                    // here would skip it.
-                    if arm == rg_rr_list.len() {
-                        arm = 0;
-                    }
+                    rr_candidates.swap_remove(arm);
                 }
             }
         }
 
-        for state_index in &*active_rg_list {
-            rg_states[*state_index].apply_downgrades(job_registry);
+        for state_idx in &*active_rg_list {
+            rg_states[*state_idx].apply_downgrades(job_registry);
         }
         self.deactivate_exhausted_states(exhausted_states);
 
@@ -557,8 +553,8 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// list alone, so a deactivated group still holding assignments would hide its occupancy and
     /// let the core over-admit.
     fn deactivate_exhausted_states(&mut self, exhausted_states: Vec<usize>) {
-        for state_index in exhausted_states {
-            let rg_state = &mut self.rg_states[state_index];
+        for state_idx in exhausted_states {
+            let rg_state = &mut self.rg_states[state_idx];
             if rg_state.has_schedulable_task() || 0 != rg_state.dispatch_queue_size() {
                 continue;
             }
@@ -566,7 +562,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             if let Some(position) = self
                 .active_rg_list
                 .iter()
-                .position(|active_index| *active_index == state_index)
+                .position(|active_idx| *active_idx == state_idx)
             {
                 self.active_rg_list.swap_remove(position);
             }

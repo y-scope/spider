@@ -146,8 +146,8 @@ impl CoreFixture {
     ///
     /// The position of the group's scheduling state in the core's state vector.
     fn activate_group(&mut self, rg_id: ResourceGroupId) -> usize {
-        if let Some(state_index) = self.core.rg_id_to_index_map.get(&rg_id) {
-            return *state_index;
+        if let Some(state_idx) = self.core.rg_id_to_idx_map.get(&rg_id) {
+            return *state_idx;
         }
 
         let mut rg_state = RgSchedulingState::new(
@@ -157,11 +157,11 @@ impl CoreFixture {
             self.active_job_list_capacity,
         );
         rg_state.is_active = true;
-        let state_index = self.core.rg_states.len();
+        let state_idx = self.core.rg_states.len();
         self.core.rg_states.push(rg_state);
-        self.core.rg_id_to_index_map.insert(rg_id, state_index);
-        self.core.active_rg_list.push(state_index);
-        state_index
+        self.core.rg_id_to_idx_map.insert(rg_id, state_idx);
+        self.core.active_rg_list.push(state_idx);
+        state_idx
     }
 
     /// Registers a job of `num_tasks` buffered ready tasks against `rg_id`, exactly as a completed
@@ -184,8 +184,8 @@ impl CoreFixture {
                 .insert(job_id, TaskId::Index(task_index));
         }
         let job_key = make_job_entry(&mut self.core.job_registry, job_id, num_tasks)?;
-        let state_index = self.activate_group(rg_id);
-        self.core.rg_states[state_index].place_new_job(job_key);
+        let state_idx = self.activate_group(rg_id);
+        self.core.rg_states[state_idx].place_new_job(job_key);
         Ok(())
     }
 
@@ -202,11 +202,11 @@ impl CoreFixture {
         let writer = self
             .dispatch_queue_registry
             .get_dispatch_queue_writer(rg_id);
-        for index in 0..num_assignments {
+        for idx in 0..num_assignments {
             writer.try_send(make_assignment(
                 rg_id,
                 JobId::from(u64::MAX),
-                TaskId::Index(index),
+                TaskId::Index(idx),
                 self.session_tracker.current(),
             ))?;
         }
@@ -240,8 +240,8 @@ async fn the_rotation_arm_persists_across_ticks() -> anyhow::Result<()> {
         make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
         MockStorageClient::new(),
     );
-    for (index, rg_id) in [RG_A, RG_B, RG_C].into_iter().enumerate() {
-        fixture.seed_job(rg_id, JobId::from(u64::try_from(index)?), 8)?;
+    for (idx, rg_id) in [RG_A, RG_B, RG_C].into_iter().enumerate() {
+        fixture.seed_job(rg_id, JobId::from(u64::try_from(idx)?), 8)?;
     }
 
     fixture.core.tick().await?;
@@ -887,10 +887,10 @@ async fn one_tick_leaves_every_backlogged_group_at_the_dynamic_threshold() -> an
     let occupancies = occupancies_of(&fixture, NUM_BACKLOGGED_GROUPS);
     let occupancy: usize = occupancies.iter().sum();
     let free = ADMISSION_DISPATCH_QUEUE_CAPACITY - occupancy;
-    for (index, group_occupancy) in occupancies.iter().enumerate() {
+    for (idx, group_occupancy) in occupancies.iter().enumerate() {
         assert!(
             group_occupancy.abs_diff(expected_share) <= SHARE_TOLERANCE,
-            "group {index} holds {group_occupancy} assignments, expected about {expected_share}: \
+            "group {idx} holds {group_occupancy} assignments, expected about {expected_share}: \
              {occupancies:?}"
         );
     }
@@ -1069,8 +1069,8 @@ fn new_admission_fixture() -> CoreFixture {
 /// * Forwards [`CoreFixture::seed_job`]'s return values on failure.
 /// * Forwards [`u64::try_from`]'s return values on failure.
 fn seed_backlogged_groups(fixture: &mut CoreFixture, num_groups: usize) -> anyhow::Result<()> {
-    for index in 0..num_groups {
-        let raw_id = u64::try_from(index)?;
+    for idx in 0..num_groups {
+        let raw_id = u64::try_from(idx)?;
         fixture.seed_job(
             ResourceGroupId::from(raw_id),
             JobId::from(raw_id),
@@ -1127,8 +1127,8 @@ fn make_assignment(
 /// resource group ID.
 fn occupancies_of(fixture: &CoreFixture, num_groups: usize) -> Vec<usize> {
     (0..num_groups)
-        .map(|index| {
-            let raw_id = u64::try_from(index).expect("a group index fits a raw ID");
+        .map(|idx| {
+            let raw_id = u64::try_from(idx).expect("a group index fits a raw ID");
             fixture.queue_len(ResourceGroupId::from(raw_id))
         })
         .collect()
@@ -1170,12 +1170,12 @@ fn finalized_job_ids(fixture: &CoreFixture) -> Vec<JobId> {
 ///
 /// Panics if the core has no scheduling state for `rg_id`.
 fn is_active(fixture: &CoreFixture, rg_id: ResourceGroupId) -> bool {
-    let state_index = *fixture
+    let state_idx = *fixture
         .core
-        .rg_id_to_index_map
+        .rg_id_to_idx_map
         .get(&rg_id)
         .expect("the core holds a scheduling state for the group");
-    fixture.core.rg_states[state_index].is_active
+    fixture.core.rg_states[state_idx].is_active
 }
 
 /// Takes every assignment currently queued behind `reader`, playing a pinned execution manager,
