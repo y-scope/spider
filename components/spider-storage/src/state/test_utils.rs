@@ -21,6 +21,7 @@ use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::db::ExecutionManagerLivenessManagement;
 use crate::db::ExternalJobOrchestration;
+use crate::db::ExternalResourceGroupCredentials;
 use crate::db::InternalJobOrchestration;
 use crate::db::RecoverableJobContext;
 use crate::db::ResourceGroupManagement;
@@ -70,8 +71,9 @@ pub struct MockDbConnector {
     pub errors: Arc<DashMap<JobId, String>>,
     pub outputs: Arc<DashMap<JobId, Vec<TaskOutput>>>,
     pub resource_groups: Arc<DashMap<ResourceGroupId, Vec<u8>>>,
+    pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
     pub next_resource_group_id: Arc<AtomicUsize>,
-    pub execution_managers: Arc<DashMap<ExecutionManagerId, IpAddr>>,
+    pub execution_managers: Arc<DashMap<ExecutionManagerId, (IpAddr, Option<ResourceGroupId>)>>,
     pub next_execution_manager_id: Arc<AtomicUsize>,
     pub next_scheduler_id: Arc<AtomicUsize>,
     pub session_id: SessionId,
@@ -84,6 +86,7 @@ impl Default for MockDbConnector {
             errors: Arc::new(DashMap::new()),
             outputs: Arc::new(DashMap::new()),
             resource_groups: Arc::new(DashMap::new()),
+            resource_group_ids: Arc::new(DashMap::new()),
             next_resource_group_id: Arc::new(AtomicUsize::new(1)),
             execution_managers: Arc::new(DashMap::new()),
             next_execution_manager_id: Arc::new(AtomicUsize::new(1)),
@@ -175,12 +178,17 @@ impl InternalJobOrchestration for MockDbConnector {
 impl ResourceGroupManagement for MockDbConnector {
     async fn add(
         &self,
-        _external_resource_group_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError> {
+        let ExternalResourceGroupCredentials {
+            external_resource_group_id,
+            password,
+        } = credentials;
         let counter = self.next_resource_group_id.fetch_add(1, Ordering::Relaxed);
         let id = ResourceGroupId::from(counter as u64);
         self.resource_groups.insert(id, password);
+        self.resource_group_ids
+            .insert(external_resource_group_id, id);
         Ok(id)
     }
 
@@ -205,6 +213,8 @@ impl ResourceGroupManagement for MockDbConnector {
         self.resource_groups
             .remove(&resource_group_id)
             .ok_or(DbError::ResourceGroupNotFound(resource_group_id))?;
+        self.resource_group_ids
+            .retain(|_, stored_resource_group_id| *stored_resource_group_id != resource_group_id);
         Ok(())
     }
 }
@@ -214,13 +224,32 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-    ) -> Result<ExecutionManagerId, DbError> {
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+    ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
+        let resource_group_id = match resource_group_credentials {
+            Some(ExternalResourceGroupCredentials {
+                external_resource_group_id,
+                password,
+            }) => {
+                let resource_group_id = self
+                    .resource_group_ids
+                    .get(&external_resource_group_id)
+                    .map(|entry| *entry.value())
+                    .ok_or_else(|| {
+                        DbError::ExternalResourceGroupNotFound(external_resource_group_id)
+                    })?;
+                ResourceGroupManagement::verify(self, resource_group_id, &password).await?;
+                Some(resource_group_id)
+            }
+            None => None,
+        };
         let counter = self
             .next_execution_manager_id
             .fetch_add(1, Ordering::Relaxed);
         let id = ExecutionManagerId::from(counter as u64);
-        self.execution_managers.insert(id, ip_address);
-        Ok(id)
+        self.execution_managers
+            .insert(id, (ip_address, resource_group_id));
+        Ok((id, resource_group_id))
     }
 
     async fn update_execution_manager_heartbeat(

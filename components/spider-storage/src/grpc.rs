@@ -22,6 +22,7 @@ use tonic::Status;
 use crate::cache::error::CacheError;
 use crate::db::DbError;
 use crate::db::DbStorage;
+use crate::db::ExternalResourceGroupCredentials;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueSender;
 use crate::state::ServiceState;
@@ -295,6 +296,7 @@ impl<
     ///
     /// The [`Status`] to send to the client:
     ///
+    /// * `UNAUTHENTICATED` for an unknown resource group or an invalid password.
     /// * `FAILED_PRECONDITION` when the execution manager has already been reaped.
     /// * `INVALID_ARGUMENT` for an illegal execution manager ID.
     /// * `INTERNAL` for:
@@ -307,6 +309,18 @@ impl<
     ) -> Status {
         const SERVICE_NAME: &str = "ExecutionManagerLiveness";
         match error {
+            error @ StorageServerError::Db(
+                DbError::ExternalResourceGroupNotFound(_) | DbError::InvalidPassword(_),
+            ) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Invalid resource group."
+                );
+                Status::unauthenticated("invalid resource group")
+            }
+
             error @ StorageServerError::Db(DbError::ExecutionManagerAlreadyDead(_)) => {
                 tracing::warn!(
                     error = % error,
@@ -760,7 +774,10 @@ impl<
         tracing::info!(external_id = % external_id, "Add resource group request received.");
         let rg_id = self
             .inner
-            .add_resource_group(external_id, password)
+            .add_resource_group(ExternalResourceGroupCredentials {
+                external_resource_group_id: external_id,
+                password,
+            })
             .await
             .map_err(|error| {
                 self.resource_group_management_service_error_handler(error, "add_resource_group")
@@ -802,15 +819,18 @@ impl<
         request: Request<storage::RegisterExecutionManagerRequest>,
     ) -> Result<Response<storage::RegisterExecutionManagerResponse>, Status> {
         let (ip_address, resource_group_credentials) = request.into_inner().unpack()?;
-        if resource_group_credentials.is_some() {
-            return Err(Status::unimplemented(
-                "`resource_group_credentials` is not supported yet",
-            ));
-        }
         tracing::info!(% ip_address, "Execution manager registration request received.");
-        let em_id = self
+        let (em_id, resource_group_id) = self
             .inner
-            .register_execution_manager(ip_address)
+            .register_execution_manager(
+                ip_address,
+                resource_group_credentials.map(|(external_resource_group_id, password)| {
+                    ExternalResourceGroupCredentials {
+                        external_resource_group_id,
+                        password,
+                    }
+                }),
+            )
             .await
             .map_err(|error| {
                 self.execution_manager_liveness_service_error_handler(
@@ -822,7 +842,8 @@ impl<
             registration: Some(storage::ExecutionManagerRegistration {
                 execution_manager_id: em_id.get(),
                 session_id: self.inner.session_id(),
-                resource_group_id: None,
+                resource_group_id: resource_group_id
+                    .map(|resource_group_id| resource_group_id.get()),
             }),
         }))
     }

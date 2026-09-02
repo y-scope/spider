@@ -156,6 +156,13 @@ impl<LivenessClientType: LivenessClient + Clone> LivenessActor<LivenessClientTyp
                 );
                 self.cancellation_token.cancel();
             }
+            Err(LivenessResponseError::ResourceGroupAuth) => {
+                tracing::error!(
+                    "Storage returned an unexpected resource group authentication error for a \
+                     heartbeat. Cancelling the runtime."
+                );
+                self.cancellation_token.cancel();
+            }
             Err(LivenessResponseError::IllegalId(msg)) => {
                 tracing::error!(
                     err = %msg,

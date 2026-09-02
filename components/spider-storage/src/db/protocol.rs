@@ -24,6 +24,15 @@ pub struct RecoverableJobContext {
     pub outputs: Option<Vec<TaskOutput>>,
 }
 
+/// Credentials identifying and authenticating an external resource group.
+pub struct ExternalResourceGroupCredentials {
+    /// The external resource group ID.
+    pub external_resource_group_id: String,
+
+    /// The resource group password.
+    pub password: Vec<u8>,
+}
+
 /// The database storage interface. A database storage must implement the following traits:
 ///
 /// * [`ExternalJobOrchestration`]
@@ -283,8 +292,7 @@ pub trait ResourceGroupManagement {
     ///
     /// # Parameters
     ///
-    /// * `external_resource_group_id` - The ID of the external resource group to add.
-    /// * `password` - The hashed password for the resource group.
+    /// * `credentials` - The external ID and password of the resource group to add.
     ///
     /// # Returns
     ///
@@ -294,14 +302,12 @@ pub trait ResourceGroupManagement {
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::ResourceGroupAlreadyExists`] if the `external_resource_group_id` already
-    ///   exists.
+    /// * [`DbError::ResourceGroupAlreadyExists`] if the external resource group ID already exists.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn add(
         &self,
-        external_resource_group_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError>;
 
     /// Verifies the password of a resource group.
@@ -350,20 +356,29 @@ pub trait ExecutionManagerLivenessManagement: Clone + Send + Sync {
     /// # Parameters
     ///
     /// * `ip_address` - The execution manager IP address.
+    /// * `resource_group_credentials` - The external ID and password of the resource group to bind
+    ///   the execution manager to, or [`None`] for a general execution manager.
     ///
     /// # Returns
     ///
-    /// The ID of the registered execution manager on success.
+    /// A tuple on success, containing:
+    ///
+    /// * The ID of the registered execution manager.
+    /// * The ID of the resource group to which the execution manager is dedicated, if any.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::ExternalResourceGroupNotFound`] if the external resource group ID does not
+    ///   exist.
+    /// * [`DbError::InvalidPassword`] if the resource group password is incorrect.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn register_execution_manager(
         &self,
         ip_address: IpAddr,
-    ) -> Result<ExecutionManagerId, DbError>;
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+    ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError>;
 
     /// Updates the heartbeat of an alive execution manager.
     ///

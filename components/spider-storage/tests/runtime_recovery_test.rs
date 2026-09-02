@@ -11,6 +11,7 @@ use spider_core::types::io::TaskOutputsSerializer;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
 use spider_storage::db::ExternalJobOrchestration;
+use spider_storage::db::ExternalResourceGroupCredentials;
 use spider_storage::inbound_queue::CleanupTaskMarker;
 use spider_storage::inbound_queue::CommitTaskMarker;
 use spider_storage::inbound_queue::InboundQueueConfig;
@@ -107,8 +108,9 @@ async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<(
     assert_eq!(job_entries[0].task_kind, CommitTaskMarker);
 
     let execution_manager_id = recovered_service
-        .register_execution_manager(IpAddr::from([127, 0, 0, 1]))
-        .await?;
+        .register_execution_manager(IpAddr::from([127, 0, 0, 1]), None)
+        .await?
+        .0;
 
     assert_regular_task_registration_rejected(&recovered_service, job_id, execution_manager_id)
         .await;
@@ -164,8 +166,9 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
     assert_eq!(job_entries[0].task_kind, CleanupTaskMarker);
 
     let execution_manager_id = recovered_service
-        .register_execution_manager(IpAddr::from([127, 0, 0, 1]))
-        .await?;
+        .register_execution_manager(IpAddr::from([127, 0, 0, 1]), None)
+        .await?
+        .0;
 
     assert_regular_task_registration_rejected(&recovered_service, job_id, execution_manager_id)
         .await;
@@ -390,10 +393,10 @@ async fn register_job<
     with_cleanup: bool,
 ) -> anyhow::Result<JobId> {
     let rg_id = service
-        .add_resource_group(
-            format!("recovery-test-{}", rand::random::<u64>()),
-            b"test-password".to_vec(),
-        )
+        .add_resource_group(ExternalResourceGroupCredentials {
+            external_resource_group_id: format!("recovery-test-{}", rand::random::<u64>()),
+            password: b"test-password".to_vec(),
+        })
         .await?;
     let (task_graph, inputs) = build_flat_task_graph(1, 4, with_commit, with_cleanup);
     let compressed_task_graph = compress_task_graph(&task_graph)?;
@@ -425,8 +428,9 @@ async fn run_recovered_regular_task<
     task_index: TaskIndex,
 ) -> anyhow::Result<TaskInstanceId> {
     let execution_manager_id = service
-        .register_execution_manager(IpAddr::from([127, 0, 0, 1]))
-        .await?;
+        .register_execution_manager(IpAddr::from([127, 0, 0, 1]), None)
+        .await?
+        .0;
     let execution_context = service
         .create_task_instance(
             service.session_id(),

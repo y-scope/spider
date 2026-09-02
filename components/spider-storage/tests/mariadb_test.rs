@@ -11,6 +11,7 @@ use spider_core::types::io::TaskInput;
 use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
 use spider_storage::db::ExternalJobOrchestration;
+use spider_storage::db::ExternalResourceGroupCredentials;
 use spider_storage::db::InternalJobOrchestration;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
@@ -49,8 +50,9 @@ fn single_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
 /// The ID of the registered execution manager.
 async fn register_test_em(storage: &MariaDbStorageConnector) -> ExecutionManagerId {
     storage
-        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST), None)
         .await
+        .map(|registration| registration.0)
         .expect("register_execution_manager should succeed")
 }
 
@@ -551,11 +553,19 @@ async fn test_add_duplicate_resource_group() {
     let external_id = format!("test-resource-group-{}", rand::random::<u64>());
 
     storage
-        .add(external_id.clone(), b"password".to_vec())
+        .add(ExternalResourceGroupCredentials {
+            external_resource_group_id: external_id.clone(),
+            password: b"password".to_vec(),
+        })
         .await
         .expect("first add should succeed");
 
-    let result = storage.add(external_id, b"password".to_vec()).await;
+    let result = storage
+        .add(ExternalResourceGroupCredentials {
+            external_resource_group_id: external_id,
+            password: b"password".to_vec(),
+        })
+        .await;
     assert!(
         matches!(result, Err(DbError::ResourceGroupAlreadyExists(_))),
         "expected ResourceGroupAlreadyExists, got {result:?}"
@@ -568,10 +578,10 @@ async fn test_verify_correct_password() {
     let storage = create_mariadb_connector().await;
 
     let rg_id = storage
-        .add(
-            format!("test-resource-group-{}", rand::random::<u64>()),
-            b"correct-password".to_vec(),
-        )
+        .add(ExternalResourceGroupCredentials {
+            external_resource_group_id: format!("test-resource-group-{}", rand::random::<u64>()),
+            password: b"correct-password".to_vec(),
+        })
         .await
         .expect("add should succeed");
 
@@ -587,10 +597,10 @@ async fn test_verify_wrong_password() {
     let storage = create_mariadb_connector().await;
 
     let rg_id = storage
-        .add(
-            format!("test-resource-group-{}", rand::random::<u64>()),
-            b"correct-password".to_vec(),
-        )
+        .add(ExternalResourceGroupCredentials {
+            external_resource_group_id: format!("test-resource-group-{}", rand::random::<u64>()),
+            password: b"correct-password".to_vec(),
+        })
         .await
         .expect("add should succeed");
 
@@ -785,16 +795,96 @@ async fn test_delete_expired_terminated_jobs_no_match() {
 #[ignore = "requires MariaDB"]
 async fn test_register_execution_manager() {
     let storage = create_mariadb_connector().await;
-    let em_id = storage
-        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST))
+    let (em_id, resource_group_id) = storage
+        .register_execution_manager(IpAddr::V4(Ipv4Addr::LOCALHOST), None)
         .await
         .expect("register_execution_manager should succeed");
+    assert_eq!(resource_group_id, None);
 
     let alive = storage
         .is_execution_manager_alive(em_id)
         .await
         .expect("is_execution_manager_alive should succeed");
     assert!(alive, "newly registered EM should be alive");
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_register_execution_manager_with_resource_group() {
+    let storage = create_mariadb_connector().await;
+    let external_resource_group_id = format!("test-resource-group-{}", rand::random::<u64>());
+    let password = b"password";
+    let resource_group_id = storage
+        .add(ExternalResourceGroupCredentials {
+            external_resource_group_id: external_resource_group_id.clone(),
+            password: password.to_vec(),
+        })
+        .await
+        .expect("add should succeed");
+
+    let (_, registered_resource_group_id) = storage
+        .register_execution_manager(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            Some(ExternalResourceGroupCredentials {
+                external_resource_group_id,
+                password: password.to_vec(),
+            }),
+        )
+        .await
+        .expect("register_execution_manager should succeed");
+
+    assert_eq!(registered_resource_group_id, Some(resource_group_id));
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_register_execution_manager_with_unknown_resource_group() {
+    let storage = create_mariadb_connector().await;
+    let external_resource_group_id = format!("unknown-resource-group-{}", rand::random::<u64>());
+
+    let result = storage
+        .register_execution_manager(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            Some(ExternalResourceGroupCredentials {
+                external_resource_group_id,
+                password: b"password".to_vec(),
+            }),
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(DbError::ExternalResourceGroupNotFound(_))),
+        "expected ExternalResourceGroupNotFound, got {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_register_execution_manager_with_invalid_password() {
+    let storage = create_mariadb_connector().await;
+    let external_resource_group_id = format!("test-resource-group-{}", rand::random::<u64>());
+    let resource_group_id = storage
+        .add(ExternalResourceGroupCredentials {
+            external_resource_group_id: external_resource_group_id.clone(),
+            password: b"password".to_vec(),
+        })
+        .await
+        .expect("add should succeed");
+
+    let result = storage
+        .register_execution_manager(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            Some(ExternalResourceGroupCredentials {
+                external_resource_group_id,
+                password: b"wrong-password".to_vec(),
+            }),
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(DbError::InvalidPassword(id)) if id == resource_group_id),
+        "expected InvalidPassword, got {result:?}"
+    );
 }
 
 #[tokio::test]
