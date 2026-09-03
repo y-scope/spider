@@ -191,10 +191,10 @@ impl SpiderTestDriver {
             return Ok(*resource_group_id);
         }
         let resource_group_id = client
-            .add_resource_group(ExternalResourceGroupCredentials {
-                external_resource_group_id: external_resource_group_id.to_owned(),
-                password: Vec::new(),
-            })
+            .add_resource_group(ExternalResourceGroupCredentials::new(
+                external_resource_group_id.to_owned(),
+                Vec::new(),
+            ))
             .await?;
         resource_groups.insert(external_resource_group_id.to_owned(), resource_group_id);
         drop(resource_groups);

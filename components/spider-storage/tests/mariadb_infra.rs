@@ -64,10 +64,10 @@ pub fn create_mariadb_config() -> DatabaseConfig {
 pub async fn create_test_resource_group(storage: &MariaDbStorageConnector) -> ResourceGroupId {
     let external_id = format!("test-resource-group-{}", rand::random::<u64>());
     storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: external_id,
-            password: b"test-password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            external_id,
+            b"test-password".to_vec(),
+        ))
         .await
         .expect("add should succeed")
 }

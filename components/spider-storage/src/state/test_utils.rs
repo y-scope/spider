@@ -70,7 +70,7 @@ pub struct MockDbConnector {
     pub states: Arc<DashMap<JobId, JobState>>,
     pub errors: Arc<DashMap<JobId, String>>,
     pub outputs: Arc<DashMap<JobId, Vec<TaskOutput>>>,
-    pub resource_groups: Arc<DashMap<ResourceGroupId, Vec<u8>>>,
+    pub resource_groups: Arc<DashMap<ResourceGroupId, ExternalResourceGroupCredentials>>,
     pub resource_group_ids: Arc<DashMap<String, ResourceGroupId>>,
     pub next_resource_group_id: Arc<AtomicUsize>,
     pub execution_managers: Arc<DashMap<ExecutionManagerId, (IpAddr, Option<ResourceGroupId>)>>,
@@ -180,13 +180,10 @@ impl ResourceGroupManagement for MockDbConnector {
         &self,
         credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError> {
-        let ExternalResourceGroupCredentials {
-            external_resource_group_id,
-            password,
-        } = credentials;
         let counter = self.next_resource_group_id.fetch_add(1, Ordering::Relaxed);
         let id = ResourceGroupId::from(counter as u64);
-        self.resource_groups.insert(id, password);
+        let external_resource_group_id = credentials.get_external_resource_group_id().to_owned();
+        self.resource_groups.insert(id, credentials);
         self.resource_group_ids
             .insert(external_resource_group_id, id);
         Ok(id)
@@ -201,7 +198,7 @@ impl ResourceGroupManagement for MockDbConnector {
             .resource_groups
             .get(&resource_group_id)
             .ok_or(DbError::ResourceGroupNotFound(resource_group_id))?;
-        let matches = stored.as_slice() == password;
+        let matches = stored.get_password() == password;
         drop(stored);
         if !matches {
             return Err(DbError::InvalidPassword(resource_group_id));
@@ -227,18 +224,22 @@ impl ExecutionManagerLivenessManagement for MockDbConnector {
         resource_group_credentials: Option<ExternalResourceGroupCredentials>,
     ) -> Result<(ExecutionManagerId, Option<ResourceGroupId>), DbError> {
         let resource_group_id = match resource_group_credentials {
-            Some(ExternalResourceGroupCredentials {
-                external_resource_group_id,
-                password,
-            }) => {
+            Some(credentials) => {
                 let resource_group_id = self
                     .resource_group_ids
-                    .get(&external_resource_group_id)
+                    .get(credentials.get_external_resource_group_id())
                     .map(|entry| *entry.value())
                     .ok_or_else(|| {
-                        DbError::ExternalResourceGroupNotFound(external_resource_group_id)
+                        DbError::ExternalResourceGroupNotFound(
+                            credentials.get_external_resource_group_id().to_owned(),
+                        )
                     })?;
-                ResourceGroupManagement::verify(self, resource_group_id, &password).await?;
+                ResourceGroupManagement::verify(
+                    self,
+                    resource_group_id,
+                    credentials.get_password(),
+                )
+                .await?;
                 Some(resource_group_id)
             }
             None => None,

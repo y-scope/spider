@@ -771,7 +771,7 @@ impl<
     ) -> Result<Response<storage::ResourceGroupIdResponse>, Status> {
         let credentials = request.into_inner().unpack()?;
         tracing::info!(
-            external_id = % credentials.external_resource_group_id,
+            external_id = % credentials.get_external_resource_group_id(),
             "Add resource group request received."
         );
         let rg_id = self

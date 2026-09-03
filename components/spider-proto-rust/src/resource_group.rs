@@ -4,21 +4,18 @@ use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 
 use crate::storage;
 
-impl From<ExternalResourceGroupCredentials> for storage::ExternalResourceGroupCredentials {
-    fn from(credentials: ExternalResourceGroupCredentials) -> Self {
+impl From<&ExternalResourceGroupCredentials> for storage::ExternalResourceGroupCredentials {
+    fn from(credentials: &ExternalResourceGroupCredentials) -> Self {
         Self {
-            external_resource_group_id: credentials.external_resource_group_id,
-            password: credentials.password,
+            external_resource_group_id: credentials.get_external_resource_group_id().to_owned(),
+            password: credentials.get_password().to_vec(),
         }
     }
 }
 
 impl From<storage::ExternalResourceGroupCredentials> for ExternalResourceGroupCredentials {
     fn from(credentials: storage::ExternalResourceGroupCredentials) -> Self {
-        Self {
-            external_resource_group_id: credentials.external_resource_group_id,
-            password: credentials.password,
-        }
+        Self::new(credentials.external_resource_group_id, credentials.password)
     }
 }
 
@@ -31,18 +28,21 @@ mod tests {
 
     #[test]
     fn test_external_resource_group_credentials_protocol_round_trip() {
-        let credentials = ExternalResourceGroupCredentials {
-            external_resource_group_id: "external-resource-group".to_owned(),
-            password: vec![0, 1, 2, 255],
-        };
+        let credentials = ExternalResourceGroupCredentials::new(
+            "external-resource-group".to_owned(),
+            vec![0, 1, 2, 255],
+        );
 
-        let encoded =
-            storage::ExternalResourceGroupCredentials::from(credentials.clone()).encode_to_vec();
+        let encoded = storage::ExternalResourceGroupCredentials::from(&credentials).encode_to_vec();
         let decoded = ExternalResourceGroupCredentials::from(
             storage::ExternalResourceGroupCredentials::decode(encoded.as_slice())
                 .expect("external resource group credentials should decode"),
         );
 
-        assert_eq!(decoded, credentials);
+        assert_eq!(
+            decoded.get_external_resource_group_id(),
+            credentials.get_external_resource_group_id()
+        );
+        assert_eq!(decoded.get_password(), credentials.get_password());
     }
 }

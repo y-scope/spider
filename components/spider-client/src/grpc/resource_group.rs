@@ -73,7 +73,7 @@ impl ResourceGroupManagementClient {
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
             let request = storage::AddResourceGroupRequest {
-                credentials: Some(credentials.clone().into()),
+                credentials: Some((&credentials).into()),
             };
             async move { client.add_resource_group(request).await }
         })

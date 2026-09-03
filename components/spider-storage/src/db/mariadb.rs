@@ -439,13 +439,9 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let ExternalResourceGroupCredentials {
-            external_resource_group_id,
-            password,
-        } = credentials;
         let resource_group_id = sqlx::query(QUERY)
-            .bind(&external_resource_group_id)
-            .bind(password)
+            .bind(credentials.get_external_resource_group_id())
+            .bind(credentials.get_password())
             .execute(&self.pool)
             .await
             .map_err(|e| match e {
@@ -453,7 +449,9 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
                     if e.try_downcast_ref::<MySqlDatabaseError>()
                         .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
                 {
-                    DbError::ResourceGroupAlreadyExists(external_resource_group_id)
+                    DbError::ResourceGroupAlreadyExists(
+                        credentials.get_external_resource_group_id().to_owned(),
+                    )
                 }
                 e => e.into(),
             })?
@@ -516,20 +514,19 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let resource_group_id = if let Some(ExternalResourceGroupCredentials {
-            external_resource_group_id,
-            password,
-        }) = resource_group_credentials
-        {
+        let resource_group_id = if let Some(credentials) = resource_group_credentials {
             let resource_group_id =
                 sqlx::query_scalar::<_, ResourceGroupId>(SELECT_RESOURCE_GROUP_QUERY)
-                    .bind(&external_resource_group_id)
+                    .bind(credentials.get_external_resource_group_id())
                     .fetch_optional(&self.pool)
                     .await?
                     .ok_or_else(|| {
-                        DbError::ExternalResourceGroupNotFound(external_resource_group_id)
+                        DbError::ExternalResourceGroupNotFound(
+                            credentials.get_external_resource_group_id().to_owned(),
+                        )
                     })?;
-            ResourceGroupManagement::verify(self, resource_group_id, &password).await?;
+            ResourceGroupManagement::verify(self, resource_group_id, credentials.get_password())
+                .await?;
             Some(resource_group_id)
         } else {
             None
