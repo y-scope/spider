@@ -3,6 +3,7 @@
 use std::num::NonZeroUsize;
 
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_proto_rust::storage::ResourceGroupManagementServiceClient;
 use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
@@ -66,15 +67,13 @@ impl ResourceGroupManagementClient {
     /// * Forwards [`ResourceGroupManagementServiceClient::add_resource_group`]'s status on failure.
     pub async fn add_resource_group(
         &self,
-        external_resource_group_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, ClientError> {
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
             let request = storage::AddResourceGroupRequest {
-                external_resource_group_id: external_resource_group_id.clone(),
-                password: password.clone(),
+                credentials: Some((&credentials).into()),
             };
             async move { client.add_resource_group(request).await }
         })

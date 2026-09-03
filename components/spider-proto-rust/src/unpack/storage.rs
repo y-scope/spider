@@ -9,6 +9,7 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_utils::config::Host;
 use tonic::Code;
 
@@ -142,15 +143,14 @@ impl RequestUnpack for ReportTaskFailureRequest {
     }
 }
 
-/// Unpacks [`AddResourceGroupRequest`] into a tuple containing:
-///
-/// * The external resource group ID.
-/// * The password.
+/// Unpacks [`AddResourceGroupRequest`] into external resource group credentials.
 impl RequestUnpack for AddResourceGroupRequest {
-    type Unpacked = (String, Vec<u8>);
+    type Unpacked = ExternalResourceGroupCredentials;
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
-        Ok((self.external_resource_group_id, self.password))
+        self.credentials
+            .map(Into::into)
+            .ok_or_else(|| invalid_argument("resource group credentials are missing".to_owned()))
     }
 }
 
@@ -171,16 +171,14 @@ impl RequestUnpack for VerifyResourceGroupRequest {
 /// * The execution manager's IP address.
 /// * The external resource group credentials, if present.
 impl RequestUnpack for RegisterExecutionManagerRequest {
-    type Unpacked = (IpAddr, Option<(String, Vec<u8>)>);
+    type Unpacked = (IpAddr, Option<ExternalResourceGroupCredentials>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
         let ip_address = self
             .ip_address
             .parse::<IpAddr>()
             .map_err(|error| invalid_argument(format!("invalid IP address: {error}")))?;
-        let resource_group_credentials = self
-            .resource_group_credentials
-            .map(|credentials| (credentials.external_resource_group_id, credentials.password));
+        let resource_group_credentials = self.resource_group_credentials.map(Into::into);
         Ok((ip_address, resource_group_credentials))
     }
 }

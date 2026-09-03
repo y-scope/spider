@@ -560,11 +560,11 @@ mod tests {
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::io::TaskInput;
+    use spider_core::types::resource_group::ExternalResourceGroupCredentials;
     use tokio::sync::Mutex;
 
     use super::*;
     use crate::db::DbError;
-    use crate::db::ExternalResourceGroupCredentials;
     use crate::job_submission::create_validated_submission;
 
     const DEFAULT_CHANNEL_SIZE: usize = 128;

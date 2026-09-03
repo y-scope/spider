@@ -8,6 +8,7 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::id::SessionId;
 use spider_core::types::io::TaskOutput;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 
 use crate::db::error::DbError;
@@ -22,15 +23,6 @@ pub struct RecoverableJobContext {
     pub state: JobState,
     pub submission: ValidatedJobSubmission,
     pub outputs: Option<Vec<TaskOutput>>,
-}
-
-/// Credentials identifying and authenticating an external resource group.
-pub struct ExternalResourceGroupCredentials {
-    /// The external resource group ID.
-    pub external_resource_group_id: String,
-
-    /// The resource group password.
-    pub password: Vec<u8>,
 }
 
 /// The database storage interface. A database storage must implement the following traits:

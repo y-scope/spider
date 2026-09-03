@@ -8,10 +8,10 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::io::TaskOutputsSerializer;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::cache::error::CacheError;
 use spider_storage::cache::error::StaleStateError;
 use spider_storage::db::ExternalJobOrchestration;
-use spider_storage::db::ExternalResourceGroupCredentials;
 use spider_storage::inbound_queue::CleanupTaskMarker;
 use spider_storage::inbound_queue::CommitTaskMarker;
 use spider_storage::inbound_queue::InboundQueueConfig;
@@ -393,10 +393,10 @@ async fn register_job<
     with_cleanup: bool,
 ) -> anyhow::Result<JobId> {
     let rg_id = service
-        .add_resource_group(ExternalResourceGroupCredentials {
-            external_resource_group_id: format!("recovery-test-{}", rand::random::<u64>()),
-            password: b"test-password".to_vec(),
-        })
+        .add_resource_group(ExternalResourceGroupCredentials::new(
+            format!("recovery-test-{}", rand::random::<u64>()),
+            b"test-password".to_vec(),
+        ))
         .await?;
     let (task_graph, inputs) = build_flat_task_graph(1, 4, with_commit, with_cleanup);
     let compressed_task_graph = compress_task_graph(&task_graph)?;
