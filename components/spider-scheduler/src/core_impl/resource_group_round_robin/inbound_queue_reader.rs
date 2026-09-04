@@ -70,7 +70,7 @@ pub(super) type RgInboundPollState = InboundPollState<RgInboundPollResultFormatt
 /// # Returns
 ///
 /// One batch per job, where jobs are in an unspecified order.
-fn format_ready_job_batches(entries: Vec<InboundEntry>) -> Vec<ReadyBatch> {
+pub(super) fn format_ready_job_batches(entries: Vec<InboundEntry>) -> Vec<ReadyBatch> {
     let mut batches: HashMap<JobId, (ResourceGroupId, Vec<TaskIndex>)> = HashMap::new();
     for entry in entries {
         let TaskId::Index(task_index) = entry.task_id else {
@@ -100,7 +100,7 @@ fn format_ready_job_batches(entries: Vec<InboundEntry>) -> Vec<ReadyBatch> {
 /// # Returns
 ///
 /// One finalized job per entry drained from a finalization lane, in the order they were drained.
-fn format_finalized_jobs(entries: Vec<InboundEntry>) -> Vec<FinalizedJob> {
+pub(super) fn format_finalized_jobs(entries: Vec<InboundEntry>) -> Vec<FinalizedJob> {
     entries
         .into_iter()
         .map(|entry| FinalizedJob {
