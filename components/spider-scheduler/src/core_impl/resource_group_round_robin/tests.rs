@@ -1,8 +1,36 @@
 //! Unit tests for the resource-group-aware round-robin scheduler core.
 //!
-//! The tests drive [`RgRoundRobin::tick`] and the structures it decides with directly.
-//! Whatever an execution manager would do -- draining a group's queue -- a test body does by hand
-//! through the same entry points the dispatch service will use.
+//! The tests drive [`RgRoundRobin::tick`] and the structures it decides with directly. Whatever an
+//! execution manager would do -- draining a group's queue -- a test body does by hand through the
+//! same entry points the dispatch service will use.
+
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
+use std::time::Duration;
+
+use anyhow::bail;
+use spider_core::session::SessionTracker;
+use spider_core::task::TaskIndex;
+use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SessionId;
+use spider_core::types::id::TaskAssignmentId;
+use spider_core::types::id::TaskId;
+use tokio_util::sync::CancellationToken;
+
+use super::dispatch_queue::DispatchQueueRegistry;
+use super::implementation::RgRoundRobin;
+use super::implementation::RgRoundRobinConfig;
+use super::job_registry::UpsertOutcome;
+use super::scheduling_state::RgSchedulingState;
+use crate::SchedulerError;
+use crate::TaskAssignment;
+use crate::core::TaskAssignmentIdIssuer;
+use crate::core_impl::inbound_queue_reader::test_harness::DEFAULT_SESSION_ID;
+use crate::core_impl::inbound_queue_reader::test_harness::MockStorageClient;
+use crate::core_impl::inbound_queue_reader::test_harness::make_entry;
 
 /// Drives ticks on `core` until `predicate` holds, failing the calling test if it does not hold
 /// within [`TICK_DEADLINE`].
@@ -25,39 +53,6 @@ macro_rules! tick_until {
     }};
 }
 
-use std::collections::HashSet;
-use std::num::NonZeroU64;
-use std::num::NonZeroUsize;
-use std::time::Duration;
-
-use anyhow::bail;
-use spider_core::session::SessionTracker;
-use spider_core::task::TaskIndex;
-use spider_core::types::id::JobId;
-use spider_core::types::id::ResourceGroupId;
-use spider_core::types::id::SessionId;
-use spider_core::types::id::TaskAssignmentId;
-use spider_core::types::id::TaskId;
-use tokio_util::sync::CancellationToken;
-
-use super::dispatch_queue::DispatchQueueRegistry;
-use super::dispatch_queue::RgDispatchQueueReader;
-use super::implementation::RgRoundRobin;
-use super::implementation::RgRoundRobinConfig;
-use super::job_registry::JobKey;
-use super::job_registry::JobRegistry;
-use super::job_registry::UpsertOutcome;
-use super::scheduling_state::RgSchedulingState;
-use crate::SchedulerError;
-use crate::TaskAssignment;
-use crate::core::TaskAssignmentIdIssuer;
-use crate::core_impl::inbound_queue_reader::test_harness::DEFAULT_SESSION_ID;
-use crate::core_impl::inbound_queue_reader::test_harness::MockStorageClient;
-use crate::core_impl::inbound_queue_reader::test_harness::make_entry;
-
-/// The number of active jobs a resource group may hold.
-const ACTIVE_JOB_LIST_CAPACITY: usize = 4;
-
 /// The first resource group a test seeds.
 const RG_A: ResourceGroupId = ResourceGroupId::from(0);
 
@@ -70,28 +65,23 @@ const RG_C: ResourceGroupId = ResourceGroupId::from(2);
 /// The session a test bumps the mock storage to.
 const NEXT_SESSION_ID: SessionId = DEFAULT_SESSION_ID + 1;
 
-/// The storage poll timeout every test runs with. The mock storage never blocks on it.
-const STORAGE_POLL_TIMEOUT_MS: u64 = 10;
-
-/// The regular-task buffer capacity every test runs with.
-const READY_TASK_CAPACITY: usize = 16_384;
-
-/// The commit-task buffer capacity every test runs with.
-const COMMIT_READY_TASK_CAPACITY: usize = 64;
-
-/// The cleanup-task buffer capacity every test runs with.
-const CLEANUP_READY_TASK_CAPACITY: usize = 64;
-
-/// A finalized job table expiry long enough that no test sweeps an entry unless it asks to.
-const NEVER_EXPIRING_TIMEOUT_SEC: u64 = 6 * 60 * 60;
-
-/// The finalized job table expiry an expiry test runs with.
-const SHORT_EXPIRATION_TIMEOUT_SEC: u64 = 1;
-
-/// How long an expiry test waits before the tick that must sweep an entry stamped
-/// [`SHORT_EXPIRATION_TIMEOUT_SEC`] seconds ago. A sleep is a lower bound on the time that passes,
-/// so the margin only has to cover the sweep reading a monotonic clock, never scheduling delay.
-const EXPIRATION_WAIT: Duration = Duration::from_millis(1_200);
+/// The config every test starts from, naming in its own literal only the fields it varies, with the
+/// following properties:
+///
+/// * Its finalized job table expiry outlasts any test run, so no test sweeps the table unless it
+///   names a shorter `finalized_job_expiration_timeout_sec`.
+/// * Its dispatch queue capacity is a placeholder every test overrides.
+/// * Its storage poll timeout is arbitrary because the mock storage never blocks on one.
+const BASE_CONFIG: RgRoundRobinConfig = RgRoundRobinConfig {
+    dispatch_queue_capacity: nonzero_usize(4),
+    active_job_list_capacity: nonzero_usize(4),
+    ready_task_capacity: nonzero_usize(16_384),
+    commit_ready_task_capacity: nonzero_usize(64),
+    cleanup_ready_task_capacity: nonzero_usize(64),
+    storage_poll_timeout_ms: 10,
+    tick_interval_ms: nonzero_u64(1),
+    finalized_job_expiration_timeout_sec: 6 * 60 * 60,
+};
 
 /// The longest a test waits for the ticks it drives to reach the state it expects.
 const TICK_DEADLINE: Duration = Duration::from_secs(10);
@@ -99,8 +89,32 @@ const TICK_DEADLINE: Duration = Duration::from_secs(10);
 /// The interval between two ticks driven by [`tick_until`].
 const TICK_RETRY_INTERVAL: Duration = Duration::from_millis(2);
 
+/// The finalized job table expiry an expiry test runs with.
+const SHORT_EXPIRATION_TIMEOUT_SEC: u64 = 1;
+
+/// How long an expiry test waits before the tick that must sweep an entry stamped
+/// [`SHORT_EXPIRATION_TIMEOUT_SEC`] seconds ago.
+const EXPIRATION_WAIT: Duration = Duration::from_millis(1_200);
+
+/// The dispatch buffer capacity of the admission tests.
+const ADMISSION_DISPATCH_QUEUE_CAPACITY: usize = 256;
+
+/// The number of backlogged resource groups in the equilibrium tests.
+const NUM_BACKLOGGED_GROUPS: usize = 5;
+
+/// The number of ready tasks each backlogged group is seeded with, more than any single tick may
+/// publish.
+const NUM_TASKS_PER_JOB: usize = 512;
+
 /// A core wired to a mock storage and to the dispatch structures a test inspects, driven by manual
 /// [`RgRoundRobin::tick`] calls.
+///
+/// Its methods serve three purposes:
+///
+/// * Establishing the state a test drives its ticks from.
+/// * Reporting the core's internal state for a test to assert on.
+/// * Handing out the read side of a group's queue, so a test can drain it as an execution manager
+///   would.
 struct CoreFixture {
     core: RgRoundRobin<MockStorageClient>,
     storage: MockStorageClient,
@@ -139,16 +153,35 @@ impl CoreFixture {
         }
     }
 
-    /// Puts `rg_id` on the core's active resource group list, appending its scheduling state built
-    /// against the group's dispatch queue endpoints if the core has none.
+    /// # Returns
+    ///
+    /// A newly created fixture over a mock storage with no scripted batch, so a tick's decisions
+    /// come from the tasks the test seeded and from nothing else.
+    fn new_admission() -> Self {
+        Self::new(
+            RgRoundRobinConfig {
+                dispatch_queue_capacity: nonzero_usize(ADMISSION_DISPATCH_QUEUE_CAPACITY),
+                ..BASE_CONFIG
+            },
+            MockStorageClient::new(),
+        )
+    }
+
+    /// Appends `rg_id`'s scheduling state, built against the group's dispatch queue endpoints, and
+    /// puts it on the core's active resource group list.
     ///
     /// # Returns
     ///
     /// The position of the group's scheduling state in the core's state vector.
-    fn activate_group(&mut self, rg_id: ResourceGroupId) -> usize {
-        if let Some(state_idx) = self.core.rg_id_to_idx_map.get(&rg_id) {
-            return *state_idx;
-        }
+    ///
+    /// # Panics
+    ///
+    /// Panics if the core already holds a scheduling state for `rg_id`.
+    fn create_and_activate_group(&mut self, rg_id: ResourceGroupId) -> usize {
+        assert!(
+            !self.core.rg_id_to_idx_map.contains_key(&rg_id),
+            "the resource group must not already have a scheduling state"
+        );
 
         let mut rg_state = RgSchedulingState::new(
             rg_id,
@@ -167,25 +200,42 @@ impl CoreFixture {
     /// Registers a job of `num_tasks` buffered ready tasks against `rg_id`, exactly as a completed
     /// inbound poll carrying that job would, and activates the group.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`make_job_entry`]'s return values on failure.
-    fn seed_job(
-        &mut self,
-        rg_id: ResourceGroupId,
-        job_id: JobId,
-        num_tasks: usize,
-    ) -> anyhow::Result<()> {
+    /// Panics if the job is already registered, or if the group already has a scheduling state.
+    fn seed_job(&mut self, rg_id: ResourceGroupId, job_id: JobId, num_tasks: usize) {
         for task_index in 0..num_tasks {
             self.core
                 .global_task_set
                 .insert(job_id, TaskId::Index(task_index));
         }
-        let job_key = make_job_entry(&mut self.core.job_registry, job_id, num_tasks)?;
-        let state_idx = self.activate_group(rg_id);
+        let task_indices: Vec<TaskIndex> = (0..num_tasks).collect();
+        let UpsertOutcome::New(job_key) = self.core.job_registry.upsert(job_id, task_indices)
+        else {
+            panic!("job {job_id} is already registered");
+        };
+        let state_idx = self.create_and_activate_group(rg_id);
         self.core.rg_states[state_idx].place_new_job(job_key);
+    }
+
+    /// Seeds the first `num_groups` resource groups with one job each, backlogged with more ready
+    /// tasks than a single tick may publish.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Self::seed_job`]'s return values on failure.
+    /// * Forwards [`u64::try_from`]'s return values on failure.
+    fn seed_backlogged_groups(&mut self, num_groups: usize) -> anyhow::Result<()> {
+        for idx in 0..num_groups {
+            let raw_id = u64::try_from(idx)?;
+            self.seed_job(
+                ResourceGroupId::from(raw_id),
+                JobId::from(raw_id),
+                NUM_TASKS_PER_JOB,
+            );
+        }
         Ok(())
     }
 
@@ -203,7 +253,7 @@ impl CoreFixture {
             .dispatch_queue_registry
             .get_dispatch_queue_writer(rg_id);
         for idx in 0..num_assignments {
-            writer.try_send(make_assignment(
+            writer.try_send(make_unused_assignment(
                 rg_id,
                 JobId::from(u64::MAX),
                 TaskId::Index(idx),
@@ -222,13 +272,116 @@ impl CoreFixture {
             .queue_len()
     }
 
+    /// Takes every assignment currently queued for `rg_id`, playing a pinned execution manager,
+    /// which leaves the group's hint counter untouched.
+    ///
     /// # Returns
     ///
-    /// The read side of `rg_id`'s dispatch queue, which a test hands to [`drain_reader`] to play a
-    /// pinned execution manager.
-    fn reader(&self, rg_id: ResourceGroupId) -> RgDispatchQueueReader {
-        self.dispatch_queue_registry
-            .get_dispatch_queue_reader(rg_id)
+    /// The assignments taken, in dispatch order.
+    async fn drain_reader(&self, rg_id: ResourceGroupId) -> Vec<TaskAssignment> {
+        let reader = self
+            .dispatch_queue_registry
+            .get_dispatch_queue_reader(rg_id);
+        let mut assignments = Vec::new();
+        while let Some(assignment) = reader.recv_pinned(Duration::ZERO).await {
+            assignments.push(assignment);
+        }
+        assignments
+    }
+
+    /// # Returns
+    ///
+    /// The number of assignments queued for every resource group the core holds a scheduling state
+    /// for, keyed by resource group ID.
+    fn occupancies(&self) -> HashMap<ResourceGroupId, usize> {
+        self.core
+            .rg_states
+            .iter()
+            .map(|rg_state| (rg_state.rg_id, rg_state.dispatch_queue_size()))
+            .collect()
+    }
+
+    /// # Returns
+    ///
+    /// A tuple containing the core's per-lane counts of buffered tasks:
+    ///
+    /// * The number of buffered regular tasks.
+    /// * The number of buffered commit tasks.
+    /// * The number of buffered cleanup tasks.
+    fn lane_counts(&self) -> (usize, usize, usize) {
+        let global_task_set = &self.core.global_task_set;
+        (
+            global_task_set.num_ready(),
+            global_task_set.num_commit_ready(),
+            global_task_set.num_cleanup_ready(),
+        )
+    }
+
+    /// # Returns
+    ///
+    /// The jobs the core's finalized job table holds, in the order they were finalized.
+    fn finalized_job_ids(&self) -> Vec<JobId> {
+        self.core
+            .finalized_job_queue
+            .iter()
+            .map(|(job_id, _)| *job_id)
+            .collect()
+    }
+
+    /// # Returns
+    ///
+    /// Whether the core still holds `rg_id` on its active resource group list.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the core has no scheduling state for `rg_id`.
+    fn is_active(&self, rg_id: ResourceGroupId) -> bool {
+        let state_idx = *self
+            .core
+            .rg_id_to_idx_map
+            .get(&rg_id)
+            .expect("the core holds a scheduling state for the group");
+        self.core.rg_states[state_idx].is_active
+    }
+}
+
+/// # Returns
+///
+/// `capacity` as a [`NonZeroUsize`].
+///
+/// # Panics
+///
+/// Panics if `capacity` is zero.
+const fn nonzero_usize(capacity: usize) -> NonZeroUsize {
+    NonZeroUsize::new(capacity).expect("a test config capacity must be non-zero")
+}
+
+/// # Returns
+///
+/// `interval` as a [`NonZeroU64`].
+///
+/// # Panics
+///
+/// Panics if `interval` is zero.
+const fn nonzero_u64(interval: u64) -> NonZeroU64 {
+    NonZeroU64::new(interval).expect("a test config interval must be non-zero")
+}
+
+/// # Returns
+///
+/// An assignment of `task_id` carrying an ID no assignment the core publishes can collide with.
+const fn make_unused_assignment(
+    rg_id: ResourceGroupId,
+    job_id: JobId,
+    task_id: TaskId,
+    session_id: SessionId,
+) -> TaskAssignment {
+    TaskAssignment {
+        id: TaskAssignmentId::from(u64::MAX),
+        resource_group_id: rg_id,
+        job_id,
+        task_id,
+        session_id,
     }
 }
 
@@ -237,23 +390,32 @@ async fn the_rotation_arm_persists_across_ticks() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 2;
 
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         MockStorageClient::new(),
     );
     for (idx, rg_id) in [RG_A, RG_B, RG_C].into_iter().enumerate() {
-        fixture.seed_job(rg_id, JobId::from(u64::try_from(idx)?), 8)?;
+        fixture.seed_job(rg_id, JobId::from(u64::try_from(idx)?), 8);
     }
 
     fixture.core.tick().await?;
-    assert_eq!(occupancies_of(&fixture, 3), vec![1, 1, 0]);
+    assert_eq!(
+        fixture.occupancies(),
+        HashMap::from([(RG_A, 1), (RG_B, 1), (RG_C, 0)])
+    );
     assert_eq!(fixture.core.last_served_rg, Some(RG_B));
 
     for rg_id in [RG_A, RG_B, RG_C] {
-        drain_reader(&fixture.reader(rg_id)).await;
+        fixture.drain_reader(rg_id).await;
     }
 
     fixture.core.tick().await?;
-    assert_eq!(occupancies_of(&fixture, 3), vec![1, 0, 1]);
+    assert_eq!(
+        fixture.occupancies(),
+        HashMap::from([(RG_A, 1), (RG_B, 0), (RG_C, 1)])
+    );
     assert_eq!(fixture.core.last_served_rg, Some(RG_A));
     Ok(())
 }
@@ -264,19 +426,25 @@ async fn dropping_an_exhausted_group_does_not_skip_the_group_moved_into_its_slot
     const DISPATCH_QUEUE_CAPACITY: usize = 1;
 
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         MockStorageClient::new(),
     );
-    fixture.seed_job(RG_A, JobId::from(0), 8)?;
-    fixture.activate_group(RG_B);
-    fixture.seed_job(RG_C, JobId::from(2), 8)?;
+    fixture.seed_job(RG_A, JobId::from(0), 8);
+    fixture.create_and_activate_group(RG_B);
+    fixture.seed_job(RG_C, JobId::from(2), 8);
 
     // The arm starts on the group that has nothing to schedule, so the tick's single assignment is
     // won by whichever group the removal moves into the vacated slot.
     fixture.core.last_served_rg = Some(RG_A);
     fixture.core.tick().await?;
 
-    assert_eq!(occupancies_of(&fixture, 3), vec![0, 0, 1]);
+    assert_eq!(
+        fixture.occupancies(),
+        HashMap::from([(RG_A, 0), (RG_B, 0), (RG_C, 1)])
+    );
     assert_eq!(fixture.core.last_served_rg, Some(RG_C));
     assert_eq!(fixture.core.active_rg_list.len(), 2);
     Ok(())
@@ -287,20 +455,23 @@ async fn an_exhausted_group_stays_active_until_its_dispatch_queue_drains() -> an
     const DISPATCH_QUEUE_CAPACITY: usize = 4;
 
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         MockStorageClient::new(),
     );
-    fixture.activate_group(RG_A);
+    fixture.create_and_activate_group(RG_A);
     fixture.preload_queue(RG_A, 1)?;
 
     fixture.core.tick().await?;
     assert_eq!(fixture.core.active_rg_list.len(), 1);
-    assert!(is_active(&fixture, RG_A));
+    assert!(fixture.is_active(RG_A));
 
-    assert_eq!(drain_reader(&fixture.reader(RG_A)).await.len(), 1);
+    assert_eq!(fixture.drain_reader(RG_A).await.len(), 1);
     fixture.core.tick().await?;
     assert_eq!(fixture.core.active_rg_list, Vec::<usize>::new());
-    assert!(!is_active(&fixture, RG_A));
+    assert!(!fixture.is_active(RG_A));
     Ok(())
 }
 
@@ -314,21 +485,21 @@ async fn dispatching_and_retirement_run_while_a_storage_poll_is_in_flight() -> a
     let storage = MockStorageClient::new();
     storage.gate_ready_lane();
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
-    fixture.seed_job(RG_A, JobId::from(0), NUM_TASKS)?;
-    fixture.seed_job(RG_B, JobId::from(1), 0)?;
+    fixture.seed_job(RG_A, JobId::from(0), NUM_TASKS);
+    fixture.seed_job(RG_B, JobId::from(1), 0);
 
     // The first tick starts the poll the gate holds, so every later tick finds it still in flight.
     fixture.core.tick().await?;
     assert_eq!(fixture.queue_len(RG_A), NUM_TASKS_PER_TICK);
     assert_eq!(fixture.core.job_registry.len(), 2);
 
-    assert_eq!(
-        drain_reader(&fixture.reader(RG_A)).await.len(),
-        NUM_TASKS_PER_TICK
-    );
+    assert_eq!(fixture.drain_reader(RG_A).await.len(), NUM_TASKS_PER_TICK);
     fixture.core.tick().await?;
     assert_eq!(fixture.queue_len(RG_A), NUM_TASKS_PER_TICK);
     assert_eq!(fixture.core.global_task_set.tasks, HashSet::new());
@@ -354,7 +525,10 @@ async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> an
         ],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(fixture.core, 2 == fixture.queue_len(RG_A));
@@ -395,14 +569,17 @@ async fn a_session_bump_readmits_the_tasks_storage_replays() -> anyhow::Result<(
     let storage = MockStorageClient::new();
     storage.push_ready_batch(DEFAULT_SESSION_ID, replayed_entries.clone());
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
 
     // The buffer holds one assignment, so the job's second task is still buffered in the core and
     // still in the dedup set when the bump lands.
-    let published = drain_reader(&fixture.reader(RG_A)).await;
+    let published = fixture.drain_reader(RG_A).await;
     assert_eq!(published.len(), 1);
     assert_eq!(published[0].session_id, DEFAULT_SESSION_ID);
     assert_eq!(fixture.core.global_task_set.len(), 1);
@@ -417,7 +594,8 @@ async fn a_session_bump_readmits_the_tasks_storage_replays() -> anyhow::Result<(
         // A poll issued before the bump still lands under the old session, so the assignments it
         // produces are stale by construction and are not part of the replay.
         replayed.extend(
-            drain_reader(&fixture.reader(RG_A))
+            fixture
+                .drain_reader(RG_A)
                 .await
                 .into_iter()
                 .filter(|assignment| assignment.session_id == NEXT_SESSION_ID),
@@ -446,10 +624,13 @@ async fn a_rescheduled_assignment_is_readmitted() -> anyhow::Result<()> {
     const LOST_TASK_ID: TaskId = TaskId::Index(9);
 
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         MockStorageClient::new(),
     );
-    let lost = make_assignment(
+    let lost = make_unused_assignment(
         RG_A,
         LOST_JOB_ID,
         LOST_TASK_ID,
@@ -459,7 +640,7 @@ async fn a_rescheduled_assignment_is_readmitted() -> anyhow::Result<()> {
 
     tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
 
-    let redispatched = drain_reader(&fixture.reader(RG_A)).await;
+    let redispatched = fixture.drain_reader(RG_A).await;
     assert_eq!(redispatched.len(), 1);
     assert_eq!(redispatched[0].task_id, LOST_TASK_ID);
     assert_eq!(redispatched[0].job_id, LOST_JOB_ID);
@@ -471,10 +652,13 @@ async fn a_closed_dispatch_queue_fails_the_tick() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 4;
 
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         MockStorageClient::new(),
     );
-    fixture.seed_job(RG_A, JobId::from(0), 4)?;
+    fixture.seed_job(RG_A, JobId::from(0), 4);
     fixture.dispatch_queue_registry.close_dispatch_queue(RG_A);
 
     let err = fixture
@@ -493,10 +677,13 @@ async fn a_closed_broadcast_queue_fails_the_tick() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 4;
 
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         MockStorageClient::new(),
     );
-    fixture.seed_job(RG_A, JobId::from(0), 4)?;
+    fixture.seed_job(RG_A, JobId::from(0), 4);
     fixture.dispatch_queue_registry.close_broadcast_queue();
 
     let err = fixture
@@ -526,18 +713,18 @@ async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> 
         vec![make_entry(RG_A, EXPIRING_JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        make_expiring_config(
-            DISPATCH_QUEUE_CAPACITY,
-            ACTIVE_JOB_LIST_CAPACITY,
-            SHORT_EXPIRATION_TIMEOUT_SEC,
-        ),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            finalized_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(
         fixture.core,
         fixture.core.finalized_jobs.contains(&EXPIRING_JOB_ID)
     );
-    assert_eq!(finalized_job_ids(&fixture), vec![EXPIRING_JOB_ID]);
+    assert_eq!(fixture.finalized_job_ids(), vec![EXPIRING_JOB_ID]);
 
     tokio::time::sleep(EXPIRATION_WAIT).await;
     fixture.storage.push_commit_ready_batch(
@@ -550,7 +737,7 @@ async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> 
     );
 
     assert_eq!(fixture.core.finalized_jobs, HashSet::from([FRESH_JOB_ID]));
-    assert_eq!(finalized_job_ids(&fixture), vec![FRESH_JOB_ID]);
+    assert_eq!(fixture.finalized_job_ids(), vec![FRESH_JOB_ID]);
     Ok(())
 }
 
@@ -565,7 +752,10 @@ async fn a_cleanup_is_scheduled_after_the_same_job_committed() -> anyhow::Result
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
@@ -576,7 +766,8 @@ async fn a_cleanup_is_scheduled_after_the_same_job_committed() -> anyhow::Result
     );
     tick_until!(fixture.core, 2 == fixture.queue_len(RG_A));
 
-    let task_ids: Vec<TaskId> = drain_reader(&fixture.reader(RG_A))
+    let task_ids: Vec<TaskId> = fixture
+        .drain_reader(RG_A)
         .await
         .into_iter()
         .map(|assignment| assignment.task_id)
@@ -596,7 +787,10 @@ async fn a_repeated_finalization_is_scheduled_once() -> anyhow::Result<()> {
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
@@ -624,15 +818,15 @@ async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Resu
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        make_expiring_config(
-            DISPATCH_QUEUE_CAPACITY,
-            ACTIVE_JOB_LIST_CAPACITY,
-            SHORT_EXPIRATION_TIMEOUT_SEC,
-        ),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            finalized_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
-    let finalization = drain_reader(&fixture.reader(RG_A)).await;
+    let finalization = fixture.drain_reader(RG_A).await;
     assert_eq!(finalization.len(), 1);
     assert_eq!(finalization[0].task_id, TaskId::Commit);
 
@@ -657,7 +851,7 @@ async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Resu
         vec![make_entry(RG_A, JOB_ID, LATE_TASK_ID)],
     );
     tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
-    let readmitted = drain_reader(&fixture.reader(RG_A)).await;
+    let readmitted = fixture.drain_reader(RG_A).await;
     assert_eq!(readmitted.len(), 1);
     assert_eq!(readmitted[0].task_id, LATE_TASK_ID);
     Ok(())
@@ -674,11 +868,14 @@ async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyho
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     tick_until!(fixture.core, fixture.core.finalized_jobs.contains(&JOB_ID));
-    assert_eq!(finalized_job_ids(&fixture), vec![JOB_ID]);
+    assert_eq!(fixture.finalized_job_ids(), vec![JOB_ID]);
 
     fixture
         .storage
@@ -689,7 +886,7 @@ async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyho
     );
 
     assert_eq!(fixture.core.finalized_jobs, HashSet::new());
-    assert_eq!(finalized_job_ids(&fixture), Vec::<JobId>::new());
+    assert_eq!(fixture.finalized_job_ids(), Vec::<JobId>::new());
     Ok(())
 }
 
@@ -715,7 +912,10 @@ async fn publishing_an_assignment_discounts_the_lane_that_buffered_it() -> anyho
         vec![make_entry(RG_A, COMMIT_JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
@@ -724,7 +924,7 @@ async fn publishing_an_assignment_discounts_the_lane_that_buffered_it() -> anyho
         fixture.core,
         fixture.core.finalized_jobs.contains(&COMMIT_JOB_ID)
     );
-    assert_eq!(lane_counts(&fixture), (NUM_REGULAR_TASKS, 1, 0));
+    assert_eq!(fixture.lane_counts(), (NUM_REGULAR_TASKS, 1, 0));
     assert_eq!(
         fixture.core.global_task_set.len(),
         NUM_REGULAR_TASKS + 1,
@@ -733,18 +933,18 @@ async fn publishing_an_assignment_discounts_the_lane_that_buffered_it() -> anyho
 
     // Draining the preloaded assignment frees exactly one slot, so the next tick publishes exactly
     // one assignment: the finalization, which outranks the regular tasks.
-    assert_eq!(drain_reader(&fixture.reader(RG_A)).await.len(), 1);
+    assert_eq!(fixture.drain_reader(RG_A).await.len(), 1);
     fixture.core.tick().await?;
-    let published = drain_reader(&fixture.reader(RG_A)).await;
+    let published = fixture.drain_reader(RG_A).await;
     assert_eq!(published.len(), 1);
     assert_eq!(published[0].task_id, TaskId::Commit);
-    assert_eq!(lane_counts(&fixture), (NUM_REGULAR_TASKS, 0, 0));
+    assert_eq!(fixture.lane_counts(), (NUM_REGULAR_TASKS, 0, 0));
 
     fixture.core.tick().await?;
-    let published = drain_reader(&fixture.reader(RG_A)).await;
+    let published = fixture.drain_reader(RG_A).await;
     assert_eq!(published.len(), 1);
     assert_eq!(published[0].job_id, REGULAR_JOB_ID);
-    assert_eq!(lane_counts(&fixture), (NUM_REGULAR_TASKS - 1, 0, 0));
+    assert_eq!(fixture.lane_counts(), (NUM_REGULAR_TASKS - 1, 0, 0));
     Ok(())
 }
 
@@ -779,7 +979,10 @@ async fn the_inbound_poll_is_sized_from_the_lane_counters() -> anyhow::Result<()
         ],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
@@ -790,7 +993,7 @@ async fn the_inbound_poll_is_sized_from_the_lane_counters() -> anyhow::Result<()
         num_finalized_jobs == fixture.core.finalized_jobs.len()
     );
     assert_eq!(
-        lane_counts(&fixture),
+        fixture.lane_counts(),
         (
             NUM_REGULAR_TASKS,
             NUM_COMMIT_READY_JOBS,
@@ -808,9 +1011,9 @@ async fn the_inbound_poll_is_sized_from_the_lane_counters() -> anyhow::Result<()
     assert_eq!(
         fixture.storage.last_poll_limits(),
         (
-            READY_TASK_CAPACITY - NUM_REGULAR_TASKS,
-            COMMIT_READY_TASK_CAPACITY - NUM_COMMIT_READY_JOBS,
-            CLEANUP_READY_TASK_CAPACITY - NUM_CLEANUP_READY_JOBS
+            BASE_CONFIG.ready_task_capacity.get() - NUM_REGULAR_TASKS,
+            BASE_CONFIG.commit_ready_task_capacity.get() - NUM_COMMIT_READY_JOBS,
+            BASE_CONFIG.cleanup_ready_task_capacity.get() - NUM_CLEANUP_READY_JOBS
         )
     );
     Ok(())
@@ -834,13 +1037,16 @@ async fn a_session_bump_zeroes_every_lane_counter() -> anyhow::Result<()> {
         vec![make_entry(RG_A, JobId::from(2), TaskId::Cleanup)],
     );
     let mut fixture = CoreFixture::new(
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
         storage,
     );
     fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
 
     tick_until!(fixture.core, 2 == fixture.core.finalized_jobs.len());
-    assert_eq!(lane_counts(&fixture), (1, 1, 1));
+    assert_eq!(fixture.lane_counts(), (1, 1, 1));
 
     fixture
         .storage
@@ -850,7 +1056,7 @@ async fn a_session_bump_zeroes_every_lane_counter() -> anyhow::Result<()> {
         NEXT_SESSION_ID == fixture.session_tracker.current()
     );
 
-    assert_eq!(lane_counts(&fixture), (0, 0, 0));
+    assert_eq!(fixture.lane_counts(), (0, 0, 0));
     assert_eq!(fixture.core.global_task_set.tasks, HashSet::new());
     Ok(())
 }
@@ -867,7 +1073,10 @@ async fn the_scheduling_loop_stops_when_it_is_cancelled() -> anyhow::Result<()> 
         reschedule_queue_reader,
         TaskAssignmentIdIssuer::new(),
         cancellation_token.clone(),
-        make_config(DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
     );
     let scheduler_handle = tokio::task::spawn(core.run());
 
@@ -878,20 +1087,26 @@ async fn the_scheduling_loop_stops_when_it_is_cancelled() -> anyhow::Result<()> 
 
 #[tokio::test]
 async fn one_tick_leaves_every_backlogged_group_at_the_dynamic_threshold() -> anyhow::Result<()> {
+    /// How far a group's occupancy may sit from the equilibrium share before the rotation is
+    /// considered broken. The staircase these tests exist to catch misses by an order of
+    /// magnitude: batch filling five groups against `B = 256` yields `64, 64, 64, 64, 0` with
+    /// no free space at all.
+    const SHARE_TOLERANCE: usize = 6;
+
     let expected_share = ADMISSION_DISPATCH_QUEUE_CAPACITY / (NUM_BACKLOGGED_GROUPS + 1);
-    let mut fixture = new_admission_fixture();
-    seed_backlogged_groups(&mut fixture, NUM_BACKLOGGED_GROUPS)?;
+    let mut fixture = CoreFixture::new_admission();
+    fixture.seed_backlogged_groups(NUM_BACKLOGGED_GROUPS)?;
 
     fixture.core.tick().await?;
 
-    let occupancies = occupancies_of(&fixture, NUM_BACKLOGGED_GROUPS);
-    let occupancy: usize = occupancies.iter().sum();
+    let occupancies = fixture.occupancies();
+    let occupancy: usize = occupancies.values().sum();
     let free = ADMISSION_DISPATCH_QUEUE_CAPACITY - occupancy;
-    for (idx, group_occupancy) in occupancies.iter().enumerate() {
+    for (rg_id, group_occupancy) in &occupancies {
         assert!(
             group_occupancy.abs_diff(expected_share) <= SHARE_TOLERANCE,
-            "group {idx} holds {group_occupancy} assignments, expected about {expected_share}: \
-             {occupancies:?}"
+            "group {rg_id:?} holds {group_occupancy} assignments, expected about \
+             {expected_share}: {occupancies:?}"
         );
     }
     assert!(
@@ -907,18 +1122,18 @@ async fn one_tick_leaves_every_backlogged_group_at_the_dynamic_threshold() -> an
 
 #[tokio::test]
 async fn no_group_is_batch_filled_while_another_waits() -> anyhow::Result<()> {
-    let mut fixture = new_admission_fixture();
-    seed_backlogged_groups(&mut fixture, NUM_BACKLOGGED_GROUPS)?;
+    let mut fixture = CoreFixture::new_admission();
+    fixture.seed_backlogged_groups(NUM_BACKLOGGED_GROUPS)?;
 
     fixture.core.tick().await?;
 
-    let occupancies = occupancies_of(&fixture, NUM_BACKLOGGED_GROUPS);
+    let occupancies = fixture.occupancies();
     let most = *occupancies
-        .iter()
+        .values()
         .max()
         .expect("the tick served at least one group");
     let least = *occupancies
-        .iter()
+        .values()
         .min()
         .expect("the tick served at least one group");
     assert!(
@@ -940,20 +1155,20 @@ async fn no_group_is_batch_filled_while_another_waits() -> anyhow::Result<()> {
 async fn a_newly_active_group_is_admitted_against_a_backlogged_incumbent() -> anyhow::Result<()> {
     const INCUMBENT_OCCUPANCY: usize = 100;
 
-    let mut fixture = new_admission_fixture();
-    seed_backlogged_groups(&mut fixture, 2)?;
+    let mut fixture = CoreFixture::new_admission();
+    fixture.seed_backlogged_groups(2)?;
     fixture.preload_queue(RG_A, INCUMBENT_OCCUPANCY)?;
 
     fixture.core.tick().await?;
 
-    let occupancies = occupancies_of(&fixture, 2);
-    let free = ADMISSION_DISPATCH_QUEUE_CAPACITY - occupancies.iter().sum::<usize>();
+    let occupancies = fixture.occupancies();
+    let free = ADMISSION_DISPATCH_QUEUE_CAPACITY - occupancies.values().sum::<usize>();
     assert!(
-        occupancies[1] >= ADMISSION_DISPATCH_QUEUE_CAPACITY / 8,
+        occupancies[&RG_B] >= ADMISSION_DISPATCH_QUEUE_CAPACITY / 8,
         "the newly active group was starved by the incumbent: {occupancies:?}"
     );
     assert!(
-        occupancies[0] - occupancies[1] < INCUMBENT_OCCUPANCY,
+        occupancies[&RG_A] - occupancies[&RG_B] < INCUMBENT_OCCUPANCY,
         "the incumbent's head start grew instead of shrinking: {occupancies:?}"
     );
     assert!(
@@ -965,8 +1180,8 @@ async fn a_newly_active_group_is_admitted_against_a_backlogged_incumbent() -> an
 
 #[tokio::test]
 async fn a_lone_group_takes_no_more_than_half_the_dispatch_buffer() -> anyhow::Result<()> {
-    let mut fixture = new_admission_fixture();
-    seed_backlogged_groups(&mut fixture, 1)?;
+    let mut fixture = CoreFixture::new_admission();
+    fixture.seed_backlogged_groups(1)?;
 
     fixture.core.tick().await?;
 
@@ -982,212 +1197,4 @@ async fn a_lone_group_takes_no_more_than_half_the_dispatch_buffer() -> anyhow::R
          assignments"
     );
     Ok(())
-}
-
-/// The dispatch buffer capacity `B` of the admission tests, matching the design document's worked
-/// example.
-const ADMISSION_DISPATCH_QUEUE_CAPACITY: usize = 256;
-
-/// The number of backlogged resource groups `N` in the equilibrium tests.
-const NUM_BACKLOGGED_GROUPS: usize = 5;
-
-/// The number of ready tasks each backlogged group is seeded with, more than any single tick may
-/// publish.
-const NUM_TASKS_PER_JOB: usize = 512;
-
-/// How far a group's occupancy may sit from the equilibrium share before the rotation is considered
-/// broken. The staircase these tests exist to catch misses by an order of magnitude: batch filling
-/// five groups against `B = 256` yields `64, 64, 64, 64, 0` with no free space at all.
-const SHARE_TOLERANCE: usize = 6;
-
-/// # Returns
-///
-/// A core config with the given capacities, whose remaining tunables never throttle a test.
-///
-/// # Panics
-///
-/// Panics if either capacity is zero.
-fn make_config(
-    dispatch_queue_capacity: usize,
-    active_job_list_capacity: usize,
-) -> RgRoundRobinConfig {
-    make_expiring_config(
-        dispatch_queue_capacity,
-        active_job_list_capacity,
-        NEVER_EXPIRING_TIMEOUT_SEC,
-    )
-}
-
-/// # Returns
-///
-/// A core config as [`make_config`] builds it, sweeping its finalized job table after
-/// `finalized_job_expiration_timeout_sec`.
-///
-/// # Panics
-///
-/// Panics if either capacity is zero.
-fn make_expiring_config(
-    dispatch_queue_capacity: usize,
-    active_job_list_capacity: usize,
-    finalized_job_expiration_timeout_sec: u64,
-) -> RgRoundRobinConfig {
-    RgRoundRobinConfig {
-        dispatch_queue_capacity: NonZeroUsize::new(dispatch_queue_capacity)
-            .expect("the dispatch queue capacity is non-zero"),
-        active_job_list_capacity: NonZeroUsize::new(active_job_list_capacity)
-            .expect("the active job list capacity is non-zero"),
-        ready_task_capacity: NonZeroUsize::new(READY_TASK_CAPACITY)
-            .expect("the regular-task buffer capacity is non-zero"),
-        commit_ready_task_capacity: NonZeroUsize::new(COMMIT_READY_TASK_CAPACITY)
-            .expect("the commit-task buffer capacity is non-zero"),
-        cleanup_ready_task_capacity: NonZeroUsize::new(CLEANUP_READY_TASK_CAPACITY)
-            .expect("the cleanup-task buffer capacity is non-zero"),
-        storage_poll_timeout_ms: STORAGE_POLL_TIMEOUT_MS,
-        tick_interval_ms: NonZeroU64::new(1).expect("1 is non-zero"),
-        finalized_job_expiration_timeout_sec,
-    }
-}
-
-/// # Returns
-///
-/// A newly created fixture over a mock storage with no scripted batch, so a tick's decisions come
-/// from the tasks the test seeded and from nothing else.
-fn new_admission_fixture() -> CoreFixture {
-    CoreFixture::new(
-        make_config(ADMISSION_DISPATCH_QUEUE_CAPACITY, ACTIVE_JOB_LIST_CAPACITY),
-        MockStorageClient::new(),
-    )
-}
-
-/// Seeds the first `num_groups` resource groups with one job each, backlogged with more ready tasks
-/// than a single tick may publish.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`CoreFixture::seed_job`]'s return values on failure.
-/// * Forwards [`u64::try_from`]'s return values on failure.
-fn seed_backlogged_groups(fixture: &mut CoreFixture, num_groups: usize) -> anyhow::Result<()> {
-    for idx in 0..num_groups {
-        let raw_id = u64::try_from(idx)?;
-        fixture.seed_job(
-            ResourceGroupId::from(raw_id),
-            JobId::from(raw_id),
-            NUM_TASKS_PER_JOB,
-        )?;
-    }
-    Ok(())
-}
-
-/// Registers a job of `num_tasks` buffered ready tasks, whose task indices are `0..num_tasks`.
-///
-/// # Returns
-///
-/// The key of the registered job, which still needs a scheduling position.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`anyhow::Error`] if the job is already registered.
-fn make_job_entry(
-    registry: &mut JobRegistry,
-    job_id: JobId,
-    num_tasks: usize,
-) -> anyhow::Result<JobKey> {
-    let task_indices: Vec<TaskIndex> = (0..num_tasks).collect();
-    let UpsertOutcome::New(job_key) = registry.upsert(job_id, task_indices) else {
-        bail!("job {job_id} is already registered");
-    };
-    Ok(job_key)
-}
-
-/// # Returns
-///
-/// An assignment of `task_id` carrying an ID no assignment the core publishes can collide with.
-fn make_assignment(
-    rg_id: ResourceGroupId,
-    job_id: JobId,
-    task_id: TaskId,
-    session_id: SessionId,
-) -> TaskAssignment {
-    TaskAssignment {
-        id: TaskAssignmentId::from(u64::MAX),
-        resource_group_id: rg_id,
-        job_id,
-        task_id,
-        session_id,
-    }
-}
-
-/// # Returns
-///
-/// The number of assignments queued for each of the first `num_groups` resource groups, indexed by
-/// resource group ID.
-fn occupancies_of(fixture: &CoreFixture, num_groups: usize) -> Vec<usize> {
-    (0..num_groups)
-        .map(|idx| {
-            let raw_id = u64::try_from(idx).expect("a group index fits a raw ID");
-            fixture.queue_len(ResourceGroupId::from(raw_id))
-        })
-        .collect()
-}
-
-/// # Returns
-///
-/// A tuple containing the core's per-lane counts of buffered tasks:
-///
-/// * The number of buffered regular tasks.
-/// * The number of buffered commit tasks.
-/// * The number of buffered cleanup tasks.
-fn lane_counts(fixture: &CoreFixture) -> (usize, usize, usize) {
-    let global_task_set = &fixture.core.global_task_set;
-    (
-        global_task_set.num_ready(),
-        global_task_set.num_commit_ready(),
-        global_task_set.num_cleanup_ready(),
-    )
-}
-
-/// # Returns
-///
-/// The jobs the core's finalized job table holds, in the order they were finalized.
-fn finalized_job_ids(fixture: &CoreFixture) -> Vec<JobId> {
-    fixture
-        .core
-        .finalized_job_queue
-        .iter()
-        .map(|(job_id, _)| *job_id)
-        .collect()
-}
-
-/// # Returns
-///
-/// Whether the core still holds `rg_id` on its active resource group list.
-///
-/// # Panics
-///
-/// Panics if the core has no scheduling state for `rg_id`.
-fn is_active(fixture: &CoreFixture, rg_id: ResourceGroupId) -> bool {
-    let state_idx = *fixture
-        .core
-        .rg_id_to_idx_map
-        .get(&rg_id)
-        .expect("the core holds a scheduling state for the group");
-    fixture.core.rg_states[state_idx].is_active
-}
-
-/// Takes every assignment currently queued behind `reader`, playing a pinned execution manager,
-/// which leaves the group's hint counter untouched.
-///
-/// # Returns
-///
-/// The assignments taken, in dispatch order.
-async fn drain_reader(reader: &RgDispatchQueueReader) -> Vec<TaskAssignment> {
-    let mut assignments = Vec::new();
-    while let Some(assignment) = reader.recv_pinned(Duration::ZERO).await {
-        assignments.push(assignment);
-    }
-    assignments
 }
