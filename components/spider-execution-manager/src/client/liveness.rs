@@ -8,13 +8,18 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 
-/// The execution manager's identity and the storage session at registration time.
+/// The execution manager's identity, resource group, and storage session at registration time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegistrationResponse {
     pub em_id: ExecutionManagerId,
     pub session_id: SessionId,
+
+    /// The internal resource group ID, if the execution manager belongs to a resource group.
+    pub resource_group_id: Option<ResourceGroupId>,
 }
 
 /// Errors returned by [`LivenessClient`] operations.
@@ -48,10 +53,13 @@ pub trait LivenessClient: Send + Sync {
     /// # Parameters
     ///
     /// * `ip` - The advertised IP address of the execution manager process.
+    /// * `resource_group_credentials` - Optional credentials for the execution manager's resource
+    ///   group.
     ///
     /// # Returns
     ///
-    /// The freshly assigned execution manager id and the current storage session id on success.
+    /// The freshly assigned execution manager ID, current storage session ID, and optional internal
+    /// resource group ID on success.
     ///
     /// # Errors
     ///
@@ -59,7 +67,11 @@ pub trait LivenessClient: Send + Sync {
     ///
     /// * [`LivenessResponseError::ResourceGroupAuth`] if resource group authentication fails.
     /// * [`LivenessResponseError::Transport`] if the connection was lost or timed out.
-    async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError>;
+    async fn register(
+        &self,
+        ip: IpAddr,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+    ) -> Result<RegistrationResponse, LivenessResponseError>;
 
     /// Sends one heartbeat for `em_id` and returns the storage's current session id.
     ///
@@ -87,8 +99,12 @@ pub trait LivenessClient: Send + Sync {
 
 #[async_trait]
 impl<LivenessClientType: LivenessClient + ?Sized> LivenessClient for Arc<LivenessClientType> {
-    async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError> {
-        (**self).register(ip).await
+    async fn register(
+        &self,
+        ip: IpAddr,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+    ) -> Result<RegistrationResponse, LivenessResponseError> {
+        (**self).register(ip, resource_group_credentials).await
     }
 
     async fn heartbeat(

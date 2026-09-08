@@ -29,6 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let config = Config::from_yaml_file(&cli.config)
         .inspect_err(|error| tracing::error!(error = % error, "Failed to load configuration."))?;
+    let runtime_config = config.runtime_config();
 
     let storage_endpoint = config.storage.endpoint().inspect_err(
         |error| tracing::error!(error = % error, "Failed to parse storage endpoint."),
@@ -54,7 +55,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         scheduler_client,
         storage_client,
         liveness_client,
-        config.runtime_config(),
+        runtime_config,
     )
     .await
     .inspect_err(

@@ -19,10 +19,12 @@ use async_trait::async_trait;
 use dashmap::DashSet;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 use spider_execution_manager::client::LivenessClient;
 use spider_execution_manager::client::LivenessResponseError;
@@ -54,6 +56,7 @@ impl MockScheduler {
                 responses: Mutex::new(VecDeque::new()),
                 notify: Notify::new(),
                 call_count: AtomicU64::new(0),
+                resource_group_ids: Mutex::new(Vec::new()),
                 outstanding: DashSet::new(),
                 heartbeat_count: AtomicU64::new(0),
             }),
@@ -73,6 +76,14 @@ impl MockScheduler {
     #[must_use]
     pub fn call_count(&self) -> u64 {
         self.inner.call_count.load(Ordering::Relaxed)
+    }
+
+    /// # Returns
+    ///
+    /// The resource group IDs passed to `next_task`.
+    #[must_use]
+    pub fn resource_group_ids(&self) -> Vec<Option<ResourceGroupId>> {
+        lock(&self.inner.resource_group_ids).clone()
     }
 
     /// # Returns
@@ -105,12 +116,14 @@ impl SchedulerClient for MockScheduler {
     async fn next_task(
         &self,
         _em_id: ExecutionManagerId,
+        resource_group_id: Option<ResourceGroupId>,
         prev_assignment: Option<TaskAssignmentRecord>,
         _wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError> {
         if let Some(record) = prev_assignment {
             self.inner.outstanding.remove(&record);
         }
+        lock(&self.inner.resource_group_ids).push(resource_group_id);
         self.inner.call_count.fetch_add(1, Ordering::Relaxed);
         loop {
             let notified = self.inner.notify.notified();
@@ -392,8 +405,8 @@ impl MockLiveness {
         }
     }
 
-    /// Overrides the registration response. By default `register` returns
-    /// `Ok(RegistrationResponse { em_id, session_id: initial_session })`.
+    /// Overrides the registration response. By default `register` returns the mock's execution
+    /// manager ID and initial session with no resource group ID.
     pub fn set_register_response(
         &self,
         response: Result<RegistrationResponse, LivenessResponseError>,
@@ -430,9 +443,9 @@ impl MockLiveness {
 
     /// # Returns
     ///
-    /// The list of IPs passed to `register`.
+    /// The IP addresses and resource group credentials passed to `register`.
     #[must_use]
-    pub fn register_calls(&self) -> Vec<IpAddr> {
+    pub fn register_calls(&self) -> Vec<(IpAddr, Option<ExternalResourceGroupCredentials>)> {
         lock(&self.inner.register_calls).clone()
     }
 
@@ -468,8 +481,12 @@ impl Default for MockLiveness {
 
 #[async_trait]
 impl LivenessClient for MockLiveness {
-    async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError> {
-        lock(&self.inner.register_calls).push(ip);
+    async fn register(
+        &self,
+        ip: IpAddr,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+    ) -> Result<RegistrationResponse, LivenessResponseError> {
+        lock(&self.inner.register_calls).push((ip, resource_group_credentials));
         let programmed = lock(&self.inner.register_response).take();
         if let Some(response) = programmed {
             return response;
@@ -477,6 +494,7 @@ impl LivenessClient for MockLiveness {
         Ok(RegistrationResponse {
             em_id: self.inner.em_id,
             session_id: self.inner.initial_session.load(Ordering::Relaxed),
+            resource_group_id: None,
         })
     }
 
@@ -499,6 +517,7 @@ struct SchedulerInner {
     responses: Mutex<VecDeque<Result<SchedulerResponse, SchedulerError>>>,
     notify: Notify,
     call_count: AtomicU64,
+    resource_group_ids: Mutex<Vec<Option<ResourceGroupId>>>,
     /// Records of the assignments handed out by `next_task` that have not yet been checked off by
     /// a `prev_assignment` acknowledgement. An empty set on exit means the runtime reported every
     /// assignment it was given as consumed.
@@ -527,7 +546,7 @@ struct LivenessInner {
     register_response: Mutex<Option<Result<RegistrationResponse, LivenessResponseError>>>,
     heartbeat_responses: Mutex<VecDeque<Result<SessionId, LivenessResponseError>>>,
     default_session: AtomicU64,
-    register_calls: Mutex<Vec<IpAddr>>,
+    register_calls: Mutex<Vec<(IpAddr, Option<ExternalResourceGroupCredentials>)>>,
     heartbeat_count: AtomicU64,
     heartbeat_notify: Notify,
 }

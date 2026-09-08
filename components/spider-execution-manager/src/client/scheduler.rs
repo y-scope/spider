@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::scheduler::SchedulerResponse;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 
@@ -35,6 +36,8 @@ pub trait SchedulerClient: Send + Sync {
     /// # Parameters
     ///
     /// * `em_id` - The identity of the calling execution manager.
+    /// * `resource_group_id` - The internal resource group ID, or `None` for an execution manager
+    ///   without a dedicated resource group.
     /// * `prev_assignment` - The last task assignment produced by the scheduler that is
     ///   successfully consumed by the execution manager.
     /// * `wait_time_ms` - The maximum duration, in milliseconds, the scheduler may block this call
@@ -54,6 +57,7 @@ pub trait SchedulerClient: Send + Sync {
     async fn next_task(
         &self,
         em_id: ExecutionManagerId,
+        resource_group_id: Option<ResourceGroupId>,
         prev_assignment: Option<TaskAssignmentRecord>,
         wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError>;
