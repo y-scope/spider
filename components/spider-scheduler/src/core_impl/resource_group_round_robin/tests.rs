@@ -1198,3 +1198,224 @@ async fn a_lone_group_takes_no_more_than_half_the_dispatch_buffer() -> anyhow::R
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_finalization_drains_the_jobs_buffered_tasks() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+    const JOB_ID: JobId = JobId::from(0);
+    const NUM_TASKS: usize = 4;
+
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, JOB_ID, TaskId::Index(0)),
+            make_entry(RG_A, JOB_ID, TaskId::Index(1)),
+            make_entry(RG_A, JOB_ID, TaskId::Index(2)),
+            make_entry(RG_A, JOB_ID, TaskId::Index(3)),
+        ],
+    );
+    let mut fixture = CoreFixture::new(
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
+        storage,
+    );
+
+    tick_until!(fixture.core, 1 == fixture.queue_len(RG_A));
+    assert_eq!(fixture.lane_counts(), (NUM_TASKS - 1, 0, 0));
+    assert_eq!(fixture.core.job_registry.len(), 1);
+
+    fixture.storage.push_commit_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
+    );
+    tick_until!(fixture.core, fixture.core.finalized_jobs.contains(&JOB_ID));
+
+    // The commit is buffered like any other task until its assignment publishes, which the full
+    // dispatch queue holds off, so it is what the dedup set is left holding.
+    assert_eq!(
+        fixture.core.global_task_set.tasks,
+        HashSet::from([(JOB_ID, TaskId::Commit)])
+    );
+    assert_eq!(fixture.lane_counts(), (0, 1, 0));
+    assert_eq!(fixture.core.job_registry.len(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_task_offered_twice_across_polls_is_admitted_once() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+    const JOB_ID: JobId = JobId::from(0);
+    const NUM_TASKS_PER_BATCH: usize = 2;
+    /// Twice the assignments one batch is worth, each tick publishing at most one, so a task
+    /// admitted a second time would still have a round to surface in.
+    const NUM_PUBLISHING_TICKS: usize = 2 * NUM_TASKS_PER_BATCH;
+
+    let batch = vec![
+        make_entry(RG_A, JOB_ID, TaskId::Index(0)),
+        make_entry(RG_A, JOB_ID, TaskId::Index(1)),
+    ];
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(DEFAULT_SESSION_ID, batch.clone());
+    let mut fixture = CoreFixture::new(
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
+        storage,
+    );
+    // A published task leaves the dedup set by design, so only a dispatch queue that stays full for
+    // the whole test makes the second offer's rejection the reason nothing is admitted twice.
+    fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
+
+    tick_until!(fixture.core, NUM_TASKS_PER_BATCH == fixture.lane_counts().0);
+
+    let num_polls_before = fixture.storage.num_polls().0;
+    fixture.storage.push_ready_batch(DEFAULT_SESSION_ID, batch);
+    tick_until!(
+        fixture.core,
+        num_polls_before + 2 <= fixture.storage.num_polls().0
+    );
+
+    assert_eq!(fixture.lane_counts(), (NUM_TASKS_PER_BATCH, 0, 0));
+    assert_eq!(fixture.queue_len(RG_A), DISPATCH_QUEUE_CAPACITY);
+
+    // The dedup set counts a task once however often it was admitted, so what the core buffered for
+    // the job is only visible in what it goes on to publish once the buffer frees up.
+    assert_eq!(
+        fixture.drain_reader(RG_A).await.len(),
+        DISPATCH_QUEUE_CAPACITY
+    );
+    let mut published = Vec::new();
+    for _ in 0..NUM_PUBLISHING_TICKS {
+        fixture.core.tick().await?;
+        published.extend(
+            fixture
+                .drain_reader(RG_A)
+                .await
+                .into_iter()
+                .map(|assignment| assignment.task_id),
+        );
+    }
+    assert_eq!(published, vec![TaskId::Index(0), TaskId::Index(1)]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_second_batch_for_a_registered_job_appends_to_it() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 1;
+    const JOB_ID: JobId = JobId::from(0);
+    const NUM_TASKS_PER_BATCH: usize = 2;
+
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, JOB_ID, TaskId::Index(0)),
+            make_entry(RG_A, JOB_ID, TaskId::Index(1)),
+        ],
+    );
+    let mut fixture = CoreFixture::new(
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
+        storage,
+    );
+    // Nothing may publish, or the job would run dry and leave the registry before the second batch
+    // arrives.
+    fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
+
+    tick_until!(fixture.core, NUM_TASKS_PER_BATCH == fixture.lane_counts().0);
+
+    fixture.storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![
+            make_entry(RG_A, JOB_ID, TaskId::Index(2)),
+            make_entry(RG_A, JOB_ID, TaskId::Index(3)),
+        ],
+    );
+    tick_until!(
+        fixture.core,
+        2 * NUM_TASKS_PER_BATCH == fixture.lane_counts().0
+    );
+
+    assert_eq!(fixture.core.job_registry.len(), 1);
+    assert_eq!(fixture.lane_counts(), (2 * NUM_TASKS_PER_BATCH, 0, 0));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_rescheduled_assignment_of_a_stale_session_is_dropped() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 8;
+    const LOST_JOB_ID: JobId = JobId::from(0);
+    const LOST_TASK_ID: TaskId = TaskId::Index(9);
+
+    let storage = MockStorageClient::new();
+    storage.push_ready_batch(NEXT_SESSION_ID, Vec::new());
+    let mut fixture = CoreFixture::new(
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
+        storage,
+    );
+    tick_until!(
+        fixture.core,
+        NEXT_SESSION_ID == fixture.session_tracker.current()
+    );
+
+    let num_polls_before = fixture.storage.num_polls().0;
+    fixture
+        .reschedule_queue_writer
+        .send(make_unused_assignment(
+            RG_A,
+            LOST_JOB_ID,
+            LOST_TASK_ID,
+            DEFAULT_SESSION_ID,
+        ))?;
+    tick_until!(
+        fixture.core,
+        num_polls_before + 2 <= fixture.storage.num_polls().0
+    );
+
+    assert_eq!(fixture.queue_len(RG_A), 0);
+    assert_eq!(fixture.core.job_registry.len(), 0);
+    assert_eq!(fixture.core.global_task_set.tasks, HashSet::new());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_drained_group_is_reactivated_by_a_later_poll() -> anyhow::Result<()> {
+    const DISPATCH_QUEUE_CAPACITY: usize = 4;
+    const JOB_ID: JobId = JobId::from(0);
+
+    let mut fixture = CoreFixture::new(
+        RgRoundRobinConfig {
+            dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
+            ..BASE_CONFIG
+        },
+        MockStorageClient::new(),
+    );
+    fixture.create_and_activate_group(RG_A);
+    fixture.preload_queue(RG_A, 1)?;
+
+    fixture.core.tick().await?;
+    assert_eq!(fixture.drain_reader(RG_A).await.len(), 1);
+    fixture.core.tick().await?;
+    assert_eq!(fixture.core.active_rg_list, Vec::<usize>::new());
+    assert!(!fixture.is_active(RG_A));
+    let num_rg_states = fixture.core.rg_states.len();
+
+    fixture.storage.push_ready_batch(
+        DEFAULT_SESSION_ID,
+        vec![make_entry(RG_A, JOB_ID, TaskId::Index(0))],
+    );
+    tick_until!(fixture.core, fixture.is_active(RG_A));
+
+    assert_eq!(fixture.core.active_rg_list.len(), 1);
+    assert_eq!(fixture.core.rg_states.len(), num_rg_states);
+    Ok(())
+}
