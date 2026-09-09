@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 
@@ -59,9 +60,10 @@ impl SchedulerServiceState {
     /// If `prev_assignment` is supplied, the service acknowledges it as consumed by completing it
     /// in the registry on a best-effort, fire-and-forget basis: the completion is spawned as a
     /// background task, so it may land after this call returns, and any failure is logged rather
-    /// than propagated. The service then drains the next assignment from the dispatch queue,
-    /// waiting up to `wait_time` for one to arrive, and records the assignment against the
-    /// execution manager in the registry before returning it.
+    /// than propagated. The service then drains the next assignment for `rg_id` from the dispatch
+    /// queue, waiting up to `wait_time` for one to arrive, and records the assignment against the
+    /// execution manager in the registry before returning it. When `rg_id` is not given, it may
+    /// drain an assignment from any resource group that has assignments available.
     ///
     /// # Returns
     ///
@@ -73,14 +75,13 @@ impl SchedulerServiceState {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`DispatchQueueHandle::dequeue`]'s return values on failure.
-    ///
-    /// [`DispatchQueueHandle::dequeue`]: crate::dispatch_queue::DispatchQueueHandle::dequeue
+    /// * Forwards [`crate::DispatchQueueHandle::dequeue`]'s return values on failure.
     pub async fn next_task(
         &self,
         em_id: ExecutionManagerId,
-        prev_assignment: Option<TaskAssignmentRecord>,
+        rg_id: Option<ResourceGroupId>,
         wait_time: Duration,
+        prev_assignment: Option<TaskAssignmentRecord>,
     ) -> Result<Option<TaskAssignment>, SchedulerServiceError> {
         if let Some(prev) = prev_assignment {
             // The previous assignment is handled in a fire-and-forget task. Errors are ignored but
@@ -92,7 +93,12 @@ impl SchedulerServiceState {
                 prev,
             ));
         }
-        match self.inner.dispatch_queue_handle.dequeue(wait_time).await? {
+        match self
+            .inner
+            .dispatch_queue_handle
+            .dequeue(rg_id, wait_time)
+            .await?
+        {
             None => {
                 tracing::info!(
                     scheduler_id = % self.scheduler_id(),
@@ -231,7 +237,9 @@ mod tests {
 
     use super::SchedulerServiceState;
     use crate::dispatch_queue::DispatchQueueHandle;
+    use crate::dispatch_queue::create_dispatch_queue;
     use crate::error::SchedulerError;
+    use crate::error::SchedulerServiceError;
     use crate::execution_manager_registry::ExecutionManagerRegistry;
     use crate::execution_manager_registry::ExecutionManagerRegistryConfig;
     use crate::types::TaskAssignment;
@@ -274,6 +282,7 @@ mod tests {
     impl DispatchQueueHandle for CounterDispatchQueueHandle {
         async fn dequeue(
             &self,
+            _resource_group_id: Option<ResourceGroupId>,
             _wait_time: Duration,
         ) -> Result<Option<TaskAssignment>, SchedulerError> {
             // Atomically claim one slot: return None once the counter is exhausted, otherwise
@@ -384,9 +393,40 @@ mod tests {
                 ExecutionManagerId::from(EM_ID),
                 None,
                 Duration::from_millis(1),
+                None,
             )
             .await?;
         assert_eq!(result, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn next_task_with_resource_group_is_unsupported_by_single_queue() -> anyhow::Result<()> {
+        const DISPATCH_QUEUE_CAPACITY: usize = 8;
+        let (registry, _reschedule_queue_receiver, _cancellation_token) = build_registry();
+        let (writer, reader) = create_dispatch_queue(DISPATCH_QUEUE_CAPACITY, SESSION_ID);
+        let service =
+            SchedulerServiceState::new(Arc::new(reader), registry, SchedulerId::from(SCHEDULER_ID));
+        writer.enqueue(make_assignment()).await?;
+
+        let result = service
+            .next_task(
+                ExecutionManagerId::from(EM_ID),
+                Some(ResourceGroupId::from(1)),
+                Duration::from_millis(1),
+                None,
+            )
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(SchedulerServiceError::Scheduler(
+                    SchedulerError::Unsupported(_)
+                ))
+            ),
+            "expected an unsupported error, got {result:?}"
+        );
         Ok(())
     }
 
@@ -398,7 +438,7 @@ mod tests {
         assert_eq!(service.scheduler_id(), SchedulerId::from(SCHEDULER_ID));
 
         let assignment = service
-            .next_task(em_id, None, Duration::from_millis(1))
+            .next_task(em_id, None, Duration::from_millis(1), None)
             .await?
             .expect("an assignment should be dequeued");
         assert_eq!(assignment.session_id, SESSION_ID);
@@ -436,15 +476,15 @@ mod tests {
         let em_id = ExecutionManagerId::from(EM_ID);
 
         let assignment_a = service
-            .next_task(em_id, None, Duration::from_millis(1))
+            .next_task(em_id, None, Duration::from_millis(1), None)
             .await?
             .expect("the first assignment should be dequeued");
         let assignment_b = service
-            .next_task(em_id, None, Duration::from_millis(1))
+            .next_task(em_id, None, Duration::from_millis(1), None)
             .await?
             .expect("the second assignment should be dequeued");
         let assignment_c = service
-            .next_task(em_id, None, Duration::from_millis(1))
+            .next_task(em_id, None, Duration::from_millis(1), None)
             .await?
             .expect("the third assignment should be dequeued");
 

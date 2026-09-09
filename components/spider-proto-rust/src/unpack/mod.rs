@@ -11,10 +11,12 @@ mod common;
 mod scheduler;
 mod storage;
 
+pub use scheduler::NextTaskRequestPayload;
 use tonic::Code;
 use tonic::Status;
 
 /// A lightweight version of [`Status`] containing only the error code and message.
+#[derive(Debug)]
 pub struct UnpackError {
     code: Code,
     message: String,

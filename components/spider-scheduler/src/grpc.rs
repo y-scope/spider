@@ -77,6 +77,16 @@ impl GrpcSchedulerService {
                 Status::not_found("execution manager not found")
             }
 
+            SchedulerServiceError::Scheduler(SchedulerError::Unsupported(e)) => {
+                tracing::warn!(
+                    error = % e,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Unsupported operation requested."
+                );
+                Status::unimplemented("operation not supported by the scheduler")
+            }
+
             SchedulerServiceError::Scheduler(SchedulerError::Internal(e)) => {
                 tracing::error!(
                     error = % e,
@@ -111,12 +121,21 @@ impl SchedulerService for GrpcSchedulerService {
         &self,
         request: Request<scheduler::NextTaskRequest>,
     ) -> Result<Response<NextTaskResponse>, Status> {
-        let (em_id, prev_assignment, wait_time) = request.into_inner().unpack()?;
-        tracing::info!(em_id = em_id.get(), "Task dispatching request received.");
+        let request = request.into_inner().unpack()?;
+        tracing::info!(
+            em_id = request.em_id.get(),
+            rg_id = ? request.rg_id,
+            "Task dispatching request received."
+        );
 
         let dispatched = self
             .inner
-            .next_task(em_id, prev_assignment, wait_time)
+            .next_task(
+                request.em_id,
+                request.rg_id,
+                request.wait_time,
+                request.prev_assignment,
+            )
             .await
             .map_err(|error| self.service_error_handler(error, "next_task"))?;
 
