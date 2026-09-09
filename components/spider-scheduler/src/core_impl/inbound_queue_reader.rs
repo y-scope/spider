@@ -336,6 +336,7 @@ pub(super) mod test_harness {
     use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
@@ -415,6 +416,9 @@ pub(super) mod test_harness {
                     num_cleanup_ready_polls: AtomicU64::new(0),
                     is_ready_lane_gated: AtomicBool::new(false),
                     ready_lane_gate: Semaphore::new(0),
+                    last_ready_limit: AtomicUsize::new(0),
+                    last_commit_ready_limit: AtomicUsize::new(0),
+                    last_cleanup_ready_limit: AtomicUsize::new(0),
                 }),
             }
         }
@@ -461,6 +465,22 @@ pub(super) mod test_harness {
                 self.inner.num_ready_polls.load(Ordering::Relaxed),
                 self.inner.num_commit_ready_polls.load(Ordering::Relaxed),
                 self.inner.num_cleanup_ready_polls.load(Ordering::Relaxed),
+            )
+        }
+
+        /// # Returns
+        ///
+        /// A tuple containing the entry limit each lane was given by the poll it served most
+        /// recently, or 0 for a lane that has served none:
+        ///
+        /// * The regular-task lane's entry limit.
+        /// * The commit-task lane's entry limit.
+        /// * The cleanup-task lane's entry limit.
+        pub fn last_poll_limits(&self) -> (usize, usize, usize) {
+            (
+                self.inner.last_ready_limit.load(Ordering::Relaxed),
+                self.inner.last_commit_ready_limit.load(Ordering::Relaxed),
+                self.inner.last_cleanup_ready_limit.load(Ordering::Relaxed),
             )
         }
 
@@ -528,6 +548,9 @@ pub(super) mod test_harness {
                     .forget();
             }
             self.inner.num_ready_polls.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .last_ready_limit
+                .store(max_items, Ordering::Relaxed);
             Ok(self.serve_batch(&self.inner.ready_batches, max_items))
         }
 
@@ -539,6 +562,9 @@ pub(super) mod test_harness {
             self.inner
                 .num_commit_ready_polls
                 .fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .last_commit_ready_limit
+                .store(max_items, Ordering::Relaxed);
             Ok(self.serve_batch(&self.inner.commit_ready_batches, max_items))
         }
 
@@ -550,6 +576,9 @@ pub(super) mod test_harness {
             self.inner
                 .num_cleanup_ready_polls
                 .fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .last_cleanup_ready_limit
+                .store(max_items, Ordering::Relaxed);
             Ok(self.serve_batch(&self.inner.cleanup_ready_batches, max_items))
         }
 
@@ -643,6 +672,9 @@ pub(super) mod test_harness {
         num_cleanup_ready_polls: AtomicU64,
         is_ready_lane_gated: AtomicBool,
         ready_lane_gate: Semaphore,
+        last_ready_limit: AtomicUsize,
+        last_commit_ready_limit: AtomicUsize,
+        last_cleanup_ready_limit: AtomicUsize,
     }
 }
 

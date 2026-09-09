@@ -4,44 +4,35 @@
 //! of round-robin: the outer level interleaves resource groups, while the inner level interleaves
 //! active jobs within each resource group.
 
-// The dispatch queues have no consumer outside their own tests until the rest of the core lands, so
-// every item they expose reads as dead. `expect` rather than `allow`: once `implementation.rs` uses
-// the queues, this attribute becomes unfulfilled and the compiler flags it for removal.
+// Only the write side of the dispatch queues has a consumer: the read side and the hints steering
+// general execution managers are drained by the dispatch service, which has not landed yet.
+// `expect` rather than `allow`: once that service reads through the queues, this attribute becomes
+// unfulfilled and the compiler flags it for removal.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the core and the dispatch service that consume the queues have not landed yet"
+        reason = "the dispatch service that reads from the queues has not landed yet"
     )
 )]
 mod dispatch_queue;
 
-// The formatter has no consumer until the rest of the core lands, so every item it exposes reads as
-// dead. `expect` rather than `allow`: once `implementation.rs` polls with the formatter, this
-// attribute becomes unfulfilled and the compiler flags it for removal.
-#[expect(
-    dead_code,
-    reason = "the core that polls with the inbound-poll result formatter has not landed yet"
-)]
-mod inbound_queue_reader;
-
-// The registry has no consumer outside tests until the rest of the core lands, so every item it
-// exposes reads as dead. `expect` rather than `allow`: once `implementation.rs` uses the registry,
-// this attribute becomes unfulfilled and the compiler flags it for removal.
+// The core has no consumer until the seam that implements `SchedulerCore` over it lands, so every
+// item it and the modules it decides with expose reads as dead. `expect` rather than `allow`: once
+// the seam constructs the core, this attribute becomes unfulfilled and the compiler flags it for
+// removal.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the core that consumes the registry has not landed yet"
+        reason = "the `SchedulerCore` implementation that runs the core has not landed yet"
     )
 )]
-mod job_registry;
+mod implementation;
 
-// The scheduling state has no consumer until the rest of the core lands, so every item it exposes
-// reads as dead. `expect` rather than `allow`: once `implementation.rs` uses the state, this
-// attribute becomes unfulfilled and the compiler flags it for removal.
-#[expect(
-    dead_code,
-    reason = "the core that consumes the scheduling state has not landed yet"
-)]
+mod inbound_queue_reader;
+mod job_registry;
 mod scheduling_state;
+
+#[cfg(test)]
+mod tests;
