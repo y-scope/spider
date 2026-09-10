@@ -7,6 +7,7 @@ use serde::Deserialize;
 use spider_utils::config::EndpointConfig;
 
 use crate::core::SchedulerCore;
+use crate::core_impl::ResourceGroupRoundRobinConfig;
 use crate::core_impl::RoundRobinConfig;
 use crate::runtime::RuntimeConfig;
 use crate::storage_client::SchedulerStorageClient;
@@ -43,6 +44,9 @@ pub struct ServerConfig {
 pub enum SchedulerConfig {
     /// The round-robin scheduling algorithm.
     RoundRobin(RoundRobinConfig),
+
+    /// The resource-group-aware round-robin scheduling algorithm.
+    ResourceGroupRoundRobin(ResourceGroupRoundRobinConfig),
 }
 
 impl SchedulerConfig {
@@ -61,6 +65,74 @@ impl SchedulerConfig {
     ) -> Box<dyn SchedulerCore<StorageClient = SchedulerStorageClientType>> {
         match self {
             Self::RoundRobin(config) => Box::new(config.make_core::<SchedulerStorageClientType>()),
+            Self::ResourceGroupRoundRobin(config) => {
+                Box::new(config.make_core::<SchedulerStorageClientType>())
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::bail;
+
+    use super::*;
+
+    #[test]
+    fn deserialize_resource_group_round_robin_policy() -> anyhow::Result<()> {
+        const YAML: &str = "
+policy: resource_group_round_robin
+config:
+  dispatch_queue_capacity: 256
+  active_job_list_capacity: 16
+  ready_task_capacity: 1048576
+  commit_ready_task_capacity: 128
+  cleanup_ready_task_capacity: 64
+  storage_poll_timeout_ms: 10
+  tick_interval_ms: 5
+  finalized_job_expiration_timeout_sec: 300
+";
+
+        let SchedulerConfig::ResourceGroupRoundRobin(config) = yaml_serde::from_str(YAML)? else {
+            bail!("the policy should select the resource-group-aware round-robin core");
+        };
+        assert_eq!(config.dispatch_queue_capacity.get(), 256);
+        assert_eq!(config.active_job_list_capacity.get(), 16);
+        assert_eq!(config.ready_task_capacity.get(), 1_048_576);
+        assert_eq!(config.commit_ready_task_capacity.get(), 128);
+        assert_eq!(config.cleanup_ready_task_capacity.get(), 64);
+        assert_eq!(config.storage_poll_timeout_ms, 10);
+        assert_eq!(config.tick_interval_ms.get(), 5);
+        assert_eq!(config.finalized_job_expiration_timeout_sec, 300);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_round_robin_policy() -> anyhow::Result<()> {
+        const YAML: &str = "
+policy: round_robin
+config:
+  active_job_queue_capacity: 16
+  dispatch_queue_capacity: 32
+  ready_task_capacity: 1048576
+  commit_ready_task_capacity: 128
+  cleanup_ready_task_capacity: 64
+  storage_poll_timeout_ms: 10
+  tick_interval_ms: 5
+  finalizing_job_expiration_timeout_sec: 300
+";
+
+        let SchedulerConfig::RoundRobin(config) = yaml_serde::from_str(YAML)? else {
+            bail!("the policy should select the round-robin core");
+        };
+        assert_eq!(config.active_job_queue_capacity.get(), 16);
+        assert_eq!(config.dispatch_queue_capacity.get(), 32);
+        assert_eq!(config.ready_task_capacity.get(), 1_048_576);
+        assert_eq!(config.commit_ready_task_capacity.get(), 128);
+        assert_eq!(config.cleanup_ready_task_capacity.get(), 64);
+        assert_eq!(config.storage_poll_timeout_ms, 10);
+        assert_eq!(config.tick_interval_ms.get(), 5);
+        assert_eq!(config.finalizing_job_expiration_timeout_sec, 300);
+        Ok(())
     }
 }

@@ -35,3 +35,4 @@ anyhow = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util = { workspace = true, features = ["rt"] }
+yaml_serde = { workspace = true }
