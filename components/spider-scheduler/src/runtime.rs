@@ -186,6 +186,7 @@ mod tests {
     use spider_utils::config::Host;
 
     use super::*;
+    use crate::core_impl::ResourceGroupRoundRobinConfig;
     use crate::core_impl::RoundRobinConfig;
     use crate::error::StorageClientError;
     use crate::types::InboundEntry;
@@ -290,6 +291,38 @@ mod tests {
         runtime.stop().await?;
 
         // Stopping the runtime cancels the token that drives the core coroutine.
+        assert!(cancellation_token.is_cancelled());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_runtime_with_resource_group_round_robin_registers_and_stops()
+    -> anyhow::Result<()> {
+        const CORE_RUN_TIME: Duration = Duration::from_millis(50);
+
+        let config = RuntimeConfig {
+            scheduler: SchedulerConfig::ResourceGroupRoundRobin(ResourceGroupRoundRobinConfig {
+                dispatch_queue_capacity: NonZeroUsize::new(8).expect("8 is non-zero"),
+                active_job_list_capacity: NonZeroUsize::new(4).expect("4 is non-zero"),
+                ready_task_capacity: NonZeroUsize::new(64).expect("64 is non-zero"),
+                commit_ready_task_capacity: NonZeroUsize::new(8).expect("8 is non-zero"),
+                cleanup_ready_task_capacity: NonZeroUsize::new(8).expect("8 is non-zero"),
+                storage_poll_timeout_ms: 1,
+                tick_interval_ms: NonZeroU64::new(1).expect("1 is non-zero"),
+                finalized_job_expiration_timeout_sec: 60,
+            }),
+            ..make_runtime_config(30)
+        };
+        let (runtime, service, cancellation_token) =
+            create_runtime(config, MockStorageClient).await?;
+        assert_eq!(service.scheduler_id(), SchedulerId::from(SCHEDULER_ID));
+
+        // A core that exits on error cancels the runtime's token, so letting it tick first is what
+        // shows the core is running rather than merely spawned.
+        tokio::time::sleep(CORE_RUN_TIME).await;
+        assert!(!cancellation_token.is_cancelled());
+
+        runtime.stop().await?;
         assert!(cancellation_token.is_cancelled());
         Ok(())
     }
