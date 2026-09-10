@@ -20,8 +20,8 @@ use spider_core::types::id::TaskAssignmentId;
 use spider_core::types::id::TaskId;
 use tokio_util::sync::CancellationToken;
 
+use super::ResourceGroupRoundRobinConfig as RgRoundRobinConfig;
 use super::dispatch_queue::DispatchQueueRegistry;
-use super::implementation::ResourceGroupRoundRobinConfig;
 use super::implementation::RgRoundRobin;
 use super::job_registry::UpsertOutcome;
 use super::scheduling_state::RgSchedulingState;
@@ -73,7 +73,7 @@ const NEXT_SESSION_ID: SessionId = DEFAULT_SESSION_ID + 1;
 ///   names a shorter `finalized_job_expiration_timeout_sec`.
 /// * Its dispatch queue capacity is a placeholder every test overrides.
 /// * Its storage poll timeout is arbitrary because the mock storage never blocks on one.
-const BASE_CONFIG: ResourceGroupRoundRobinConfig = ResourceGroupRoundRobinConfig {
+const BASE_CONFIG: RgRoundRobinConfig = RgRoundRobinConfig {
     dispatch_queue_capacity: nonzero_usize(4),
     active_job_list_capacity: nonzero_usize(4),
     ready_task_capacity: nonzero_usize(16_384),
@@ -131,7 +131,7 @@ impl CoreFixture {
     /// # Returns
     ///
     /// A newly created fixture whose core holds no buffered task and no active resource group.
-    fn new(config: ResourceGroupRoundRobinConfig, storage: MockStorageClient) -> Self {
+    fn new(config: RgRoundRobinConfig, storage: MockStorageClient) -> Self {
         let active_job_list_capacity = config.active_job_list_capacity.get();
         let (reschedule_queue_writer, reschedule_queue_reader) =
             tokio::sync::mpsc::unbounded_channel();
@@ -162,7 +162,7 @@ impl CoreFixture {
     /// come from the tasks the test seeded and from nothing else.
     fn new_admission() -> Self {
         Self::new(
-            ResourceGroupRoundRobinConfig {
+            RgRoundRobinConfig {
                 dispatch_queue_capacity: nonzero_usize(ADMISSION_DISPATCH_QUEUE_CAPACITY),
                 ..BASE_CONFIG
             },
@@ -394,7 +394,7 @@ async fn the_rotation_arm_persists_across_ticks() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 2;
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -430,7 +430,7 @@ async fn dropping_an_exhausted_group_does_not_skip_the_group_moved_into_its_slot
     const DISPATCH_QUEUE_CAPACITY: usize = 1;
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -459,7 +459,7 @@ async fn an_exhausted_group_stays_active_until_its_dispatch_queue_drains() -> an
     const DISPATCH_QUEUE_CAPACITY: usize = 4;
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -489,7 +489,7 @@ async fn dispatching_and_retirement_run_while_a_storage_poll_is_in_flight() -> a
     let storage = MockStorageClient::new();
     storage.gate_ready_lane();
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -529,7 +529,7 @@ async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> an
         ],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -573,7 +573,7 @@ async fn a_session_bump_readmits_the_tasks_storage_replays() -> anyhow::Result<(
     let storage = MockStorageClient::new();
     storage.push_ready_batch(DEFAULT_SESSION_ID, replayed_entries.clone());
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -628,7 +628,7 @@ async fn a_rescheduled_assignment_is_readmitted() -> anyhow::Result<()> {
     const LOST_TASK_ID: TaskId = TaskId::Index(9);
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -656,7 +656,7 @@ async fn a_closed_dispatch_queue_fails_the_tick() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 4;
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -681,7 +681,7 @@ async fn a_closed_broadcast_queue_fails_the_tick() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 4;
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -717,7 +717,7 @@ async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> 
         vec![make_entry(RG_A, EXPIRING_JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             finalized_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
             ..BASE_CONFIG
@@ -756,7 +756,7 @@ async fn a_cleanup_is_scheduled_after_the_same_job_committed() -> anyhow::Result
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -791,7 +791,7 @@ async fn a_repeated_finalization_is_scheduled_once() -> anyhow::Result<()> {
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -822,7 +822,7 @@ async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Resu
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             finalized_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
             ..BASE_CONFIG
@@ -872,7 +872,7 @@ async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyho
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -916,7 +916,7 @@ async fn publishing_an_assignment_discounts_the_lane_that_buffered_it() -> anyho
         vec![make_entry(RG_A, COMMIT_JOB_ID, TaskId::Commit)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -983,7 +983,7 @@ async fn the_inbound_poll_is_sized_from_the_lane_counters() -> anyhow::Result<()
         ],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1041,7 +1041,7 @@ async fn a_session_bump_zeroes_every_lane_counter() -> anyhow::Result<()> {
         vec![make_entry(RG_A, JobId::from(2), TaskId::Cleanup)],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1078,7 +1078,7 @@ async fn the_scheduling_loop_stops_when_it_is_cancelled() -> anyhow::Result<()> 
         reschedule_queue_reader,
         TaskAssignmentIdIssuer::new(),
         cancellation_token.clone(),
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1221,7 +1221,7 @@ async fn a_finalization_drains_the_jobs_buffered_tasks() -> anyhow::Result<()> {
         ],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1265,7 +1265,7 @@ async fn a_task_offered_twice_across_polls_is_admitted_once() -> anyhow::Result<
     let storage = MockStorageClient::new();
     storage.push_ready_batch(DEFAULT_SESSION_ID, batch.clone());
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1323,7 +1323,7 @@ async fn a_second_batch_for_a_registered_job_appends_to_it() -> anyhow::Result<(
         ],
     );
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1361,7 +1361,7 @@ async fn a_rescheduled_assignment_of_a_stale_session_is_dropped() -> anyhow::Res
     let storage = MockStorageClient::new();
     storage.push_ready_batch(NEXT_SESSION_ID, Vec::new());
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
@@ -1398,7 +1398,7 @@ async fn a_drained_group_is_reactivated_by_a_later_poll() -> anyhow::Result<()> 
     const JOB_ID: JobId = JobId::from(0);
 
     let mut fixture = CoreFixture::new(
-        ResourceGroupRoundRobinConfig {
+        RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
             ..BASE_CONFIG
         },
