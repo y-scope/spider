@@ -1,7 +1,7 @@
 name: "spider"
 
 include:
-  - "./configs/scheduler/${SPIDER_SCHEDULER_POLICY:-resource_group_round_robin}.yaml"
+  - "./configs/scheduler/${SPIDER_SCHEDULER_POLICY:-round_robin}.yaml"
   - "./configs/storage.yaml"
   - "./configs/worker.yaml"
 
