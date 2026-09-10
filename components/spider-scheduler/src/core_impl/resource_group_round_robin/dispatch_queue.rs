@@ -10,139 +10,15 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use spider_core::session::SessionTracker;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::scheduler::TaskAssignment;
 
+use crate::dispatch_queue::DispatchQueueHandle;
 use crate::error::SchedulerError;
-
-/// The read side of one resource group's dispatch queue.
-///
-/// Clones share one queue and one hint counter, so the value is both what a pinned execution
-/// manager blocks on and what the core wraps in a [`Hint`] for general execution managers.
-#[derive(Clone, Debug)]
-pub(super) struct RgDispatchQueueReader {
-    inner: Arc<RgDispatchQueueReaderInner>,
-}
-
-impl RgDispatchQueueReader {
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// A newly created reader over `receiver`.
-    fn new(
-        receiver: async_channel::Receiver<TaskAssignment>,
-        rg_id: ResourceGroupId,
-        session_id: SessionId,
-    ) -> Self {
-        Self {
-            inner: Arc::new(RgDispatchQueueReaderInner {
-                receiver,
-                living_hint: AtomicUsize::new(0),
-                rg_id,
-                session_id,
-            }),
-        }
-    }
-
-    /// # Returns
-    ///
-    /// The resource group this queue belongs to.
-    pub(super) fn rg_id(&self) -> ResourceGroupId {
-        self.inner.rg_id
-    }
-
-    /// # Returns
-    ///
-    /// The session in which the resource group was created.
-    pub(super) fn session_id(&self) -> SessionId {
-        self.inner.session_id
-    }
-
-    /// Blocks until an assignment arrives or `wait_time` expires.
-    ///
-    /// Called by a pinned execution manager, which only reads from this queue and leaves the hint
-    /// counter untouched.
-    ///
-    /// A closed queue yields [`None`] by design rather than an error: a session bump clears the
-    /// registry under coroutines that are already blocked here, so closure is the ordinary end of a
-    /// bumped-out request and must read as "nothing to hand out".
-    ///
-    /// # Returns
-    ///
-    /// The next assignment, or [`None`] if none arrived before `wait_time` expired or the queue was
-    /// closed.
-    pub(super) async fn recv_pinned(&self, wait_time: Duration) -> Option<TaskAssignment> {
-        tokio::time::timeout(wait_time, self.inner.receiver.recv())
-            .await
-            .ok()?
-            .ok()
-    }
-}
-
-/// One resource group's claim on a general execution manager, drawn on that group's hint count.
-///
-/// A hint can only come out of the broadcast queue: both the wrapped reader and the constructor are
-/// private, so no caller outside this module can turn a reader it happens to hold into a hint.
-/// Spending one consumes it, and it is deliberately neither [`Clone`] nor [`Copy`], so "a hint is
-/// spent at most once" is a property the type system enforces rather than a rule a call site
-/// follows. Dropping a hint unspent withdraws nothing from its group's count, which is what lets a
-/// caller discard a hint it must not act on.
-#[derive(Debug)]
-pub(super) struct Hint {
-    reader: RgDispatchQueueReader,
-}
-
-impl Hint {
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// A newly created hint drawn on `reader`'s resource group.
-    const fn new(reader: RgDispatchQueueReader) -> Self {
-        Self { reader }
-    }
-
-    /// # Returns
-    ///
-    /// The resource group this hint points at.
-    pub(super) fn rg_id(&self) -> ResourceGroupId {
-        self.reader.rg_id()
-    }
-
-    /// # Returns
-    ///
-    /// The session in which the resource group was created.
-    pub(super) fn session_id(&self) -> SessionId {
-        self.reader.session_id()
-    }
-
-    /// Spends the hint on a single non-blocking pop from the resource group it points at.
-    ///
-    /// A closed queue yields [`None`] by design rather than an error: a session bump clears the
-    /// registry, so a hint carried across the bump names a closed queue and must read as "nothing
-    /// to hand out", exactly like any other stale hint.
-    ///
-    /// # Cancel safety
-    ///
-    /// This method is synchronous, so its decrement and its pop cannot be separated by
-    /// cancellation. The caller must still not yield between receiving the hint and calling it: a
-    /// future can only be dropped at an await point, so an await in that window would let a
-    /// cancelled request drop the hint without decrementing the counter, permanently overstating
-    /// the group's coverage.
-    ///
-    /// # Returns
-    ///
-    /// The next assignment, or [`None`] if the hint was stale and the queue is empty, or if the
-    /// queue was closed.
-    pub(super) fn consume_and_try_recv(self) -> Option<TaskAssignment> {
-        self.reader.inner.decrement_living_hint();
-        self.reader.inner.receiver.try_recv().ok()
-    }
-}
 
 /// The writer side of one resource group's dispatch queue, owned by the group's scheduling state.
 #[derive(Debug)]
@@ -239,10 +115,7 @@ impl DispatchQueueRegistry {
     /// # Returns
     ///
     /// The read side of `rg_id`'s dispatch queue, creating the group if it has none.
-    pub(super) fn get_dispatch_queue_reader(
-        &self,
-        rg_id: ResourceGroupId,
-    ) -> RgDispatchQueueReader {
+    fn get_dispatch_queue_reader(&self, rg_id: ResourceGroupId) -> RgDispatchQueueReader {
         self.get_or_create(rg_id).reader
     }
 
@@ -255,6 +128,15 @@ impl DispatchQueueRegistry {
     ) -> RgDispatchQueueWriter {
         self.get_or_create(rg_id)
             .writer(self.inner.broadcast_sender.clone())
+    }
+
+    /// Attempts a single non-blocking hint pop.
+    ///
+    /// # Returns
+    ///
+    /// The next published hint, or [`None`] if no hint is outstanding.
+    fn try_next_hint(&self) -> Option<Hint> {
+        self.inner.broadcast_receiver.try_recv().ok()
     }
 
     /// Blocks until a hint is published or `wait_time` expires.
@@ -279,7 +161,7 @@ impl DispatchQueueRegistry {
     ///
     /// The next published hint, or [`None`] if no hint was published before `wait_time` expired or
     /// the broadcast queue was closed.
-    pub(super) async fn next_hint(&self, wait_time: Duration) -> Option<Hint> {
+    async fn next_hint(&self, wait_time: Duration) -> Option<Hint> {
         tokio::time::timeout(wait_time, self.inner.broadcast_receiver.recv())
             .await
             .ok()?
@@ -361,6 +243,230 @@ impl DispatchQueueRegistry {
             .value()
             .clone()
     }
+
+    /// Serves an execution manager pinned to `rg_id`.
+    ///
+    /// # Returns
+    ///
+    /// The next assignment of `rg_id`, or [`None`] if none became available within `wait_time`.
+    async fn dequeue_pinned(
+        &self,
+        rg_id: ResourceGroupId,
+        wait_time: Duration,
+    ) -> Option<TaskAssignment> {
+        let deadline = tokio::time::Instant::now() + wait_time;
+        loop {
+            // Re-fetched per loop iteration because a retry follows a stale-session assignment,
+            // which is evidence of a session bump: reusing the reader would serve from a registry
+            // entry the bump has already replaced.
+            let reader = self.get_dispatch_queue_reader(rg_id);
+            let assignment = if let Some(assignment) = reader.try_recv_pinned() {
+                assignment
+            } else {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                reader.recv_pinned(remaining).await?
+            };
+
+            if assignment.session_id != self.inner.session_tracker.current() {
+                // If the assignment is from a stale session, drop it.
+                continue;
+            }
+            return Some(assignment);
+        }
+    }
+
+    /// Serves a general execution manager, which may receive an assignment of any resource group.
+    ///
+    /// # Returns
+    ///
+    /// The next assignment of any resource group, or [`None`] if none became available within
+    /// `wait_time`.
+    async fn dequeue_general(&self, wait_time: Duration) -> Option<TaskAssignment> {
+        let deadline = tokio::time::Instant::now() + wait_time;
+        loop {
+            let hint = if let Some(hint) = self.try_next_hint() {
+                hint
+            } else {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                self.next_hint(remaining).await?
+            };
+
+            let current_session_id = self.inner.session_tracker.current();
+            if hint.session_id() != current_session_id {
+                // If the hint is from a stale session, drop it.
+                continue;
+            }
+            let Some(assignment) = hint.consume_and_try_recv() else {
+                continue;
+            };
+
+            if assignment.session_id != current_session_id {
+                // If the assignment is from a stale session, drop it.
+                continue;
+            }
+            return Some(assignment);
+        }
+    }
+}
+
+/// Serves both the execution managers pinned to a resource group and those that take work from any
+/// group, so that the registry is itself the queue the execution-manager-facing service drains.
+///
+/// # Errors
+///
+/// This implementation does not return any error. On error (for example, the global broadcast queue
+/// gets closed unexpectedly), the scheduler core will cancel the runtime. The error will not
+/// propagate to the client end through the caller side of [`DispatchQueueHandle`].
+#[async_trait]
+impl DispatchQueueHandle for DispatchQueueRegistry {
+    async fn dequeue(
+        &self,
+        resource_group_id: Option<ResourceGroupId>,
+        wait_time: Duration,
+    ) -> Result<Option<TaskAssignment>, SchedulerError> {
+        let assignment = match resource_group_id {
+            Some(rg_id) => self.dequeue_pinned(rg_id, wait_time).await,
+            None => self.dequeue_general(wait_time).await,
+        };
+        Ok(assignment)
+    }
+}
+
+/// The read side of one resource group's dispatch queue.
+///
+/// Clones share one queue and one hint counter, so the value is both what a pinned execution
+/// manager blocks on and what the core wraps in a [`Hint`] for general execution managers.
+#[derive(Clone, Debug)]
+struct RgDispatchQueueReader {
+    inner: Arc<RgDispatchQueueReaderInner>,
+}
+
+impl RgDispatchQueueReader {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created reader over `receiver`.
+    fn new(
+        receiver: async_channel::Receiver<TaskAssignment>,
+        rg_id: ResourceGroupId,
+        session_id: SessionId,
+    ) -> Self {
+        Self {
+            inner: Arc::new(RgDispatchQueueReaderInner {
+                receiver,
+                living_hint: AtomicUsize::new(0),
+                rg_id,
+                session_id,
+            }),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The resource group this queue belongs to.
+    #[cfg(test)]
+    fn rg_id(&self) -> ResourceGroupId {
+        self.inner.rg_id
+    }
+
+    /// # Returns
+    ///
+    /// The session in which the resource group was created.
+    fn session_id(&self) -> SessionId {
+        self.inner.session_id
+    }
+
+    /// Attempts a single non-blocking pop.
+    ///
+    /// # Returns
+    ///
+    /// The next assignment, or [`None`] if the queue is empty or closed.
+    fn try_recv_pinned(&self) -> Option<TaskAssignment> {
+        self.inner.receiver.try_recv().ok()
+    }
+
+    /// Blocks until an assignment arrives or `wait_time` expires.
+    ///
+    /// Called by a pinned execution manager, which only reads from this queue and leaves the hint
+    /// counter untouched.
+    ///
+    /// A closed queue yields [`None`] by design rather than an error: a session bump clears the
+    /// registry under coroutines that are already blocked here, so closure is the ordinary end of a
+    /// bumped-out request and must read as "nothing to hand out".
+    ///
+    /// # Returns
+    ///
+    /// The next assignment, or [`None`] if none arrived before `wait_time` expired or the queue was
+    /// closed.
+    async fn recv_pinned(&self, wait_time: Duration) -> Option<TaskAssignment> {
+        tokio::time::timeout(wait_time, self.inner.receiver.recv())
+            .await
+            .ok()?
+            .ok()
+    }
+}
+
+/// One resource group's claim on a general execution manager, drawn on that group's hint count.
+///
+/// A hint can only come out of the broadcast queue: both the wrapped reader and the constructor are
+/// private, so no caller outside this module can turn a reader it happens to hold into a hint.
+/// Spending one consumes it, and it is deliberately neither [`Clone`] nor [`Copy`], so "a hint is
+/// spent at most once" is a property the type system enforces rather than a rule a call site
+/// follows. Dropping a hint unspent withdraws nothing from its group's count, which is what lets a
+/// caller discard a hint it must not act on.
+#[derive(Debug)]
+struct Hint {
+    reader: RgDispatchQueueReader,
+}
+
+impl Hint {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created hint drawn on `reader`'s resource group.
+    const fn new(reader: RgDispatchQueueReader) -> Self {
+        Self { reader }
+    }
+
+    /// # Returns
+    ///
+    /// The resource group this hint points at.
+    #[cfg(test)]
+    fn rg_id(&self) -> ResourceGroupId {
+        self.reader.rg_id()
+    }
+
+    /// # Returns
+    ///
+    /// The session in which the resource group was created.
+    fn session_id(&self) -> SessionId {
+        self.reader.session_id()
+    }
+
+    /// Spends the hint on a single non-blocking pop from the resource group it points at.
+    ///
+    /// A closed queue yields [`None`] by design rather than an error: a session bump clears the
+    /// registry, so a hint carried across the bump names a closed queue and must read as "nothing
+    /// to hand out", exactly like any other stale hint.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is synchronous, so its decrement and its pop cannot be separated by
+    /// cancellation. The caller must still not yield between receiving the hint and calling it: a
+    /// future can only be dropped at an await point, so an await in that window would let a
+    /// cancelled request drop the hint without decrementing the counter, permanently overstating
+    /// the group's coverage.
+    ///
+    /// # Returns
+    ///
+    /// The next assignment, or [`None`] if the hint was stale and the queue is empty, or if the
+    /// queue was closed.
+    fn consume_and_try_recv(self) -> Option<TaskAssignment> {
+        self.reader.inner.decrement_living_hint();
+        self.reader.inner.receiver.try_recv().ok()
+    }
 }
 
 /// Both ends of one resource group's dispatch queue.
@@ -404,8 +510,12 @@ struct DispatchQueueRegistryInner {
 struct RgDispatchQueueReaderInner {
     receiver: async_channel::Receiver<TaskAssignment>,
     living_hint: AtomicUsize,
-    rg_id: ResourceGroupId,
     session_id: SessionId,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only the tests name a group through its reader")
+    )]
+    rg_id: ResourceGroupId,
 }
 
 impl RgDispatchQueueReaderInner {
@@ -459,16 +569,40 @@ mod tests {
     /// [`DispatchQueueRegistry::next_hint`] block before it concludes that nothing is coming.
     const RECV_WAIT: Duration = Duration::from_millis(50);
 
+    /// The budget a test gives a dispatch request that it expects to be served by something it does
+    /// while the request is already in flight. Long enough that the request cannot expire first,
+    /// and paid in full only when the request fails to be served at all.
+    const DISPATCH_WAIT: Duration = Duration::from_secs(2);
+
+    /// The time a test lets an in-flight dispatch request settle into its wait before it drives the
+    /// next step.
+    const SETTLE: Duration = Duration::from_millis(50);
+
+    /// The session a test advances its tracker into.
+    const NEW_SESSION_ID: SessionId = SESSION_ID + 1;
+
     /// # Returns
     ///
-    /// An assignment of `rg_id`'s `task_index`-th task.
+    /// Forwards [`make_assignment_in_session`]'s return value for the session the registry's
+    /// tracker starts in.
     fn make_assignment(rg_id: ResourceGroupId, task_index: TaskIndex) -> TaskAssignment {
+        make_assignment_in_session(rg_id, task_index, SESSION_ID)
+    }
+
+    /// # Returns
+    ///
+    /// An assignment of `rg_id`'s `task_index`-th task, scheduled in `session_id`.
+    fn make_assignment_in_session(
+        rg_id: ResourceGroupId,
+        task_index: TaskIndex,
+        session_id: SessionId,
+    ) -> TaskAssignment {
         TaskAssignment {
             id: TaskAssignmentId::from(task_index as u64),
             resource_group_id: rg_id,
             job_id: JOB_ID,
             task_id: TaskId::Index(task_index),
-            session_id: SESSION_ID,
+            session_id,
         }
     }
 
@@ -493,16 +627,6 @@ mod tests {
     /// The next assignment, or [`None`] if the queue is empty.
     fn try_pop(reader: &RgDispatchQueueReader) -> Option<TaskAssignment> {
         reader.inner.receiver.try_recv().ok()
-    }
-
-    /// Takes one hint without blocking, reaching the broadcast receiver directly so that observing
-    /// the broadcast queue costs the tests no await.
-    ///
-    /// # Returns
-    ///
-    /// The next published hint, or [`None`] if no hint is outstanding.
-    fn try_next_hint(registry: &DispatchQueueRegistry) -> Option<Hint> {
-        registry.inner.broadcast_receiver.try_recv().ok()
     }
 
     #[test]
@@ -547,7 +671,7 @@ mod tests {
         let assignment = make_assignment(RG_ID, 0);
         publish(&writer, assignment)?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(RG_ID)
         );
 
@@ -557,7 +681,7 @@ mod tests {
         let other_assignment = make_assignment(OTHER_RG_ID, 1);
         publish(&other_writer, other_assignment)?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(OTHER_RG_ID)
         );
         assert_eq!(try_pop(&endpoints.reader), Some(assignment));
@@ -594,7 +718,9 @@ mod tests {
         assert_eq!(registry.len(), 1);
         let assignment = make_assignment(RG_ID, 0);
         publish(&writer, assignment)?;
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
         assert_eq!(hint.rg_id(), RG_ID);
         assert_eq!(hint.session_id(), SESSION_ID);
 
@@ -662,7 +788,9 @@ mod tests {
 
         let first = make_assignment(RG_ID, 0);
         publish(&writer, first)?;
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
         assert_eq!(hint.rg_id(), RG_ID);
 
         // A pinned pop empties the queue without spending the hint, so the hint outlives the
@@ -671,7 +799,7 @@ mod tests {
 
         let second = make_assignment(RG_ID, 1);
         publish(&writer, second)?;
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
+        assert_eq!(registry.try_next_hint().map(|hint| hint.rg_id()), None);
 
         assert_eq!(hint.consume_and_try_recv(), Some(second));
         Ok(())
@@ -688,10 +816,13 @@ mod tests {
 
         // Two queued assignments outrun a count that starts at zero by two, so two hints come out
         // and no third.
-        let first_hint = try_next_hint(&registry).expect("neither queued assignment is covered");
-        let second_hint =
-            try_next_hint(&registry).expect("the second queued assignment is still uncovered");
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
+        let first_hint = registry
+            .try_next_hint()
+            .expect("neither queued assignment is covered");
+        let second_hint = registry
+            .try_next_hint()
+            .expect("the second queued assignment is still uncovered");
+        assert_eq!(registry.try_next_hint().map(|hint| hint.rg_id()), None);
 
         assert_eq!(first_hint.consume_and_try_recv(), Some(first));
         assert_eq!(second_hint.consume_and_try_recv(), Some(second));
@@ -714,7 +845,7 @@ mod tests {
         assert_eq!(writer.queue_len(), 0);
 
         // A send that queued nothing must not hint at anything either.
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
+        assert_eq!(registry.try_next_hint().map(|hint| hint.rg_id()), None);
     }
 
     #[test]
@@ -740,7 +871,9 @@ mod tests {
         let assignment = make_assignment(RG_ID, 0);
         publish(&writer, assignment)?;
 
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
         assert_eq!(hint.rg_id(), RG_ID);
         assert_eq!(hint.session_id(), SESSION_ID);
         assert_eq!(hint.consume_and_try_recv(), Some(assignment));
@@ -751,7 +884,7 @@ mod tests {
         let next = make_assignment(RG_ID, 1);
         publish(&writer, next)?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(RG_ID)
         );
         Ok(())
@@ -767,7 +900,7 @@ mod tests {
         let assignment = make_assignment(RG_ID, 0);
         publish(&writer, assignment)?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(RG_ID)
         );
         assert_eq!(other_writer.queue_len(), 0);
@@ -779,8 +912,9 @@ mod tests {
         // other group's assignment and no second hint would come out.
         let other_assignment = make_assignment(OTHER_RG_ID, 1);
         publish(&other_writer, other_assignment)?;
-        let other_hint =
-            try_next_hint(&registry).expect("the other group's queued assignment is uncovered");
+        let other_hint = registry
+            .try_next_hint()
+            .expect("the other group's queued assignment is uncovered");
         assert_eq!(other_hint.rg_id(), OTHER_RG_ID);
         assert_eq!(other_hint.consume_and_try_recv(), Some(other_assignment));
         Ok(())
@@ -793,7 +927,9 @@ mod tests {
         let writer = registry.get_dispatch_queue_writer(RG_ID);
         let first = make_assignment(RG_ID, 0);
         publish(&writer, first)?;
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
 
         assert_eq!(reader.recv_pinned(RECV_WAIT).await, Some(first));
         assert_eq!(writer.queue_len(), 0);
@@ -803,7 +939,7 @@ mod tests {
         // the one still outstanding.
         let second = make_assignment(RG_ID, 1);
         publish(&writer, second)?;
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
+        assert_eq!(registry.try_next_hint().map(|hint| hint.rg_id()), None);
 
         // Spending that hint uncovers the group again, so what the pinned pops left standing was
         // exactly the one hint.
@@ -811,7 +947,7 @@ mod tests {
         let third = make_assignment(RG_ID, 2);
         publish(&writer, third)?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(RG_ID)
         );
         Ok(())
@@ -826,9 +962,12 @@ mod tests {
         let second = make_assignment(RG_ID, 1);
         publish(&writer, first)?;
         publish(&writer, second)?;
-        let first_hint = try_next_hint(&registry).expect("neither queued assignment is covered");
-        let second_hint =
-            try_next_hint(&registry).expect("the second queued assignment is still uncovered");
+        let first_hint = registry
+            .try_next_hint()
+            .expect("neither queued assignment is covered");
+        let second_hint = registry
+            .try_next_hint()
+            .expect("the second queued assignment is still uncovered");
         assert_eq!(first_hint.rg_id(), RG_ID);
         assert_eq!(second_hint.rg_id(), RG_ID);
 
@@ -840,7 +979,7 @@ mod tests {
         assert_eq!(try_pop(&reader), Some(second));
         let third = make_assignment(RG_ID, 2);
         publish(&writer, third)?;
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
+        assert_eq!(registry.try_next_hint().map(|hint| hint.rg_id()), None);
 
         // That last hint was the last one: once it is spent, a newly queued assignment is
         // uncovered.
@@ -848,7 +987,7 @@ mod tests {
         let fourth = make_assignment(RG_ID, 3);
         publish(&writer, fourth)?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(RG_ID)
         );
         Ok(())
@@ -861,7 +1000,9 @@ mod tests {
         let writer = registry.get_dispatch_queue_writer(RG_ID);
         let assignment = make_assignment(RG_ID, 0);
         publish(&writer, assignment)?;
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
 
         // A pinned pop empties the queue without spending the hint, which is what leaves the hint
         // covering an assignment that is no longer there.
@@ -872,8 +1013,9 @@ mod tests {
         // The stale hint was spent all the same, so the next assignment is uncovered.
         let next = make_assignment(RG_ID, 1);
         publish(&writer, next)?;
-        let next_hint =
-            try_next_hint(&registry).expect("the stale pop spent the group's only hint");
+        let next_hint = registry
+            .try_next_hint()
+            .expect("the stale pop spent the group's only hint");
         assert_eq!(next_hint.consume_and_try_recv(), Some(next));
         Ok(())
     }
@@ -908,13 +1050,13 @@ mod tests {
 
         // The broadcast queue outlives the bump, so a hint published before it would otherwise be
         // handed to an execution manager of the new session.
-        assert_eq!(try_next_hint(&registry).map(|hint| hint.rg_id()), None);
+        assert_eq!(registry.try_next_hint().map(|hint| hint.rg_id()), None);
 
         // The drain leaves the queue usable: a hint published after the bump still comes through.
         let recreated_writer = registry.get_dispatch_queue_writer(RG_ID);
         publish(&recreated_writer, make_assignment(RG_ID, 1))?;
         assert_eq!(
-            try_next_hint(&registry).map(|hint| hint.rg_id()),
+            registry.try_next_hint().map(|hint| hint.rg_id()),
             Some(RG_ID)
         );
         Ok(())
@@ -927,7 +1069,9 @@ mod tests {
         let writer = registry.get_dispatch_queue_writer(RG_ID);
         let assignment = make_assignment(RG_ID, 0);
         publish(&writer, assignment)?;
-        let hint = try_next_hint(&registry).expect("the queued assignment is uncovered");
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
 
         // The queue has to be drained for the wait below to end on closure rather than on the
         // assignment the hint was published for.
@@ -975,5 +1119,182 @@ mod tests {
             None
         );
         assert!(started_at.elapsed() >= RECV_WAIT);
+    }
+
+    #[tokio::test]
+    async fn dequeue_pinned_serves_from_the_named_group_alone() -> anyhow::Result<()> {
+        let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
+        let other_writer = registry.get_dispatch_queue_writer(OTHER_RG_ID);
+        publish(&other_writer, make_assignment(OTHER_RG_ID, 0))?;
+
+        assert_eq!(registry.dequeue(Some(RG_ID), RECV_WAIT).await?, None);
+
+        let writer = registry.get_dispatch_queue_writer(RG_ID);
+        let assignment = make_assignment(RG_ID, 1);
+        publish(&writer, assignment)?;
+        assert_eq!(
+            registry.dequeue(Some(RG_ID), RECV_WAIT).await?,
+            Some(assignment)
+        );
+
+        // The other group's queue was never in play, so what it holds is untouched.
+        assert_eq!(other_writer.queue_len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_general_serves_any_group_through_its_hint() -> anyhow::Result<()> {
+        let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
+        let writer = registry.get_dispatch_queue_writer(OTHER_RG_ID);
+        let assignment = make_assignment(OTHER_RG_ID, 0);
+        publish(&writer, assignment)?;
+
+        // Holding the group's only hint is what leaves the queued assignment unreachable to a
+        // general request, which proves the hint is what steers it rather than a sweep of the
+        // groups.
+        let hint = registry
+            .try_next_hint()
+            .expect("the queued assignment is uncovered");
+        assert_eq!(registry.dequeue(None, RECV_WAIT).await?, None);
+
+        drop(hint);
+        publish(&writer, make_assignment(OTHER_RG_ID, 1))?;
+        assert_eq!(registry.num_outstanding_hints(), 1);
+        assert_eq!(registry.dequeue(None, RECV_WAIT).await?, Some(assignment));
+        assert_eq!(registry.num_outstanding_hints(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_serves_a_queued_assignment_with_no_wait_budget() -> anyhow::Result<()> {
+        let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
+        let writer = registry.get_dispatch_queue_writer(RG_ID);
+
+        let pinned = make_assignment(RG_ID, 0);
+        publish(&writer, pinned)?;
+        assert_eq!(
+            registry.dequeue(Some(RG_ID), Duration::ZERO).await?,
+            Some(pinned)
+        );
+
+        let general = make_assignment(RG_ID, 1);
+        publish(&writer, general)?;
+        assert_eq!(registry.dequeue(None, Duration::ZERO).await?, Some(general));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_serves_nothing_from_an_empty_queue_within_the_wait() -> anyhow::Result<()> {
+        let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
+        registry.get_dispatch_queue_writer(RG_ID);
+
+        let started_at = Instant::now();
+        assert_eq!(registry.dequeue(Some(RG_ID), RECV_WAIT).await?, None);
+        assert!(started_at.elapsed() >= RECV_WAIT);
+
+        let started_at = Instant::now();
+        assert_eq!(registry.dequeue(None, RECV_WAIT).await?, None);
+        assert!(started_at.elapsed() >= RECV_WAIT);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_pinned_discards_a_stale_session_assignment_and_keeps_waiting()
+    -> anyhow::Result<()> {
+        let session_tracker = SessionTracker::new(SESSION_ID);
+        let registry = DispatchQueueRegistry::new(session_tracker.clone());
+        let writer = registry.get_dispatch_queue_writer(RG_ID);
+        publish(&writer, make_assignment(RG_ID, 0))?;
+        assert!(session_tracker.try_advance(NEW_SESSION_ID));
+
+        let live = make_assignment_in_session(RG_ID, 1, NEW_SESSION_ID);
+        let publish_after_the_discard = async {
+            // The request discards the queued assignment without ever awaiting, so it is already
+            // waiting on the group by the time this lands.
+            tokio::time::sleep(SETTLE).await;
+            publish(&writer, live)
+        };
+
+        let (served, published) = tokio::join!(
+            registry.dequeue(Some(RG_ID), DISPATCH_WAIT),
+            publish_after_the_discard
+        );
+        published?;
+        assert_eq!(served?, Some(live));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_general_drops_a_stale_hint_unspent() -> anyhow::Result<()> {
+        let session_tracker = SessionTracker::new(SESSION_ID);
+        let registry = DispatchQueueRegistry::new(session_tracker.clone());
+        let stale_reader = registry.get_dispatch_queue_reader(RG_ID);
+        let stale_writer = registry.get_dispatch_queue_writer(RG_ID);
+        let stale = make_assignment(RG_ID, 0);
+        publish(&stale_writer, stale)?;
+        assert_eq!(stale_reader.inner.living_hint(), 1);
+
+        assert!(session_tracker.try_advance(NEW_SESSION_ID));
+        let live_writer = registry.get_dispatch_queue_writer(OTHER_RG_ID);
+        let live = make_assignment_in_session(OTHER_RG_ID, 1, NEW_SESSION_ID);
+        publish(&live_writer, live)?;
+        assert_eq!(registry.num_outstanding_hints(), 2);
+
+        assert_eq!(registry.dequeue(None, RECV_WAIT).await?, Some(live));
+        assert_eq!(registry.num_outstanding_hints(), 0);
+
+        // The stale hint was dropped rather than spent, so it withdrew nothing from the count of a
+        // group the bump has already dropped, and popped nothing from that group's queue.
+        assert_eq!(stale_reader.inner.living_hint(), 1);
+        assert_eq!(try_pop(&stale_reader), Some(stale));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_pinned_re_fetches_the_reader_after_a_stale_session_assignment()
+    -> anyhow::Result<()> {
+        let session_tracker = SessionTracker::new(SESSION_ID);
+        let registry = DispatchQueueRegistry::new(session_tracker.clone());
+        let bumped_out_writer = registry.get_dispatch_queue_writer(RG_ID);
+        let live = make_assignment_in_session(RG_ID, 1, NEW_SESSION_ID);
+
+        let bump_and_publish = async {
+            // The request has to be waiting on the group the bump is about to drop before the bump
+            // lands, so that it holds a reader the bump replaces.
+            tokio::time::sleep(SETTLE).await;
+            assert!(session_tracker.try_advance(NEW_SESSION_ID));
+            registry.clear();
+            publish(&registry.get_dispatch_queue_writer(RG_ID), live)?;
+
+            // Waking the request with an assignment of the dropped group is what sends it around
+            // the loop, where only a re-fetched reader reaches the group the bump created.
+            publish(&bumped_out_writer, make_assignment(RG_ID, 0))
+        };
+
+        let (served, published) = tokio::join!(
+            registry.dequeue(Some(RG_ID), DISPATCH_WAIT),
+            bump_and_publish
+        );
+        published?;
+        assert_eq!(served?, Some(live));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dequeue_serves_nothing_from_a_closed_queue() -> anyhow::Result<()> {
+        let registry = DispatchQueueRegistry::new(SessionTracker::new(SESSION_ID));
+        registry.close_dispatch_queue(RG_ID);
+
+        // A closed queue reads as "nothing to hand out" rather than as an error, and says so
+        // without spending the request's budget.
+        let started_at = Instant::now();
+        assert_eq!(registry.dequeue(Some(RG_ID), RECV_WAIT).await?, None);
+        assert!(started_at.elapsed() < RECV_WAIT);
+
+        registry.close_broadcast_queue();
+        let started_at = Instant::now();
+        assert_eq!(registry.dequeue(None, RECV_WAIT).await?, None);
+        assert!(started_at.elapsed() < RECV_WAIT);
+        Ok(())
     }
 }

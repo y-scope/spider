@@ -31,6 +31,7 @@ use crate::core::TaskAssignmentIdIssuer;
 use crate::core_impl::inbound_queue_reader::test_harness::DEFAULT_SESSION_ID;
 use crate::core_impl::inbound_queue_reader::test_harness::MockStorageClient;
 use crate::core_impl::inbound_queue_reader::test_harness::make_entry;
+use crate::dispatch_queue::DispatchQueueHandle;
 
 /// Drives ticks on `core` until `predicate` holds, failing the calling test if it does not hold
 /// within [`TICK_DEADLINE`].
@@ -273,17 +274,18 @@ impl CoreFixture {
     }
 
     /// Takes every assignment currently queued for `rg_id`, playing a pinned execution manager,
-    /// which leaves the group's hint counter untouched.
+    /// which leaves the group's hint counter untouched and skips any assignment of a stale session.
     ///
     /// # Returns
     ///
     /// The assignments taken, in dispatch order.
     async fn drain_reader(&self, rg_id: ResourceGroupId) -> Vec<TaskAssignment> {
-        let reader = self
-            .dispatch_queue_registry
-            .get_dispatch_queue_reader(rg_id);
         let mut assignments = Vec::new();
-        while let Some(assignment) = reader.recv_pinned(Duration::ZERO).await {
+        while let Ok(Some(assignment)) = self
+            .dispatch_queue_registry
+            .dequeue(Some(rg_id), Duration::ZERO)
+            .await
+        {
             assignments.push(assignment);
         }
         assignments
