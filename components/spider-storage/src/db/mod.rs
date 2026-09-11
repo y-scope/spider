@@ -12,4 +12,3 @@ pub use protocol::RecoverableJobContext;
 pub use protocol::ResourceGroupManagement;
 pub use protocol::SchedulerRegistrationManagement;
 pub use protocol::SessionManagement;
-pub use spider_core::types::resource_group::ExternalResourceGroupCredentials;
