@@ -25,13 +25,13 @@ pub(super) struct ReadyBatch {
     pub(super) task_indices: Vec<TaskIndex>,
 }
 
-/// A job that has reached one of its terminal states.
+/// A job whose commit or cleanup task is ready.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct FinalizedJob {
+pub(super) struct FinalizingJob {
     /// The resource group that owns the job.
     pub(super) resource_group_id: ResourceGroupId,
 
-    /// The finalized job.
+    /// The finalizing job.
     pub(super) job_id: JobId,
 }
 
@@ -40,15 +40,15 @@ pub(super) struct FinalizedJob {
 pub(super) struct RgInboundPollResultFormatter;
 
 impl InboundPollResultFormatter for RgInboundPollResultFormatter {
-    type FinalizedResult = Vec<FinalizedJob>;
+    type FinalizationResult = Vec<FinalizingJob>;
     type ReadyResult = Vec<ReadyBatch>;
 
     fn format_ready(entries: Vec<InboundEntry>) -> Self::ReadyResult {
         format_ready_job_batches(entries)
     }
 
-    fn format_finalized(entries: Vec<InboundEntry>) -> Self::FinalizedResult {
-        format_finalized_jobs(entries)
+    fn format_finalization(entries: Vec<InboundEntry>) -> Self::FinalizationResult {
+        format_finalizing_jobs(entries)
     }
 }
 
@@ -99,11 +99,11 @@ pub(super) fn format_ready_job_batches(entries: Vec<InboundEntry>) -> Vec<ReadyB
 
 /// # Returns
 ///
-/// One finalized job per entry drained from a finalization lane, in the order they were drained.
-pub(super) fn format_finalized_jobs(entries: Vec<InboundEntry>) -> Vec<FinalizedJob> {
+/// One finalizing job per entry drained from a finalization lane, in the order they were drained.
+pub(super) fn format_finalizing_jobs(entries: Vec<InboundEntry>) -> Vec<FinalizingJob> {
     entries
         .into_iter()
-        .map(|entry| FinalizedJob {
+        .map(|entry| FinalizingJob {
             resource_group_id: entry.resource_group_id,
             job_id: entry.job_id,
         })
@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finalization_entries_are_mapped_to_finalized_jobs() -> anyhow::Result<()> {
+    async fn finalization_entries_are_mapped_to_finalizing_jobs() -> anyhow::Result<()> {
         let storage_client = MockStorageClient::new();
         storage_client.push_commit_ready_batch(
             DEFAULT_SESSION_ID,
@@ -215,11 +215,11 @@ mod tests {
         assert_eq!(
             result.commit_ready_result.as_slice(),
             &[
-                FinalizedJob {
+                FinalizingJob {
                     resource_group_id: RG_ID,
                     job_id: JOB_A,
                 },
-                FinalizedJob {
+                FinalizingJob {
                     resource_group_id: OTHER_RG_ID,
                     job_id: JOB_B,
                 }
@@ -227,7 +227,7 @@ mod tests {
         );
         assert_eq!(
             result.cleanup_ready_result.as_slice(),
-            &[FinalizedJob {
+            &[FinalizingJob {
                 resource_group_id: RG_ID,
                 job_id: JOB_C,
             }]
