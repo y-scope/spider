@@ -387,7 +387,7 @@ async fn drain_n(
                 assignments.len(),
             );
         }
-        if let Some(assignment) = dispatch_queue_handle.dequeue(DEQUEUE_WAIT).await? {
+        if let Some(assignment) = dispatch_queue_handle.dequeue(None, DEQUEUE_WAIT).await? {
             assignments.push(assignment);
         }
     }
@@ -410,7 +410,9 @@ async fn assert_no_more_assignments(
     dispatch_queue_handle: &dyn DispatchQueueHandle,
 ) -> anyhow::Result<()> {
     const OBSERVATION_WINDOW: Duration = Duration::from_secs(1);
-    let unexpected_assignment = dispatch_queue_handle.dequeue(OBSERVATION_WINDOW).await?;
+    let unexpected_assignment = dispatch_queue_handle
+        .dequeue(None, OBSERVATION_WINDOW)
+        .await?;
     assert_eq!(unexpected_assignment, None);
     Ok(())
 }
@@ -604,7 +606,7 @@ async fn tick_and_drain_n(
             );
         }
         scheduler.tick().await?;
-        while let Some(assignment) = reader.dequeue(Duration::ZERO).await? {
+        while let Some(assignment) = reader.dequeue(None, Duration::ZERO).await? {
             assignments.push(assignment);
         }
         tokio::task::yield_now().await;
@@ -633,7 +635,7 @@ async fn assert_no_further_assignments(
         scheduler.tick().await?;
         tokio::task::yield_now().await;
     }
-    let unexpected_assignment = reader.dequeue(Duration::from_millis(50)).await?;
+    let unexpected_assignment = reader.dequeue(None, Duration::from_millis(50)).await?;
     assert_eq!(unexpected_assignment, None);
     Ok(())
 }
@@ -1271,7 +1273,7 @@ async fn randomly_rescheduled_assignments_are_eventually_redispatched() -> anyho
             );
         }
         let Some(assignment) = dispatch_queue_handle
-            .dequeue(Duration::from_millis(100))
+            .dequeue(None, Duration::from_millis(100))
             .await?
         else {
             continue;
