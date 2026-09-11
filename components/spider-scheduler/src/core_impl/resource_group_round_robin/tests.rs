@@ -68,8 +68,8 @@ const NEXT_SESSION_ID: SessionId = DEFAULT_SESSION_ID + 1;
 /// The config every test starts from, naming in its own literal only the fields it varies, with the
 /// following properties:
 ///
-/// * Its finalized job table expiry outlasts any test run, so no test sweeps the table unless it
-///   names a shorter `finalized_job_expiration_timeout_sec`.
+/// * Its finalizing job table expiry outlasts any test run, so no test sweeps the table unless it
+///   names a shorter `finalizing_job_expiration_timeout_sec`.
 /// * Its dispatch queue capacity is a placeholder every test overrides.
 /// * Its storage poll timeout is arbitrary because the mock storage never blocks on one.
 const BASE_CONFIG: RgRoundRobinConfig = RgRoundRobinConfig {
@@ -80,7 +80,7 @@ const BASE_CONFIG: RgRoundRobinConfig = RgRoundRobinConfig {
     cleanup_ready_task_capacity: nonzero_usize(64),
     storage_poll_timeout_ms: 10,
     tick_interval_ms: nonzero_u64(1),
-    finalized_job_expiration_timeout_sec: 6 * 60 * 60,
+    finalizing_job_expiration_timeout_sec: 6 * 60 * 60,
 };
 
 /// The longest a test waits for the ticks it drives to reach the state it expects.
@@ -89,7 +89,7 @@ const TICK_DEADLINE: Duration = Duration::from_secs(10);
 /// The interval between two ticks driven by [`tick_until`].
 const TICK_RETRY_INTERVAL: Duration = Duration::from_millis(2);
 
-/// The finalized job table expiry an expiry test runs with.
+/// The finalizing job table expiry an expiry test runs with.
 const SHORT_EXPIRATION_TIMEOUT_SEC: u64 = 1;
 
 /// How long an expiry test waits before the tick that must sweep an entry stamped
@@ -319,10 +319,10 @@ impl CoreFixture {
 
     /// # Returns
     ///
-    /// The jobs the core's finalized job table holds, in the order they were finalized.
-    fn finalized_job_ids(&self) -> Vec<JobId> {
+    /// The jobs the core's finalizing job table holds, in the order they became finalizing.
+    fn finalizing_job_ids(&self) -> Vec<JobId> {
         self.core
-            .finalized_job_queue
+            .finalizing_job_queue
             .iter()
             .map(|(job_id, _)| *job_id)
             .collect()
@@ -512,7 +512,7 @@ async fn dispatching_and_retirement_run_while_a_storage_poll_is_in_flight() -> a
 }
 
 #[tokio::test]
-async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> anyhow::Result<()> {
+async fn a_session_bump_clears_the_dedup_set_and_the_finalizing_job_table() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 8;
     const SENTINEL_JOB_ID: JobId = JobId::from(4096);
 
@@ -537,7 +537,7 @@ async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> an
         .core
         .global_task_set
         .insert(SENTINEL_JOB_ID, TaskId::Index(0));
-    fixture.core.finalized_jobs.insert(SENTINEL_JOB_ID);
+    fixture.core.finalizing_jobs.insert(SENTINEL_JOB_ID);
 
     fixture
         .storage
@@ -554,7 +554,7 @@ async fn a_session_bump_clears_the_dedup_set_and_the_finalized_job_table() -> an
             .tasks
             .contains(&(SENTINEL_JOB_ID, TaskId::Index(0)))
     );
-    assert!(!fixture.core.finalized_jobs.contains(&SENTINEL_JOB_ID));
+    assert!(!fixture.core.finalizing_jobs.contains(&SENTINEL_JOB_ID));
     Ok(())
 }
 
@@ -702,7 +702,7 @@ async fn a_closed_broadcast_queue_fails_the_tick() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> anyhow::Result<()> {
+async fn an_expired_finalizing_job_leaves_the_table_but_a_fresh_one_stays() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 8;
     const EXPIRING_JOB_ID: JobId = JobId::from(0);
     const FRESH_JOB_ID: JobId = JobId::from(1);
@@ -715,16 +715,16 @@ async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> 
     let mut fixture = CoreFixture::new(
         RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
-            finalized_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
+            finalizing_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
             ..BASE_CONFIG
         },
         storage,
     );
     tick_until!(
         fixture.core,
-        fixture.core.finalized_jobs.contains(&EXPIRING_JOB_ID)
+        fixture.core.finalizing_jobs.contains(&EXPIRING_JOB_ID)
     );
-    assert_eq!(fixture.finalized_job_ids(), vec![EXPIRING_JOB_ID]);
+    assert_eq!(fixture.finalizing_job_ids(), vec![EXPIRING_JOB_ID]);
 
     tokio::time::sleep(EXPIRATION_WAIT).await;
     fixture.storage.push_commit_ready_batch(
@@ -733,11 +733,11 @@ async fn an_expired_finalized_job_leaves_the_table_while_a_fresh_one_stays() -> 
     );
     tick_until!(
         fixture.core,
-        fixture.core.finalized_jobs.contains(&FRESH_JOB_ID)
+        fixture.core.finalizing_jobs.contains(&FRESH_JOB_ID)
     );
 
-    assert_eq!(fixture.core.finalized_jobs, HashSet::from([FRESH_JOB_ID]));
-    assert_eq!(fixture.finalized_job_ids(), vec![FRESH_JOB_ID]);
+    assert_eq!(fixture.core.finalizing_jobs, HashSet::from([FRESH_JOB_ID]));
+    assert_eq!(fixture.finalizing_job_ids(), vec![FRESH_JOB_ID]);
     Ok(())
 }
 
@@ -820,7 +820,7 @@ async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Resu
     let mut fixture = CoreFixture::new(
         RgRoundRobinConfig {
             dispatch_queue_capacity: nonzero_usize(DISPATCH_QUEUE_CAPACITY),
-            finalized_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
+            finalizing_job_expiration_timeout_sec: SHORT_EXPIRATION_TIMEOUT_SEC,
             ..BASE_CONFIG
         },
         storage,
@@ -844,7 +844,7 @@ async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Resu
     assert_eq!(fixture.core.job_registry.len(), 0);
 
     tokio::time::sleep(EXPIRATION_WAIT).await;
-    tick_until!(fixture.core, fixture.core.finalized_jobs.is_empty());
+    tick_until!(fixture.core, fixture.core.finalizing_jobs.is_empty());
 
     fixture.storage.push_ready_batch(
         DEFAULT_SESSION_ID,
@@ -858,7 +858,7 @@ async fn an_expired_finalization_readmits_the_jobs_later_tasks() -> anyhow::Resu
 }
 
 #[tokio::test]
-async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyhow::Result<()> {
+async fn a_session_bump_empties_the_finalizing_job_table_and_its_queue() -> anyhow::Result<()> {
     const DISPATCH_QUEUE_CAPACITY: usize = 8;
     const JOB_ID: JobId = JobId::from(0);
 
@@ -874,8 +874,8 @@ async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyho
         },
         storage,
     );
-    tick_until!(fixture.core, fixture.core.finalized_jobs.contains(&JOB_ID));
-    assert_eq!(fixture.finalized_job_ids(), vec![JOB_ID]);
+    tick_until!(fixture.core, fixture.core.finalizing_jobs.contains(&JOB_ID));
+    assert_eq!(fixture.finalizing_job_ids(), vec![JOB_ID]);
 
     fixture
         .storage
@@ -885,8 +885,8 @@ async fn a_session_bump_empties_the_finalized_job_table_and_its_queue() -> anyho
         NEXT_SESSION_ID == fixture.session_tracker.current()
     );
 
-    assert_eq!(fixture.core.finalized_jobs, HashSet::new());
-    assert_eq!(fixture.finalized_job_ids(), Vec::<JobId>::new());
+    assert_eq!(fixture.core.finalizing_jobs, HashSet::new());
+    assert_eq!(fixture.finalizing_job_ids(), Vec::<JobId>::new());
     Ok(())
 }
 
@@ -922,7 +922,7 @@ async fn publishing_an_assignment_discounts_the_lane_that_buffered_it() -> anyho
 
     tick_until!(
         fixture.core,
-        fixture.core.finalized_jobs.contains(&COMMIT_JOB_ID)
+        fixture.core.finalizing_jobs.contains(&COMMIT_JOB_ID)
     );
     assert_eq!(fixture.lane_counts(), (NUM_REGULAR_TASKS, 1, 0));
     assert_eq!(
@@ -987,10 +987,10 @@ async fn the_inbound_poll_is_sized_from_the_lane_counters() -> anyhow::Result<()
     );
     fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
 
-    let num_finalized_jobs = NUM_COMMIT_READY_JOBS + NUM_CLEANUP_READY_JOBS;
+    let num_finalizing_jobs = NUM_COMMIT_READY_JOBS + NUM_CLEANUP_READY_JOBS;
     tick_until!(
         fixture.core,
-        num_finalized_jobs == fixture.core.finalized_jobs.len()
+        num_finalizing_jobs == fixture.core.finalizing_jobs.len()
     );
     assert_eq!(
         fixture.lane_counts(),
@@ -1045,7 +1045,7 @@ async fn a_session_bump_zeroes_every_lane_counter() -> anyhow::Result<()> {
     );
     fixture.preload_queue(RG_A, DISPATCH_QUEUE_CAPACITY)?;
 
-    tick_until!(fixture.core, 2 == fixture.core.finalized_jobs.len());
+    tick_until!(fixture.core, 2 == fixture.core.finalizing_jobs.len());
     assert_eq!(fixture.lane_counts(), (1, 1, 1));
 
     fixture
@@ -1231,7 +1231,7 @@ async fn a_finalization_drains_the_jobs_buffered_tasks() -> anyhow::Result<()> {
         DEFAULT_SESSION_ID,
         vec![make_entry(RG_A, JOB_ID, TaskId::Commit)],
     );
-    tick_until!(fixture.core, fixture.core.finalized_jobs.contains(&JOB_ID));
+    tick_until!(fixture.core, fixture.core.finalizing_jobs.contains(&JOB_ID));
 
     // The commit is buffered like any other task until its assignment publishes, which the full
     // dispatch queue holds off, so it is what the dedup set is left holding.

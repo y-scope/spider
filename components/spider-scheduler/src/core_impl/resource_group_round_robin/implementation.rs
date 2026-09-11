@@ -19,11 +19,11 @@ use tokio::select;
 use tokio_util::sync::CancellationToken;
 
 use super::dispatch_queue::DispatchQueueRegistry;
-use super::inbound_queue_reader::FinalizedJob;
+use super::inbound_queue_reader::FinalizingJob;
 use super::inbound_queue_reader::ReadyBatch;
 use super::inbound_queue_reader::RgInboundPollState;
 use super::inbound_queue_reader::RgInboundQueueReader;
-use super::inbound_queue_reader::format_finalized_jobs;
+use super::inbound_queue_reader::format_finalizing_jobs;
 use super::inbound_queue_reader::format_ready_job_batches;
 use super::job_registry::JobKey;
 use super::job_registry::JobRegistry;
@@ -64,9 +64,9 @@ pub(super) struct RgRoundRobinConfig {
     /// less than the configured interval, the core will sleep for the remainder.
     pub(super) tick_interval_ms: NonZeroU64,
 
-    /// The time (in seconds) that a job may remain in the finalized job table before the scheduler
-    /// drops it from the table.
-    pub(super) finalized_job_expiration_timeout_sec: u64,
+    /// The time (in seconds) that a job may remain in the finalizing job table before the
+    /// scheduler drops it from the table.
+    pub(super) finalizing_job_expiration_timeout_sec: u64,
 }
 
 /// The resource-group-aware round-robin scheduler core created from a [`RgRoundRobinConfig`].
@@ -81,10 +81,10 @@ pub(super) struct RgRoundRobinConfig {
 /// states.
 pub(super) struct RgRoundRobin<SchedulerStorageClientType: SchedulerStorageClient + 'static> {
     pub(super) global_task_set: GlobalTaskSet,
-    pub(super) finalized_jobs: HashSet<JobId>,
+    pub(super) finalizing_jobs: HashSet<JobId>,
 
-    /// The insertion time of every job in [`Self::finalized_jobs`], in insertion order.
-    pub(super) finalized_job_queue: VecDeque<(JobId, Instant)>,
+    /// The insertion time of every job in [`Self::finalizing_jobs`], in insertion order.
+    pub(super) finalizing_job_queue: VecDeque<(JobId, Instant)>,
 
     pub(super) job_registry: JobRegistry,
 
@@ -129,8 +129,8 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         let dispatch_queue_registry = DispatchQueueRegistry::new(session_tracker.clone());
         Self {
             global_task_set: GlobalTaskSet::new(),
-            finalized_jobs: HashSet::new(),
-            finalized_job_queue: VecDeque::new(),
+            finalizing_jobs: HashSet::new(),
+            finalizing_job_queue: VecDeque::new(),
             job_registry: JobRegistry::new(),
             rg_states: Vec::new(),
             rg_id_to_idx_map: HashMap::new(),
@@ -245,7 +245,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
 
         let jobs_to_retire = self.publish_task_assignments_into_dispatch_queues()?;
         self.retire_jobs(jobs_to_retire)?;
-        self.retire_expired_finalized_jobs();
+        self.retire_expired_finalizing_jobs();
         Ok(())
     }
 
@@ -282,8 +282,8 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         self.last_served_rg = None;
         self.job_registry.clear();
         self.global_task_set.clear();
-        self.finalized_jobs.clear();
-        self.finalized_job_queue.clear();
+        self.finalizing_jobs.clear();
+        self.finalizing_job_queue.clear();
         self.dispatch_queue_registry.clear();
 
         Ok(())
@@ -317,8 +317,8 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// The per-resource-group updates the tick produced.
     fn process_polling_results(
         &mut self,
-        commit_ready_jobs: Vec<FinalizedJob>,
-        cleanup_ready_jobs: Vec<FinalizedJob>,
+        commit_ready_jobs: Vec<FinalizingJob>,
+        cleanup_ready_jobs: Vec<FinalizingJob>,
         ready_batches: Vec<ReadyBatch>,
         rescheduled_entries: Vec<InboundEntry>,
     ) -> HashMap<ResourceGroupId, RgUpdate> {
@@ -334,44 +334,44 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         }
 
         let mut commit_ready = commit_ready_jobs;
-        commit_ready.extend(format_finalized_jobs(rescheduled_commit_entries));
+        commit_ready.extend(format_finalizing_jobs(rescheduled_commit_entries));
         let mut cleanup_ready = cleanup_ready_jobs;
-        cleanup_ready.extend(format_finalized_jobs(rescheduled_cleanup_entries));
+        cleanup_ready.extend(format_finalizing_jobs(rescheduled_cleanup_entries));
         let mut batches = ready_batches;
         batches.extend(format_ready_job_batches(rescheduled_regular_entries));
 
         let mut rg_updates: HashMap<ResourceGroupId, RgUpdate> = HashMap::new();
-        for (finalized_jobs, kind) in [
+        for (finalizing_jobs, kind) in [
             (commit_ready, FinalizeKind::Commit),
             (cleanup_ready, FinalizeKind::Cleanup),
         ] {
-            for finalized_job in finalized_jobs {
+            for finalizing_job in finalizing_jobs {
                 // A job reaches at most one of each finalization, so the dedup key is the
                 // finalization rather than the job: a cleanup that follows a commit is a distinct
                 // task and must still be scheduled.
                 if !self
                     .global_task_set
-                    .insert(finalized_job.job_id, TaskId::from(kind))
+                    .insert(finalizing_job.job_id, TaskId::from(kind))
                 {
                     continue;
                 }
                 // Only the first finalization has a registry entry to drop: the job's
                 // still-buffered regular tasks will never be published, so they must leave the
                 // dedup set with it or nothing would ever remove them.
-                if self.mark_job_finalized(finalized_job.job_id)
+                if self.mark_job_finalizing(finalizing_job.job_id)
                     && let Some(mut job_entry) =
-                        self.job_registry.remove_by_job_id(finalized_job.job_id)
+                        self.job_registry.remove_by_job_id(finalizing_job.job_id)
                 {
                     for task_index in job_entry.take_ready_tasks() {
                         self.global_task_set
-                            .remove(finalized_job.job_id, TaskId::Index(task_index));
+                            .remove(finalizing_job.job_id, TaskId::Index(task_index));
                     }
                 }
                 rg_updates
-                    .entry(finalized_job.resource_group_id)
+                    .entry(finalizing_job.resource_group_id)
                     .or_default()
-                    .finalized
-                    .push((finalized_job.job_id, kind));
+                    .finalizations
+                    .push((finalizing_job.job_id, kind));
             }
         }
 
@@ -381,7 +381,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
                 job_id,
                 mut task_indices,
             } = batch;
-            if self.finalized_jobs.contains(&job_id) {
+            if self.finalizing_jobs.contains(&job_id) {
                 continue;
             }
             let global_task_set = &mut self.global_task_set;
@@ -408,7 +408,7 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         for (rg_id, update) in rg_updates {
             let state_idx = self.get_or_create_state(rg_id);
             let rg_state = &mut self.rg_states[state_idx];
-            for (job_id, kind) in update.finalized {
+            for (job_id, kind) in update.finalizations {
                 rg_state.push_finalization(job_id, kind);
             }
             for job_key in update.new_jobs {
@@ -578,18 +578,19 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
     /// # Returns
     ///
     /// Whether this is the job's first finalization.
-    fn mark_job_finalized(&mut self, job_id: JobId) -> bool {
-        if !self.finalized_jobs.insert(job_id) {
+    fn mark_job_finalizing(&mut self, job_id: JobId) -> bool {
+        if !self.finalizing_jobs.insert(job_id) {
             return false;
         }
-        self.finalized_job_queue.push_back((job_id, Instant::now()));
+        self.finalizing_job_queue
+            .push_back((job_id, Instant::now()));
         true
     }
 
     /// Drops the job registry's entry for every job that ran out of downgrade lives.
     ///
     /// A key that no longer resolves is skipped rather than reported: the job it referred to was
-    /// removed when it finalized, and the key was buffered before that.
+    /// removed when it became finalizing, and the key was buffered before that.
     ///
     /// # Errors
     ///
@@ -612,16 +613,17 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
         Ok(())
     }
 
-    /// Drops every expired entry from the finalized job table.
-    fn retire_expired_finalized_jobs(&mut self) {
-        let expiration_time = Duration::from_secs(self.config.finalized_job_expiration_timeout_sec);
-        while let Some((job_id, insertion_time)) = self.finalized_job_queue.front() {
+    /// Drops every expired entry from the finalizing job table.
+    fn retire_expired_finalizing_jobs(&mut self) {
+        let expiration_time =
+            Duration::from_secs(self.config.finalizing_job_expiration_timeout_sec);
+        while let Some((job_id, insertion_time)) = self.finalizing_job_queue.front() {
             if insertion_time.elapsed() <= expiration_time {
                 break;
             }
-            tracing::info!(job_id = ? job_id, "Finalized job table entry expired.");
-            self.finalized_jobs.remove(job_id);
-            self.finalized_job_queue.pop_front();
+            tracing::info!(job_id = ? job_id, "Finalizing job table entry expired.");
+            self.finalizing_jobs.remove(job_id);
+            self.finalizing_job_queue.pop_front();
         }
     }
 
@@ -763,6 +765,6 @@ impl GlobalTaskSet {
 /// The updates one tick produced for a single resource group.
 #[derive(Default)]
 struct RgUpdate {
-    finalized: Vec<(JobId, FinalizeKind)>,
+    finalizations: Vec<(JobId, FinalizeKind)>,
     new_jobs: Vec<JobKey>,
 }

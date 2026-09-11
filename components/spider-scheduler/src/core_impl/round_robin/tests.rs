@@ -648,9 +648,10 @@ async fn assert_no_further_assignments(
 /// 1. Buffers four jobs (two active, two pending) and freezes dispatch via a full dispatch queue.
 /// 2. Delivers a finalizing batch for one active job and one pending job mid-stream.
 /// 3. Asserts both jobs leave the placement state with their buffered regular tasks discarded.
-/// 4. Unfreezes and asserts the drained sequence: each finalized job dispatches its finalizing task
-///    exactly once and no further regular task, while the surviving jobs complete in FIFO order.
-/// 5. Re-delivers regular ready tasks for the finalized jobs alongside a fresh canary job. Asserts
+/// 4. Unfreezes and asserts the drained sequence: each finalizing job dispatches its finalizing
+///    task exactly once and no further regular task, while the surviving jobs complete in FIFO
+///    order.
+/// 5. Re-delivers regular ready tasks for the finalizing jobs alongside a fresh canary job. Asserts
 ///    the re-delivered tasks are ignored (the finalizing gate persists after the finalizing tasks
 ///    are dispatched) while the canary job schedules normally.
 ///
@@ -677,7 +678,7 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     const DISPATCH_QUEUE_CAPACITY: usize = 2;
     const TASKS_PER_JOB: usize = 3;
     const NUM_PRE_FREEZE_ASSIGNMENTS: usize = DISPATCH_QUEUE_CAPACITY;
-    const NUM_FINALIZED_JOBS: usize = 2;
+    const NUM_FINALIZING_JOBS: usize = 2;
 
     if matches!(finalizing_task_id, TaskId::Index(_)) {
         bail!("`finalizing_task_id` must be `TaskId::Commit` or `TaskId::Cleanup`");
@@ -744,7 +745,7 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
         scheduler.buffered_tasks.iter().all(|&(job_id, task_id)| {
             (job_id != job_b.0 && job_id != job_q.0) || !matches!(task_id, TaskId::Index(_))
         }),
-        "a finalized job still has buffered regular tasks",
+        "a finalizing job still has buffered regular tasks",
     );
     let finalizing_queue = if is_commit {
         &scheduler.commit_ready_jobs
@@ -757,14 +758,14 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     );
 
     // Step 4: unfreeze. Every remaining assignment is accounted for below: the pre-freeze
-    // assignments already queued, one finalizing task per finalized job, `job_a`'s remaining
+    // assignments already queued, one finalizing task per finalizing job, `job_a`'s remaining
     // tasks (its first task dispatched pre-freeze), and the full task set of `job_p`, which
     // backfills `job_b`'s freed slot.
 
     // total number of assignments = pre-freeze assignments + finalizing assignments +
     //     remaining `job_a` assignments + full `job_p` assignments
     let num_assignments =
-        NUM_PRE_FREEZE_ASSIGNMENTS + NUM_FINALIZED_JOBS + (TASKS_PER_JOB - 1) + TASKS_PER_JOB;
+        NUM_PRE_FREEZE_ASSIGNMENTS + NUM_FINALIZING_JOBS + (TASKS_PER_JOB - 1) + TASKS_PER_JOB;
     let assignments: Vec<TaskAssignment> =
         tick_and_drain_n(&mut scheduler, &reader, num_assignments).await?;
     assert_no_further_assignments(&mut scheduler, &reader).await?;
@@ -781,7 +782,7 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
         ],
     );
 
-    // Each finalized job's finalizing task dispatches exactly once, in arrival (FIFO) order.
+    // Each finalizing job's finalizing task dispatches exactly once, in arrival (FIFO) order.
     let finalizing_assignments: Vec<_> = triples
         .iter()
         .filter(|&&(_, _, task_id)| task_id == finalizing_task_id)
@@ -834,15 +835,15 @@ async fn assert_finalizing_ready_drops_jobs(finalizing_task_id: TaskId) -> anyho
     assert!(scheduler.pending_job_queue.is_empty());
     assert!(scheduler.commit_ready_jobs.is_empty());
     assert!(scheduler.cleanup_ready_jobs.is_empty());
-    assert_eq!(scheduler.finalizing_jobs.len(), NUM_FINALIZED_JOBS);
+    assert_eq!(scheduler.finalizing_jobs.len(), NUM_FINALIZING_JOBS);
 
     assert!(scheduler.finalizing_jobs.contains(&job_b.0));
     assert!(scheduler.finalizing_jobs.contains(&job_q.0));
 
     // Step 5: The finalizing gate remains active after the finalizing tasks have been dispatched,
-    // so re-delivered regular tasks for finalized jobs must be ignored. A fresh canary job is
+    // so re-delivered regular tasks for finalizing jobs must be ignored. A fresh canary job is
     // included in the same batch. Since a batch is ingested atomically within a single tick,
-    // successful dispatch of the canary's tasks proves that the finalized jobs' entries have
+    // successful dispatch of the canary's tasks proves that the finalizing jobs' entries have
     // already been processed (and ignored), rather than still being in flight.
     let canary_jobs = make_jobs(1);
     let mut late_batch = make_ready_batch(&[job_b, job_q], TASKS_PER_JOB, 0);
