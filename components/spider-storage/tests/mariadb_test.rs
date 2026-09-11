@@ -8,10 +8,10 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::io::TaskInput;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
 use spider_storage::db::ExternalJobOrchestration;
-use spider_storage::db::ExternalResourceGroupCredentials;
 use spider_storage::db::InternalJobOrchestration;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
@@ -553,18 +553,18 @@ async fn test_add_duplicate_resource_group() {
     let external_id = format!("test-resource-group-{}", rand::random::<u64>());
 
     storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: external_id.clone(),
-            password: b"password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            external_id.clone(),
+            b"password".to_vec(),
+        ))
         .await
         .expect("first add should succeed");
 
     let result = storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: external_id,
-            password: b"password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            external_id,
+            b"password".to_vec(),
+        ))
         .await;
     assert!(
         matches!(result, Err(DbError::ResourceGroupAlreadyExists(_))),
@@ -578,10 +578,10 @@ async fn test_verify_correct_password() {
     let storage = create_mariadb_connector().await;
 
     let rg_id = storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: format!("test-resource-group-{}", rand::random::<u64>()),
-            password: b"correct-password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            format!("test-resource-group-{}", rand::random::<u64>()),
+            b"correct-password".to_vec(),
+        ))
         .await
         .expect("add should succeed");
 
@@ -597,10 +597,10 @@ async fn test_verify_wrong_password() {
     let storage = create_mariadb_connector().await;
 
     let rg_id = storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: format!("test-resource-group-{}", rand::random::<u64>()),
-            password: b"correct-password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            format!("test-resource-group-{}", rand::random::<u64>()),
+            b"correct-password".to_vec(),
+        ))
         .await
         .expect("add should succeed");
 
@@ -815,20 +815,20 @@ async fn test_register_execution_manager_with_resource_group() {
     let external_resource_group_id = format!("test-resource-group-{}", rand::random::<u64>());
     let password = b"password";
     let resource_group_id = storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: external_resource_group_id.clone(),
-            password: password.to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            external_resource_group_id.clone(),
+            password.to_vec(),
+        ))
         .await
         .expect("add should succeed");
 
     let (_, registered_resource_group_id) = storage
         .register_execution_manager(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            Some(ExternalResourceGroupCredentials {
+            Some(ExternalResourceGroupCredentials::new(
                 external_resource_group_id,
-                password: password.to_vec(),
-            }),
+                password.to_vec(),
+            )),
         )
         .await
         .expect("register_execution_manager should succeed");
@@ -845,10 +845,10 @@ async fn test_register_execution_manager_with_unknown_resource_group() {
     let result = storage
         .register_execution_manager(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            Some(ExternalResourceGroupCredentials {
+            Some(ExternalResourceGroupCredentials::new(
                 external_resource_group_id,
-                password: b"password".to_vec(),
-            }),
+                b"password".to_vec(),
+            )),
         )
         .await;
 
@@ -864,20 +864,20 @@ async fn test_register_execution_manager_with_invalid_password() {
     let storage = create_mariadb_connector().await;
     let external_resource_group_id = format!("test-resource-group-{}", rand::random::<u64>());
     let resource_group_id = storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: external_resource_group_id.clone(),
-            password: b"password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            external_resource_group_id.clone(),
+            b"password".to_vec(),
+        ))
         .await
         .expect("add should succeed");
 
     let result = storage
         .register_execution_manager(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            Some(ExternalResourceGroupCredentials {
+            Some(ExternalResourceGroupCredentials::new(
                 external_resource_group_id,
-                password: b"wrong-password".to_vec(),
-            }),
+                b"wrong-password".to_vec(),
+            )),
         )
         .await;
 
