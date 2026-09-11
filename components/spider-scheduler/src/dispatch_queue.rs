@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use tokio::sync::RwLock;
 
@@ -19,6 +20,8 @@ pub trait DispatchQueueHandle: Send + Sync {
     ///
     /// # Parameters
     ///
+    /// * `resource_group_id` - The resource group whose task assignments the caller wants to
+    ///   receive, or `None` to express no preference.
     /// * `wait_time` - The maximum amount of time to wait for a task assignment.
     ///
     /// # Returns
@@ -31,7 +34,13 @@ pub trait DispatchQueueHandle: Send + Sync {
     /// Returns an error if:
     ///
     /// * [`SchedulerError::DispatchQueueClosed`] if the dispatching queue is closed.
-    async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError>;
+    /// * [`SchedulerError::Unsupported`] if the implementation cannot serve assignments for the
+    ///   requested resource group.
+    async fn dequeue(
+        &self,
+        resource_group_id: Option<ResourceGroupId>,
+        wait_time: Duration,
+    ) -> Result<Option<TaskAssignment>, SchedulerError>;
 }
 
 /// The shared handle over a dispatching queue that a scheduler core hands to the
@@ -106,7 +115,19 @@ pub struct DispatchQueueReader {
 
 #[async_trait]
 impl DispatchQueueHandle for DispatchQueueReader {
-    async fn dequeue(&self, wait_time: Duration) -> Result<Option<TaskAssignment>, SchedulerError> {
+    async fn dequeue(
+        &self,
+        resource_group_id: Option<ResourceGroupId>,
+        wait_time: Duration,
+    ) -> Result<Option<TaskAssignment>, SchedulerError> {
+        if resource_group_id.is_some() {
+            return Err(SchedulerError::Unsupported(
+                "dispatching assignments for resource-group-dedicated execution manager is not \
+                 supported by the single-queue-based dispatch queue"
+                    .to_owned(),
+            ));
+        }
+
         // Lock session ID for the entire duration of the dequeue operation to exclude any
         // `bump_session_id` operations.
         let _session_id_guard = self.session_id.read().await;
@@ -236,7 +257,7 @@ mod tests {
                 tokio::spawn(async move {
                     let mut count = 0usize;
                     loop {
-                        match r.dequeue(wait_time).await {
+                        match r.dequeue(None, wait_time).await {
                             Ok(Some(_)) => count += 1,
                             Ok(None) => (),
                             Err(_) => break,
@@ -319,7 +340,7 @@ mod tests {
             let duplicates_for_reader = duplicates.clone();
             tracker.spawn(async move {
                 loop {
-                    match r.dequeue(Duration::from_millis(500)).await {
+                    match r.dequeue(None, Duration::from_millis(500)).await {
                         Ok(Some(assignment)) => {
                             if delivered_for_reader
                                 .insert(assignment.task_id, assignment.session_id)
@@ -375,10 +396,34 @@ mod tests {
         writer.enqueue(assignment).await?;
 
         let received = reader
-            .dequeue(Duration::from_millis(1))
+            .dequeue(None, Duration::from_millis(1))
             .await?
             .expect("expected an assignment");
         assert_eq!(received.session_id, SESSION_ID);
+        assert_eq!(received, assignment);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn dequeue_with_resource_group_is_unsupported_and_preserves_assignment() -> Result<()> {
+        const SESSION_ID: SessionId = 1;
+        let (writer, reader) = create_dispatch_queue(8, SESSION_ID);
+        let assignment = make_assignment(SESSION_ID);
+
+        writer.enqueue(assignment).await?;
+
+        let result = reader
+            .dequeue(Some(assignment.resource_group_id), Duration::from_secs(1))
+            .await;
+        assert!(
+            matches!(result, Err(SchedulerError::Unsupported(_))),
+            "expected Unsupported, got {result:?}",
+        );
+
+        let received = reader
+            .dequeue(None, Duration::from_millis(1))
+            .await?
+            .expect("expected the queued assignment to survive the rejected dequeue");
         assert_eq!(received, assignment);
         Ok(())
     }
@@ -470,7 +515,7 @@ mod tests {
         writer.enqueue(make_assignment(NEW_SESSION_ID)).await?;
 
         let received = reader
-            .dequeue(Duration::from_secs(1))
+            .dequeue(None, Duration::from_secs(1))
             .await?
             .expect("expected an assignment");
         assert_eq!(received.session_id, NEW_SESSION_ID);
@@ -484,7 +529,7 @@ mod tests {
         writer.enqueue(make_assignment(1)).await?;
         writer.bump_session_id(2).await?;
 
-        let result = reader.dequeue(Duration::from_millis(100)).await?;
+        let result = reader.dequeue(None, Duration::from_millis(100)).await?;
         assert_eq!(result, None);
         Ok(())
     }
@@ -497,7 +542,7 @@ mod tests {
         writer.enqueue(assignment).await?;
 
         let received = reader
-            .dequeue(Duration::from_secs(1))
+            .dequeue(None, Duration::from_secs(1))
             .await?
             .expect("expected an assignment");
         assert_eq!(received.session_id, 2);
@@ -524,7 +569,7 @@ mod tests {
 
         writer.enqueue(make_assignment(3)).await?;
         let received = reader
-            .dequeue(Duration::from_secs(1))
+            .dequeue(None, Duration::from_secs(1))
             .await?
             .expect("expected an assignment");
         assert_eq!(received.session_id, 3);
@@ -598,7 +643,7 @@ mod tests {
 
         let mut delivered: HashMap<TaskId, SessionId> = HashMap::new();
         loop {
-            match reader.dequeue(Duration::from_millis(100)).await {
+            match reader.dequeue(None, Duration::from_millis(100)).await {
                 Ok(Some(assignment)) => {
                     let prior = delivered.insert(assignment.task_id, assignment.session_id);
                     assert_eq!(
