@@ -139,8 +139,7 @@ message ReportTaskFailureRequest {
 }
 
 message AddResourceGroupRequest {
-  string external_resource_group_id = 1;
-  bytes password = 2;
+  ExternalResourceGroupCredentials credentials = 1;
 }
 
 message ResourceGroupIdResponse {

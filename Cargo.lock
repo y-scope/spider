@@ -1970,6 +1970,7 @@ dependencies = [
  "non-empty-string",
  "rand 0.9.5",
  "rmp-serde",
+ "secrecy",
  "semver",
  "serde",
  "serde_json",

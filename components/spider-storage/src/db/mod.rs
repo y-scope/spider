@@ -7,7 +7,6 @@ pub use mariadb::MariaDbStorageConnector;
 pub use protocol::DbStorage;
 pub use protocol::ExecutionManagerLivenessManagement;
 pub use protocol::ExternalJobOrchestration;
-pub use protocol::ExternalResourceGroupCredentials;
 pub use protocol::InternalJobOrchestration;
 pub use protocol::RecoverableJobContext;
 pub use protocol::ResourceGroupManagement;

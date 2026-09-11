@@ -1,7 +1,7 @@
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::DatabaseConfig;
 use spider_storage::DatabaseCredentials;
-use spider_storage::db::ExternalResourceGroupCredentials;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
 
@@ -64,10 +64,10 @@ pub fn create_mariadb_config() -> DatabaseConfig {
 pub async fn create_test_resource_group(storage: &MariaDbStorageConnector) -> ResourceGroupId {
     let external_id = format!("test-resource-group-{}", rand::random::<u64>());
     storage
-        .add(ExternalResourceGroupCredentials {
-            external_resource_group_id: external_id,
-            password: b"test-password".to_vec(),
-        })
+        .add(ExternalResourceGroupCredentials::new(
+            external_id,
+            b"test-password".to_vec(),
+        ))
         .await
         .expect("add should succeed")
 }
