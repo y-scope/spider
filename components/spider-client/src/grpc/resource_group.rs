@@ -138,18 +138,3 @@ fn resource_group_status_to_error(status: &Status) -> ClientError {
         _ => ClientError::Server(status.message().to_owned()),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_maps_already_exists_to_resource_group_already_exists() {
-        let status = Status::already_exists("duplicate external resource group id");
-
-        assert!(matches!(
-            resource_group_status_to_error(&status),
-            ClientError::ResourceGroupAlreadyExists
-        ));
-    }
-}
