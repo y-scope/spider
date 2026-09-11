@@ -309,7 +309,7 @@ mod tests {
                 cleanup_ready_task_capacity: NonZeroUsize::new(8).expect("8 is non-zero"),
                 storage_poll_timeout_ms: 1,
                 tick_interval_ms: NonZeroU64::new(1).expect("1 is non-zero"),
-                finalized_job_expiration_timeout_sec: 60,
+                finalizing_job_expiration_timeout_sec: 60,
             }),
             ..make_runtime_config(30)
         };

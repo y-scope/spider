@@ -23,8 +23,8 @@ configs:
               ${SPIDER_SCHEDULER_RESOURCE_GROUP_ROUND_ROBIN_COMMIT_READY_TASK_CAPACITY:-256}
             dispatch_queue_capacity:
               ${SPIDER_SCHEDULER_RESOURCE_GROUP_ROUND_ROBIN_DISPATCH_QUEUE_CAPACITY:-16}
-            finalized_job_expiration_timeout_sec:
-              ${SPIDER_SCHEDULER_RESOURCE_GROUP_ROUND_ROBIN_FINALIZED_JOB_EXPIRATION_TIMEOUT_SEC:-21600}
+            finalizing_job_expiration_timeout_sec:
+              ${SPIDER_SCHEDULER_RESOURCE_GROUP_ROUND_ROBIN_FINALIZING_JOB_EXPIRATION_TIMEOUT_SEC:-21600}
             ready_task_capacity:
               ${SPIDER_SCHEDULER_RESOURCE_GROUP_ROUND_ROBIN_READY_TASK_CAPACITY:-1048576}
             storage_poll_timeout_ms:

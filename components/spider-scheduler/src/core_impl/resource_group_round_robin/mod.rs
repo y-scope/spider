@@ -59,9 +59,9 @@ pub struct ResourceGroupRoundRobinConfig {
     /// less than the configured interval, the core will sleep for the remainder.
     pub tick_interval_ms: NonZeroU64,
 
-    /// The time (in seconds) that a job may remain in the finalized job table before the scheduler
-    /// drops it from the table.
-    pub finalized_job_expiration_timeout_sec: u64,
+    /// The time (in seconds) that a job may remain in the finalizing job table before the
+    /// scheduler drops it from the table.
+    pub finalizing_job_expiration_timeout_sec: u64,
 }
 
 impl ResourceGroupRoundRobinConfig {

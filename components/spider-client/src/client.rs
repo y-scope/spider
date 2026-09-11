@@ -9,6 +9,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskOutput;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_utils::grpc::retry::RetryConfig;
 use tonic::transport::Endpoint;
 
@@ -181,12 +182,9 @@ impl SpiderClient {
     /// * [`ClientError::Server`] for any other server-reported error.
     pub async fn add_resource_group(
         &self,
-        external_resource_group_id: String,
-        password: Vec<u8>,
+        credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, ClientError> {
-        self.resource_group
-            .add_resource_group(external_resource_group_id, password)
-            .await
+        self.resource_group.add_resource_group(credentials).await
     }
 
     /// Verifies a resource group's password.
@@ -308,6 +306,7 @@ fn assert_client_futures_send(
     resource_group_id: ResourceGroupId,
     job_id: JobId,
     task_graph: &TaskGraph,
+    credentials: ExternalResourceGroupCredentials,
 ) {
     const fn assert_send<FutureType: Send>(_: &FutureType) {}
     assert_send(&client.submit_job(resource_group_id, task_graph, Vec::new()));
@@ -316,6 +315,6 @@ fn assert_client_futures_send(
     assert_send(&client.get_job_state(job_id));
     assert_send(&client.get_job_outputs(job_id));
     assert_send(&client.get_job_error(job_id));
-    assert_send(&client.add_resource_group(String::new(), Vec::new()));
+    assert_send(&client.add_resource_group(credentials));
     assert_send(&client.verify_resource_group(resource_group_id, Vec::new()));
 }

@@ -5,6 +5,7 @@ pub mod error;
 pub mod id;
 pub mod io;
 pub mod job;
+pub mod resource_group;
 pub mod scheduler_registration;
 pub mod unpack;
 
