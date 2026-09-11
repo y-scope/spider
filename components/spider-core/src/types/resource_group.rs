@@ -6,8 +6,8 @@ use secrecy::SecretSlice;
 /// Environment variable that supplies the external resource group ID.
 pub const EXTERNAL_RESOURCE_GROUP_ID_ENV: &str = "SPIDER_EXTERNAL_RESOURCE_GROUP_ID";
 
-/// Environment variable that supplies the external resource group password.
-pub const EXTERNAL_RESOURCE_GROUP_PASSWORD_ENV: &str = "SPIDER_EXTERNAL_RESOURCE_GROUP_PASSWORD";
+/// Environment variable that supplies the resource group password.
+pub const RESOURCE_GROUP_PASSWORD_ENV: &str = "SPIDER_RESOURCE_GROUP_PASSWORD";
 
 /// Credentials identifying and authenticating an external resource group.
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ impl ExternalResourceGroupCredentials {
     /// Factory function.
     ///
     /// Reads the external resource group credentials from the [`EXTERNAL_RESOURCE_GROUP_ID_ENV`]
-    /// and [`EXTERNAL_RESOURCE_GROUP_PASSWORD_ENV`] environment variables.
+    /// and [`RESOURCE_GROUP_PASSWORD_ENV`] environment variables.
     ///
     /// # Returns
     ///
@@ -53,10 +53,8 @@ impl ExternalResourceGroupCredentials {
             std::env::var(EXTERNAL_RESOURCE_GROUP_ID_ENV).map_err(|_| {
                 ExternalResourceGroupCredentialsError::MissingEnvVar(EXTERNAL_RESOURCE_GROUP_ID_ENV)
             })?;
-        let password = std::env::var(EXTERNAL_RESOURCE_GROUP_PASSWORD_ENV).map_err(|_| {
-            ExternalResourceGroupCredentialsError::MissingEnvVar(
-                EXTERNAL_RESOURCE_GROUP_PASSWORD_ENV,
-            )
+        let password = std::env::var(RESOURCE_GROUP_PASSWORD_ENV).map_err(|_| {
+            ExternalResourceGroupCredentialsError::MissingEnvVar(RESOURCE_GROUP_PASSWORD_ENV)
         })?;
         Ok(Self::new(external_resource_group_id, password.into_bytes()))
     }
