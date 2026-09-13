@@ -18,7 +18,7 @@ pub(super) trait InboundPollResultFormatter: Send + 'static {
     type ReadyResult: Default + Send + 'static;
 
     /// The formatted result of a finalization lane.
-    type FinalizedResult: Default + Send + 'static;
+    type FinalizationResult: Default + Send + 'static;
 
     /// Formats the entries drained from the regular-task lane.
     ///
@@ -40,21 +40,21 @@ pub(super) trait InboundPollResultFormatter: Send + 'static {
     /// # Returns
     ///
     /// The formatted lane result.
-    fn format_finalized(entries: Vec<InboundEntry>) -> Self::FinalizedResult;
+    fn format_finalization(entries: Vec<InboundEntry>) -> Self::FinalizationResult;
 }
 
 /// The formatter of a core that consumes the drained entries as they are.
 pub(super) struct RawInboundEntries;
 
 impl InboundPollResultFormatter for RawInboundEntries {
-    type FinalizedResult = Vec<InboundEntry>;
+    type FinalizationResult = Vec<InboundEntry>;
     type ReadyResult = Vec<InboundEntry>;
 
     fn format_ready(entries: Vec<InboundEntry>) -> Self::ReadyResult {
         entries
     }
 
-    fn format_finalized(entries: Vec<InboundEntry>) -> Self::FinalizedResult {
+    fn format_finalization(entries: Vec<InboundEntry>) -> Self::FinalizationResult {
         entries
     }
 }
@@ -70,8 +70,8 @@ pub(super) enum InboundPollState<FormatterType: InboundPollResultFormatter = Raw
     Ready {
         session_id: SessionId,
         ready_result: FormatterType::ReadyResult,
-        commit_ready_result: FormatterType::FinalizedResult,
-        cleanup_ready_result: FormatterType::FinalizedResult,
+        commit_ready_result: FormatterType::FinalizationResult,
+        cleanup_ready_result: FormatterType::FinalizationResult,
     },
 
     /// The poll is still in flight.
@@ -190,7 +190,7 @@ impl<StorageClientType: SchedulerStorageClient + 'static, FormatterType: Inbound
             let (session_id, entries) = commit_ready_storage_client
                 .poll_commit_ready(max_commit_ready_entries, storage_poll_timeout)
                 .await?;
-            Ok((session_id, FormatterType::format_finalized(entries)))
+            Ok((session_id, FormatterType::format_finalization(entries)))
         });
 
         let cleanup_ready_storage_client = self.storage_client.clone();
@@ -201,7 +201,7 @@ impl<StorageClientType: SchedulerStorageClient + 'static, FormatterType: Inbound
             let (session_id, entries) = cleanup_ready_storage_client
                 .poll_cleanup_ready(max_cleanup_ready_entries, storage_poll_timeout)
                 .await?;
-            Ok((session_id, FormatterType::format_finalized(entries)))
+            Ok((session_id, FormatterType::format_finalization(entries)))
         });
 
         self.handle = Some(InboundPollHandles {
@@ -232,10 +232,10 @@ struct InboundPollHandles<FormatterType: InboundPollResultFormatter> {
         Result<(SessionId, FormatterType::ReadyResult), StorageClientError>,
     >,
     commit_ready_handle: tokio::task::JoinHandle<
-        Result<(SessionId, FormatterType::FinalizedResult), StorageClientError>,
+        Result<(SessionId, FormatterType::FinalizationResult), StorageClientError>,
     >,
     cleanup_ready_handle: tokio::task::JoinHandle<
-        Result<(SessionId, FormatterType::FinalizedResult), StorageClientError>,
+        Result<(SessionId, FormatterType::FinalizationResult), StorageClientError>,
     >,
 }
 
@@ -380,10 +380,10 @@ pub(super) mod test_harness {
         pub ready_result: FormatterType::ReadyResult,
 
         /// The formatted result of the commit-task lane.
-        pub commit_ready_result: FormatterType::FinalizedResult,
+        pub commit_ready_result: FormatterType::FinalizationResult,
 
         /// The formatted result of the cleanup-task lane.
-        pub cleanup_ready_result: FormatterType::FinalizedResult,
+        pub cleanup_ready_result: FormatterType::FinalizationResult,
     }
 
     /// A mock [`SchedulerStorageClient`] backed by scripted poll batches.

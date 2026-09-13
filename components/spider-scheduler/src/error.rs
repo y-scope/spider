@@ -45,6 +45,10 @@ pub enum SchedulerError {
     #[error("async result not ready")]
     ResultNotReady,
 
+    /// The requested operation is not supported by the current implementation.
+    #[error("unsupported operation: {0}")]
+    Unsupported(String),
+
     #[error(transparent)]
     SystemTime(#[from] std::time::SystemTimeError),
 }
