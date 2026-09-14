@@ -5,7 +5,9 @@ use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
 use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_proto_rust::storage::ExecutionManagerLivenessServiceClient;
 use spider_proto_rust::storage::{self};
 use spider_utils::grpc::client::ConnectionPool;
@@ -52,10 +54,14 @@ impl GrpcLivenessClient {
 
 #[async_trait]
 impl LivenessClient for GrpcLivenessClient {
-    async fn register(&self, ip: IpAddr) -> Result<RegistrationResponse, LivenessResponseError> {
+    async fn register(
+        &self,
+        ip: IpAddr,
+        resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+    ) -> Result<RegistrationResponse, LivenessResponseError> {
         let request = storage::RegisterExecutionManagerRequest {
             ip_address: ip.to_string(),
-            resource_group_credentials: None,
+            resource_group_credentials: resource_group_credentials.as_ref().map(Into::into),
         };
         let response = self
             .connection_pool
@@ -121,6 +127,7 @@ fn register_response_to_result(
     Ok(RegistrationResponse {
         em_id: ExecutionManagerId::from(registration.execution_manager_id),
         session_id: registration.session_id,
+        resource_group_id: registration.resource_group_id.map(ResourceGroupId::from),
     })
 }
 
@@ -171,8 +178,26 @@ mod tests {
             RegistrationResponse {
                 em_id: EM_ID,
                 session_id: SESSION_ID,
+                resource_group_id: None,
             }
         );
+    }
+
+    #[test]
+    fn test_register_response_to_result_preserves_resource_group_id() -> anyhow::Result<()> {
+        const RESOURCE_GROUP_ID: ResourceGroupId = ResourceGroupId::from(42);
+        let response = storage::RegisterExecutionManagerResponse {
+            registration: Some(storage::ExecutionManagerRegistration {
+                execution_manager_id: 5,
+                session_id: 7,
+                resource_group_id: Some(RESOURCE_GROUP_ID.get()),
+            }),
+        };
+
+        let registration = register_response_to_result(response)?;
+
+        assert_eq!(registration.resource_group_id, Some(RESOURCE_GROUP_ID));
+        Ok(())
     }
 
     #[test]
