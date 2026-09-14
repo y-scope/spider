@@ -114,13 +114,6 @@ impl DispatchQueueRegistry {
 
     /// # Returns
     ///
-    /// The read side of `rg_id`'s dispatch queue, creating the group if it has none.
-    fn get_dispatch_queue_reader(&self, rg_id: ResourceGroupId) -> RgDispatchQueueReader {
-        self.get_or_create(rg_id).reader
-    }
-
-    /// # Returns
-    ///
     /// The write side of `rg_id`'s dispatch queue, creating the group if it has none.
     pub(super) fn get_dispatch_queue_writer(
         &self,
@@ -128,44 +121,6 @@ impl DispatchQueueRegistry {
     ) -> RgDispatchQueueWriter {
         self.get_or_create(rg_id)
             .writer(self.inner.broadcast_sender.clone())
-    }
-
-    /// Attempts a single non-blocking hint pop.
-    ///
-    /// # Returns
-    ///
-    /// The next published hint, or [`None`] if no hint is outstanding.
-    fn try_next_hint(&self) -> Option<Hint> {
-        self.inner.broadcast_receiver.try_recv().ok()
-    }
-
-    /// Blocks until a hint is published or `wait_time` expires.
-    ///
-    /// Called by a general execution manager, which spends the returned hint through
-    /// [`Hint::consume_and_try_recv`].
-    ///
-    /// The registry holds both ends of the broadcast queue, so the queue cannot close while the
-    /// registry is alive and an unbounded wait would never end on an empty queue. The caller
-    /// therefore has to bound the wait, exactly as it does for
-    /// [`RgDispatchQueueReader::recv_pinned`].
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the returned future before it resolves loses no hint: the wait takes a hint out of
-    /// the broadcast queue only when it resolves, so a cancelled wait leaves every published hint
-    /// there for another caller. The caller must not, however, be cancelled after the future
-    /// resolves and before the hint is spent: a dropped hint is never withdrawn from its group's
-    /// count and permanently overstates the group's coverage.
-    ///
-    /// # Returns
-    ///
-    /// The next published hint, or [`None`] if no hint was published before `wait_time` expired or
-    /// the broadcast queue was closed.
-    async fn next_hint(&self, wait_time: Duration) -> Option<Hint> {
-        tokio::time::timeout(wait_time, self.inner.broadcast_receiver.recv())
-            .await
-            .ok()?
-            .ok()
     }
 
     /// # Returns
@@ -220,6 +175,51 @@ impl DispatchQueueRegistry {
     #[cfg(test)]
     pub(super) fn num_outstanding_hints(&self) -> usize {
         self.inner.broadcast_receiver.len()
+    }
+
+    /// # Returns
+    ///
+    /// The read side of `rg_id`'s dispatch queue, creating the group if it has none.
+    fn get_dispatch_queue_reader(&self, rg_id: ResourceGroupId) -> RgDispatchQueueReader {
+        self.get_or_create(rg_id).reader
+    }
+
+    /// Attempts a single non-blocking hint pop.
+    ///
+    /// # Returns
+    ///
+    /// The next published hint, or [`None`] if no hint is outstanding.
+    fn try_next_hint(&self) -> Option<Hint> {
+        self.inner.broadcast_receiver.try_recv().ok()
+    }
+
+    /// Blocks until a hint is published or `wait_time` expires.
+    ///
+    /// Called by a general execution manager, which spends the returned hint through
+    /// [`Hint::consume_and_try_recv`].
+    ///
+    /// The registry holds both ends of the broadcast queue, so the queue cannot close while the
+    /// registry is alive and an unbounded wait would never end on an empty queue. The caller
+    /// therefore has to bound the wait, exactly as it does for
+    /// [`RgDispatchQueueReader::recv_pinned`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the returned future before it resolves loses no hint: the wait takes a hint out of
+    /// the broadcast queue only when it resolves, so a cancelled wait leaves every published hint
+    /// there for another caller. The caller must not, however, be cancelled after the future
+    /// resolves and before the hint is spent: a dropped hint is never withdrawn from its group's
+    /// count and permanently overstates the group's coverage.
+    ///
+    /// # Returns
+    ///
+    /// The next published hint, or [`None`] if no hint was published before `wait_time` expired or
+    /// the broadcast queue was closed.
+    async fn next_hint(&self, wait_time: Duration) -> Option<Hint> {
+        tokio::time::timeout(wait_time, self.inner.broadcast_receiver.recv())
+            .await
+            .ok()?
+            .ok()
     }
 
     /// # Returns
