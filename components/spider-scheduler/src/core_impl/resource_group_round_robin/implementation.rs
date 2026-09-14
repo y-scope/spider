@@ -4,12 +4,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-use std::num::NonZeroU64;
-use std::num::NonZeroUsize;
 use std::time::Duration;
 use std::time::Instant;
 
-use serde::Deserialize;
 use spider_core::session::SessionTracker;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -18,6 +15,7 @@ use spider_core::types::id::TaskId;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
+use super::ResourceGroupRoundRobinConfig;
 use super::dispatch_queue::DispatchQueueRegistry;
 use super::inbound_queue_reader::FinalizingJob;
 use super::inbound_queue_reader::ReadyBatch;
@@ -37,39 +35,8 @@ use crate::storage_client::SchedulerStorageClient;
 use crate::types::InboundEntry;
 use crate::types::TaskAssignment;
 
-/// The configuration of the resource-group-aware round-robin scheduler core.
-#[derive(Clone, Debug, Deserialize)]
-pub(super) struct RgRoundRobinConfig {
-    /// The total dispatch buffer size shared by all resource groups.
-    pub(super) dispatch_queue_capacity: NonZeroUsize,
-
-    /// The number of active jobs each resource group may hold, applied per group rather than as a
-    /// global budget.
-    pub(super) active_job_list_capacity: NonZeroUsize,
-
-    /// The capacity of the total pending ready tasks buffered in the scheduler.
-    pub(super) ready_task_capacity: NonZeroUsize,
-
-    /// The capacity of the total pending commit-ready tasks buffered in the scheduler.
-    pub(super) commit_ready_task_capacity: NonZeroUsize,
-
-    /// The capacity of the total pending cleanup-ready tasks buffered in the scheduler.
-    pub(super) cleanup_ready_task_capacity: NonZeroUsize,
-
-    /// The maximum time (in milliseconds) that the scheduler will wait for the storage server to
-    /// fill the inbound-queue reading request.
-    pub(super) storage_poll_timeout_ms: u64,
-
-    /// The time (in milliseconds) that the scheduler will spend on each tick. If the tick spends
-    /// less than the configured interval, the core will sleep for the remainder.
-    pub(super) tick_interval_ms: NonZeroU64,
-
-    /// The time (in seconds) that a job may remain in the finalizing job table before the
-    /// scheduler drops it from the table.
-    pub(super) finalizing_job_expiration_timeout_sec: u64,
-}
-
-/// The resource-group-aware round-robin scheduler core created from a [`RgRoundRobinConfig`].
+/// The resource-group-aware round-robin scheduler core created from a
+/// [`ResourceGroupRoundRobinConfig`].
 ///
 /// # Type Parameters
 ///
@@ -98,7 +65,7 @@ pub(super) struct RgRoundRobin<SchedulerStorageClientType: SchedulerStorageClien
     pub(super) active_rg_list: Vec<usize>,
     pub(super) last_served_rg: Option<ResourceGroupId>,
 
-    pub(super) config: RgRoundRobinConfig,
+    pub(super) config: ResourceGroupRoundRobinConfig,
     pub(super) dispatch_queue_registry: DispatchQueueRegistry,
     pub(super) session_tracker: SessionTracker,
     pub(super) id_issuer: TaskAssignmentIdIssuer,
@@ -112,21 +79,21 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
 {
     /// Factory function.
     ///
-    /// Creates a core owning a freshly created dispatch queue registry and the session tracker that
-    /// stamps every group the registry creates.
+    /// Creates a core publishing into `dispatch_queue_registry` and tracking its session through
+    /// the session tracker that stamps every group the registry creates.
     ///
     /// # Returns
     ///
     /// A newly created core with no buffered task and no in-flight inbound poll.
     pub(super) fn new(
         storage_client: SchedulerStorageClientType,
+        dispatch_queue_registry: DispatchQueueRegistry,
         reschedule_queue_reader: tokio::sync::mpsc::UnboundedReceiver<TaskAssignment>,
         id_issuer: TaskAssignmentIdIssuer,
         cancellation_token: CancellationToken,
-        config: RgRoundRobinConfig,
+        config: ResourceGroupRoundRobinConfig,
     ) -> Self {
-        let session_tracker = SessionTracker::new(SessionId::default());
-        let dispatch_queue_registry = DispatchQueueRegistry::new(session_tracker.clone());
+        let session_tracker = dispatch_queue_registry.session_tracker();
         Self {
             global_task_set: GlobalTaskSet::new(),
             finalizing_jobs: HashSet::new(),
@@ -144,14 +111,6 @@ impl<SchedulerStorageClientType: SchedulerStorageClient + 'static>
             reschedule_queue_reader,
             cancellation_token,
         }
-    }
-
-    /// # Returns
-    ///
-    /// A handle over the core's dispatch queue registry, from which the execution-manager-facing
-    /// service reads.
-    pub(super) fn dispatch_queue_registry(&self) -> DispatchQueueRegistry {
-        self.dispatch_queue_registry.clone()
     }
 
     /// Runs the scheduling loop until the cancellation token is triggered.
@@ -725,6 +684,7 @@ impl GlobalTaskSet {
     /// # Returns
     ///
     /// The number of buffered tasks, across every lane.
+    #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.tasks.len()
     }

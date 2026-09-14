@@ -20,9 +20,9 @@ use spider_core::types::id::TaskAssignmentId;
 use spider_core::types::id::TaskId;
 use tokio_util::sync::CancellationToken;
 
+use super::ResourceGroupRoundRobinConfig as RgRoundRobinConfig;
 use super::dispatch_queue::DispatchQueueRegistry;
 use super::implementation::RgRoundRobin;
-use super::implementation::RgRoundRobinConfig;
 use super::job_registry::UpsertOutcome;
 use super::scheduling_state::RgSchedulingState;
 use crate::SchedulerError;
@@ -31,6 +31,7 @@ use crate::core::TaskAssignmentIdIssuer;
 use crate::core_impl::inbound_queue_reader::test_harness::DEFAULT_SESSION_ID;
 use crate::core_impl::inbound_queue_reader::test_harness::MockStorageClient;
 use crate::core_impl::inbound_queue_reader::test_harness::make_entry;
+use crate::dispatch_queue::DispatchQueueHandle;
 
 /// Drives ticks on `core` until `predicate` holds, failing the calling test if it does not hold
 /// within [`TICK_DEADLINE`].
@@ -134,14 +135,16 @@ impl CoreFixture {
         let active_job_list_capacity = config.active_job_list_capacity.get();
         let (reschedule_queue_writer, reschedule_queue_reader) =
             tokio::sync::mpsc::unbounded_channel();
+        let dispatch_queue_registry =
+            DispatchQueueRegistry::new(SessionTracker::new(SessionId::default()));
         let core = RgRoundRobin::new(
             storage.clone(),
+            dispatch_queue_registry.clone(),
             reschedule_queue_reader,
             TaskAssignmentIdIssuer::new(),
             CancellationToken::new(),
             config,
         );
-        let dispatch_queue_registry = core.dispatch_queue_registry();
         let session_tracker = core.session_tracker.clone();
         Self {
             core,
@@ -273,17 +276,18 @@ impl CoreFixture {
     }
 
     /// Takes every assignment currently queued for `rg_id`, playing a pinned execution manager,
-    /// which leaves the group's hint counter untouched.
+    /// which leaves the group's hint counter untouched and skips any assignment of a stale session.
     ///
     /// # Returns
     ///
     /// The assignments taken, in dispatch order.
     async fn drain_reader(&self, rg_id: ResourceGroupId) -> Vec<TaskAssignment> {
-        let reader = self
-            .dispatch_queue_registry
-            .get_dispatch_queue_reader(rg_id);
         let mut assignments = Vec::new();
-        while let Some(assignment) = reader.recv_pinned(Duration::ZERO).await {
+        while let Ok(Some(assignment)) = self
+            .dispatch_queue_registry
+            .dequeue(Some(rg_id), Duration::ZERO)
+            .await
+        {
             assignments.push(assignment);
         }
         assignments
@@ -1070,6 +1074,7 @@ async fn the_scheduling_loop_stops_when_it_is_cancelled() -> anyhow::Result<()> 
     let cancellation_token = CancellationToken::new();
     let core = RgRoundRobin::new(
         MockStorageClient::new(),
+        DispatchQueueRegistry::new(SessionTracker::new(SessionId::default())),
         reschedule_queue_reader,
         TaskAssignmentIdIssuer::new(),
         cancellation_token.clone(),
