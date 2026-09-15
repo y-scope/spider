@@ -256,9 +256,9 @@ impl DispatchQueueRegistry {
     ) -> Option<TaskAssignment> {
         let deadline = tokio::time::Instant::now() + wait_time;
         loop {
-            // Re-fetched per loop iteration because a retry follows a stale-session assignment,
-            // which is evidence of a session bump: reusing the reader would serve from a registry
-            // entry the bump has already replaced.
+            // The reader is re-fetched per loop iteration because a retry follows a stale-session
+            // assignment, which is evidence of a session bump: reusing the reader would serve from
+            // a registry entry the bump has already replaced.
             let reader = self.get_dispatch_queue_reader(rg_id);
             let assignment = if let Some(assignment) = reader.try_recv_pinned() {
                 assignment
