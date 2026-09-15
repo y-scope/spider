@@ -1,34 +1,50 @@
+{{- range .Values.spiderConfig.worker.pools }}
+---
 apiVersion: "apps/v1"
 kind: "Deployment"
 metadata:
-  name: {{ include "spider.componentFullname" (dict "root" . "component" "worker") }}
+  name: {{ include "spider.componentFullname" (dict "root" $ "component" (printf "worker-%s" .name)) }}
   labels:
-    {{- include "spider.labels" . | nindent 4 }}
-    app.kubernetes.io/component: "worker"
+    {{- include "spider.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ printf "worker-%s" .name | quote }}
 spec:
-  replicas: {{ .Values.spiderConfig.worker.replicas }}
+  replicas: {{ .replicas }}
   selector:
     matchLabels:
-      {{- include "spider.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: "worker"
+      {{- include "spider.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ printf "worker-%s" .name | quote }}
   template:
     metadata:
       labels:
-        {{- include "spider.labels" . | nindent 8 }}
-        app.kubernetes.io/component: "worker"
+        {{- include "spider.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ printf "worker-%s" .name | quote }}
     spec:
-      {{- with .Values.spiderConfig.worker.service_account_name }}
+      {{- with $.Values.spiderConfig.worker.service_account_name }}
       serviceAccountName: {{ tpl . $ | quote }}
       {{- end }}
       containers:
         - name: "execution-manager"
-          image: {{ include "spider.imageRef" (dict "root" . "component" "worker") | quote }}
-          imagePullPolicy: {{ .Values.image.worker.pullPolicy | quote }}
+          image: {{ include "spider.imageRef" (dict "root" $ "component" "worker") | quote }}
+          imagePullPolicy: {{ $.Values.image.worker.pullPolicy | quote }}
           command: ["spider-execution-manager", "--config", "/etc/spider/execution-manager.yaml"]
           env:
             - name: "RUST_LOG"
-              value: {{ .Values.spiderConfig.execution_manager.log_level | quote }}
-            {{- with .Values.spiderConfig.worker.extra_envs }}
+              value: {{ $.Values.spiderConfig.execution_manager.log_level | quote }}
+            {{- with .resource_group }}
+            - name: "SPIDER_EXTERNAL_RESOURCE_GROUP_ID"
+              value: {{ .external_id | quote }}
+            - name: "SPIDER_RESOURCE_GROUP_PASSWORD"
+              {{- $password := .password | default dict }}
+              {{- if $password.secretKeyRef }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "a dedicated pool's `resource_group.password.secretKeyRef` needs `name`" $password.secretKeyRef.name | quote }}
+                  key: {{ required "a dedicated pool's `resource_group.password.secretKeyRef` needs `key`" $password.secretKeyRef.key | quote }}
+              {{- else }}
+              value: {{ required "a dedicated pool's `resource_group.password` needs `value` or `secretKeyRef`" $password.value | quote }}
+              {{- end }}
+            {{- end }}
+            {{- with $.Values.spiderConfig.worker.extra_envs }}
             {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
           volumeMounts:
@@ -36,13 +52,14 @@ spec:
               mountPath: "/etc/spider/execution-manager.yaml"
               subPath: "execution-manager.yaml"
               readOnly: true
-            {{- with .Values.spiderConfig.worker.extra_volume_mounts }}
+            {{- with $.Values.spiderConfig.worker.extra_volume_mounts }}
             {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
       volumes:
         - name: "config"
           configMap:
-            name: {{ include "spider.componentFullname" (dict "root" . "component" "config") }}
-        {{- with .Values.spiderConfig.worker.extra_volumes }}
+            name: {{ include "spider.componentFullname" (dict "root" $ "component" "config") }}
+        {{- with $.Values.spiderConfig.worker.extra_volumes }}
         {{- tpl (toYaml .) $ | nindent 8 }}
         {{- end }}
+{{- end }}
