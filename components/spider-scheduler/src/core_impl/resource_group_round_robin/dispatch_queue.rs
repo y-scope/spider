@@ -309,8 +309,10 @@ impl DispatchQueueRegistry {
     }
 }
 
-/// Serves both the execution managers pinned to a resource group and those that take work from any
-/// group, so that the registry is itself the queue the execution-manager-facing service drains.
+/// Implements [`DispatchQueueHandle`] to serve:
+///
+/// * Pinned execution managers, which serve tasks from an assigned resource group.
+/// * General execution managers, which serve tasks from any resource group.
 ///
 /// # Errors
 ///
@@ -413,8 +415,13 @@ impl RgDispatchQueueReader {
 /// private, so no caller outside this module can turn a reader it happens to hold into a hint.
 /// Spending one consumes it, and it is deliberately neither [`Clone`] nor [`Copy`], so "a hint is
 /// spent at most once" is a property the type system enforces rather than a rule a call site
-/// follows. Dropping a hint unspent withdraws nothing from its group's count, which is what lets a
-/// caller discard a hint it must not act on.
+/// follows.
+///
+/// # NOTE
+///
+/// If a hint must not be acted on (for example, while draining the broadcast queue after a session
+/// bump), it should simply be dropped without withdrawing anything from its associated resource
+/// group.
 #[derive(Debug)]
 struct Hint {
     reader: RgDispatchQueueReader,
