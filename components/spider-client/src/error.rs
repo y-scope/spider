@@ -27,6 +27,10 @@ pub enum ClientError {
     #[error("unauthenticated: {0}")]
     Unauthenticated(String),
 
+    /// A resource group with the requested external resource group ID already exists.
+    #[error("resource group already exists")]
+    ResourceGroupAlreadyExists,
+
     /// A failure to serialize, compress, or wire-frame a request payload.
     #[error("serialization error: {0}")]
     Serialization(String),
