@@ -114,20 +114,6 @@ impl DispatchQueueRegistry {
 
     /// # Returns
     ///
-    /// A handle onto the session tracker that stamps every group the registry creates.
-    pub(super) fn session_tracker(&self) -> SessionTracker {
-        self.inner.session_tracker.clone()
-    }
-
-    /// # Returns
-    ///
-    /// The read side of `rg_id`'s dispatch queue, creating the group if it has none.
-    fn get_dispatch_queue_reader(&self, rg_id: ResourceGroupId) -> RgDispatchQueueReader {
-        self.get_or_create(rg_id).reader
-    }
-
-    /// # Returns
-    ///
     /// The write side of `rg_id`'s dispatch queue, creating the group if it has none.
     pub(super) fn get_dispatch_queue_writer(
         &self,
@@ -135,44 +121,6 @@ impl DispatchQueueRegistry {
     ) -> RgDispatchQueueWriter {
         self.get_or_create(rg_id)
             .writer(self.inner.broadcast_sender.clone())
-    }
-
-    /// Attempts a single non-blocking hint pop.
-    ///
-    /// # Returns
-    ///
-    /// The next published hint, or [`None`] if no hint is outstanding.
-    fn try_next_hint(&self) -> Option<Hint> {
-        self.inner.broadcast_receiver.try_recv().ok()
-    }
-
-    /// Blocks until a hint is published or `wait_time` expires.
-    ///
-    /// Called by a general execution manager, which spends the returned hint through
-    /// [`Hint::consume_and_try_recv`].
-    ///
-    /// The registry holds both ends of the broadcast queue, so the queue cannot close while the
-    /// registry is alive and an unbounded wait would never end on an empty queue. The caller
-    /// therefore has to bound the wait, exactly as it does for
-    /// [`RgDispatchQueueReader::recv_pinned`].
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the returned future before it resolves loses no hint: the wait takes a hint out of
-    /// the broadcast queue only when it resolves, so a cancelled wait leaves every published hint
-    /// there for another caller. The caller must not, however, be cancelled after the future
-    /// resolves and before the hint is spent: a dropped hint is never withdrawn from its group's
-    /// count and permanently overstates the group's coverage.
-    ///
-    /// # Returns
-    ///
-    /// The next published hint, or [`None`] if no hint was published before `wait_time` expired or
-    /// the broadcast queue was closed.
-    async fn next_hint(&self, wait_time: Duration) -> Option<Hint> {
-        tokio::time::timeout(wait_time, self.inner.broadcast_receiver.recv())
-            .await
-            .ok()?
-            .ok()
     }
 
     /// # Returns
@@ -231,6 +179,51 @@ impl DispatchQueueRegistry {
 
     /// # Returns
     ///
+    /// The read side of `rg_id`'s dispatch queue, creating the group if it has none.
+    fn get_dispatch_queue_reader(&self, rg_id: ResourceGroupId) -> RgDispatchQueueReader {
+        self.get_or_create(rg_id).reader
+    }
+
+    /// Attempts a single non-blocking hint pop.
+    ///
+    /// # Returns
+    ///
+    /// The next published hint, or [`None`] if no hint is outstanding.
+    fn try_next_hint(&self) -> Option<Hint> {
+        self.inner.broadcast_receiver.try_recv().ok()
+    }
+
+    /// Blocks until a hint is published or `wait_time` expires.
+    ///
+    /// Called by a general execution manager, which spends the returned hint through
+    /// [`Hint::consume_and_try_recv`].
+    ///
+    /// The registry holds both ends of the broadcast queue, so the queue cannot close while the
+    /// registry is alive and an unbounded wait would never end on an empty queue. The caller
+    /// therefore has to bound the wait, exactly as it does for
+    /// [`RgDispatchQueueReader::recv_pinned`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the returned future before it resolves loses no hint: the wait takes a hint out of
+    /// the broadcast queue only when it resolves, so a cancelled wait leaves every published hint
+    /// there for another caller. The caller must not, however, be cancelled after the future
+    /// resolves and before the hint is spent: a dropped hint is never withdrawn from its group's
+    /// count and permanently overstates the group's coverage.
+    ///
+    /// # Returns
+    ///
+    /// The next published hint, or [`None`] if no hint was published before `wait_time` expired or
+    /// the broadcast queue was closed.
+    async fn next_hint(&self, wait_time: Duration) -> Option<Hint> {
+        tokio::time::timeout(wait_time, self.inner.broadcast_receiver.recv())
+            .await
+            .ok()?
+            .ok()
+    }
+
+    /// # Returns
+    ///
     /// Both ends of `rg_id`'s dispatch queue, creating the group if it has none.
     fn get_or_create(&self, rg_id: ResourceGroupId) -> RgDispatchQueueEndpoints {
         self.inner
@@ -263,9 +256,9 @@ impl DispatchQueueRegistry {
     ) -> Option<TaskAssignment> {
         let deadline = tokio::time::Instant::now() + wait_time;
         loop {
-            // Re-fetched per loop iteration because a retry follows a stale-session assignment,
-            // which is evidence of a session bump: reusing the reader would serve from a registry
-            // entry the bump has already replaced.
+            // The reader is re-fetched per loop iteration because a retry follows a stale-session
+            // assignment, which is evidence of a session bump: reusing the reader would serve from
+            // a registry entry the bump has already replaced.
             let reader = self.get_dispatch_queue_reader(rg_id);
             let assignment = if let Some(assignment) = reader.try_recv_pinned() {
                 assignment
@@ -316,8 +309,10 @@ impl DispatchQueueRegistry {
     }
 }
 
-/// Serves both the execution managers pinned to a resource group and those that take work from any
-/// group, so that the registry is itself the queue the execution-manager-facing service drains.
+/// Implements [`DispatchQueueHandle`] to serve:
+///
+/// * Pinned execution managers, which serve tasks from an assigned resource group.
+/// * General execution managers, which serve tasks from any resource group.
 ///
 /// # Errors
 ///
@@ -420,8 +415,13 @@ impl RgDispatchQueueReader {
 /// private, so no caller outside this module can turn a reader it happens to hold into a hint.
 /// Spending one consumes it, and it is deliberately neither [`Clone`] nor [`Copy`], so "a hint is
 /// spent at most once" is a property the type system enforces rather than a rule a call site
-/// follows. Dropping a hint unspent withdraws nothing from its group's count, which is what lets a
-/// caller discard a hint it must not act on.
+/// follows.
+///
+/// # NOTE
+///
+/// If a hint must not be acted on (for example, while draining the broadcast queue after a session
+/// bump), it should simply be dropped without withdrawing anything from its associated resource
+/// group.
 #[derive(Debug)]
 struct Hint {
     reader: RgDispatchQueueReader,

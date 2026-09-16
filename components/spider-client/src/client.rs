@@ -178,6 +178,8 @@ impl SpiderClient {
     /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
     /// * [`ClientError::Unauthenticated`] if the resource group is unknown or the password is
     ///   invalid.
+    /// * [`ClientError::ResourceGroupAlreadyExists`] if a resource group with the given external
+    ///   resource group ID already exists.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
     pub async fn add_resource_group(
