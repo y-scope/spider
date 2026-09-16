@@ -12,13 +12,12 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 
-/// The execution manager's identity, resource group, and storage session at registration time.
+/// The execution manager's identity, storage session, and the belonging resource group at
+/// registration time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegistrationResponse {
     pub em_id: ExecutionManagerId,
     pub session_id: SessionId,
-
-    /// The internal resource group ID, if the execution manager belongs to a resource group.
     pub resource_group_id: Option<ResourceGroupId>,
 }
 

@@ -39,7 +39,7 @@ use crate::process_pool::{self};
 /// Static configuration for a [`Runtime`]. Supplied once at bootstrap and never mutated.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
-    /// Credentials for the resource group to which the execution manager is dedicated, if any.
+    /// Credentials for the execution manager's pinned resource group, if any.
     pub resource_group_credentials: Option<ExternalResourceGroupCredentials>,
 
     /// Interval between liveness heartbeats. Handed verbatim to the liveness actor.

@@ -36,8 +36,8 @@ pub trait SchedulerClient: Send + Sync {
     /// # Parameters
     ///
     /// * `em_id` - The identity of the calling execution manager.
-    /// * `resource_group_id` - The internal resource group ID, or `None` for an execution manager
-    ///   without a dedicated resource group.
+    /// * `resource_group_id` - The resource group ID the execution manager is pinned to, or `None`
+    ///   if the execution manager is not dedicated to any resource group.
     /// * `prev_assignment` - The last task assignment produced by the scheduler that is
     ///   successfully consumed by the execution manager.
     /// * `wait_time_ms` - The maximum duration, in milliseconds, the scheduler may block this call
@@ -45,7 +45,8 @@ pub trait SchedulerClient: Send + Sync {
     ///
     /// # Returns
     ///
-    /// A [`SchedulerResponse`] describing the assigned task on success.
+    /// A [`SchedulerResponse`] describing the assigned task on success. If `resource_group_id` is
+    /// `Some`, the assigned task must belong to the specified resource group.
     ///
     /// # Errors
     ///

@@ -245,8 +245,7 @@ async fn test_resource_group_auth_failure_prevents_polling() -> anyhow::Result<(
         ..runtime_config(HEARTBEAT_INTERVAL)
     };
 
-    let result = Runtime::create(scheduler.clone(), storage, Arc::new(liveness), config).await;
-    match result {
+    match Runtime::create(scheduler.clone(), storage, Arc::new(liveness), config).await {
         Err(RuntimeError::Registration(LivenessResponseError::ResourceGroupAuth)) => {}
         Err(other) => panic!("expected resource group authentication error, got {other:?}"),
         Ok(_) => panic!("expected resource group authentication error, got Ok"),

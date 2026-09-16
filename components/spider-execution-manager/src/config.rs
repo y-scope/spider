@@ -38,7 +38,9 @@ pub struct Config {
 impl Config {
     /// Builds the [`RuntimeConfig`] consumed by the runtime from this configuration.
     ///
-    /// Resource group credentials are read from the environment when available.
+    /// External resource group credentials are read from the environment when the corresponding
+    /// environment variables are set. See [`ExternalResourceGroupCredentials::from_env`] for
+    /// details.
     ///
     /// # Returns
     ///
@@ -48,7 +50,11 @@ impl Config {
         RuntimeConfig {
             resource_group_credentials: ExternalResourceGroupCredentials::from_env()
                 .inspect_err(|error| {
-                    tracing::debug!(error = % error, "Resource group credentials unavailable.");
+                    tracing::warn!(
+                        error = % error,
+                        "Failed to load external credentials from environment variables; Continue \
+                         without a pinned resource group for this execution manager instance."
+                    );
                 })
                 .ok(),
             heartbeat_interval: Duration::from_secs(
