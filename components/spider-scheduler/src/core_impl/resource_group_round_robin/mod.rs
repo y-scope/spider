@@ -70,7 +70,7 @@ impl Default for ResourceGroupRoundRobinConfig {
             active_job_list_capacity: NonZeroUsize::new(16)
                 .expect("default value must be positive"),
             dispatch_queue_capacity: NonZeroUsize::new(32).expect("default value must be positive"),
-            ready_task_capacity: NonZeroUsize::new(1048576)
+            ready_task_capacity: NonZeroUsize::new(1_048_576)
                 .expect("default value must be positive"),
             commit_ready_task_capacity: NonZeroUsize::new(256)
                 .expect("default value must be positive"),
