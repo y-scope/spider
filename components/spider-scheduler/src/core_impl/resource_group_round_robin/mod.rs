@@ -4,17 +4,6 @@
 //! of round-robin: the outer level interleaves resource groups, while the inner level interleaves
 //! active jobs within each resource group.
 
-// Only the write side of the dispatch queues has a consumer: the read side and the hints steering
-// general execution managers are drained by the dispatch service, which has not landed yet.
-// `expect` rather than `allow`: once that service reads through the queues, this attribute becomes
-// unfulfilled and the compiler flags it for removal.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the dispatch service that reads from the queues has not landed yet"
-    )
-)]
 mod dispatch_queue;
 
 // The core has no consumer until the seam that implements `SchedulerCore` over it lands, so every
