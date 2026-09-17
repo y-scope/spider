@@ -32,7 +32,7 @@ spec:
               value: {{ $.Values.spiderConfig.execution_manager.log_level | quote }}
             {{- with .resource_group }}
             - name: "SPIDER_EXTERNAL_RESOURCE_GROUP_ID"
-              value: {{ .external_id | quote }}
+              value: {{ required "a dedicated pool's `resource_group` needs `external_id`" .external_id | quote }}
             - name: "SPIDER_RESOURCE_GROUP_PASSWORD"
               {{- $password := .password | default dict }}
               {{- if $password.secretKeyRef }}
