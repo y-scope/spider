@@ -1,7 +1,7 @@
 //! Public types shared across the end-to-end test driver.
 
 use spider_core::task::TaskGraph;
-use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskOutput;
 
 /// The terminal outcome of a job returned from the test driver.
@@ -25,6 +25,6 @@ pub struct JobSubmission {
     /// The task graph describing the job's computation.
     pub task_graph: TaskGraph,
 
-    /// The inputs supplied to the job's entry tasks.
-    pub inputs: Vec<TaskInput>,
+    /// The task graph input supplied to the job's entry tasks.
+    pub task_graph_input: TaskGraphInput,
 }
