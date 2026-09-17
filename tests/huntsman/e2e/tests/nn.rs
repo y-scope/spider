@@ -9,16 +9,42 @@ use e2e::JobSubmission;
 use e2e::SpiderTestDriver;
 use e2e::TerminationResult;
 use e2e::decode_output;
-use e2e::encode_input;
 use e2e::nn::NeuralNetwork;
 use e2e::nn::Neuron;
+use huntsman_nn_core::NUM_INPUTS;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use spider_core::types::io::TaskGraphInputBuilder;
 use tokio::task::JoinSet;
 
 #[tokio::test]
 async fn test_nn() -> anyhow::Result<()> {
+    run_neural_network_job_batches("e2e-nn", false).await
+}
+
+#[tokio::test]
+async fn test_nn_with_shared_first_layer_inputs() -> anyhow::Result<()> {
+    run_neural_network_job_batches("e2e-nn-with-shared-first-layer-inputs", true).await
+}
+
+/// Runs batches of concurrent neural-network jobs, validating each job's outputs against the
+/// in-process simulation.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`anyhow::Error`] if a neural-network job task panics.
+/// * Forwards [`run_neural_network_job`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if a neural-network job index doesn't fit in `u64`.
+async fn run_neural_network_job_batches(
+    resource_group_id: &'static str,
+    share_first_layer_inputs: bool,
+) -> anyhow::Result<()> {
     /// Number of neural-network job batches.
     const NUM_BATCHES: usize = 3;
 
@@ -31,12 +57,14 @@ async fn test_nn() -> anyhow::Result<()> {
             let seed = u64::try_from(batch_index * NUM_JOBS_PER_BATCH + job_index)
                 .expect("neural-network job index does not fit in u64");
             jobs.spawn(async move {
-                run_neural_network_job(seed).await.with_context(|| {
-                    format!(
-                        "neural-network job {job_index} in batch {batch_index} with seed {seed} \
-                         failed"
-                    )
-                })
+                run_neural_network_job(resource_group_id, seed, share_first_layer_inputs)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "neural-network job {job_index} in batch {batch_index} with seed \
+                             {seed} failed"
+                        )
+                    })
             });
         }
         while let Some(result) = jobs.join_next().await {
@@ -54,11 +82,17 @@ async fn test_nn() -> anyhow::Result<()> {
 /// Returns an error if:
 ///
 /// * Forwards [`NeuralNetwork::new`]'s return values on failure.
+/// * Forwards [`TaskGraphInputBuilder::create_shared_input_payload`]'s return values on failure.
+/// * Forwards [`TaskGraphInputBuilder::append_shared_task_input`]'s return values on failure.
+/// * Forwards [`TaskGraphInputBuilder::append_task_input`]'s return values on failure.
 /// * Forwards [`NeuralNetwork::simulate`]'s return values on failure.
 /// * Forwards [`NeuralNetwork::to_task_graph`]'s return values on failure.
-/// * Forwards [`encode_input`]'s return values on failure.
 /// * Forwards [`SpiderTestDriver::run`]'s return values on failure.
-async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
+async fn run_neural_network_job(
+    resource_group_id: &str,
+    seed: u64,
+    share_first_layer_inputs: bool,
+) -> anyhow::Result<()> {
     /// Relative-tolerance float comparison.
     const REL_TOL: f64 = 1.0e-12;
 
@@ -84,16 +118,33 @@ async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
         })
         .collect::<Vec<_>>();
     let nn = NeuralNetwork::new(layer_specs, seed)?;
-    let inputs = random_f64s(nn.num_graph_inputs(), seed);
+    let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+    let inputs = if share_first_layer_inputs {
+        let num_first_layer_neurons = nn.num_graph_inputs() / NUM_INPUTS;
+        let shared_inputs = random_f64s(NUM_INPUTS, seed);
+        let shared_input_ids = shared_inputs
+            .iter()
+            .map(|input| task_graph_input_builder.create_shared_input_payload(input))
+            .collect::<Result<Vec<_>, _>>()?;
+        for _ in 0..num_first_layer_neurons {
+            for &shared_input_id in &shared_input_ids {
+                task_graph_input_builder.append_shared_task_input(shared_input_id)?;
+            }
+        }
+        shared_inputs.repeat(num_first_layer_neurons)
+    } else {
+        let inputs = random_f64s(nn.num_graph_inputs(), seed);
+        for input in &inputs {
+            task_graph_input_builder.append_task_input(input)?;
+        }
+        inputs
+    };
     let expected = nn.simulate(&inputs)?;
     let task_graph = nn.to_task_graph()?;
     let job = JobSubmission {
-        resource_group_id: "e2e-nn".to_owned(),
+        resource_group_id: resource_group_id.to_owned(),
         task_graph,
-        inputs: inputs
-            .iter()
-            .map(encode_input)
-            .collect::<anyhow::Result<Vec<_>>>()?,
+        task_graph_input: task_graph_input_builder.build(),
     };
 
     SpiderTestDriver::run(job, JOB_TIMEOUT, async move |_job_id, result| {

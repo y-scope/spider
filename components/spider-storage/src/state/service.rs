@@ -831,7 +831,8 @@ mod tests {
     use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
-    use spider_core::types::io::TaskInput;
+    use spider_core::types::io::TaskGraphInput;
+    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
 
     use super::*;
@@ -931,12 +932,27 @@ mod tests {
         task_graph
     }
 
+    /// # Returns
+    ///
+    /// A task graph input whose only positional input is the msgpack serialization of a 4-byte zero
+    /// array.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input serialization fails.
+    fn create_test_task_graph_input() -> TaskGraphInput {
+        let mut builder = TaskGraphInputBuilder::new();
+        builder
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
+        builder.build()
+    }
+
     fn create_test_job_submission() -> (Vec<u8>, Vec<u8>) {
         let task_graph = create_test_task_graph();
-        let inputs = vec![TaskInput::ValuePayload(vec![0u8; 4])];
         (
             compress_task_graph(&task_graph),
-            compress_job_inputs(&inputs),
+            compress_job_inputs(&create_test_task_graph_input()),
         )
     }
 
@@ -947,7 +963,7 @@ mod tests {
     }
 
     fn create_empty_compressed_serialized_inputs() -> Vec<u8> {
-        compress_job_inputs(&[])
+        compress_job_inputs(&TaskGraphInputBuilder::new().build())
     }
 
     type TestJcb = SharedJobControlBlock<
@@ -958,8 +974,8 @@ mod tests {
 
     async fn create_test_jcb(job_id: JobId) -> TestJcb {
         let task_graph = create_test_task_graph();
-        let inputs = vec![TaskInput::ValuePayload(vec![0u8; 4])];
-        let job_submission = create_validated_submission(task_graph, inputs);
+        let job_submission =
+            create_validated_submission(task_graph, create_test_task_graph_input());
 
         SharedJobControlBlock::create(
             job_id,
