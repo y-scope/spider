@@ -398,9 +398,9 @@ async fn register_job<
             b"test-password".to_vec(),
         ))
         .await?;
-    let (task_graph, inputs) = build_flat_task_graph(1, 4, with_commit, with_cleanup);
+    let (task_graph, task_graph_input) = build_flat_task_graph(1, 4, with_commit, with_cleanup);
     let compressed_task_graph = compress_task_graph(&task_graph)?;
-    let compressed_inputs = compress_job_inputs(&inputs)?;
+    let compressed_inputs = compress_job_inputs(&task_graph_input)?;
     Ok(service
         .register_job(rg_id, compressed_task_graph, compressed_inputs)
         .await?)

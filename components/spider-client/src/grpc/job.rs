@@ -2,14 +2,12 @@
 
 use std::num::NonZeroUsize;
 
-use spider_core::compression::encode_zstd_bytes;
 use spider_core::job::JobState;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::io::SerializedTaskOutputs;
-use spider_core::types::io::TaskInput;
-use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskOutput;
 use spider_proto_rust::error::Error as ProtoError;
 use spider_proto_rust::storage::JobOrchestrationServiceClient;
@@ -61,8 +59,8 @@ impl JobOrchestrationClient {
         })
     }
 
-    /// Serializes and zstd-compresses the task graph and inputs, registers the job, and returns
-    /// its assigned id.
+    /// Serializes and zstd-compresses the task graph and task graph input, registers the job, and
+    /// returns its assigned id.
     ///
     /// # Returns
     ///
@@ -74,17 +72,21 @@ impl JobOrchestrationClient {
     ///
     /// * Forwards [`TaskGraph::to_zstd_compressed_json`]'s return values on failure as
     ///   [`ClientError::Serialization`].
+    /// * Forwards [`TaskGraphInput::to_zstd_compressed_bytes`]'s return values on failure as
+    ///   [`ClientError::Serialization`].
     /// * Forwards [`JobOrchestrationServiceClient::register_job`]'s status on failure.
     pub async fn submit_job(
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: &TaskGraph,
-        inputs: Vec<TaskInput>,
+        task_graph_input: &TaskGraphInput,
     ) -> Result<JobId, ClientError> {
         let compressed_serialized_task_graph = task_graph
             .to_zstd_compressed_json()
             .map_err(|error| ClientError::Serialization(error.to_string()))?;
-        let compressed_serialized_inputs = serialize_inputs(inputs)?;
+        let compressed_serialized_inputs = task_graph_input
+            .to_zstd_compressed_bytes()
+            .map_err(|error| ClientError::Serialization(error.to_string()))?;
         let pool = self.connection_pool.clone();
         let response = call_with_retry(self.retry_config, move || {
             let mut client = pool.get_client();
@@ -243,30 +245,6 @@ impl JobOrchestrationClient {
 
         Ok(response.error_message)
     }
-}
-
-/// Serializes and zstd-compresses a job's task inputs for the
-/// [`JobOrchestrationServiceClient::register_job`] request.
-///
-/// # Returns
-///
-/// The zstd-compressed wire-format input bytes on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`ClientError::Serialization`] if an input cannot be framed or the wire buffer cannot be
-///   compressed.
-fn serialize_inputs(inputs: Vec<TaskInput>) -> Result<Vec<u8>, ClientError> {
-    let mut serializer = TaskInputsSerializer::new();
-    for input in inputs {
-        serializer
-            .append(input)
-            .map_err(|error| ClientError::Serialization(error.to_string()))?;
-    }
-    encode_zstd_bytes(&serializer.release())
-        .map_err(|error| ClientError::Serialization(error.to_string()))
 }
 
 /// Converts a [`storage::JobStateResponse`] into a [`JobState`].

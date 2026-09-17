@@ -267,7 +267,7 @@ async fn submit_and_start_job(
         .submit_job(
             resource_group_id,
             &job_submission.task_graph,
-            job_submission.inputs,
+            &job_submission.task_graph_input,
         )
         .await?;
     client.start_job(job_id).await?;
