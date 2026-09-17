@@ -8,7 +8,7 @@ metadata:
     {{- include "spider.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ printf "worker-%s" .name | quote }}
 spec:
-  replicas: {{ .replicas }}
+  replicas: {{ required "a worker pool needs `replicas`" .replicas }}
   selector:
     matchLabels:
       {{- include "spider.selectorLabels" $ | nindent 6 }}
