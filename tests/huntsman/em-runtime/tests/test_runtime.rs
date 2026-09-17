@@ -24,8 +24,11 @@ use spider_core::types::id::TaskId;
 use spider_core::types::io::ExecutionContext;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::TaskAssignment;
 use spider_core::types::scheduler::TaskAssignmentRecord;
+use spider_execution_manager::client::LivenessResponseError;
+use spider_execution_manager::client::RegistrationResponse;
 use spider_execution_manager::client::SchedulerError;
 use spider_execution_manager::client::SchedulerResponse;
 use spider_execution_manager::client::StorageResponseError;
@@ -134,6 +137,7 @@ fn runtime_config(heartbeat_interval: Duration) -> RuntimeConfig {
         package_dir: tdl_package_dir(),
         max_log_line_bytes: NonZeroUsize::new(MAX_LOG_LINE_BYTES).expect("non-zero line cap"),
         inherited_env: Vec::new(),
+        resource_group_credentials: None,
     }
 }
 
@@ -153,6 +157,13 @@ async fn create_registers_and_starts_heartbeats() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(liveness.register_calls().len(), 1);
+    assert_eq!(
+        liveness.register_calls()[0]
+            .1
+            .as_ref()
+            .map(ExternalResourceGroupCredentials::get_external_resource_group_id),
+        None
+    );
     assert!(
         liveness.wait_for_heartbeats(1, BOUNDED_WAIT).await,
         "liveness actor should send at least one heartbeat after create returns; observed {} so \
@@ -161,6 +172,84 @@ async fn create_registers_and_starts_heartbeats() -> anyhow::Result<()> {
     );
 
     token.cancel();
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn registers_resource_group_and_polls_with_internal_id() -> anyhow::Result<()> {
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::new();
+    let resource_group_id = ResourceGroupId::random();
+    liveness.set_register_response(Ok(RegistrationResponse {
+        em_id: liveness.em_id(),
+        session_id: 1,
+        resource_group_id: Some(resource_group_id),
+    }));
+    let config = RuntimeConfig {
+        resource_group_credentials: Some(ExternalResourceGroupCredentials::new(
+            "external-test-group".to_owned(),
+            b"test-password".to_vec(),
+        )),
+        ..runtime_config(HEARTBEAT_INTERVAL)
+    };
+
+    let (runtime, token) = Runtime::create(
+        scheduler.clone(),
+        storage,
+        Arc::new(liveness.clone()),
+        config,
+    )
+    .await?;
+
+    let calls = liveness.register_calls();
+    assert_eq!(calls.len(), 1);
+    let credentials = calls[0]
+        .1
+        .as_ref()
+        .context("registration did not receive resource group credentials")?;
+    assert_eq!(
+        credentials.get_external_resource_group_id(),
+        "external-test-group"
+    );
+    assert_eq!(credentials.get_password(), b"test-password");
+
+    let join = tokio::spawn(runtime.run());
+    assert!(wait_until(|| scheduler.call_count() > 0, BOUNDED_WAIT).await);
+    assert_eq!(
+        scheduler.resource_group_ids(),
+        vec![Some(resource_group_id)]
+    );
+
+    token.cancel();
+    tokio::time::timeout(BOUNDED_WAIT, join)
+        .await
+        .context("run did not return within bounded time")?
+        .context("run task panicked")??;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
+async fn create_propagates_resource_group_auth_error() -> anyhow::Result<()> {
+    let scheduler = MockScheduler::new();
+    let storage = MockStorage::new();
+    let liveness = MockLiveness::new();
+    liveness.set_register_response(Err(LivenessResponseError::ResourceGroupAuth));
+    let config = RuntimeConfig {
+        resource_group_credentials: Some(ExternalResourceGroupCredentials::new(
+            "external-test-group".to_owned(),
+            b"incorrect-password".to_vec(),
+        )),
+        ..runtime_config(HEARTBEAT_INTERVAL)
+    };
+
+    match Runtime::create(scheduler, storage, Arc::new(liveness), config).await {
+        Err(RuntimeError::Registration(LivenessResponseError::ResourceGroupAuth)) => {}
+        Err(other) => panic!("expected resource group authentication error, got {other:?}"),
+        Ok(_) => panic!("expected resource group authentication error, got Ok"),
+    }
     Ok(())
 }
 
@@ -191,7 +280,7 @@ async fn external_cancellation_returns_ok() -> anyhow::Result<()> {
     let liveness = MockLiveness::new();
 
     let (runtime, token) = Runtime::create(
-        scheduler,
+        scheduler.clone(),
         storage,
         Arc::new(liveness.clone()),
         runtime_config(HEARTBEAT_INTERVAL),
@@ -201,6 +290,8 @@ async fn external_cancellation_returns_ok() -> anyhow::Result<()> {
     let join = tokio::spawn(runtime.run());
     // Let at least one heartbeat happen so we know the loop is alive before cancelling.
     assert!(liveness.wait_for_heartbeats(1, BOUNDED_WAIT).await);
+    assert!(wait_until(|| scheduler.call_count() > 0, BOUNDED_WAIT).await);
+    assert_eq!(scheduler.resource_group_ids(), vec![None]);
 
     token.cancel();
     let result = tokio::time::timeout(BOUNDED_WAIT, join)
