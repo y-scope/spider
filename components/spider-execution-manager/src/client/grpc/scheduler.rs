@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
 use spider_core::types::id::ExecutionManagerId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 use spider_proto_rust::scheduler::SchedulerServiceClient;
 use spider_proto_rust::scheduler::{self};
@@ -54,6 +55,7 @@ impl SchedulerClient for GrpcSchedulerClient {
     async fn next_task(
         &self,
         em_id: ExecutionManagerId,
+        resource_group_id: Option<ResourceGroupId>,
         mut prev_assignment: Option<TaskAssignmentRecord>,
         wait_time_ms: u64,
     ) -> Result<SchedulerResponse, SchedulerError> {
@@ -67,7 +69,7 @@ impl SchedulerClient for GrpcSchedulerClient {
                     execution_manager_id: em_id.get(),
                     prev_assignment: prev_assignment.take().map(Into::into),
                     wait_time_ms,
-                    resource_group_id: None,
+                    resource_group_id: resource_group_id.map(|id| id.get()),
                 })
                 .await
                 .map_err(|status| status_to_error(&status))?
