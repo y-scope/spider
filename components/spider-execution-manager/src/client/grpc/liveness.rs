@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn test_register_response_to_result_preserves_resource_group_id() -> anyhow::Result<()> {
+    fn register_response_to_result_preserves_resource_group_id() -> anyhow::Result<()> {
         const RESOURCE_GROUP_ID: ResourceGroupId = ResourceGroupId::from(42);
         let response = storage::RegisterExecutionManagerResponse {
             registration: Some(storage::ExecutionManagerRegistration {

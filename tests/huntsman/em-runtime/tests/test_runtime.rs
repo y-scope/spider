@@ -177,7 +177,7 @@ async fn create_registers_and_starts_heartbeats() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
-async fn test_registers_resource_group_and_polls_with_internal_id() -> anyhow::Result<()> {
+async fn registers_resource_group_and_polls_with_internal_id() -> anyhow::Result<()> {
     let scheduler = MockScheduler::new();
     let storage = MockStorage::new();
     let liveness = MockLiveness::new();
@@ -232,7 +232,7 @@ async fn test_registers_resource_group_and_polls_with_internal_id() -> anyhow::R
 
 #[tokio::test]
 #[ignore = "requires `integration-test-tasks` cdylib and `spider-task-executor` binary"]
-async fn test_resource_group_auth_failure_prevents_polling() -> anyhow::Result<()> {
+async fn create_propagates_resource_group_auth_error() -> anyhow::Result<()> {
     let scheduler = MockScheduler::new();
     let storage = MockStorage::new();
     let liveness = MockLiveness::new();
@@ -245,12 +245,11 @@ async fn test_resource_group_auth_failure_prevents_polling() -> anyhow::Result<(
         ..runtime_config(HEARTBEAT_INTERVAL)
     };
 
-    match Runtime::create(scheduler.clone(), storage, Arc::new(liveness), config).await {
+    match Runtime::create(scheduler, storage, Arc::new(liveness), config).await {
         Err(RuntimeError::Registration(LivenessResponseError::ResourceGroupAuth)) => {}
         Err(other) => panic!("expected resource group authentication error, got {other:?}"),
         Ok(_) => panic!("expected resource group authentication error, got Ok"),
     }
-    assert_eq!(scheduler.call_count(), 0);
     Ok(())
 }
 

@@ -12,8 +12,8 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 
-/// The execution manager's identity, storage session, and the belonging resource group at
-/// registration time.
+/// The execution manager's identity, storage session, and pinned resource group at registration
+/// time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegistrationResponse {
     pub em_id: ExecutionManagerId,

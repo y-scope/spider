@@ -161,6 +161,7 @@ impl<
         tracing::info!(
             em_id = ? em_id,
             session_id = registration.session_id,
+            resource_group_id = ? registration.resource_group_id,
             "Execution manager registered with storage."
         );
 
