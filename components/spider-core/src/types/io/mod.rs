@@ -1,9 +1,12 @@
+mod task_graph_input;
+
 use serde::Deserialize;
 use serde::Serialize;
 use spider_utils::wire::StreamDeserializer;
 use spider_utils::wire::WireError;
 use spider_utils::wire::WireFrameBuilder;
 use spider_utils::wire::{self};
+pub use task_graph_input::*;
 
 use crate::compression::decode_zstd_bytes;
 use crate::compression::encode_zstd_bytes;
