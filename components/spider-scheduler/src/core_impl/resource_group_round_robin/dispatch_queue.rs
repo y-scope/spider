@@ -114,6 +114,13 @@ impl DispatchQueueRegistry {
 
     /// # Returns
     ///
+    /// A handle onto the session tracker that stamps every group the registry creates.
+    pub(super) fn session_tracker(&self) -> SessionTracker {
+        self.inner.session_tracker.clone()
+    }
+
+    /// # Returns
+    ///
     /// The write side of `rg_id`'s dispatch queue, creating the group if it has none.
     pub(super) fn get_dispatch_queue_writer(
         &self,
