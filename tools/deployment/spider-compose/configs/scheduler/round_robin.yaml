@@ -13,7 +13,7 @@ configs:
           liveness_tracking_interval_ms:
             ${SPIDER_SCHEDULER_EM_REGISTRY_LIVENESS_TRACKING_INTERVAL_MS:-1000}
         scheduler:
-          policy: "${SPIDER_SCHEDULER_POLICY:-round_robin}"
+          policy: "round_robin"
           config:
             active_job_queue_capacity:
               ${SPIDER_SCHEDULER_ROUND_ROBIN_ACTIVE_JOB_QUEUE_CAPACITY:-16}

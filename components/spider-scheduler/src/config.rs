@@ -7,6 +7,7 @@ use serde::Deserialize;
 use spider_utils::config::EndpointConfig;
 
 use crate::core::SchedulerCore;
+use crate::core_impl::ResourceGroupRoundRobinConfig;
 use crate::core_impl::RoundRobinConfig;
 use crate::runtime::RuntimeConfig;
 use crate::storage_client::SchedulerStorageClient;
@@ -43,6 +44,9 @@ pub struct ServerConfig {
 pub enum SchedulerConfig {
     /// The round-robin scheduling algorithm.
     RoundRobin(RoundRobinConfig),
+
+    /// The resource-group-aware round-robin scheduling algorithm.
+    ResourceGroupRoundRobin(ResourceGroupRoundRobinConfig),
 }
 
 impl SchedulerConfig {
@@ -61,6 +65,9 @@ impl SchedulerConfig {
     ) -> Box<dyn SchedulerCore<StorageClient = SchedulerStorageClientType>> {
         match self {
             Self::RoundRobin(config) => Box::new(config.make_core::<SchedulerStorageClientType>()),
+            Self::ResourceGroupRoundRobin(config) => {
+                Box::new(config.make_core::<SchedulerStorageClientType>())
+            }
         }
     }
 }

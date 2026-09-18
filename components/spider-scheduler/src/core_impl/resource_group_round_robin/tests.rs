@@ -20,9 +20,9 @@ use spider_core::types::id::TaskAssignmentId;
 use spider_core::types::id::TaskId;
 use tokio_util::sync::CancellationToken;
 
+use super::ResourceGroupRoundRobinConfig as RgRoundRobinConfig;
 use super::dispatch_queue::DispatchQueueRegistry;
 use super::implementation::RgRoundRobin;
-use super::implementation::RgRoundRobinConfig;
 use super::job_registry::UpsertOutcome;
 use super::scheduling_state::RgSchedulingState;
 use crate::SchedulerError;
@@ -135,14 +135,16 @@ impl CoreFixture {
         let active_job_list_capacity = config.active_job_list_capacity.get();
         let (reschedule_queue_writer, reschedule_queue_reader) =
             tokio::sync::mpsc::unbounded_channel();
+        let dispatch_queue_registry =
+            DispatchQueueRegistry::new(SessionTracker::new(SessionId::default()));
         let core = RgRoundRobin::new(
             storage.clone(),
+            dispatch_queue_registry.clone(),
             reschedule_queue_reader,
             TaskAssignmentIdIssuer::new(),
             CancellationToken::new(),
             config,
         );
-        let dispatch_queue_registry = core.dispatch_queue_registry();
         let session_tracker = core.session_tracker.clone();
         Self {
             core,
@@ -1072,6 +1074,7 @@ async fn the_scheduling_loop_stops_when_it_is_cancelled() -> anyhow::Result<()> 
     let cancellation_token = CancellationToken::new();
     let core = RgRoundRobin::new(
         MockStorageClient::new(),
+        DispatchQueueRegistry::new(SessionTracker::new(SessionId::default())),
         reschedule_queue_reader,
         TaskAssignmentIdIssuer::new(),
         cancellation_token.clone(),
