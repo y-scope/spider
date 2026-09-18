@@ -190,6 +190,7 @@ mod tests {
     use spider_core::session::SessionTracker;
     use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::SessionId;
+    use spider_core::types::resource_group::ExternalResourceGroupCredentials;
     use tokio::sync::Notify;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
@@ -266,6 +267,7 @@ mod tests {
         async fn register(
             &self,
             _ip: IpAddr,
+            _resource_group_credentials: Option<ExternalResourceGroupCredentials>,
         ) -> Result<RegistrationResponse, LivenessResponseError> {
             unimplemented!("`LivenessClient::register` is not exercised by actor tests")
         }

@@ -1,9 +1,12 @@
+//! Execution manager configuration.
+
 use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_utils::config::EndpointConfig;
 
 use crate::runtime::RuntimeConfig;
@@ -35,12 +38,25 @@ pub struct Config {
 impl Config {
     /// Builds the [`RuntimeConfig`] consumed by the runtime from this configuration.
     ///
+    /// External resource group credentials are read from the environment when the corresponding
+    /// environment variables are set. See [`ExternalResourceGroupCredentials::from_env`] for
+    /// details.
+    ///
     /// # Returns
     ///
     /// The derived [`RuntimeConfig`].
     #[must_use]
     pub fn runtime_config(&self) -> RuntimeConfig {
         RuntimeConfig {
+            resource_group_credentials: ExternalResourceGroupCredentials::from_env()
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        error = % error,
+                        "Failed to load external credentials from environment variables; Continue \
+                         without a pinned resource group for this execution manager instance."
+                    );
+                })
+                .ok(),
             heartbeat_interval: Duration::from_secs(
                 self.liveness.storage_heartbeat_interval_sec.get(),
             ),

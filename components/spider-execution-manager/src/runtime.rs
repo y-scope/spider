@@ -9,10 +9,12 @@ use std::time::Duration;
 use spider_core::session::SessionTracker;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
+use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::TaskAssignmentRecord;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
@@ -37,6 +39,9 @@ use crate::process_pool::{self};
 /// Static configuration for a [`Runtime`]. Supplied once at bootstrap and never mutated.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
+    /// Credentials for the execution manager's pinned resource group, if any.
+    pub resource_group_credentials: Option<ExternalResourceGroupCredentials>,
+
     /// Interval between liveness heartbeats. Handed verbatim to the liveness actor.
     pub heartbeat_interval: Duration,
 
@@ -92,6 +97,7 @@ pub struct Runtime<
     StorageClientType: StorageClient + Clone + 'static,
 > {
     em_id: ExecutionManagerId,
+    resource_group_id: Option<ResourceGroupId>,
     scheduler_client: SchedulerClientType,
     storage_client: StorageClientType,
     process_pool: ProcessPool,
@@ -145,13 +151,17 @@ impl<
         // TODO: Register with a placeholder address. This should be updated when the system needs
         // to store locality metadata. See https://github.com/y-scope/spider/issues/406 for detail.
         let registration = liveness_client
-            .register(Ipv4Addr::UNSPECIFIED.into())
+            .register(
+                Ipv4Addr::UNSPECIFIED.into(),
+                config.resource_group_credentials,
+            )
             .await?;
         let em_id = registration.em_id;
         let session_tracker = SessionTracker::new(registration.session_id);
         tracing::info!(
             em_id = ? em_id,
             session_id = registration.session_id,
+            resource_group_id = ? registration.resource_group_id,
             "Execution manager registered with storage."
         );
 
@@ -206,6 +216,7 @@ impl<
         let cancel_guard = cancellation_token.clone().drop_guard();
         let runtime = Self {
             em_id,
+            resource_group_id: registration.resource_group_id,
             scheduler_client,
             storage_client,
             process_pool,
@@ -328,6 +339,7 @@ impl<
                 () = self.cancellation_token.cancelled() => return Ok(()),
                 result = self.scheduler_client.next_task(
                     self.em_id,
+                    self.resource_group_id,
                     self.prev_assignments.pop_front(),
                     self.scheduler_poll_wait_ms,
                 ) => {
