@@ -316,8 +316,8 @@ impl WireFrameBuilder {
                 ))?;
         let count = u32::from_le_bytes(*count_bytes) as usize;
 
-        // `count` is read from untrusted input, so the reservation is bounded by the number of
-        // length prefixes the remaining buffer could hold.
+        // `count` is read from untrusted input. The reservation is bounded by the number of length
+        // prefixes (`FIELD_LEN_PREFIX_LEN`) the remaining buffer could hold.
         let mut payloads = Vec::with_capacity(count.min(remaining.len() / FIELD_LEN_PREFIX_LEN));
         for _ in 0..count {
             let (len_bytes, rest) = remaining
