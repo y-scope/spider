@@ -125,10 +125,12 @@ impl TaskGraphInputEntry {
     }
 }
 
-/// The positional inputs of a task graph, together with the shared input payloads they reference.
+/// The positional inputs of a task graph and the shared input payloads they reference.
 ///
 /// Every [`TaskGraphInputEntry::SharedPayload`] positional input is guaranteed to reference an
-/// existing shared input payload.
+/// existing shared input payload. This invariant is enforced by requiring [`TaskGraphInput`]
+/// instances to be constructed through [`TaskGraphInputBuilder`] or deserialized using
+/// [`TaskGraphInput::from_zstd_compressed_bytes`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskGraphInput {
     shared_input_payloads: Vec<SharedInputPayload>,
@@ -258,7 +260,7 @@ impl TaskGraphInput {
     ///
     /// # Panics
     ///
-    /// Panics if a shared input ID is out of bounds, which cannot happen for a validly constructed
+    /// Panics if a shared input ID is out of bounds, which cannot happen for a legally constructed
     /// task graph input.
     #[must_use]
     pub fn into_positional_inputs<InputType: Clone>(
@@ -406,6 +408,7 @@ mod tests {
     /// # Panics
     ///
     /// Panics if any payload fails to be framed.
+    #[must_use]
     fn frame_task_graph_input(
         shared_input_payloads: &[&[u8]],
         positional_inputs: &[&[u8]],
