@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_rejects_shared_input_id_from_another_builder() -> anyhow::Result<()> {
+    fn builder_rejects_out_of_bounds_shared_input_id() -> anyhow::Result<()> {
         let mut other_builder = TaskGraphInputBuilder::new();
         other_builder.create_shared_input_payload("other-first")?;
         let foreign_id = other_builder.create_shared_input_payload("other-second")?;
