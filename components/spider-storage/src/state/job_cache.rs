@@ -168,7 +168,7 @@ mod tests {
     use spider_core::task::TdlContext;
     use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::JobId;
-    use spider_core::types::io::TaskInput;
+    use spider_core::types::io::TaskGraphInputBuilder;
 
     use super::*;
     use crate::cache::error::InternalError;
@@ -202,8 +202,12 @@ mod tests {
             })
             .expect("task insertion should succeed");
 
+        let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+        task_graph_input_builder
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
         let job_submission =
-            create_validated_submission(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])]);
+            create_validated_submission(submitted, task_graph_input_builder.build());
         SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::random(),
@@ -435,8 +439,12 @@ mod tests {
             .expect("task insertion should succeed");
 
         let job_id = JobId::random();
+        let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+        task_graph_input_builder
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
         let job_submission =
-            create_validated_submission(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])]);
+            create_validated_submission(submitted, task_graph_input_builder.build());
         let jcb = SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::random(),

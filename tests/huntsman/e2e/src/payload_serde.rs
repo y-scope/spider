@@ -1,32 +1,10 @@
-//! Spider task input/output wire-format codec.
+//! Spider task output wire-format codec.
 //!
-//! Converts between a Rust value and the `MessagePack`-encoded
-//! [`TaskInput::ValuePayload`] / [`TaskOutput`] payload Spider exchanges over a single job
-//! input/output boundary.
+//! Converts the `MessagePack`-encoded [`TaskOutput`] payload Spider exchanges over a single job
+//! output boundary into a Rust value.
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
-use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskOutput;
-
-/// Encodes `value` as a `MessagePack` [`TaskInput::ValuePayload`].
-///
-/// # Type Parameters
-///
-/// * `T` - A serializable input value type.
-///
-/// # Returns
-///
-/// The msgpack-encoded [`TaskInput::ValuePayload`] on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`rmp_serde::to_vec`]'s return values on failure.
-pub fn encode_input<T: Serialize>(value: &T) -> anyhow::Result<TaskInput> {
-    Ok(TaskInput::ValuePayload(rmp_serde::to_vec(value)?))
-}
 
 /// Decodes a `MessagePack` [`TaskOutput`] payload into `T`.
 ///
@@ -52,11 +30,10 @@ mod tests {
     use serde::Deserialize;
     use serde::Serialize;
     use serde::de::DeserializeOwned;
-    use spider_core::types::io::TaskInput;
+    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
 
     use super::decode_output;
-    use super::encode_input;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct Sample {
@@ -65,19 +42,30 @@ mod tests {
         label: String,
     }
 
-    /// Round-trips `value` through [`encode_input`] then [`decode_output`].
-    fn round_trip<T: Serialize + DeserializeOwned>(value: &T) -> T {
-        let encoded = encode_input(value).expect("encode_input should succeed");
-        let TaskInput::ValuePayload(bytes) = encoded;
-        decode_output(&bytes).expect("decode_output should succeed")
-    }
-
-    #[test]
-    fn encode_input_wraps_msgpack_bytes_in_value_payload() {
-        let value = 42.0_f64;
-        let encoded = encode_input(&value).expect("encode_input should succeed");
-        let expected = rmp_serde::to_vec(&value).expect("rmp_serde::to_vec should succeed");
-        assert_eq!(encoded, TaskInput::ValuePayload(expected));
+    /// Round-trips `value` through [`TaskGraphInputBuilder::append_task_input`] then
+    /// [`decode_output`].
+    ///
+    /// # Type Parameters
+    ///
+    /// * `ValueType` - The type of the value to round-trip.
+    ///
+    /// # Returns
+    ///
+    /// The decoded value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value` fails to be encoded or decoded, or if the built task graph input doesn't
+    /// hold exactly one positional input.
+    fn round_trip<ValueType: Serialize + DeserializeOwned>(value: &ValueType) -> ValueType {
+        let mut builder = TaskGraphInputBuilder::new();
+        builder
+            .append_task_input(value)
+            .expect("appending a task input should succeed");
+        let [payload] =
+            <[TaskOutput; 1]>::try_from(builder.build().into_positional_inputs(|payload| payload))
+                .expect("the task graph input should hold exactly one positional input");
+        decode_output(&payload).expect("decode_output should succeed")
     }
 
     #[test]
@@ -115,26 +103,22 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_preserves_multiple_values_end_to_end() {
+    fn round_trip_preserves_multiple_values_end_to_end() -> anyhow::Result<()> {
         let values: Vec<f64> = vec![1.5, -2.25, 3.0, 0.0, f64::INFINITY];
-        let inputs: Vec<TaskInput> = values
-            .iter()
-            .map(encode_input)
-            .collect::<anyhow::Result<Vec<_>>>()
-            .expect("encoding all values should succeed");
-        let outputs: Vec<TaskOutput> = inputs
-            .into_iter()
-            .map(|TaskInput::ValuePayload(bytes)| bytes)
-            .collect();
+        let mut builder = TaskGraphInputBuilder::new();
+        for value in &values {
+            builder.append_task_input(value)?;
+        }
+        let outputs: Vec<TaskOutput> = builder.build().into_positional_inputs(|payload| payload);
         let decoded: Vec<f64> = outputs
             .iter()
             .map(decode_output)
-            .collect::<anyhow::Result<Vec<_>>>()
-            .expect("decoding all values should succeed");
+            .collect::<anyhow::Result<Vec<_>>>()?;
         assert_eq!(
             decoded.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
             values.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         );
+        Ok(())
     }
 
     #[test]

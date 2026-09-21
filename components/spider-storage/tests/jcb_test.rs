@@ -44,9 +44,9 @@ async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
-    let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
+    let (graph, task_graph_input) = build_flat_task_graph(10_000, 1024, true, true);
     let num_tasks = graph.get_num_tasks();
-    let job_submission = create_validated_submission(graph, inputs);
+    let job_submission = create_validated_submission(graph, task_graph_input);
     let result = run_workload(
         job_submission,
         db_connector_factory,
@@ -87,8 +87,8 @@ async fn test_flat_success<DbConnectorType: InternalJobOrchestration + 'static>(
 async fn test_flat_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
-    let (graph, inputs) = build_flat_task_graph(10_000, 1024, true, true);
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = build_flat_task_graph(10_000, 1024, true, true);
+    let job_submission = create_validated_submission(graph, task_graph_input);
     let result = run_workload(
         job_submission,
         db_connector_factory,
@@ -130,9 +130,9 @@ async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'st
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
     instrument_sender: Option<InstrumentSender>,
 ) -> WorkloadResult {
-    let (graph, inputs) = build_neural_net_task_graph();
+    let (graph, task_graph_input) = build_neural_net_task_graph();
     let num_tasks = graph.get_num_tasks();
-    let job_submission = create_validated_submission(graph, inputs);
+    let job_submission = create_validated_submission(graph, task_graph_input);
     let result = run_workload(
         job_submission,
         db_connector_factory,
@@ -176,8 +176,8 @@ async fn test_neural_net_success<DbConnectorType: InternalJobOrchestration + 'st
 async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
-    let (graph, inputs) = build_neural_net_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = build_neural_net_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
     let result = run_workload(
         job_submission,
         db_connector_factory,
@@ -218,8 +218,8 @@ async fn test_neural_net_cancel<DbConnectorType: InternalJobOrchestration + 'sta
 async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestration + 'static>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
-    let (graph, inputs) = build_flat_task_graph(3, 128, false, false);
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = build_flat_task_graph(3, 128, false, false);
+    let job_submission = create_validated_submission(graph, task_graph_input);
     let result = run_workload(
         job_submission,
         db_connector_factory,
@@ -256,8 +256,8 @@ async fn test_always_fail_terminates_job<DbConnectorType: InternalJobOrchestrati
 async fn test_concurrent_success_and_cancel<DbConnectorType: InternalJobOrchestration + 'static>(
     db_connector_factory: impl DbConnectorFactory<DbConnectorType>,
 ) -> WorkloadResult {
-    let (graph, inputs) = build_flat_task_graph(100, 128, true, true);
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = build_flat_task_graph(100, 128, true, true);
+    let job_submission = create_validated_submission(graph, task_graph_input);
     let result = run_workload(
         job_submission,
         db_connector_factory,
