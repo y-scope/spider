@@ -88,7 +88,6 @@ async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
     let expected = nn.simulate(&inputs)?;
     let task_graph = nn.to_task_graph()?;
     let job = JobSubmission {
-        resource_group_id: "e2e-nn".to_owned(),
         task_graph,
         inputs: inputs
             .iter()

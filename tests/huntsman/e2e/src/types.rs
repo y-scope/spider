@@ -18,10 +18,6 @@ pub enum TerminationResult {
 
 /// A description of a single job to submit through the test driver.
 pub struct JobSubmission {
-    /// The external resource-group id the job is submitted under. The driver resolves it to a
-    /// Spider-assigned ID, registering it on first use.
-    pub resource_group_id: String,
-
     /// The task graph describing the job's computation.
     pub task_graph: TaskGraph,
 

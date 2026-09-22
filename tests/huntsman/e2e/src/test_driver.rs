@@ -6,7 +6,6 @@
 //! client so that shared scenarios run concurrently up to a configured limit while exclusive
 //! scenarios run in isolation.
 
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
@@ -16,7 +15,6 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
-use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio::sync::Semaphore;
@@ -29,7 +27,7 @@ use crate::types::TerminationResult;
 pub struct SpiderTestDriver {
     client: RwLock<SpiderClient>,
     concurrency_limiter: Semaphore,
-    resource_groups: Mutex<HashMap<String, ResourceGroupId>>,
+    resource_group_id: ResourceGroupId,
 }
 
 impl SpiderTestDriver {
@@ -46,7 +44,6 @@ impl SpiderTestDriver {
     ///
     /// * [`anyhow::Error`] if the concurrency limiter has been closed.
     /// * Forwards [`Self::instance`]'s return values on failure.
-    /// * Forwards [`Self::resolve_resource_group`]'s return values on failure.
     /// * Forwards [`run_scenario`]'s return values on failure.
     pub async fn run<OutcomeAssertionType>(
         job_submission: JobSubmission,
@@ -63,12 +60,9 @@ impl SpiderTestDriver {
             .await
             .context("concurrency limiter closed")?;
         let client = client_guard.clone();
-        let resource_group_id = driver
-            .resolve_resource_group(&client, &job_submission.resource_group_id)
-            .await?;
         let result = run_scenario(
             client,
-            resource_group_id,
+            driver.resource_group_id,
             job_submission,
             timeout,
             async |_job_id: JobId| -> anyhow::Result<()> { Ok(()) },
@@ -91,7 +85,6 @@ impl SpiderTestDriver {
     /// Returns an error if:
     ///
     /// * Forwards [`Self::instance`]'s return values on failure.
-    /// * Forwards [`Self::resolve_resource_group`]'s return values on failure.
     /// * Forwards [`run_scenario`]'s return values on failure.
     pub async fn run_exclusive<FailureInjectionType, OutcomeAssertionType>(
         job_submission: JobSubmission,
@@ -105,12 +98,9 @@ impl SpiderTestDriver {
         let driver = Self::instance().await?;
         let client_guard = driver.client.write().await;
         let client = client_guard.clone();
-        let resource_group_id = driver
-            .resolve_resource_group(&client, &job_submission.resource_group_id)
-            .await?;
         let result = run_scenario(
             client,
-            resource_group_id,
+            driver.resource_group_id,
             job_submission,
             timeout,
             failure_injection,
@@ -137,7 +127,7 @@ impl SpiderTestDriver {
         INSTANCE.get_or_try_init(Self::init).await
     }
 
-    /// Initializes the driver from the environment, connecting to the configured Spider endpoint.
+    /// Initializes the driver with the configured Spider endpoint and shared resource group.
     ///
     /// # Returns
     ///
@@ -152,8 +142,11 @@ impl SpiderTestDriver {
     ///  * The endpoint value is not a valid Spider endpoint.
     /// * Forwards [`read_concurrency`]'s return values on failure.
     /// * Forwards [`spider_client::SpiderClientBuilder::connect`]'s return values on failure.
+    /// * Forwards [`SpiderClient::add_or_verify_resource_group`]'s return values on failure.
     async fn init() -> anyhow::Result<Self> {
         const ENDPOINT_ENV_VAR: &str = "SPIDER_ENDPOINT";
+        const EXTERNAL_RESOURCE_GROUP_ID: &str = "e2e";
+        const RESOURCE_GROUP_PASSWORD: &[u8] = b"";
         let endpoint_string = std::env::var(ENDPOINT_ENV_VAR)
             .with_context(|| format!("{ENDPOINT_ENV_VAR} is not set"))?;
         let endpoint = Endpoint::from_shared(endpoint_string).context("invalid spider endpoint")?;
@@ -162,43 +155,17 @@ impl SpiderTestDriver {
             .pool_size(concurrency)
             .connect()
             .await?;
+        let resource_group_id = client
+            .add_or_verify_resource_group(ExternalResourceGroupCredentials::new(
+                EXTERNAL_RESOURCE_GROUP_ID.to_owned(),
+                RESOURCE_GROUP_PASSWORD.to_vec(),
+            ))
+            .await?;
         Ok(Self {
             client: RwLock::new(client),
             concurrency_limiter: Semaphore::new(concurrency.get()),
-            resource_groups: Mutex::new(HashMap::new()),
+            resource_group_id,
         })
-    }
-
-    /// Resolves an external resource-group id to a Spider-assigned id, registering the resource
-    /// group on first use and caching the result.
-    ///
-    /// # Returns
-    ///
-    /// The Spider-assigned resource-group id on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`SpiderClient::add_resource_group`]'s return values on failure.
-    async fn resolve_resource_group(
-        &self,
-        client: &SpiderClient,
-        external_resource_group_id: &str,
-    ) -> anyhow::Result<ResourceGroupId> {
-        let mut resource_groups = self.resource_groups.lock().await;
-        if let Some(resource_group_id) = resource_groups.get(external_resource_group_id) {
-            return Ok(*resource_group_id);
-        }
-        let resource_group_id = client
-            .add_resource_group(ExternalResourceGroupCredentials::new(
-                external_resource_group_id.to_owned(),
-                Vec::new(),
-            ))
-            .await?;
-        resource_groups.insert(external_resource_group_id.to_owned(), resource_group_id);
-        drop(resource_groups);
-        Ok(resource_group_id)
     }
 }
 
