@@ -27,6 +27,7 @@ service InboundQueueService {
 
 service ResourceGroupManagementService {
   rpc AddResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
+  rpc AddOrVerifyResourceGroup(AddResourceGroupRequest) returns (ResourceGroupIdResponse);
   rpc VerifyResourceGroup(VerifyResourceGroupRequest) returns (common.Void);
 }
 
