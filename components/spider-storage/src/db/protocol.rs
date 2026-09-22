@@ -40,8 +40,7 @@ pub trait DbStorage:
     + ResourceGroupManagement
     + ExecutionManagerLivenessManagement
     + SchedulerRegistrationManagement
-    + SessionManagement
-{
+    + SessionManagement {
 }
 
 /// Defines the user-facing storage interface for job storage in the database.
