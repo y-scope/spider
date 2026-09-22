@@ -189,6 +189,29 @@ impl SpiderClient {
         self.resource_group.add_resource_group(credentials).await
     }
 
+    /// Creates a resource group or verifies its password if it already exists.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the created or authenticated resource group on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::InvalidArgument`] if the storage server rejects the request as invalid.
+    /// * [`ClientError::Unauthenticated`] if the existing resource group's password is invalid.
+    /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
+    /// * [`ClientError::Server`] for any other server-reported error.
+    pub async fn add_or_verify_resource_group(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, ClientError> {
+        self.resource_group
+            .add_or_verify_resource_group(credentials)
+            .await
+    }
+
     /// Verifies a resource group's password.
     ///
     /// # Returns
@@ -317,6 +340,7 @@ fn assert_client_futures_send(
     assert_send(&client.get_job_state(job_id));
     assert_send(&client.get_job_outputs(job_id));
     assert_send(&client.get_job_error(job_id));
-    assert_send(&client.add_resource_group(credentials));
+    assert_send(&client.add_resource_group(credentials.clone()));
+    assert_send(&client.add_or_verify_resource_group(credentials));
     assert_send(&client.verify_resource_group(resource_group_id, Vec::new()));
 }
