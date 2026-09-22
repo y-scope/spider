@@ -460,6 +460,43 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         Ok(ResourceGroupId::from(resource_group_id))
     }
 
+    async fn add_or_verify(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, DbError> {
+        const INSERT_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) ON DUPLICATE KEY \
+             UPDATE `id` = `id`;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT `id`, `password` FROM `{table}` WHERE `external_id` = ? FOR UPDATE;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+
+        use subtle::ConstantTimeEq;
+
+        let mut tx = self.pool.begin().await?;
+        // Keep the existing credentials unchanged and lock the row until verification completes.
+        sqlx::query(INSERT_QUERY)
+            .bind(credentials.get_external_resource_group_id())
+            .bind(credentials.get_password())
+            .execute(&mut *tx)
+            .await?;
+
+        let (resource_group_id, stored_password) =
+            sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
+                .bind(credentials.get_external_resource_group_id())
+                .fetch_one(&mut *tx)
+                .await?;
+        if !bool::from(stored_password.ct_eq(credentials.get_password())) {
+            return Err(DbError::InvalidPassword(resource_group_id));
+        }
+
+        tx.commit().await?;
+        Ok(resource_group_id)
+    }
+
     async fn verify(
         &self,
         resource_group_id: ResourceGroupId,

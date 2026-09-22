@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use spider_core::job::JobState;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
@@ -187,6 +188,37 @@ impl ResourceGroupManagement for MockDbConnector {
         self.resource_group_ids
             .insert(external_resource_group_id, id);
         Ok(id)
+    }
+
+    async fn add_or_verify(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, DbError> {
+        match self
+            .resource_group_ids
+            .entry(credentials.get_external_resource_group_id().to_owned())
+        {
+            Entry::Occupied(entry) => {
+                let id = *entry.get();
+                let stored = self
+                    .resource_groups
+                    .get(&id)
+                    .ok_or(DbError::ResourceGroupNotFound(id))?;
+                let matches = stored.get_password() == credentials.get_password();
+                drop(stored);
+                if !matches {
+                    return Err(DbError::InvalidPassword(id));
+                }
+                Ok(id)
+            }
+            Entry::Vacant(entry) => {
+                let counter = self.next_resource_group_id.fetch_add(1, Ordering::Relaxed);
+                let id = ResourceGroupId::from(counter as u64);
+                self.resource_groups.insert(id, credentials);
+                entry.insert(id);
+                Ok(id)
+            }
+        }
     }
 
     async fn verify(

@@ -574,6 +574,94 @@ async fn test_add_duplicate_resource_group() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
+async fn test_add_or_verify_resource_group() -> anyhow::Result<()> {
+    let storage = create_mariadb_connector().await;
+    let credentials = ExternalResourceGroupCredentials::new(
+        format!("test-resource-group-{}", rand::random::<u64>()),
+        b"password".to_vec(),
+    );
+
+    let resource_group_id = storage.add_or_verify(credentials.clone()).await?;
+    storage
+        .verify(resource_group_id, credentials.get_password())
+        .await?;
+    assert_eq!(storage.add_or_verify(credentials).await?, resource_group_id);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_add_or_verify_resource_group_wrong_password() -> anyhow::Result<()> {
+    let storage = create_mariadb_connector().await;
+    let credentials = ExternalResourceGroupCredentials::new(
+        format!("test-resource-group-{}", rand::random::<u64>()),
+        b"correct-password".to_vec(),
+    );
+    let resource_group_id = storage.add_or_verify(credentials.clone()).await?;
+
+    let result = storage
+        .add_or_verify(ExternalResourceGroupCredentials::new(
+            credentials.get_external_resource_group_id().to_owned(),
+            b"wrong-password".to_vec(),
+        ))
+        .await;
+    assert!(
+        matches!(result, Err(DbError::InvalidPassword(id)) if id == resource_group_id),
+        "expected InvalidPassword, got {result:?}"
+    );
+    assert_eq!(storage.add_or_verify(credentials).await?, resource_group_id);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_add_or_verify_resource_group_concurrent() -> anyhow::Result<()> {
+    let storage = create_mariadb_connector().await;
+    let credentials = ExternalResourceGroupCredentials::new(
+        format!("test-resource-group-{}", rand::random::<u64>()),
+        b"password".to_vec(),
+    );
+
+    let (first, second) = tokio::join!(
+        storage.add_or_verify(credentials.clone()),
+        storage.add_or_verify(credentials),
+    );
+    assert_eq!(first?, second?);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn test_add_or_verify_resource_group_concurrent_different_passwords() -> anyhow::Result<()> {
+    let storage = create_mariadb_connector().await;
+    let external_id = format!("test-resource-group-{}", rand::random::<u64>());
+    let first_credentials =
+        ExternalResourceGroupCredentials::new(external_id.clone(), b"first-password".to_vec());
+    let second_credentials =
+        ExternalResourceGroupCredentials::new(external_id, b"second-password".to_vec());
+
+    let (first, second) = tokio::join!(
+        storage.add_or_verify(first_credentials.clone()),
+        storage.add_or_verify(second_credentials.clone()),
+    );
+    match (first, second) {
+        (Ok(id), Err(DbError::InvalidPassword(rejected_id))) => {
+            assert_eq!(id, rejected_id);
+            storage.verify(id, first_credentials.get_password()).await?;
+        }
+        (Err(DbError::InvalidPassword(rejected_id)), Ok(id)) => {
+            assert_eq!(id, rejected_id);
+            storage
+                .verify(id, second_credentials.get_password())
+                .await?;
+        }
+        results => panic!("expected one registration and one password rejection, got {results:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
 async fn test_verify_correct_password() {
     let storage = create_mariadb_connector().await;
 
