@@ -218,6 +218,9 @@ impl ProcessPool {
     /// `RUST_LOG`, if set, is forwarded to the spawned task executor to make the child process' log
     /// level match the current execution manager.
     ///
+    /// `SPIDER_RESOURCE_GROUP_PASSWORD` is always removed from the spawned task executor's
+    /// environment so task code can't read the resource group's credentials.
+    ///
     /// # Returns
     ///
     /// A fully wired [`ExecutorHandle`] on success.
