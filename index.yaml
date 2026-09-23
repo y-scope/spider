@@ -3,7 +3,7 @@ entries:
   spider:
   - apiVersion: v2
     appVersion: 0.1.0-rc.1
-    created: "2026-09-18T22:07:33.639032025Z"
+    created: "2026-09-23T04:13:56.908134482Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 967f1ef1aa189e9a8f7ea4201d7f82b1d6358246414093408ea640ffd4161914
     home: https://github.com/y-scope/spider
@@ -22,7 +22,7 @@ entries:
     version: 0.2.0-rc.1
   - apiVersion: v2
     appVersion: 0.1.0-rc.0
-    created: "2026-09-18T22:07:33.637980251Z"
+    created: "2026-09-23T04:13:56.907608731Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 82386efac7c1ccf4a78164ee80f65eb3660c3563c2d6acd9b20f06a3069237b0
     home: https://github.com/y-scope/spider
@@ -41,7 +41,26 @@ entries:
     version: 0.2.0-rc.0
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.637510905Z"
+    created: "2026-09-23T04:13:56.907107625Z"
+    description: A Helm chart for the Spider Huntsman deployment
+    digest: cecc6b34f3add6e7ce11fc9e3385af76368e9fd1e92e291deec7e4f0d1ece368
+    home: https://github.com/y-scope/spider
+    keywords:
+    - distributed-scheduler
+    maintainers:
+    - email: dev@yscope.com
+      name: y-scope
+      url: https://yscope.com
+    name: spider
+    sources:
+    - https://github.com/y-scope/spider
+    type: application
+    urls:
+    - https://github.com/y-scope/spider/raw/gh-pages/spider-0.2.0-dev.2.tgz
+    version: 0.2.0-dev.2
+  - apiVersion: v2
+    appVersion: 0.1.0-dev
+    created: "2026-09-23T04:13:56.906581573Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 037d67a7b0b07408c48d38cfb0942bdadf3fb4730d8537d75dae1ad08710a4ca
     home: https://github.com/y-scope/spider
@@ -60,7 +79,7 @@ entries:
     version: 0.2.0-dev.1
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.637048201Z"
+    created: "2026-09-23T04:13:56.905228038Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 33de8f175720fa7eefbd6fcf118dc1fd1ab664d5cc6745f22ded20a09df0151f
     home: https://github.com/y-scope/spider
@@ -79,7 +98,7 @@ entries:
     version: 0.2.0-dev.0
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.633254128Z"
+    created: "2026-09-23T04:13:56.901233902Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 7609ea7bef9cfc7b2154304dbd2c07d498553f5fa28f3543f878a527f54f2ecd
     home: https://github.com/y-scope/spider
@@ -98,7 +117,7 @@ entries:
     version: 0.1.12
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.632741632Z"
+    created: "2026-09-23T04:13:56.900741783Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: dbc8ad4a972d7a2eb6215705b3d3119f147d2151014b467fea366266f881d3d2
     home: https://github.com/y-scope/spider
@@ -117,7 +136,7 @@ entries:
     version: 0.1.11
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.632248642Z"
+    created: "2026-09-23T04:13:56.900186176Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 085e48653529638fadabad604bb718d7943baedcdbf0df93bbe78599516bf679
     home: https://github.com/y-scope/spider
@@ -136,7 +155,7 @@ entries:
     version: 0.1.10
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.636616776Z"
+    created: "2026-09-23T04:13:56.904754234Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: a8cfcccddae456e4a93fc2bd894f31ff0e7dbf7c84f5eeeb5b4bf103b09f485e
     home: https://github.com/y-scope/spider
@@ -155,7 +174,7 @@ entries:
     version: 0.1.9
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.636181513Z"
+    created: "2026-09-23T04:13:56.904292081Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 5675351bc146283a4768f1267ab8eba7c25bfc4027f848e9dc1c4300a5cd6cef
     home: https://github.com/y-scope/spider
@@ -174,7 +193,7 @@ entries:
     version: 0.1.8
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.635781967Z"
+    created: "2026-09-23T04:13:56.903808017Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: d83c2ae36bad3d6d4aa0f96c3d3d3929587f29dc4a0c8302459d04e7de8a2092
     home: https://github.com/y-scope/spider
@@ -193,7 +212,7 @@ entries:
     version: 0.1.7
   - apiVersion: v2
     appVersion: 0.1.0-dev
-    created: "2026-09-18T22:07:33.635330485Z"
+    created: "2026-09-23T04:13:56.903360252Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 84d0ba6768630da2de4df2368f01710bc6845d48af03213f3a86f9710c24bf9a
     home: https://github.com/y-scope/spider
@@ -212,7 +231,7 @@ entries:
     version: 0.1.6
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-09-18T22:07:33.634918826Z"
+    created: "2026-09-23T04:13:56.902925169Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 47bfa0232936475fd0f13d71d103253f08c22b0e0ceb5c7cd3d060e54e8e9e1d
     home: https://github.com/y-scope/spider
@@ -231,7 +250,7 @@ entries:
     version: 0.1.5
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-09-18T22:07:33.634501237Z"
+    created: "2026-09-23T04:13:56.902500396Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: cc2565052eca7889cacb540e3fcc18e805dcb53b11515f9150d2380f78095b47
     home: https://github.com/y-scope/spider
@@ -250,7 +269,7 @@ entries:
     version: 0.1.4
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-09-18T22:07:33.63406373Z"
+    created: "2026-09-23T04:13:56.9020577Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 50751bdc2ae653dadb368c3df93386eb99d29756c3e6900784bfea2a12074490
     home: https://github.com/y-scope/spider
@@ -269,7 +288,7 @@ entries:
     version: 0.1.3
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-09-18T22:07:33.633647222Z"
+    created: "2026-09-23T04:13:56.901621746Z"
     description: A Helm chart for the Spider Huntsman deployment
     digest: 1d7d59b0a1df35eb1a19a0ce5da30a922da973223cf741ade99b251e50eee649
     home: https://github.com/y-scope/spider
@@ -286,4 +305,4 @@ entries:
     urls:
     - https://github.com/y-scope/spider/raw/gh-pages/spider-0.1.2.tgz
     version: 0.1.2
-generated: "2026-09-18T22:07:33.631604028Z"
+generated: "2026-09-23T04:13:56.899493473Z"
