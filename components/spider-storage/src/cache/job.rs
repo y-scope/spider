@@ -264,7 +264,7 @@ impl<
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_ready().await?;
         job.db_connector.start(jcb.id).await?;
-        jcb.set_state(&mut job, JobState::Running, None);
+        job.set_state(&jcb.status_sender, JobState::Running, None);
         let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
         if ready_task_indices.is_empty() {
             return Err(InternalError::TaskGraphCorrupted(
@@ -439,7 +439,7 @@ impl<
         } else {
             JobState::Succeeded
         };
-        jcb.set_state(&mut job, state, None);
+        job.set_state(&jcb.status_sender, state, None);
         if has_commit_task {
             job.inbound_queue_sender
                 .send_commit_ready(jcb.owner_id, jcb.id)
@@ -479,7 +479,7 @@ impl<
         job.db_connector
             .set_state(jcb.id, JobState::Succeeded)
             .await?;
-        jcb.set_state(&mut job, JobState::Succeeded, None);
+        job.set_state(&jcb.status_sender, JobState::Succeeded, None);
         drop(job);
         Ok(JobState::Succeeded)
     }
@@ -514,7 +514,7 @@ impl<
         job.db_connector
             .set_state(jcb.id, JobState::Cancelled)
             .await?;
-        jcb.set_state(&mut job, JobState::Cancelled, None);
+        job.set_state(&jcb.status_sender, JobState::Cancelled, None);
         drop(job);
         Ok(JobState::Cancelled)
     }
@@ -619,7 +619,7 @@ impl<
                 _ => InternalError::UnexpectedJobTermination.into(),
             })?;
         job.db_connector.fail(jcb.id, error_message.clone()).await?;
-        jcb.set_state(&mut job, JobState::Failed, Some(error_message));
+        job.set_state(&jcb.status_sender, JobState::Failed, Some(error_message));
         drop(job);
         Ok(JobState::Failed)
     }
@@ -650,7 +650,7 @@ impl<
         } else {
             JobState::Cancelled
         };
-        jcb.set_state(&mut job, state, None);
+        job.set_state(&jcb.status_sender, state, None);
 
         job.task_graph.cancel_non_terminal().await;
         if has_cleanup_task {
@@ -860,36 +860,6 @@ struct JobControlBlock<
         TaskInstancePoolConnectorType,
     >,
     status_sender: watch::Sender<JobStatus>,
-}
-
-impl<
-    InboundQueueSenderType: InboundQueueSender,
-    DbConnectorType: InternalJobOrchestration,
-    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
-> JobControlBlock<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
-{
-    /// Sets the job state and publishes the new status to all subscribers.
-    ///
-    /// # NOTE
-    ///
-    /// This method must be called while holding the job's write lock, after the new state has been
-    /// persisted to the DB.
-    fn set_state(
-        &self,
-        job: &mut JobExecutionState<
-            InboundQueueSenderType,
-            DbConnectorType,
-            TaskInstancePoolConnectorType,
-        >,
-        state: JobState,
-        error_message: Option<String>,
-    ) {
-        job.state = state;
-        self.status_sender.send_replace(JobStatus {
-            state,
-            error_message,
-        });
-    }
 }
 
 /// A concurrency-safe handle to a job's execution state.
@@ -1151,6 +1121,21 @@ impl<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > JobExecutionState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
+    /// Sets the job state and publishes it to `status_sender`. Must be called under the write lock,
+    /// after the state is persisted to the DB.
+    fn set_state(
+        &mut self,
+        status_sender: &watch::Sender<JobStatus>,
+        state: JobState,
+        error_message: Option<String>,
+    ) {
+        self.state = state;
+        status_sender.send_replace(JobStatus {
+            state,
+            error_message,
+        });
+    }
+
     /// Ensures that the job is currently in the [`JobState::Running`] state.
     ///
     /// # Errors

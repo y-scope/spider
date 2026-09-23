@@ -53,15 +53,12 @@ impl JobOrchestrationClient {
         wait_pool_size: NonZeroUsize,
         retry_config: RetryConfig,
     ) -> Result<Self, ClientError> {
-        let (connection_pool, wait_connection_pool) = tokio::try_join!(
-            ConnectionPool::connect(endpoint.clone(), pool_size, |channel| {
-                JobOrchestrationServiceClient::new(channel)
-            }),
-            ConnectionPool::connect(endpoint, wait_pool_size, |channel| {
-                JobOrchestrationServiceClient::new(channel)
-            }),
-        )
-        .map_err(to_transport_error)?;
+        let connect = |size| {
+            ConnectionPool::connect(endpoint.clone(), size, JobOrchestrationServiceClient::new)
+        };
+        let (connection_pool, wait_connection_pool) =
+            tokio::try_join!(connect(pool_size), connect(wait_pool_size))
+                .map_err(to_transport_error)?;
 
         Ok(Self {
             connection_pool,

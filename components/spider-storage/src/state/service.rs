@@ -332,8 +332,7 @@ impl<
             return self.get_job_status_from_db(job_id).await;
         };
 
-        // Subscribe before checking the state so that no transition is missed. The JCB is dropped
-        // so that it can still be evicted from the cache while waiting.
+        // Subscribe before checking the state so that no transition is missed.
         let mut receiver = jcb.subscribe();
         drop(jcb);
         if receiver.borrow().state == JobState::Ready {
@@ -1247,8 +1246,13 @@ mod tests {
         let service = create_test_service();
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
+        service.inner.job_cache.insert(jcb.clone()).await?;
+        let result = service.wait_job(job_id, Duration::from_secs(60)).await;
+        assert!(matches!(result, Err(StorageServerError::JobNotStarted(_))));
+
         jcb.start().await?;
-        service.inner.job_cache.insert(jcb).await?;
+        let status = service.wait_job(job_id, Duration::from_millis(10)).await?;
+        assert_eq!(status.state, JobState::Running);
 
         let waiter = {
             let service = service.clone();
@@ -1276,33 +1280,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wait_job_rejects_job_not_started() -> anyhow::Result<()> {
-        let service = create_test_service();
-        let job_id = JobId::random();
-        service
-            .inner
-            .job_cache
-            .insert(create_test_jcb(job_id).await)
-            .await?;
-
-        let result = service.wait_job(job_id, Duration::from_secs(60)).await;
-        assert!(
-            matches!(result, Err(StorageServerError::JobNotStarted(_))),
-            "wait_job should reject a job that hasn't been started"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn wait_job_returns_non_terminal_status_on_timeout_or_shutdown() -> anyhow::Result<()> {
+    async fn wait_job_returns_on_shutdown() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
         jcb.start().await?;
         service.inner.job_cache.insert(jcb).await?;
-
-        let status = service.wait_job(job_id, Duration::from_millis(10)).await?;
-        assert_eq!(status.state, JobState::Running);
 
         service.inner.cancellation_token.cancel();
         let status = service.wait_job(job_id, Duration::from_secs(60)).await?;

@@ -166,11 +166,8 @@ impl SpiderClient {
         self.job_orchestration.get_job_error(job_id).await
     }
 
-    /// Waits until a job reaches a terminal state.
-    ///
-    /// The wait is unbounded; dropping the returned future cancels it. Each underlying call may be
-    /// held by the storage server for up to 60 seconds, so the endpoint shouldn't be configured
-    /// with a shorter timeout.
+    /// Waits until a job reaches a terminal state. The endpoint's timeout must not be shorter than
+    /// 60 seconds, since the storage server may hold each underlying call for that long.
     ///
     /// # Returns
     ///

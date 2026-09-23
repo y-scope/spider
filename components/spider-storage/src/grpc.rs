@@ -114,9 +114,10 @@ impl<
                 Status::not_found("job not found")
             }
 
-            error @ StorageServerError::Db(
+            error @ (StorageServerError::Db(
                 DbError::InvalidJobStateTransition { .. } | DbError::UnexpectedJobState { .. },
-            ) => {
+            )
+            | StorageServerError::JobNotStarted(_)) => {
                 tracing::warn!(
                     error = % error,
                     service = SERVICE_NAME,
@@ -134,16 +135,6 @@ impl<
                     "Job not found."
                 );
                 Status::not_found("job not found")
-            }
-
-            StorageServerError::JobNotStarted(_) => {
-                tracing::warn!(
-                    error = % error,
-                    service = SERVICE_NAME,
-                    tag,
-                    "Job not started."
-                );
-                Status::failed_precondition("job not started")
             }
 
             error @ (StorageServerError::Tdl(_) | StorageServerError::BadRequest(_)) => {
