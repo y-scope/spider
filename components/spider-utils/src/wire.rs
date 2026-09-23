@@ -153,13 +153,8 @@ const FIELD_LEN_PREFIX_LEN: usize = 4;
 /// directly into the buffer.
 pub struct WireFrameBuilder {
     buffer: Vec<u8>,
+    header_offset: usize,
     count: u32,
-}
-
-impl Default for WireFrameBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl WireFrameBuilder {
@@ -170,8 +165,26 @@ impl WireFrameBuilder {
     /// The newly created wire frame builder.
     #[must_use]
     pub fn new() -> Self {
-        let buffer = vec![0u8; COUNT_HEADER_LEN];
-        Self { buffer, count: 0 }
+        Self::with_prefix(Vec::new())
+    }
+
+    /// Factory function.
+    ///
+    /// Creates a builder that starts a new frame immediately after the given `prefix` bytes, which
+    /// are kept verbatim at the front of the completed wire-format buffer.
+    ///
+    /// # Returns
+    ///
+    /// The newly created wire frame builder.
+    #[must_use]
+    pub fn with_prefix(mut prefix: Vec<u8>) -> Self {
+        let header_offset = prefix.len();
+        prefix.resize(header_offset + COUNT_HEADER_LEN, 0);
+        Self {
+            buffer: prefix,
+            header_offset,
+            count: 0,
+        }
     }
 
     /// Appends the given byte payload as a new frame to the underlying buffer.
@@ -180,18 +193,36 @@ impl WireFrameBuilder {
     ///
     /// Returns an error if:
     ///
-    /// * [`WireError::Overflow`] if the length of `payload` exceeds [`u32::MAX`].
-    /// * Forwards [`WireFrameBuilder::increment_count`]'s return values on failure.
+    /// * Forwards [`WireFrameBuilder::append_payload_parts`]'s return values on failure.
     pub fn append_payload(&mut self, payload: &[u8]) -> Result<(), WireError> {
-        let payload_len = u32::try_from(payload.len()).map_err(|_| {
+        self.append_payload_parts(&[payload])
+    }
+
+    /// Appends a single payload whose bytes are the concatenation of `parts` as a new frame to the
+    /// underlying buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`WireError::Overflow`] if the total length of `parts` exceeds [`u32::MAX`].
+    /// * Forwards [`WireFrameBuilder::increment_count`]'s return values on failure.
+    pub fn append_payload_parts(&mut self, parts: &[&[u8]]) -> Result<(), WireError> {
+        let payload_len = parts
+            .iter()
+            .try_fold(0usize, |total_len, part| total_len.checked_add(part.len()))
+            .ok_or_else(|| WireError::Overflow("payload length exceeds u32::MAX".to_owned()))?;
+        let payload_len_u32 = u32::try_from(payload_len).map_err(|_| {
             WireError::Overflow(format!(
-                "payload length {} bytes exceeds u32::MAX",
-                payload.len()
+                "payload length {payload_len} bytes exceeds u32::MAX"
             ))
         })?;
         self.increment_count()?;
-        self.buffer.extend_from_slice(&payload_len.to_le_bytes());
-        self.buffer.extend_from_slice(payload);
+        self.buffer
+            .extend_from_slice(&payload_len_u32.to_le_bytes());
+        for part in parts {
+            self.buffer.extend_from_slice(part);
+        }
         Ok(())
     }
 
@@ -233,6 +264,79 @@ impl WireFrameBuilder {
         Ok(())
     }
 
+    /// Finalizes the count header and returns the completed wire-format buffer.
+    ///
+    /// # Returns
+    ///
+    /// Completed wire-format buffer.
+    #[must_use]
+    pub fn release(mut self) -> Vec<u8> {
+        self.buffer[self.header_offset..self.header_offset + COUNT_HEADER_LEN]
+            .copy_from_slice(&self.count.to_le_bytes());
+        self.buffer
+    }
+
+    /// Parses a wire-format byte stream and extracts each payload as an owned `Vec<u8>`.
+    ///
+    /// # Returns
+    ///
+    /// A vector of payloads on success, one per wire-format element.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`WireFrameBuilder::unframe_payload_slices`]'s return values on failure.
+    pub fn unframe_payloads(data: &[u8]) -> Result<Vec<Vec<u8>>, WireError> {
+        let (payloads, _) = Self::unframe_payload_slices(data)?;
+        Ok(payloads.into_iter().map(<[u8]>::to_vec).collect())
+    }
+
+    /// Parses a single wire-format frame from the front of `data` and extracts each payload as a
+    /// borrowed slice.
+    ///
+    /// # Returns
+    ///
+    /// A tuple on success, containing:
+    ///
+    /// * A vector of payloads borrowed from `data`, one per wire-format element.
+    /// * The remaining bytes of `data` after the parsed frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`WireError::InvalidFormat`] if the buffer is too small to contain the count header, or if
+    ///   a payload length prefix or the declared payload length extends past the end of the buffer.
+    pub fn unframe_payload_slices(data: &[u8]) -> Result<(Vec<&[u8]>, &[u8]), WireError> {
+        let (count_bytes, mut remaining) =
+            data.split_first_chunk::<COUNT_HEADER_LEN>()
+                .ok_or(WireError::InvalidFormat(
+                    "buffer too small for the payload count header",
+                ))?;
+        let count = u32::from_le_bytes(*count_bytes) as usize;
+
+        // `count` is read from untrusted input. The reservation is bounded by the number of length
+        // prefixes (`FIELD_LEN_PREFIX_LEN`) the remaining buffer could hold.
+        let mut payloads = Vec::with_capacity(count.min(remaining.len() / FIELD_LEN_PREFIX_LEN));
+        for _ in 0..count {
+            let (len_bytes, rest) = remaining
+                .split_first_chunk::<FIELD_LEN_PREFIX_LEN>()
+                .ok_or(WireError::InvalidFormat(
+                    "unexpected end of buffer reading payload length",
+                ))?;
+            let field_len = u32::from_le_bytes(*len_bytes) as usize;
+            let (payload, rest) =
+                rest.split_at_checked(field_len)
+                    .ok_or(WireError::InvalidFormat(
+                        "unexpected end of buffer reading payload data",
+                    ))?;
+            payloads.push(payload);
+            remaining = rest;
+        }
+        Ok((payloads, remaining))
+    }
+
     /// Increments the count for the next frame.
     ///
     /// # Errors
@@ -247,59 +351,11 @@ impl WireFrameBuilder {
             .ok_or_else(|| WireError::Overflow("payload count exceeds u32::MAX".to_owned()))?;
         Ok(())
     }
+}
 
-    /// Finalizes the count header and returns the completed wire-format buffer.
-    ///
-    /// # Returns
-    ///
-    /// Completed wire-format buffer.
-    #[must_use]
-    pub fn release(mut self) -> Vec<u8> {
-        self.buffer[..COUNT_HEADER_LEN].copy_from_slice(&self.count.to_le_bytes());
-        self.buffer
-    }
-
-    /// Parses a wire-format byte stream and extracts each payload as an owned `Vec<u8>`.
-    ///
-    /// # Returns
-    ///
-    /// A vector of payloads on success, one per wire-format element.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`WireError::InvalidFormat`] if the buffer is too small to contain the count header, or if
-    ///   the declared field length extends past the end of the buffer.
-    pub fn unframe_payloads(data: &[u8]) -> Result<Vec<Vec<u8>>, WireError> {
-        let count_bytes =
-            data.first_chunk::<COUNT_HEADER_LEN>()
-                .ok_or(WireError::InvalidFormat(
-                    "buffer too small for the payload count header",
-                ))?;
-        let count = u32::from_le_bytes(*count_bytes) as usize;
-
-        let mut pos = COUNT_HEADER_LEN;
-        let mut payloads = Vec::with_capacity(count);
-        for _ in 0..count {
-            let len_bytes = data
-                .get(pos..)
-                .and_then(<[u8]>::first_chunk::<FIELD_LEN_PREFIX_LEN>)
-                .ok_or(WireError::InvalidFormat(
-                    "unexpected end of buffer reading payload length",
-                ))?;
-            let field_len = u32::from_le_bytes(*len_bytes) as usize;
-            pos += FIELD_LEN_PREFIX_LEN;
-
-            if pos + field_len > data.len() {
-                return Err(WireError::InvalidFormat(
-                    "unexpected end of buffer reading payload data",
-                ));
-            }
-            payloads.push(data[pos..pos + field_len].to_vec());
-            pos += field_len;
-        }
-        Ok(payloads)
+impl Default for WireFrameBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -640,5 +696,122 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Foo::bar"));
         assert!(msg.contains("position 1"));
+    }
+
+    #[test]
+    fn with_prefix_frames_parse_back_consecutively() -> Result<(), WireError> {
+        let mut first_builder = WireFrameBuilder::new();
+        first_builder.append_payload(b"first")?;
+        let first_frame = first_builder.release();
+
+        let mut second_builder = WireFrameBuilder::with_prefix(first_frame.clone());
+        second_builder.append_payload(b"second")?;
+        second_builder.append_payload(b"")?;
+        let wire = second_builder.release();
+        assert_eq!(wire.get(..first_frame.len()), Some(first_frame.as_slice()));
+
+        let (first_payloads, remaining) = WireFrameBuilder::unframe_payload_slices(&wire)?;
+        assert_eq!(first_payloads, [b"first".as_slice()]);
+        let (second_payloads, remaining) = WireFrameBuilder::unframe_payload_slices(remaining)?;
+        assert_eq!(second_payloads, [b"second".as_slice(), b"".as_slice()]);
+        assert_eq!(remaining, b"");
+        Ok(())
+    }
+
+    #[test]
+    fn release_patches_count_header_after_prefix() -> Result<(), WireError> {
+        const PREFIX: [u8; 3] = [0xaa, 0xbb, 0xcc];
+
+        let mut builder = WireFrameBuilder::with_prefix(PREFIX.to_vec());
+        builder.append_payload(b"x")?;
+        builder.append_payload(b"yz")?;
+        let wire = builder.release();
+
+        let mut expected = PREFIX.to_vec();
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        expected.extend_from_slice(&1u32.to_le_bytes());
+        expected.extend_from_slice(b"x");
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        expected.extend_from_slice(b"yz");
+        assert_eq!(wire, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn append_payload_parts_matches_append_payload_of_concatenation() -> Result<(), WireError> {
+        let parts_cases: [&[&[u8]]; 4] = [&[b"ab", b"", b"cde"], &[b"", b""], &[b"only"], &[]];
+        for parts in parts_cases {
+            let mut parts_builder = WireFrameBuilder::new();
+            parts_builder.append_payload_parts(parts)?;
+            let mut concatenated_builder = WireFrameBuilder::new();
+            concatenated_builder.append_payload(&parts.concat())?;
+            assert_eq!(parts_builder.release(), concatenated_builder.release());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn append_payload_parts_rejects_total_length_overflow() {
+        const PART_LEN: usize = 1 << 20;
+        const NUM_PARTS: usize = 4097;
+
+        let part = vec![0u8; PART_LEN];
+        let parts = vec![part.as_slice(); NUM_PARTS];
+        let mut builder = WireFrameBuilder::new();
+        let err = builder
+            .append_payload_parts(&parts)
+            .expect_err("total payload length exceeding u32::MAX should be rejected");
+        assert!(matches!(err, WireError::Overflow(_)));
+        assert_eq!(builder.release(), WireFrameBuilder::new().release());
+    }
+
+    #[test]
+    fn unframe_payload_slices_returns_remaining_bytes() -> Result<(), WireError> {
+        const TRAILING_BYTES: &[u8] = b"trailing";
+
+        let mut builder = WireFrameBuilder::new();
+        builder.append_payload(b"payload")?;
+        let mut wire = builder.release();
+        wire.extend_from_slice(TRAILING_BYTES);
+
+        let (payloads, remaining) = WireFrameBuilder::unframe_payload_slices(&wire)?;
+        assert_eq!(payloads, [b"payload".as_slice()]);
+        assert_eq!(remaining, TRAILING_BYTES);
+        assert_eq!(
+            WireFrameBuilder::unframe_payloads(&wire)?,
+            [b"payload".to_vec()]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unframe_payload_slices_empty_frame() -> Result<(), WireError> {
+        let wire = WireFrameBuilder::new().release();
+        let (payloads, remaining) = WireFrameBuilder::unframe_payload_slices(&wire)?;
+        assert_eq!(payloads, [] as [&[u8]; 0]);
+        assert_eq!(remaining, b"");
+        Ok(())
+    }
+
+    #[test]
+    fn unframe_payload_slices_rejects_truncated_buffers() {
+        let mut builder = WireFrameBuilder::new();
+        builder
+            .append_payload(b"payload")
+            .expect("appending a payload should succeed");
+        let wire = builder.release();
+
+        for truncated_len in 0..wire.len() {
+            let err = WireFrameBuilder::unframe_payload_slices(&wire[..truncated_len])
+                .expect_err("truncated buffer should be rejected");
+            assert!(matches!(err, WireError::InvalidFormat(_)));
+        }
+    }
+
+    #[test]
+    fn unframe_payload_slices_rejects_oversized_count_header() {
+        let err = WireFrameBuilder::unframe_payload_slices(&u32::MAX.to_le_bytes())
+            .expect_err("count header exceeding the buffer should be rejected");
+        assert!(matches!(err, WireError::InvalidFormat(_)));
     }
 }
