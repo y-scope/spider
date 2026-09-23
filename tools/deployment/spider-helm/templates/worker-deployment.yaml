@@ -32,16 +32,16 @@ spec:
               value: {{ $.Values.spiderConfig.execution_manager.log_level | quote }}
             {{- with .resource_group }}
             - name: "SPIDER_EXTERNAL_RESOURCE_GROUP_ID"
-              value: {{ required "a dedicated pool's `resource_group` needs `external_id`" .external_id | quote }}
+              value: {{ required "a dedicated pool's `resource_group` needs `external_id`" (tpl (.external_id | default "") $) | quote }}
             - name: "SPIDER_RESOURCE_GROUP_PASSWORD"
               {{- $password := .password | default dict }}
               {{- if $password.secretKeyRef }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "a dedicated pool's `resource_group.password.secretKeyRef` needs `name`" $password.secretKeyRef.name | quote }}
-                  key: {{ required "a dedicated pool's `resource_group.password.secretKeyRef` needs `key`" $password.secretKeyRef.key | quote }}
+                  name: {{ required "a dedicated pool's `resource_group.password.secretKeyRef` needs `name`" (tpl ($password.secretKeyRef.name | default "") $) | quote }}
+                  key: {{ required "a dedicated pool's `resource_group.password.secretKeyRef` needs `key`" (tpl ($password.secretKeyRef.key | default "") $) | quote }}
               {{- else }}
-              value: {{ required "a dedicated pool's `resource_group.password` needs `value` or `secretKeyRef`" $password.value | quote }}
+              value: {{ required "a dedicated pool's `resource_group.password` needs `value` or `secretKeyRef`" (tpl ($password.value | default "") $) | quote }}
               {{- end }}
             {{- end }}
             {{- with $.Values.spiderConfig.worker.extra_envs }}
