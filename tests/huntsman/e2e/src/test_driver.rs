@@ -216,7 +216,7 @@ impl SpiderTestDriver {
 ///
 /// * [`anyhow::Error`] if the job does not reach a terminal state within `timeout`.
 /// * Forwards [`submit_and_start_job`]'s return values on failure.
-/// * Forwards [`poll_until_terminal`]'s return values on failure.
+/// * Forwards [`wait_until_terminal`]'s return values on failure.
 /// * Forwards `failure_injection`'s return values on failure.
 /// * Forwards `outcome_assertion`'s return values on failure.
 async fn run_scenario<FailureInjectionType, OutcomeAssertionType>(
@@ -234,7 +234,7 @@ where
     let result = match tokio::time::timeout(timeout, async {
         let ((), termination) = tokio::try_join!(
             failure_injection(job_id),
-            poll_until_terminal(&client, job_id),
+            wait_until_terminal(&client, job_id),
         )?;
         anyhow::Result::<TerminationResult>::Ok(termination)
     })
@@ -274,7 +274,7 @@ async fn submit_and_start_job(
     Ok(job_id)
 }
 
-/// Polls the job's state until it reaches a terminal state.
+/// Waits for the job to reach a terminal state.
 ///
 /// # Returns
 ///
@@ -284,28 +284,27 @@ async fn submit_and_start_job(
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`SpiderClient::get_job_state`]'s return values on failure.
+/// * [`anyhow::Error`] if the job failed without an error message.
+/// * Forwards [`SpiderClient::wait_for_job`]'s return values on failure.
 /// * Forwards [`SpiderClient::get_job_outputs`]'s return values on failure.
-/// * Forwards [`SpiderClient::get_job_error`]'s return values on failure.
-async fn poll_until_terminal(
+async fn wait_until_terminal(
     client: &SpiderClient,
     job_id: JobId,
 ) -> anyhow::Result<TerminationResult> {
-    const POLL_INTERVAL: Duration = Duration::from_millis(10);
-
-    loop {
-        match client.get_job_state(job_id).await? {
-            JobState::Succeeded => {
-                let outputs = client.get_job_outputs(job_id).await?;
-                return Ok(TerminationResult::Success(outputs));
-            }
-            JobState::Failed => {
-                let error_message = client.get_job_error(job_id).await?;
-                return Ok(TerminationResult::Failure(error_message));
-            }
-            JobState::Cancelled => return Ok(TerminationResult::Cancelled),
-            _ => tokio::time::sleep(POLL_INTERVAL).await,
+    let status = client.wait_for_job(job_id).await?;
+    match status.state {
+        JobState::Succeeded => {
+            let outputs = client.get_job_outputs(job_id).await?;
+            Ok(TerminationResult::Success(outputs))
         }
+        JobState::Failed => {
+            let error_message = status
+                .error_message
+                .context("failed job has no error message")?;
+            Ok(TerminationResult::Failure(error_message))
+        }
+        JobState::Cancelled => Ok(TerminationResult::Cancelled),
+        state => anyhow::bail!("unexpected non-terminal job state: {state}"),
     }
 }
 
