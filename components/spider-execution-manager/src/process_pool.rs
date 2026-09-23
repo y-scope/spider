@@ -14,6 +14,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::resource_group::RESOURCE_GROUP_PASSWORD_ENV;
 use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
@@ -259,6 +260,9 @@ impl ProcessPool {
                 }
             }
         }
+
+        // Task code must never see the resource-group password, even if it's in `inherited_env`.
+        command.env_remove(RESOURCE_GROUP_PASSWORD_ENV);
 
         let mut child = command.spawn()?;
         let stdin = child
