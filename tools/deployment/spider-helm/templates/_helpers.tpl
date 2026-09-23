@@ -126,7 +126,7 @@ Gets the bundled database Service host or external `spiderConfig.database.host`.
 {{- if has "database" .Values.spiderConfig.bundled -}}
 {{- include "spider.componentFullname" (dict "root" . "component" "database") -}}
 {{- else -}}
-{{- .Values.spiderConfig.database.host -}}
+{{- tpl .Values.spiderConfig.database.host . -}}
 {{- end -}}
 {{- end }}
 
