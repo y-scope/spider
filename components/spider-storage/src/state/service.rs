@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use spider_core::job::JobState;
+use spider_core::job::JobStatus;
 use spider_core::task::TaskIndex;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
@@ -306,6 +307,55 @@ impl<
     /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
     pub async fn get_job_error(&self, job_id: JobId) -> Result<String, StorageServerError> {
         Ok(self.inner.db.get_error(job_id).await?)
+    }
+
+    /// Waits until a job reaches a terminal state, `timeout` elapses, or the service shuts down.
+    ///
+    /// # Returns
+    ///
+    /// The status of the job on success. The status is non-terminal only if the job doesn't
+    /// terminate before `timeout` elapses or the service shuts down.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`StorageServerError::JobNotStarted`] if the job hasn't been started.
+    /// * Forwards [`Self::get_job_status_from_db`]'s return values on failure.
+    pub async fn wait_job(
+        &self,
+        job_id: JobId,
+        timeout: Duration,
+    ) -> Result<JobStatus, StorageServerError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        let Some(jcb) = self.inner.job_cache.get(job_id).await else {
+            return self.get_job_status_from_db(job_id).await;
+        };
+
+        // Subscribe before checking the state so that no transition is missed. The JCB is dropped
+        // so that it can still be evicted from the cache while waiting.
+        let mut receiver = jcb.subscribe();
+        drop(jcb);
+        if receiver.borrow().state == JobState::Ready {
+            return Err(StorageServerError::JobNotStarted(job_id));
+        }
+
+        let terminal_status = async {
+            receiver
+                .wait_for(|status| status.state.is_terminal())
+                .await
+                .map(|status| status.clone())
+                .ok()
+        };
+        tokio::select! {
+            status = terminal_status => match status {
+                Some(status) => Ok(status),
+                // The sender is dropped once the job is evicted from the cache.
+                None => self.get_job_status_from_db(job_id).await,
+            },
+            () = tokio::time::sleep_until(deadline) => Ok(receiver.borrow().clone()),
+            () = self.inner.cancellation_token.cancelled() => Ok(receiver.borrow().clone()),
+        }
     }
 
     /// Resends ready tasks for all jobs in the cache to the inbound queue.
@@ -785,6 +835,30 @@ impl<
         Ok(())
     }
 
+    /// Gets the status of a job from the DB.
+    ///
+    /// # Returns
+    ///
+    /// The status of the job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure.
+    /// * Forwards [`ExternalJobOrchestration::get_error`]'s return values on failure.
+    async fn get_job_status_from_db(&self, job_id: JobId) -> Result<JobStatus, StorageServerError> {
+        let state = self.inner.db.get_state(job_id).await?;
+        let error_message = match state {
+            JobState::Failed => Some(self.inner.db.get_error(job_id).await?),
+            _ => None,
+        };
+        Ok(JobStatus {
+            state,
+            error_message,
+        })
+    }
+
     /// Enqueues a job for delayed cache GC if it has reached a terminal state.
     fn enqueue_for_gc_if_terminal(&self, job_id: JobId, state: JobState) {
         if state.is_terminal() {
@@ -1165,6 +1239,74 @@ mod tests {
         let service = create_test_service();
         let result = service.get_job_state(JobId::random()).await;
         assert!(result.is_err(), "get_job_state should fail for unknown job");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_job_returns_when_job_terminates() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = JobId::random();
+        let jcb = create_test_jcb(job_id).await;
+        jcb.start().await?;
+        service.inner.job_cache.insert(jcb).await?;
+
+        let waiter = {
+            let service = service.clone();
+            tokio::spawn(async move { service.wait_job(job_id, Duration::from_secs(60)).await })
+        };
+        service.cancel_job(job_id).await?;
+
+        let status = waiter.await??;
+        assert_eq!(status.state, JobState::Cancelled);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_job_returns_terminal_status_from_db_when_not_in_cache() -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let job_id = JobId::random();
+        db.states.insert(job_id, JobState::Failed);
+        db.errors.insert(job_id, "task failed".to_owned());
+
+        let service = create_test_service_with_db(db);
+        let status = service.wait_job(job_id, Duration::from_secs(60)).await?;
+        assert_eq!(status.state, JobState::Failed);
+        assert_eq!(status.error_message.as_deref(), Some("task failed"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_job_rejects_job_not_started() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = JobId::random();
+        service
+            .inner
+            .job_cache
+            .insert(create_test_jcb(job_id).await)
+            .await?;
+
+        let result = service.wait_job(job_id, Duration::from_secs(60)).await;
+        assert!(
+            matches!(result, Err(StorageServerError::JobNotStarted(_))),
+            "wait_job should reject a job that hasn't been started"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_job_returns_non_terminal_status_on_timeout_or_shutdown() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = JobId::random();
+        let jcb = create_test_jcb(job_id).await;
+        jcb.start().await?;
+        service.inner.job_cache.insert(jcb).await?;
+
+        let status = service.wait_job(job_id, Duration::from_millis(10)).await?;
+        assert_eq!(status.state, JobState::Running);
+
+        service.inner.cancellation_token.cancel();
+        let status = service.wait_job(job_id, Duration::from_secs(60)).await?;
+        assert_eq!(status.state, JobState::Running);
         Ok(())
     }
 

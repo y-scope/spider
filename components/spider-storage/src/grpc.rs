@@ -1,5 +1,7 @@
 //! gRPC service adapters for the storage service.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::SerializedTaskOutputs;
@@ -132,6 +134,16 @@ impl<
                     "Job not found."
                 );
                 Status::not_found("job not found")
+            }
+
+            StorageServerError::JobNotStarted(_) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "Job not started."
+                );
+                Status::failed_precondition("job not started")
             }
 
             error @ (StorageServerError::Tdl(_) | StorageServerError::BadRequest(_)) => {
@@ -578,6 +590,22 @@ impl<
             Err(error) => Err(self.job_orchestration_service_error_handler(error, "get_job_error")),
         }
     }
+
+    async fn wait_job(
+        &self,
+        request: Request<storage::JobIdRequest>,
+    ) -> Result<Response<storage::JobStatusResponse>, Status> {
+        let job_id = request.into_inner().unpack()?;
+        tracing::debug!(job_id = job_id.get(), "Job wait request received.");
+
+        match self.inner.wait_job(job_id, WAIT_JOB_TIMEOUT).await {
+            Ok(status) => Ok(Response::new(storage::JobStatusResponse {
+                state: storage::JobState::from(status.state).into(),
+                error_message: status.error_message,
+            })),
+            Err(error) => Err(self.job_orchestration_service_error_handler(error, "wait_job")),
+        }
+    }
 }
 
 #[async_trait]
@@ -919,6 +947,9 @@ impl<
         Ok(Response::new(storage::GetSessionResponse { session_id }))
     }
 }
+
+/// The maximum duration a `WaitJob` call waits before returning the job's non-terminal state.
+const WAIT_JOB_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// # Returns
 ///

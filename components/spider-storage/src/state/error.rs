@@ -26,6 +26,9 @@ pub enum StorageServerError {
     #[error("job not found in cache: {0:?}")]
     JobNotFound(JobId),
 
+    #[error("job not started: {0:?}")]
+    JobNotStarted(JobId),
+
     #[error("bad request: {0}")]
     BadRequest(String),
 
