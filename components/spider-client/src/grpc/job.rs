@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 
 use spider_core::compression::encode_zstd_bytes;
 use spider_core::job::JobState;
+use spider_core::job::JobStatus;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -29,11 +30,13 @@ use crate::error::to_transport_error;
 #[derive(Debug, Clone)]
 pub struct JobOrchestrationClient {
     connection_pool: ConnectionPool<JobOrchestrationServiceClient<Channel>>,
+    wait_connection_pool: ConnectionPool<JobOrchestrationServiceClient<Channel>>,
     retry_config: RetryConfig,
 }
 
 impl JobOrchestrationClient {
-    /// Connects a pool of `pool_size` connections to the job-orchestration gRPC endpoint.
+    /// Connects a pool of `pool_size` connections to the job-orchestration gRPC endpoint, and a
+    /// separate pool of `wait_pool_size` connections for long-polling calls.
     ///
     /// # Returns
     ///
@@ -47,16 +50,22 @@ impl JobOrchestrationClient {
     pub async fn connect(
         endpoint: Endpoint,
         pool_size: NonZeroUsize,
+        wait_pool_size: NonZeroUsize,
         retry_config: RetryConfig,
     ) -> Result<Self, ClientError> {
-        let connection_pool = ConnectionPool::connect(endpoint, pool_size, |channel| {
-            JobOrchestrationServiceClient::new(channel)
-        })
-        .await
+        let (connection_pool, wait_connection_pool) = tokio::try_join!(
+            ConnectionPool::connect(endpoint.clone(), pool_size, |channel| {
+                JobOrchestrationServiceClient::new(channel)
+            }),
+            ConnectionPool::connect(endpoint, wait_pool_size, |channel| {
+                JobOrchestrationServiceClient::new(channel)
+            }),
+        )
         .map_err(to_transport_error)?;
 
         Ok(Self {
             connection_pool,
+            wait_connection_pool,
             retry_config,
         })
     }
@@ -242,6 +251,48 @@ impl JobOrchestrationClient {
         .into_inner();
 
         Ok(response.error_message)
+    }
+
+    /// Waits until a job reaches a terminal state by repeatedly long-polling the storage server.
+    ///
+    /// # Returns
+    ///
+    /// The job's terminal [`JobStatus`] on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::JobNotStarted`] if the job hasn't been started.
+    /// * Forwards [`JobOrchestrationServiceClient::wait_job`]'s status on failure.
+    /// * Forwards [`job_state_response_to_result`]'s return values on failure.
+    pub async fn wait_for_job(&self, job_id: JobId) -> Result<JobStatus, ClientError> {
+        loop {
+            let pool = self.wait_connection_pool.clone();
+            let response = call_with_retry(self.retry_config, move || {
+                let mut client = pool.get_client();
+                let request = storage::JobIdRequest {
+                    job_id: job_id.get(),
+                };
+                async move { client.wait_job(request).await }
+            })
+            .await
+            .map_err(|status| match status.code() {
+                Code::FailedPrecondition => ClientError::JobNotStarted,
+                _ => job_status_to_error(&status),
+            })?
+            .into_inner();
+
+            let state = job_state_response_to_result(storage::JobStateResponse {
+                state: response.state,
+            })?;
+            if state.is_terminal() {
+                return Ok(JobStatus {
+                    state,
+                    error_message: response.error_message,
+                });
+            }
+        }
     }
 }
 
