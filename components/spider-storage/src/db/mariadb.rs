@@ -18,6 +18,7 @@ use spider_utils::config::Host;
 use sqlx::Connection;
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlDatabaseError;
+use subtle::ConstantTimeEq;
 
 use crate::config::DatabaseConfig;
 use crate::db::DbError;
@@ -474,8 +475,6 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        use subtle::ConstantTimeEq;
-
         let mut tx = self.pool.begin().await?;
         // Keep the existing credentials unchanged and lock the row until verification completes.
         sqlx::query(INSERT_QUERY)
@@ -506,8 +505,6 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             "SELECT `password` FROM `{table}` WHERE `id` = ?;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
-
-        use subtle::ConstantTimeEq;
 
         let Some(stored_password) = sqlx::query_scalar::<_, Vec<u8>>(QUERY)
             .bind(resource_group_id)
