@@ -203,7 +203,7 @@ impl ResourceGroupManagement for MockDbConnector {
                 let stored = self
                     .resource_groups
                     .get(&id)
-                    .ok_or(DbError::ResourceGroupNotFound(id))?;
+                    .expect("indexed resource group must exist in the mock");
                 let matches = stored.get_password() == credentials.get_password();
                 drop(stored);
                 if !matches {
