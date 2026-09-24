@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use spider_core::job::JobState;
@@ -17,6 +18,7 @@ use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
 use spider_storage::db::SchedulerRegistrationManagement;
 use spider_storage::db::SessionManagement;
+use tokio::sync::Barrier;
 use tokio::task::JoinSet;
 
 use super::mariadb_infra::create_mariadb_config;
@@ -613,20 +615,41 @@ async fn test_add_or_verify_resource_group_wrong_password() -> anyhow::Result<()
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MariaDB"]
 async fn test_add_or_verify_resource_group_concurrent() -> anyhow::Result<()> {
-    let storage = create_mariadb_connector().await;
-    let credentials = ExternalResourceGroupCredentials::new(
-        format!("test-resource-group-{}", rand::random::<u64>()),
-        b"password".to_vec(),
-    );
+    const NUM_CONCURRENT_CALLS: usize = 16;
+    const NUM_ITERATIONS: usize = 10;
 
-    let (first, second) = tokio::join!(
-        storage.add_or_verify(credentials.clone()),
-        storage.add_or_verify(credentials),
-    );
-    assert_eq!(first?, second?);
+    let mut config = create_mariadb_config();
+    config.max_connections = u32::try_from(NUM_CONCURRENT_CALLS)?;
+    let storage = MariaDbStorageConnector::connect(&config).await?;
+
+    for _ in 0..NUM_ITERATIONS {
+        let credentials = ExternalResourceGroupCredentials::new(
+            format!("test-resource-group-{}", rand::random::<u64>()),
+            b"password".to_vec(),
+        );
+        let barrier = Arc::new(Barrier::new(NUM_CONCURRENT_CALLS));
+        let mut join_set = JoinSet::new();
+        for _ in 0..NUM_CONCURRENT_CALLS {
+            let storage = storage.clone();
+            let credentials = credentials.clone();
+            let barrier = Arc::clone(&barrier);
+            join_set.spawn(async move {
+                barrier.wait().await;
+                storage.add_or_verify(credentials).await
+            });
+        }
+
+        let resource_group_id = join_set
+            .join_next()
+            .await
+            .expect("at least one registration task must exist")??;
+        while let Some(result) = join_set.join_next().await {
+            assert_eq!(result??, resource_group_id);
+        }
+    }
     Ok(())
 }
 
