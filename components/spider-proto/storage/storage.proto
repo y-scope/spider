@@ -11,6 +11,7 @@ service JobOrchestrationService {
   rpc GetJobState(JobIdRequest) returns (JobStateResponse);
   rpc GetJobOutputs(JobIdRequest) returns (JobOutputsResponse);
   rpc GetJobError(JobIdRequest) returns (JobErrorResponse);
+  rpc WaitJob(JobIdRequest) returns (JobStatusResponse);
 }
 
 service TaskInstanceManagementService {
@@ -70,6 +71,11 @@ message JobOutputsResponse {
 
 message JobErrorResponse {
   string error_message = 1;
+}
+
+message JobStatusResponse {
+  JobState state = 1;
+  optional string error_message = 2;
 }
 
 message PollReadyTasksRequest {

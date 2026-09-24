@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use spider_core::job::JobState;
+use spider_core::job::JobStatus;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -34,6 +35,7 @@ impl SpiderClient {
         SpiderClientBuilder {
             endpoint,
             pool_size: DEFAULT_POOL_SIZE,
+            wait_pool_size: DEFAULT_WAIT_POOL_SIZE,
             retry_config: RetryConfig::default(),
         }
     }
@@ -164,6 +166,27 @@ impl SpiderClient {
         self.job_orchestration.get_job_error(job_id).await
     }
 
+    /// Waits until a job reaches a terminal state. The endpoint's timeout must not be shorter than
+    /// 60 seconds, since the storage server may hold each underlying call for that long.
+    ///
+    /// # Returns
+    ///
+    /// The job's terminal [`JobStatus`] on success, with the error message set if the job failed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::JobNotFound`] if no job with `job_id` exists.
+    /// * [`ClientError::JobNotStarted`] if the job hasn't been started.
+    /// * [`ClientError::UnspecifiedJobState`] if the server reports an unspecified job state.
+    /// * [`ClientError::Transport`] if the gRPC transport fails, the connection is lost, or the
+    ///   server reports an unrecognized job state.
+    /// * [`ClientError::Server`] for any other server-reported error.
+    pub async fn wait_for_job(&self, job_id: JobId) -> Result<JobStatus, ClientError> {
+        self.job_orchestration.wait_for_job(job_id).await
+    }
+
     /// Registers an external resource group and returns its server-assigned id.
     ///
     /// # Returns
@@ -219,6 +242,7 @@ impl SpiderClient {
 pub struct SpiderClientBuilder {
     endpoint: Endpoint,
     pool_size: NonZeroUsize,
+    wait_pool_size: NonZeroUsize,
     retry_config: RetryConfig,
 }
 
@@ -231,6 +255,17 @@ impl SpiderClientBuilder {
     #[must_use]
     pub const fn pool_size(mut self, pool_size: NonZeroUsize) -> Self {
         self.pool_size = pool_size;
+        self
+    }
+
+    /// Sets the size of the gRPC connection pool dedicated to [`SpiderClient::wait_for_job`].
+    ///
+    /// # Returns
+    ///
+    /// The builder with `wait_pool_size` set.
+    #[must_use]
+    pub const fn wait_pool_size(mut self, wait_pool_size: NonZeroUsize) -> Self {
+        self.wait_pool_size = wait_pool_size;
         self
     }
 
@@ -273,6 +308,7 @@ impl SpiderClientBuilder {
             JobOrchestrationClient::connect(
                 self.endpoint.clone(),
                 self.pool_size,
+                self.wait_pool_size,
                 self.retry_config
             ),
             ResourceGroupManagementClient::connect(
@@ -290,6 +326,7 @@ impl SpiderClientBuilder {
 }
 
 const DEFAULT_POOL_SIZE: NonZeroUsize = NonZeroUsize::new(8).unwrap();
+const DEFAULT_WAIT_POOL_SIZE: NonZeroUsize = NonZeroUsize::new(2).unwrap();
 
 /// Compile-time assertion that the public client handles are `Send + Sync`.
 const _: () = {
@@ -317,6 +354,7 @@ fn assert_client_futures_send(
     assert_send(&client.get_job_state(job_id));
     assert_send(&client.get_job_outputs(job_id));
     assert_send(&client.get_job_error(job_id));
+    assert_send(&client.wait_for_job(job_id));
     assert_send(&client.add_resource_group(credentials));
     assert_send(&client.verify_resource_group(resource_group_id, Vec::new()));
 }

@@ -5,6 +5,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use spider_core::job::JobState;
+use spider_core::job::JobStatus;
 use spider_core::task::TaskIndex;
 use spider_core::task::TaskState;
 use spider_core::types::id::ExecutionManagerId;
@@ -17,6 +18,7 @@ use spider_core::types::io::SerializedTaskOutputs;
 use spider_core::types::io::TaskOutput;
 use tokio::sync::RwLockReadGuard;
 use tokio::sync::RwLockWriteGuard;
+use tokio::sync::watch;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
@@ -93,6 +95,10 @@ impl<
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },
+                status_sender: watch::Sender::new(JobStatus {
+                    state: JobState::Ready,
+                    error_message: None,
+                }),
             }),
         })
     }
@@ -194,6 +200,10 @@ impl<
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },
+                status_sender: watch::Sender::new(JobStatus {
+                    state,
+                    error_message: None,
+                }),
             }),
         })
     }
@@ -209,6 +219,14 @@ impl<
     /// The current job state.
     pub async fn state(&self) -> JobState {
         self.inner.job_execution_state.read_state().await
+    }
+
+    /// # Returns
+    ///
+    /// A receiver of the job's status, which is updated on every state transition.
+    #[must_use]
+    pub fn subscribe(&self) -> watch::Receiver<JobStatus> {
+        self.inner.status_sender.subscribe()
     }
 
     /// Gets the outputs of the job from the in-memory task graph.
@@ -246,7 +264,7 @@ impl<
         let jcb = &self.inner;
         let mut job = jcb.job_execution_state.write_ready().await?;
         job.db_connector.start(jcb.id).await?;
-        job.state = JobState::Running;
+        job.set_state(&jcb.status_sender, JobState::Running, None);
         let ready_task_indices = job.task_graph.get_all_ready_task_indices().await;
         if ready_task_indices.is_empty() {
             return Err(InternalError::TaskGraphCorrupted(
@@ -416,11 +434,12 @@ impl<
         job.db_connector
             .commit_outputs(jcb.id, job_outputs, has_commit_task)
             .await?;
-        job.state = if has_commit_task {
+        let state = if has_commit_task {
             JobState::CommitReady
         } else {
             JobState::Succeeded
         };
+        job.set_state(&jcb.status_sender, state, None);
         if has_commit_task {
             job.inbound_queue_sender
                 .send_commit_ready(jcb.owner_id, jcb.id)
@@ -460,7 +479,7 @@ impl<
         job.db_connector
             .set_state(jcb.id, JobState::Succeeded)
             .await?;
-        job.state = JobState::Succeeded;
+        job.set_state(&jcb.status_sender, JobState::Succeeded, None);
         drop(job);
         Ok(JobState::Succeeded)
     }
@@ -495,7 +514,7 @@ impl<
         job.db_connector
             .set_state(jcb.id, JobState::Cancelled)
             .await?;
-        job.state = JobState::Cancelled;
+        job.set_state(&jcb.status_sender, JobState::Cancelled, None);
         drop(job);
         Ok(JobState::Cancelled)
     }
@@ -599,8 +618,8 @@ impl<
                 }
                 _ => InternalError::UnexpectedJobTermination.into(),
             })?;
-        job.db_connector.fail(jcb.id, error_message).await?;
-        job.state = JobState::Failed;
+        job.db_connector.fail(jcb.id, error_message.clone()).await?;
+        job.set_state(&jcb.status_sender, JobState::Failed, Some(error_message));
         drop(job);
         Ok(JobState::Failed)
     }
@@ -626,11 +645,12 @@ impl<
         let mut job = jcb.job_execution_state.write_cancellable().await?;
         let has_cleanup_task = job.task_graph.has_cleanup_task();
         job.db_connector.cancel(jcb.id, has_cleanup_task).await?;
-        job.state = if has_cleanup_task {
+        let state = if has_cleanup_task {
             JobState::CleanupReady
         } else {
             JobState::Cancelled
         };
+        job.set_state(&jcb.status_sender, state, None);
 
         job.task_graph.cancel_non_terminal().await;
         if has_cleanup_task {
@@ -839,6 +859,7 @@ struct JobControlBlock<
         DbConnectorType,
         TaskInstancePoolConnectorType,
     >,
+    status_sender: watch::Sender<JobStatus>,
 }
 
 /// A concurrency-safe handle to a job's execution state.
@@ -1100,6 +1121,21 @@ impl<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > JobExecutionState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
 {
+    /// Sets the job state and publishes it to `status_sender`. Must be called under the write lock,
+    /// after the state is persisted to the DB.
+    fn set_state(
+        &mut self,
+        status_sender: &watch::Sender<JobStatus>,
+        state: JobState,
+        error_message: Option<String>,
+    ) {
+        self.state = state;
+        status_sender.send_replace(JobStatus {
+            state,
+            error_message,
+        });
+    }
+
     /// Ensures that the job is currently in the [`JobState::Running`] state.
     ///
     /// # Errors

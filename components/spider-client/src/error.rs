@@ -19,6 +19,10 @@ pub enum ClientError {
     #[error("invalid job state: {0}")]
     InvalidJobState(String),
 
+    /// The job hasn't been started.
+    #[error("job not started")]
+    JobNotStarted,
+
     /// The storage server rejected the request as invalid.
     #[error("invalid argument: {0}")]
     InvalidArgument(String),

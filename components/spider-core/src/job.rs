@@ -48,3 +48,10 @@ impl JobState {
         matches!(self, Self::Running)
     }
 }
+
+/// The state of a job, along with its error message if the job has failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobStatus {
+    pub state: JobState,
+    pub error_message: Option<String>,
+}
