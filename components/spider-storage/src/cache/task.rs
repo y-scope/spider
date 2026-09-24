@@ -974,8 +974,8 @@ impl TaskControlBlock {
     ///
     /// # Returns
     ///
-    /// A vector of [`TaskInput`](spider_core::types::io::TaskInput) read from the input readers
-    /// defined in the task control block.
+    /// A vector of [`spider_core::types::io::TaskInput`] read from the input readers defined in the
+    /// task control block.
     ///
     /// # Errors
     ///
@@ -1104,8 +1104,6 @@ mod tests {
     }
 
     /// Computes all expected intermediate and final values for the diamond task graph.
-    ///
-    /// The graph input payloads are the msgpack serializations of `a` and `b`.
     ///
     /// Transformations:
     ///
@@ -1448,8 +1446,9 @@ mod tests {
 
     /// # Returns
     ///
-    /// The address of the value payload behind each input of the given task. Two inputs have the
-    /// same address if and only if they read from the same dataflow dependency slot.
+    /// The address of the value payload behind each input of the given task following the input
+    /// position. Two inputs have the same address if and only if they read from the same dataflow
+    /// dependency slot.
     ///
     /// # Panics
     ///
