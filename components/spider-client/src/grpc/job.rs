@@ -60,7 +60,7 @@ impl JobOrchestrationClient {
     }
 
     /// Serializes and zstd-compresses the task graph and task graph input, registers the job, and
-    /// returns its assigned id.
+    /// returns its assigned job ID.
     ///
     /// # Returns
     ///
@@ -84,7 +84,7 @@ impl JobOrchestrationClient {
         let compressed_serialized_task_graph = task_graph
             .to_zstd_compressed_json()
             .map_err(|error| ClientError::Serialization(error.to_string()))?;
-        let compressed_serialized_inputs = task_graph_input
+        let compressed_serialized_task_graph_input = task_graph_input
             .to_zstd_compressed_bytes()
             .map_err(|error| ClientError::Serialization(error.to_string()))?;
         let pool = self.connection_pool.clone();
@@ -93,7 +93,8 @@ impl JobOrchestrationClient {
             let request = storage::RegisterJobRequest {
                 resource_group_id: resource_group_id.get(),
                 compressed_serialized_task_graph: compressed_serialized_task_graph.clone(),
-                compressed_serialized_inputs: compressed_serialized_inputs.clone(),
+                compressed_serialized_task_graph_input: compressed_serialized_task_graph_input
+                    .clone(),
             };
             async move { client.register_job(request).await }
         })

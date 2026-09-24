@@ -39,7 +39,7 @@ impl SpiderClient {
     }
 
     /// Serializes and zstd-compresses the task graph and task graph input, registers the job, and
-    /// returns its assigned id.
+    /// returns its assigned job ID.
     ///
     /// # Returns
     ///

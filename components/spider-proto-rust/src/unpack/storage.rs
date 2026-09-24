@@ -32,7 +32,7 @@ use crate::unpack::common::unpack_task_id;
 ///
 /// * The resource group ID.
 /// * The zstd-compressed serialized task graph.
-/// * The zstd-compressed serialized inputs.
+/// * The zstd-compressed serialized task graph input.
 impl RequestUnpack for RegisterJobRequest {
     type Unpacked = (ResourceGroupId, Vec<u8>, Vec<u8>);
 
@@ -40,7 +40,7 @@ impl RequestUnpack for RegisterJobRequest {
         Ok((
             ResourceGroupId::from(self.resource_group_id),
             self.compressed_serialized_task_graph,
-            self.compressed_serialized_inputs,
+            self.compressed_serialized_task_graph_input,
         ))
     }
 }
