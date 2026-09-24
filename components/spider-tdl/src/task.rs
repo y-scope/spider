@@ -172,6 +172,7 @@ fn serialize_error(err: &TdlError) -> Vec<u8> {
 mod tests {
     use serde::Deserialize;
     use serde::Serialize;
+    use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::id::TaskId;
@@ -182,6 +183,7 @@ mod tests {
     use super::*;
     use crate::error::TdlError;
     use crate::r#std::int32;
+    use crate::task_context::ExecutionManagerMetadata;
     use crate::task_context::TaskContext;
 
     const INTENTIONAL_FAILURE: &str = "intentional failure";
@@ -257,6 +259,10 @@ mod tests {
             TaskId::Index(0),
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             None,
         )
         .expect("failed to build `TaskContext`");
