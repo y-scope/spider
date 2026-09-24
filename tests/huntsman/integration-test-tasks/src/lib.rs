@@ -1,6 +1,6 @@
 //! Test TDL package used by the `task-executor` integration tests.
 //!
-//! Exposes six tasks that exercise distinct executor code paths:
+//! Exposes tasks that exercise distinct executor code paths:
 //!
 //! * [`task_decl::fibonacci`] — basic compute + correctness.
 //! * [`task_decl::always_fail`] — in-task error reporting.
@@ -12,6 +12,8 @@
 //! * [`task_decl::assert_outputs_sum_zero`] — commit task: reads the job's task-graph outputs from
 //!   its [`TaskContext`](spider_tdl::TaskContext) and asserts the `i64` outputs sum to zero.
 //! * [`task_decl::assert_initialized`] — confirms the package's init hook ran on load.
+//! * [`task_decl::report_worker_pool`] — worker-pool attribution for the resource-group isolation
+//!   e2e.
 //!
 //! The package also registers an init hook ([`task_decl::package_init`]) that runs once when the
 //! package is loaded.
@@ -93,6 +95,30 @@ mod task_decl {
         Ok(items)
     }
 
+    /// Reports which pool executed this task.
+    ///
+    /// # Returns
+    ///
+    /// One of the following placement classifications, as UTF-8 bytes, on success:
+    ///
+    /// * `"general"` if the task ran on a general execution manager.
+    /// * `"dedicated"` if it ran on the execution manager dedicated to its own resource group.
+    /// * `"foreign"` if it ran on an execution manager dedicated to a different resource group.
+    #[task(name = "report_worker_pool")]
+    pub fn report_worker_pool(ctx: TaskContext, sleep_millis: i64) -> Result<Vec<u8>, TdlError> {
+        // Mimic real work so the task isn't instant, keeping both groups' tasks in flight
+        // together while the scheduler places them across workers.
+        if let Ok(millis) = u64::try_from(sleep_millis) {
+            sleep(Duration::from_millis(millis));
+        }
+        let placement = match ctx.execution_manager_metadata.pinned_resource_group_id {
+            None => "general",
+            Some(pin) if pin == ctx.resource_group_id => "dedicated",
+            Some(_) => "foreign",
+        };
+        Ok(placement.as_bytes().to_vec())
+    }
+
     /// Commit task that reads the job's task-graph outputs and asserts that the `i64` values they
     /// carry sum to zero.
     #[task(name = "assert_outputs_sum_zero")]
@@ -151,5 +177,6 @@ spider_tdl::register_tdl_package! {
         task_decl::sleep_and_echo,
         task_decl::assert_outputs_sum_zero,
         task_decl::assert_initialized,
+        task_decl::report_worker_pool,
     ],
 }

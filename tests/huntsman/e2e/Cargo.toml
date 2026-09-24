@@ -8,6 +8,10 @@ publish = false
 name = "nn"
 test = false
 
+[[test]]
+name = "resource_group"
+test = false
+
 [dependencies]
 anyhow = { workspace = true }
 huntsman-nn-core = { path = "../../../examples/huntsman/nn/core" }

@@ -52,6 +52,7 @@ tasks:
       SPIDER_SCHEDULER_DISPATCH_QUEUE_CAPACITY: "{{mul .SPIDER_WORKER_REPLICAS 4}}"
       SPIDER_ENV_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e.env"
       SPIDER_ENDPOINT_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e-spider-endpoint"
+      SPIDER_DEDICATED_RG_ID_FILE: "{{.G_BUILD_DIR}}/huntsman-e2e-rg-dedicated-id"
       SPIDER_COMPOSE_NETWORK: "spider-local_default"
       SPIDER_STORAGE_PORT: "50051"
     dir: "{{.ROOT_DIR}}"
@@ -62,6 +63,11 @@ tasks:
           CARGO_PACKAGE_NAME: "huntsman-nn-tasks"
           CARGO_LIBRARY_NAME: "nn"
           TDL_PACKAGE_NAME: "nn"
+      - task: "build-and-stage-huntsman-tdl-package"
+        vars:
+          CARGO_PACKAGE_NAME: "integration-test-tasks"
+          CARGO_LIBRARY_NAME: "integration_test_tasks"
+          TDL_PACKAGE_NAME: "integration_test_tasks"
       - "docker pull \"{{.SPIDER_DATABASE_IMAGE_REF}}\""
       - |-
         cat > "{{.SPIDER_ENV_FILE}}" << 'EOF'
@@ -100,11 +106,42 @@ tasks:
           tools/scripts/docker/resolve-huntsman-e2e-endpoint.py disconnect \
             --network "{{.SPIDER_COMPOSE_NETWORK}}"
       - defer: "rm {{.SPIDER_ENDPOINT_FILE}}"
+      # Register `rg-dedicated` before starting the dedicated worker pool, so the pool binds to it
+      # on first boot and can become healthy under `--wait`. The assigned id is captured to seed the
+      # test driver, which then reuses the group instead of re-registering it.
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        export SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')"
+        cargo run --release --package e2e --bin register_resource_group -- rg-dedicated \
+          > "{{.SPIDER_DEDICATED_RG_ID_FILE}}"
+      - defer: "rm {{.SPIDER_DEDICATED_RG_ID_FILE}}"
+      - task: ":docker:compose:local:up"
+        vars:
+          SPIDER_ENV_FILE: "{{.SPIDER_ENV_FILE}}"
+          SPIDER_PULL_POLICY: "never"
+          SPIDER_STORAGE_IMAGE_REF:
+            sh: "cat '{{.G_BUILD_DIR}}/spider-storage-image.id'"
+          SPIDER_SCHEDULER_IMAGE_REF:
+            sh: "cat '{{.G_BUILD_DIR}}/spider-scheduler-image.id'"
+          SPIDER_WORKER_IMAGE_REF:
+            sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
+          SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
+          SPIDER_DEDICATED_WORKER_REPLICAS: "1"
+          SPIDER_DEDICATED_RESOURCE_GROUP_ID: "rg-dedicated"
+          SPIDER_COMPOSE_UP_FLAGS: "--wait --wait-timeout 300 --no-recreate"
+          SPIDER_COMPOSE_UP_SERVICES: "spider-worker-dedicated"
       - |-
         . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
         SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')" \
         SPIDER_CONCURRENCY="8" \
           cargo nextest run --release --package e2e --test nn -- --nocapture
+      - |-
+        . "{{.G_RUST_TOOLCHAIN_ENV_FILE}}"
+        RG_ID="$(cat '{{.SPIDER_DEDICATED_RG_ID_FILE}}')"
+        export SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')"
+        export SPIDER_CONCURRENCY="8"
+        export SPIDER_E2E_PREREGISTERED_RESOURCE_GROUPS="rg-dedicated=${RG_ID}"
+        cargo nextest run --release --package e2e --test resource_group -- --nocapture
 
   build-unit-test:
     internal: true
