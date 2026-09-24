@@ -466,34 +466,57 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
         credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?) ON DUPLICATE KEY \
-             UPDATE `id` = `id`;",
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?);",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `id`, `password` FROM `{table}` WHERE `external_id` = ? FOR UPDATE;",
+            "SELECT `id`, `password` FROM `{table}` WHERE `external_id` = ? LOCK IN SHARE MODE;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
 
-        let mut tx = self.pool.begin().await?;
-        // Keep the existing credentials unchanged and lock the row until verification completes.
-        sqlx::query(INSERT_QUERY)
-            .bind(credentials.get_external_resource_group_id())
-            .bind(credentials.get_password())
-            .execute(&mut *tx)
-            .await?;
+        run_read_committed_tx(self.pool.clone(), async move |connection| {
+            let mut tx = connection.begin().await?;
+            let existing_resource_group =
+                sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
+                    .bind(credentials.get_external_resource_group_id())
+                    .fetch_optional(&mut *tx)
+                    .await?;
 
-        let (resource_group_id, stored_password) =
-            sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
-                .bind(credentials.get_external_resource_group_id())
-                .fetch_one(&mut *tx)
-                .await?;
-        if !bool::from(stored_password.ct_eq(credentials.get_password())) {
-            return Err(DbError::InvalidPassword(resource_group_id));
-        }
+            let (resource_group_id, stored_password) =
+                if let Some(resource_group) = existing_resource_group {
+                    resource_group
+                } else {
+                    match sqlx::query(INSERT_QUERY)
+                        .bind(credentials.get_external_resource_group_id())
+                        .bind(credentials.get_password())
+                        .execute(&mut *tx)
+                        .await
+                    {
+                        Ok(result) => {
+                            tx.commit().await?;
+                            return Ok(ResourceGroupId::from(result.last_insert_id()));
+                        }
+                        Err(sqlx::Error::Database(error))
+                            if error
+                                .try_downcast_ref::<MySqlDatabaseError>()
+                                .is_some_and(|error| error.number() == MYSQL_ER_DUP_ENTRY) => {}
+                        Err(error) => return Err(error.into()),
+                    }
 
-        tx.commit().await?;
-        Ok(resource_group_id)
+                    // A concurrent insert won; read and lock its committed credentials.
+                    sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
+                        .bind(credentials.get_external_resource_group_id())
+                        .fetch_one(&mut *tx)
+                        .await?
+                };
+            if !bool::from(stored_password.ct_eq(credentials.get_password())) {
+                return Err(DbError::InvalidPassword(resource_group_id));
+            }
+
+            tx.commit().await?;
+            Ok(resource_group_id)
+        })
+        .await
     }
 
     async fn verify(
