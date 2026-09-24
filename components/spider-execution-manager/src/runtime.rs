@@ -16,6 +16,7 @@ use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::TaskAssignmentRecord;
+use spider_tdl::ExecutionManagerMetadata;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -97,7 +98,7 @@ pub struct Runtime<
     StorageClientType: StorageClient + Clone + 'static,
 > {
     em_id: ExecutionManagerId,
-    resource_group_id: Option<ResourceGroupId>,
+    pinned_resource_group_id: Option<ResourceGroupId>,
     scheduler_client: SchedulerClientType,
     storage_client: StorageClientType,
     process_pool: ProcessPool,
@@ -216,7 +217,7 @@ impl<
         let cancel_guard = cancellation_token.clone().drop_guard();
         let runtime = Self {
             em_id,
-            resource_group_id: registration.resource_group_id,
+            pinned_resource_group_id: registration.resource_group_id,
             scheduler_client,
             storage_client,
             process_pool,
@@ -339,7 +340,7 @@ impl<
                 () = self.cancellation_token.cancelled() => return Ok(()),
                 result = self.scheduler_client.next_task(
                     self.em_id,
-                    self.resource_group_id,
+                    self.pinned_resource_group_id,
                     self.prev_assignments.pop_front(),
                     self.scheduler_poll_wait_ms,
                 ) => {
@@ -391,6 +392,10 @@ impl<
                 job_id: response.task_assignment.job_id,
                 task_id: response.task_assignment.task_id,
                 resource_group_id: response.task_assignment.resource_group_id,
+                execution_manager_metadata: ExecutionManagerMetadata {
+                    id: self.em_id,
+                    pinned_resource_group_id: self.pinned_resource_group_id,
+                },
                 ctx: execution_context,
             };
             let outcome = self
