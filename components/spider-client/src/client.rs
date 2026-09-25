@@ -7,7 +7,7 @@ use spider_core::job::JobState;
 use spider_core::task::TaskGraph;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
-use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_utils::grpc::retry::RetryConfig;
@@ -38,8 +38,8 @@ impl SpiderClient {
         }
     }
 
-    /// Serializes and zstd-compresses the task graph and inputs, registers the job, and returns its
-    /// assigned id.
+    /// Serializes and zstd-compresses the task graph and task graph input, registers the job, and
+    /// returns its assigned job ID.
     ///
     /// # Returns
     ///
@@ -49,9 +49,10 @@ impl SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * [`ClientError::Serialization`] if the task graph or inputs cannot be serialized or
-    ///   compressed.
-    /// * [`ClientError::InvalidArgument`] if the storage server rejects the task graph or inputs.
+    /// * [`ClientError::Serialization`] if the task graph or task graph input cannot be serialized
+    ///   or compressed.
+    /// * [`ClientError::InvalidArgument`] if the storage server rejects the task graph or task
+    ///   graph input.
     /// * [`ClientError::Unauthenticated`] if the resource group is unknown or unauthorized.
     /// * [`ClientError::Transport`] if the gRPC transport fails or the connection is lost.
     /// * [`ClientError::Server`] for any other server-reported error.
@@ -59,10 +60,10 @@ impl SpiderClient {
         &self,
         resource_group_id: ResourceGroupId,
         task_graph: &TaskGraph,
-        inputs: Vec<TaskInput>,
+        task_graph_input: &TaskGraphInput,
     ) -> Result<JobId, ClientError> {
         self.job_orchestration
-            .submit_job(resource_group_id, task_graph, inputs)
+            .submit_job(resource_group_id, task_graph, task_graph_input)
             .await
     }
 
@@ -308,10 +309,11 @@ fn assert_client_futures_send(
     resource_group_id: ResourceGroupId,
     job_id: JobId,
     task_graph: &TaskGraph,
+    task_graph_input: &TaskGraphInput,
     credentials: ExternalResourceGroupCredentials,
 ) {
     const fn assert_send<FutureType: Send>(_: &FutureType) {}
-    assert_send(&client.submit_job(resource_group_id, task_graph, Vec::new()));
+    assert_send(&client.submit_job(resource_group_id, task_graph, task_graph_input));
     assert_send(&client.start_job(job_id));
     assert_send(&client.cancel_job(job_id));
     assert_send(&client.get_job_state(job_id));

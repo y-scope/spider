@@ -11,7 +11,6 @@ use spider_core::task::TerminationTaskDescriptor;
 use spider_core::task::TimeoutPolicy;
 use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::ExecutionContext;
-use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskInputsSerializer;
 use spider_core::types::io::TaskOutput;
 use tokio::sync::RwLock;
@@ -58,21 +57,24 @@ impl TaskGraph {
     ///
     /// Panics if the internal TCB buffer is corrupted.
     pub async fn create(job_submission: ValidatedJobSubmission) -> Result<Self, InternalError> {
-        let (submitted_task_graph, inputs) = job_submission.into_parts();
-        let dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
+        let (submitted_task_graph, task_graph_input) = job_submission.into_parts();
+        let mut dataflow_dep_buffer: Vec<SharedRw<ValuePayload>> = (0..submitted_task_graph
             .get_num_dataflow_deps())
             .map(|_| SharedRw::new(RwLock::new(ValuePayload::default())))
             .collect();
         let task_graph_input_indices = submitted_task_graph.get_task_graph_input_indices();
-        for (deps_index, input) in task_graph_input_indices.into_iter().zip(inputs) {
-            let dataflow_dep = dataflow_dep_buffer.get(deps_index).ok_or_else(|| {
+        let task_graph_input_slots = task_graph_input
+            .into_positional_inputs(|payload| SharedRw::new(RwLock::new(Some(payload))));
+        for (deps_index, input_slot) in task_graph_input_indices
+            .into_iter()
+            .zip(task_graph_input_slots)
+        {
+            let dataflow_dep = dataflow_dep_buffer.get_mut(deps_index).ok_or_else(|| {
                 InternalError::TaskGraphCorrupted(
                     "dataflow dependency index out-of-range".to_owned(),
                 )
             })?;
-            *dataflow_dep.write().await = match input {
-                TaskInput::ValuePayload(value) => Some(value),
-            }
+            *dataflow_dep = input_slot;
         }
 
         let outputs: Vec<_> = submitted_task_graph
@@ -972,7 +974,8 @@ impl TaskControlBlock {
     ///
     /// # Returns
     ///
-    /// A vector of [`TaskInput`] read from the input readers defined in the task control block.
+    /// A vector of [`spider_core::types::io::TaskInput`] read from the input readers defined in the
+    /// task control block.
     ///
     /// # Errors
     ///
@@ -1015,6 +1018,8 @@ mod tests {
     use spider_core::task::TaskGraph as SubmittedTaskGraph;
     use spider_core::task::TerminationTaskDescriptor;
     use spider_core::task::ValueTypeDescriptor;
+    use spider_core::types::io::TaskGraphInputBuilder;
+    use spider_core::types::io::TaskInput;
     use spider_utils::wire::unframe;
 
     use super::*;
@@ -1030,11 +1035,12 @@ mod tests {
 
     /// # Returns
     ///
-    /// A random 4-byte vector using [`RandomState`] as a source of randomness.
-    fn random_bytes() -> Vec<u8> {
+    /// A random 16-character hex string using [`RandomState`] as a source of randomness. Its
+    /// msgpack serialization has a fixed length, as required by [`xor_bytes`].
+    fn random_hex_string() -> String {
         let mut hasher = RandomState::new().build_hasher();
         hasher.write_u8(0);
-        hasher.finish().to_ne_bytes()[..4].to_vec()
+        format!("{:016x}", hasher.finish())
     }
 
     /// Spawns `count` concurrent tasks that each wait on the barrier, then call `register` with a
@@ -1109,16 +1115,22 @@ mod tests {
     /// # Returns
     ///
     /// The computed expected values for the diamond task graph.
-    fn compute_diamond_expected_values(a: &[u8], b: &[u8]) -> DiamondExpectedValues {
-        let a_out0 = xor_bytes(&xor_bytes(b, a), b);
-        let a_out1 = xor_bytes(&xor_bytes(a, b), a);
+    ///
+    /// # Panics
+    ///
+    /// Panics if the msgpack serialization of `a` or `b` fails.
+    fn compute_diamond_expected_values(a: &str, b: &str) -> DiamondExpectedValues {
+        let a = rmp_serde::to_vec(a).expect("graph input A serialization should succeed");
+        let b = rmp_serde::to_vec(b).expect("graph input B serialization should succeed");
+        let a_out0 = xor_bytes(&xor_bytes(&b, &a), &b);
+        let a_out1 = xor_bytes(&xor_bytes(&a, &b), &a);
 
         let b_output = xor_bytes(&xor_bytes(&a_out0, &a_out1), &a_out0);
         let c_output = xor_bytes(&xor_bytes(&a_out1, &a_out0), &a_out1);
         let d_output = xor_bytes(&b_output, &c_output);
 
         DiamondExpectedValues {
-            graph_inputs: [a.to_vec(), b.to_vec()],
+            graph_inputs: [a, b],
             a_outputs: [a_out0, a_out1],
             b_output,
             c_output,
@@ -1131,8 +1143,8 @@ mod tests {
     ///
     /// # Returns
     ///
-    /// A cache [`TaskGraph`] with one task at index 0. Each input is initialized to a 4-byte zero
-    /// payload.
+    /// A cache [`TaskGraph`] with one task at index 0. Each input is initialized to the msgpack
+    /// serialization of a 4-byte zero array.
     async fn build_task_graph_with_single_tcb(
         max_num_instances: u32,
         max_num_retry: u32,
@@ -1159,10 +1171,14 @@ mod tests {
             })
             .expect("task insertion should succeed");
 
-        let inputs: Vec<TaskInput> = (0..num_inputs)
-            .map(|_| TaskInput::ValuePayload(vec![0u8; 4]))
-            .collect();
-        let job_submission = create_validated_submission(submitted, inputs);
+        let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+        for _ in 0..num_inputs {
+            task_graph_input_builder
+                .append_task_input(&[0u8; 4])
+                .expect("task input appending should succeed");
+        }
+        let job_submission =
+            create_validated_submission(submitted, task_graph_input_builder.build());
         TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
@@ -1205,7 +1221,8 @@ mod tests {
                 input_sources: None,
             })
             .expect("task insertion should succeed");
-        let job_submission = create_validated_submission(submitted, vec![]);
+        let job_submission =
+            create_validated_submission(submitted, TaskGraphInputBuilder::new().build());
         let task_graph = TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed");
@@ -1239,7 +1256,7 @@ mod tests {
     /// # Returns
     ///
     /// A cache [`TaskGraph`] with 4 tasks at indices 0 (A), 1 (B), 2 (C), 3 (D).
-    async fn build_diamond_task_graph(input_a: Vec<u8>, input_b: Vec<u8>) -> TaskGraph {
+    async fn build_diamond_task_graph(input_a: &str, input_b: &str) -> TaskGraph {
         let submitted = SubmittedTaskGraph::from_json(
             r#"{
                 "schema_version": "0.1.0",
@@ -1317,11 +1334,15 @@ mod tests {
         )
         .expect("diamond task graph JSON deserialization should succeed");
 
-        let inputs = vec![
-            TaskInput::ValuePayload(input_a),
-            TaskInput::ValuePayload(input_b),
-        ];
-        let job_submission = create_validated_submission(submitted, inputs);
+        let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+        task_graph_input_builder
+            .append_task_input(input_a)
+            .expect("graph input A appending should succeed");
+        task_graph_input_builder
+            .append_task_input(input_b)
+            .expect("graph input B appending should succeed");
+        let job_submission =
+            create_validated_submission(submitted, task_graph_input_builder.build());
         TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed")
@@ -1421,6 +1442,34 @@ mod tests {
             assert_eq!(*value, Some(exp.clone()), "graph output {i} mismatch");
             drop(value);
         }
+    }
+
+    /// # Returns
+    ///
+    /// The address of the value payload behind each input of the given task following the input
+    /// position. Two inputs have the same address if and only if they read from the same dataflow
+    /// dependency slot.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// * The task doesn't exist.
+    /// * Any input of the task is not a value input.
+    async fn get_input_slot_addresses(task_graph: &TaskGraph, task_index: TaskIndex) -> Vec<usize> {
+        let shared_tcb = task_graph
+            .get_task_control_block(task_index)
+            .expect("task should exist");
+        let tcb = shared_tcb.inner.lock().await;
+        let mut addresses = Vec::new();
+        for input in &tcb.inputs {
+            let InputReader::Value(reader) = input else {
+                panic!("task input should be a value input");
+            };
+            addresses.push(std::ptr::from_ref(&*reader.read().await).addr());
+        }
+        drop(tcb);
+        addresses
     }
 
     /// Generates a suite of registration, failure, and termination tests for a TCB type.
@@ -1692,13 +1741,9 @@ mod tests {
 
     #[tokio::test]
     async fn diamond_sequential_execution() {
-        let (a_val, b_val) = (random_bytes(), random_bytes());
+        let (a_val, b_val) = (random_hex_string(), random_hex_string());
         let expected = compute_diamond_expected_values(&a_val, &b_val);
-        let task_graph = build_diamond_task_graph(
-            expected.graph_inputs[0].clone(),
-            expected.graph_inputs[1].clone(),
-        )
-        .await;
+        let task_graph = build_diamond_task_graph(&a_val, &b_val).await;
 
         // Task A: out0 = b ^ a ^ b, out1 = a ^ b ^ a.
         let mut ready =
@@ -1757,13 +1802,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn diamond_concurrent_bc_execution() {
-        let (a_val, b_val) = (random_bytes(), random_bytes());
+        let (a_val, b_val) = (random_hex_string(), random_hex_string());
         let expected = compute_diamond_expected_values(&a_val, &b_val);
-        let task_graph = build_diamond_task_graph(
-            expected.graph_inputs[0].clone(),
-            expected.graph_inputs[1].clone(),
-        )
-        .await;
+        let task_graph = build_diamond_task_graph(&a_val, &b_val).await;
 
         // Complete task A sequentially: out0 = b ^ a ^ b, out1 = a ^ b ^ a.
         register_verify_and_succeed(&task_graph, 0, &expected.graph_inputs, |inputs| {
@@ -1834,6 +1875,68 @@ mod tests {
         assert!(ready.is_empty(), "D should have no ready children");
 
         assert_graph_outputs(&task_graph, &[expected.d_output]).await;
+    }
+
+    #[tokio::test]
+    async fn shared_graph_inputs_share_dataflow_slot() -> anyhow::Result<()> {
+        const SHARED_INPUT: &str = "shared";
+        const VALUE_INPUT: u64 = 42;
+        const NUM_INPUTS_PER_TASK: usize = 2;
+
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let mut submitted = SubmittedTaskGraph::new(None, None)?;
+        for task_func in ["task_a", "task_b"] {
+            submitted.insert_task(TaskDescriptor {
+                tdl_context: TdlContext {
+                    package: "test_pkg".to_owned(),
+                    task_func: task_func.to_owned(),
+                },
+                execution_policy: Some(ExecutionPolicy::default()),
+                inputs: vec![bytes_type.clone(); NUM_INPUTS_PER_TASK],
+                outputs: vec![],
+                input_sources: None,
+            })?;
+        }
+
+        let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+        let shared_id = task_graph_input_builder.create_shared_input_payload(SHARED_INPUT)?;
+        task_graph_input_builder.append_shared_task_input(shared_id)?;
+        task_graph_input_builder.append_shared_task_input(shared_id)?;
+        task_graph_input_builder.append_task_input(&VALUE_INPUT)?;
+        task_graph_input_builder.append_shared_task_input(shared_id)?;
+        let task_graph = TaskGraph::create(create_validated_submission(
+            submitted,
+            task_graph_input_builder.build(),
+        ))
+        .await?;
+
+        let shared_payload = rmp_serde::to_vec(SHARED_INPUT)?;
+        let value_payload = rmp_serde::to_vec(&VALUE_INPUT)?;
+        register_verify_and_succeed(
+            &task_graph,
+            0,
+            &[shared_payload.clone(), shared_payload.clone()],
+            |_| vec![],
+        )
+        .await;
+        register_verify_and_succeed(&task_graph, 1, &[value_payload, shared_payload], |_| vec![])
+            .await;
+
+        let first_task_input_slots = get_input_slot_addresses(&task_graph, 0).await;
+        let second_task_input_slots = get_input_slot_addresses(&task_graph, 1).await;
+        assert_eq!(
+            first_task_input_slots[0], first_task_input_slots[1],
+            "inputs of the same task referencing the same shared payload should share a slot"
+        );
+        assert_eq!(
+            first_task_input_slots[0], second_task_input_slots[1],
+            "inputs of different tasks referencing the same shared payload should share a slot"
+        );
+        assert_ne!(
+            first_task_input_slots[0], second_task_input_slots[0],
+            "a value payload input should not share a slot with a shared payload input"
+        );
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
