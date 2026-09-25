@@ -14,6 +14,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::io::ExecutionContext;
+use spider_core::types::resource_group::RESOURCE_GROUP_PASSWORD_ENV;
 use spider_task_executor::protocol::ExecutorOutcome;
 use spider_task_executor::protocol::Request;
 use spider_task_executor::protocol::Response;
@@ -217,6 +218,9 @@ impl ProcessPool {
     /// `RUST_LOG`, if set, is forwarded to the spawned task executor to make the child process' log
     /// level match the current execution manager.
     ///
+    /// `SPIDER_RESOURCE_GROUP_PASSWORD` is always removed from the spawned task executor's
+    /// environment so task code can't read the resource group's credentials.
+    ///
     /// # Returns
     ///
     /// A fully wired [`ExecutorHandle`] on success.
@@ -259,6 +263,9 @@ impl ProcessPool {
                 }
             }
         }
+
+        // Task code must never see the resource-group password, even if it's in `inherited_env`.
+        command.env_remove(RESOURCE_GROUP_PASSWORD_ENV);
 
         let mut child = command.spawn()?;
         let stdin = child
