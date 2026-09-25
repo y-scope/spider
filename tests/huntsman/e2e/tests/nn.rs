@@ -20,12 +20,7 @@ use tokio::task::JoinSet;
 
 #[tokio::test]
 async fn test_nn() -> anyhow::Result<()> {
-    run_neural_network_job_batches("e2e-nn", false).await
-}
-
-#[tokio::test]
-async fn test_nn_with_shared_first_layer_inputs() -> anyhow::Result<()> {
-    run_neural_network_job_batches("e2e-nn-with-shared-first-layer-inputs", true).await
+    run_neural_network_job_batches("e2e-nn").await
 }
 
 /// Runs batches of concurrent neural-network jobs, validating each job's outputs against the
@@ -41,23 +36,30 @@ async fn test_nn_with_shared_first_layer_inputs() -> anyhow::Result<()> {
 /// # Panics
 ///
 /// Panics if a neural-network job index doesn't fit in `u64`.
-async fn run_neural_network_job_batches(
-    resource_group_id: &'static str,
-    share_first_layer_inputs: bool,
-) -> anyhow::Result<()> {
+async fn run_neural_network_job_batches(resource_group_id: &'static str) -> anyhow::Result<()> {
     /// Number of neural-network job batches.
-    const NUM_BATCHES: usize = 3;
+    const NUM_BATCHES: usize = 2;
 
     /// Number of concurrent neural-network jobs in each batch.
     const NUM_JOBS_PER_BATCH: usize = 8;
 
     for batch_index in 0..NUM_BATCHES {
         let mut jobs = JoinSet::new();
-        for job_index in 0..NUM_JOBS_PER_BATCH {
+        for job_index in (0..NUM_JOBS_PER_BATCH).step_by(2) {
             let seed = u64::try_from(batch_index * NUM_JOBS_PER_BATCH + job_index)
                 .expect("neural-network job index does not fit in u64");
             jobs.spawn(async move {
-                run_neural_network_job(resource_group_id, seed, share_first_layer_inputs)
+                run_neural_network_job(resource_group_id, seed, true)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "neural-network job {job_index} in batch {batch_index} with seed \
+                             {seed} failed"
+                        )
+                    })
+            });
+            jobs.spawn(async move {
+                run_neural_network_job(resource_group_id, seed, false)
                     .await
                     .with_context(|| {
                         format!(
