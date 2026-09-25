@@ -13,8 +13,6 @@ use anyhow::Context;
 use spider_client::SpiderClient;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
-use spider_core::types::id::ResourceGroupId;
-use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio::sync::Semaphore;
@@ -27,7 +25,6 @@ use crate::types::TerminationResult;
 pub struct SpiderTestDriver {
     client: RwLock<SpiderClient>,
     concurrency_limiter: Semaphore,
-    resource_group_id: ResourceGroupId,
 }
 
 impl SpiderTestDriver {
@@ -62,7 +59,6 @@ impl SpiderTestDriver {
         let client = client_guard.clone();
         let result = run_scenario(
             client,
-            driver.resource_group_id,
             job_submission,
             timeout,
             async |_job_id: JobId| -> anyhow::Result<()> { Ok(()) },
@@ -100,7 +96,6 @@ impl SpiderTestDriver {
         let client = client_guard.clone();
         let result = run_scenario(
             client,
-            driver.resource_group_id,
             job_submission,
             timeout,
             failure_injection,
@@ -127,7 +122,7 @@ impl SpiderTestDriver {
         INSTANCE.get_or_try_init(Self::init).await
     }
 
-    /// Initializes the driver with the configured Spider endpoint and shared resource group.
+    /// Initializes the driver with the configured Spider endpoint.
     ///
     /// # Returns
     ///
@@ -142,11 +137,8 @@ impl SpiderTestDriver {
     ///  * The endpoint value is not a valid Spider endpoint.
     /// * Forwards [`read_concurrency`]'s return values on failure.
     /// * Forwards [`spider_client::SpiderClientBuilder::connect`]'s return values on failure.
-    /// * Forwards [`SpiderClient::add_or_verify_resource_group`]'s return values on failure.
     async fn init() -> anyhow::Result<Self> {
         const ENDPOINT_ENV_VAR: &str = "SPIDER_ENDPOINT";
-        const EXTERNAL_RESOURCE_GROUP_ID: &str = "e2e";
-        const RESOURCE_GROUP_PASSWORD: &[u8] = b"";
         let endpoint_string = std::env::var(ENDPOINT_ENV_VAR)
             .with_context(|| format!("{ENDPOINT_ENV_VAR} is not set"))?;
         let endpoint = Endpoint::from_shared(endpoint_string).context("invalid spider endpoint")?;
@@ -155,16 +147,9 @@ impl SpiderTestDriver {
             .pool_size(concurrency)
             .connect()
             .await?;
-        let resource_group_id = client
-            .add_or_verify_resource_group(ExternalResourceGroupCredentials::new(
-                EXTERNAL_RESOURCE_GROUP_ID.to_owned(),
-                RESOURCE_GROUP_PASSWORD.to_vec(),
-            ))
-            .await?;
         Ok(Self {
             client: RwLock::new(client),
             concurrency_limiter: Semaphore::new(concurrency.get()),
-            resource_group_id,
         })
     }
 }
@@ -188,7 +173,6 @@ impl SpiderTestDriver {
 /// * Forwards `outcome_assertion`'s return values on failure.
 async fn run_scenario<FailureInjectionType, OutcomeAssertionType>(
     client: SpiderClient,
-    resource_group_id: ResourceGroupId,
     job_submission: JobSubmission,
     timeout: Duration,
     failure_injection: FailureInjectionType,
@@ -197,7 +181,7 @@ async fn run_scenario<FailureInjectionType, OutcomeAssertionType>(
 where
     FailureInjectionType: AsyncFnOnce(JobId) -> anyhow::Result<()>,
     OutcomeAssertionType: AsyncFnOnce(JobId, TerminationResult) -> anyhow::Result<()>, {
-    let job_id = submit_and_start_job(&client, resource_group_id, job_submission).await?;
+    let job_id = submit_and_start_job(&client, job_submission).await?;
     let result = match tokio::time::timeout(timeout, async {
         let ((), termination) = tokio::try_join!(
             failure_injection(job_id),
@@ -213,7 +197,7 @@ where
     outcome_assertion(job_id, result).await
 }
 
-/// Submits and starts the described job.
+/// Resolves the job's resource group, then submits and starts the described job.
 ///
 /// # Returns
 ///
@@ -223,19 +207,23 @@ where
 ///
 /// Returns an error if:
 ///
+/// * Forwards [`SpiderClient::add_or_verify_resource_group`]'s return values on failure.
 /// * Forwards [`SpiderClient::submit_job`]'s return values on failure.
 /// * Forwards [`SpiderClient::start_job`]'s return values on failure.
 async fn submit_and_start_job(
     client: &SpiderClient,
-    resource_group_id: ResourceGroupId,
     job_submission: JobSubmission,
 ) -> anyhow::Result<JobId> {
+    let JobSubmission {
+        task_graph,
+        inputs,
+        resource_group_credentials,
+    } = job_submission;
+    let resource_group_id = client
+        .add_or_verify_resource_group(resource_group_credentials)
+        .await?;
     let job_id = client
-        .submit_job(
-            resource_group_id,
-            &job_submission.task_graph,
-            job_submission.inputs,
-        )
+        .submit_job(resource_group_id, &task_graph, inputs)
         .await?;
     client.start_job(job_id).await?;
     Ok(job_id)

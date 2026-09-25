@@ -3,6 +3,7 @@
 use spider_core::task::TaskGraph;
 use spider_core::types::io::TaskInput;
 use spider_core::types::io::TaskOutput;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 
 /// The terminal outcome of a job returned from the test driver.
 pub enum TerminationResult {
@@ -23,4 +24,7 @@ pub struct JobSubmission {
 
     /// The inputs supplied to the job's entry tasks.
     pub inputs: Vec<TaskInput>,
+
+    /// The credentials of the external resource group that the job runs in.
+    pub resource_group_credentials: ExternalResourceGroupCredentials,
 }
