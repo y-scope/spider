@@ -68,6 +68,13 @@ tasks:
   # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
   # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
+  # @param {string} SPIDER_DEDICATED_WORKER_REPLICAS Replica count for the dedicated worker pool.
+  # Defaults to 0 (pool disabled).
+  # @param {string} SPIDER_DEDICATED_RESOURCE_GROUP_ID External resource-group ID the dedicated
+  # worker pool pins to.
+  # @param {string} SPIDER_COMPOSE_UP_FLAGS Flags passed to `docker compose up`. Defaults to
+  # "--wait --wait-timeout 300".
+  # @param {string} SPIDER_COMPOSE_UP_SERVICES Optional service names to limit the `up` to.
   compose:local:up:
     dotenv:
       - >-
@@ -77,6 +84,8 @@ tasks:
       SPIDER_STORAGE_IMAGE_REF: "{{.SPIDER_STORAGE_IMAGE_REF}}"
       SPIDER_SCHEDULER_IMAGE_REF: "{{.SPIDER_SCHEDULER_IMAGE_REF}}"
       SPIDER_WORKER_IMAGE_REF: "{{.SPIDER_WORKER_IMAGE_REF}}"
+      SPIDER_DEDICATED_WORKER_REPLICAS: "{{.SPIDER_DEDICATED_WORKER_REPLICAS | default 0}}"
+      SPIDER_DEDICATED_RESOURCE_GROUP_ID: "{{.SPIDER_DEDICATED_RESOURCE_GROUP_ID}}"
       SPIDER_WORKER_LIBRARY_DIR: >-
         {{- if .SPIDER_WORKER_LIBRARY_DIR}}
           {{- if osIsAbs .SPIDER_WORKER_LIBRARY_DIR}}
@@ -88,7 +97,9 @@ tasks:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: >-
       docker compose --project-name spider-local --file compose.yaml
-      --file compose.local.yaml up --detach --wait --wait-timeout 300
+      --file compose.local.yaml up --detach
+      {{.SPIDER_COMPOSE_UP_FLAGS | default "--wait --wait-timeout 300"}}
+      {{.SPIDER_COMPOSE_UP_SERVICES}}
 
   compose:local:down:
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"

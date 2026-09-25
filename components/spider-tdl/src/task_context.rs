@@ -4,6 +4,7 @@
 //! through the task executor, and deserialized inside the TDL package before being handed to the
 //! user's task function as the first parameter.
 
+use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
@@ -26,7 +27,18 @@ pub struct TaskContext {
     pub task_id: TaskId,
     pub task_instance_id: TaskInstanceId,
     pub resource_group_id: ResourceGroupId,
+    pub execution_manager_metadata: ExecutionManagerMetadata,
     serialized_task_graph_outputs: Option<Vec<u8>>,
+}
+
+/// Metadata of the execution manager driving the current task execution.
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ExecutionManagerMetadata {
+    /// The ID of the execution manager that drives the current task.
+    pub id: ExecutionManagerId,
+
+    /// The resource group ID the execution manager pins to, if any.
+    pub pinned_resource_group_id: Option<ResourceGroupId>,
 }
 
 impl TaskContext {
@@ -52,6 +64,7 @@ impl TaskContext {
         task_id: TaskId,
         task_instance_id: TaskInstanceId,
         resource_group_id: ResourceGroupId,
+        execution_manager_metadata: ExecutionManagerMetadata,
         serialized_task_graph_outputs: Option<Vec<u8>>,
     ) -> Result<Self, TdlError> {
         let is_commit_task = task_id == TaskId::Commit;
@@ -72,6 +85,7 @@ impl TaskContext {
             task_id,
             task_instance_id,
             resource_group_id,
+            execution_manager_metadata,
             serialized_task_graph_outputs,
         })
     }
@@ -101,12 +115,14 @@ impl TaskContext {
 
 #[cfg(test)]
 mod tests {
+    use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
     use spider_core::types::id::TaskId;
     use spider_core::types::io::SerializedTaskOutputs;
     use spider_core::types::io::TaskOutput;
 
+    use super::ExecutionManagerMetadata;
     use super::TaskContext;
     use crate::error::TdlError;
 
@@ -133,6 +149,10 @@ mod tests {
             TaskId::Index(0),
             13,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             None,
         )?;
         let encoded = rmp_serde::to_vec(&ctx)?;
@@ -149,6 +169,10 @@ mod tests {
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             Some(serialize_outputs(&outputs)),
         )?;
         assert_eq!(ctx.get_task_graph_outputs()?, Some(outputs));
@@ -162,6 +186,10 @@ mod tests {
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             Some(serialize_outputs(&[])),
         )?;
         assert_eq!(ctx.get_task_graph_outputs()?, Some(Vec::new()));
@@ -175,6 +203,10 @@ mod tests {
             TaskId::Index(0),
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             None,
         )?;
         assert!(ctx.get_task_graph_outputs()?.is_none());
@@ -189,6 +221,10 @@ mod tests {
             TaskId::Index(0),
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             Some(serialize_outputs(&outputs)),
         );
         assert!(matches!(result, Err(TdlError::InvalidTaskContext(_))));
@@ -201,6 +237,10 @@ mod tests {
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             None,
         );
         assert!(matches!(result, Err(TdlError::InvalidTaskContext(_))));
@@ -213,6 +253,10 @@ mod tests {
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             Some(vec![0xff, 0x00, 0x13, 0x37]),
         )?;
         assert!(matches!(
@@ -230,6 +274,10 @@ mod tests {
             TaskId::Commit,
             1,
             ResourceGroupId::random(),
+            ExecutionManagerMetadata {
+                id: ExecutionManagerId::random(),
+                pinned_resource_group_id: None,
+            },
             Some(serialize_outputs(&outputs)),
         )?;
         let encoded = rmp_serde::to_vec(&ctx)?;

@@ -165,7 +165,7 @@ impl SpiderTestDriver {
         Ok(Self {
             client: RwLock::new(client),
             concurrency_limiter: Semaphore::new(concurrency.get()),
-            resource_groups: Mutex::new(HashMap::new()),
+            resource_groups: Mutex::new(preregistered_resource_groups()?),
         })
     }
 
@@ -200,6 +200,42 @@ impl SpiderTestDriver {
         drop(resource_groups);
         Ok(resource_group_id)
     }
+}
+
+/// Environment variable seeding resource groups registered before the driver started, formatted as
+/// a comma-separated list of `external_id=spider_id` pairs.
+const PREREGISTERED_RESOURCE_GROUPS_ENV: &str = "SPIDER_E2E_PREREGISTERED_RESOURCE_GROUPS";
+
+/// Parses [`PREREGISTERED_RESOURCE_GROUPS_ENV`] into the driver's initial resource-group cache, so
+/// the driver reuses a group registered out-of-band (e.g. one a dedicated worker pool binds to)
+/// rather than re-registering it.
+///
+/// # Returns
+///
+/// The pre-registered external-id-to-[`ResourceGroupId`] map, empty when the variable is unset.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`anyhow::Error`] if an entry is not formatted as `external_id=spider_id`, or its id is not a
+///   valid integer.
+fn preregistered_resource_groups() -> anyhow::Result<HashMap<String, ResourceGroupId>> {
+    let Ok(raw) = std::env::var(PREREGISTERED_RESOURCE_GROUPS_ENV) else {
+        return Ok(HashMap::new());
+    };
+    raw.split(',')
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            let (external_id, spider_id) = entry
+                .split_once('=')
+                .with_context(|| format!("malformed pre-registered resource group: {entry}"))?;
+            let spider_id: u64 = spider_id
+                .parse()
+                .with_context(|| format!("invalid resource-group id: {entry}"))?;
+            Ok((external_id.to_owned(), ResourceGroupId::from(spider_id)))
+        })
+        .collect()
 }
 
 /// Runs a single job scenario: submits and starts the job, drives it to a terminal state while
