@@ -599,7 +599,7 @@ async fn test_add_or_verify_resource_group_wrong_password() -> anyhow::Result<()
         format!("test-resource-group-{}", rand::random::<u64>()),
         b"correct-password".to_vec(),
     );
-    let resource_group_id = storage.add_or_verify(credentials.clone()).await?;
+    let resource_group_id = storage.add(credentials.clone()).await?;
 
     let result = storage
         .add_or_verify(ExternalResourceGroupCredentials::new(

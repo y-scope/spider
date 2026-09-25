@@ -84,11 +84,12 @@ impl ResourceGroupManagementClient {
         Ok(ResourceGroupId::from(response.resource_group_id))
     }
 
-    /// Creates a resource group or verifies its password if it already exists.
+    /// Registers an external resource group, or verifies the existing registration if one already
+    /// exists.
     ///
     /// # Returns
     ///
-    /// The ID of the created or authenticated resource group on success.
+    /// The [`ResourceGroupId`] the storage server assigned to the resource group on success.
     ///
     /// # Errors
     ///

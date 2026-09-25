@@ -446,14 +446,9 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             .execute(&self.pool)
             .await
             .map_err(|e| match e {
-                sqlx::Error::Database(e)
-                    if e.try_downcast_ref::<MySqlDatabaseError>()
-                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
-                {
-                    DbError::ResourceGroupAlreadyExists(
-                        credentials.get_external_resource_group_id().to_owned(),
-                    )
-                }
+                e if is_duplicate_entry(&e) => DbError::ResourceGroupAlreadyExists(
+                    credentials.get_external_resource_group_id().to_owned(),
+                ),
                 e => e.into(),
             })?
             .last_insert_id();
@@ -476,43 +471,43 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
 
         run_read_committed_tx(self.pool.clone(), async move |connection| {
             let mut tx = connection.begin().await?;
-            let existing_resource_group =
+            if let Some((resource_group_id, stored_password)) =
                 sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
                     .bind(credentials.get_external_resource_group_id())
                     .fetch_optional(&mut *tx)
-                    .await?;
+                    .await?
+            {
+                if !bool::from(stored_password.ct_eq(credentials.get_password())) {
+                    return Err(DbError::InvalidPassword(resource_group_id));
+                }
+                tx.commit().await?;
+                return Ok(resource_group_id);
+            }
+
+            let inserted_resource_group_id = match sqlx::query(INSERT_QUERY)
+                .bind(credentials.get_external_resource_group_id())
+                .bind(credentials.get_password())
+                .execute(&mut *tx)
+                .await
+            {
+                Ok(result) => Some(ResourceGroupId::from(result.last_insert_id())),
+                Err(error) if is_duplicate_entry(&error) => None,
+                Err(error) => return Err(error.into()),
+            };
+
+            if let Some(resource_group_id) = inserted_resource_group_id {
+                tx.commit().await?;
+                return Ok(resource_group_id);
+            }
 
             let (resource_group_id, stored_password) =
-                if let Some(resource_group) = existing_resource_group {
-                    resource_group
-                } else {
-                    match sqlx::query(INSERT_QUERY)
-                        .bind(credentials.get_external_resource_group_id())
-                        .bind(credentials.get_password())
-                        .execute(&mut *tx)
-                        .await
-                    {
-                        Ok(result) => {
-                            tx.commit().await?;
-                            return Ok(ResourceGroupId::from(result.last_insert_id()));
-                        }
-                        Err(sqlx::Error::Database(error))
-                            if error
-                                .try_downcast_ref::<MySqlDatabaseError>()
-                                .is_some_and(|error| error.number() == MYSQL_ER_DUP_ENTRY) => {}
-                        Err(error) => return Err(error.into()),
-                    }
-
-                    // A concurrent insert won; read and lock its committed credentials.
-                    sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
-                        .bind(credentials.get_external_resource_group_id())
-                        .fetch_one(&mut *tx)
-                        .await?
-                };
+                sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
+                    .bind(credentials.get_external_resource_group_id())
+                    .fetch_one(&mut *tx)
+                    .await?;
             if !bool::from(stored_password.ct_eq(credentials.get_password())) {
                 return Err(DbError::InvalidPassword(resource_group_id));
             }
-
             tx.commit().await?;
             Ok(resource_group_id)
         })
@@ -1121,4 +1116,16 @@ async fn get_dead_execution_managers(
 
     tx.commit().await?;
     Ok(dead_ids)
+}
+
+/// # Returns
+///
+/// Whether `error` is a duplicate-entry error reported by the database.
+fn is_duplicate_entry(error: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(error) = error else {
+        return false;
+    };
+    error
+        .try_downcast_ref::<MySqlDatabaseError>()
+        .is_some_and(|mysql_error| mysql_error.number() == MYSQL_ER_DUP_ENTRY)
 }
