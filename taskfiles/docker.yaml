@@ -68,7 +68,11 @@ tasks:
   # @param {string} SPIDER_SCHEDULER_IMAGE_REF The scheduler image reference.
   # @param {string} SPIDER_WORKER_IMAGE_REF The worker image reference.
   # @param {string} SPIDER_WORKER_LIBRARY_DIR The host directory containing the libraries.
+  # @param {string} [SPIDER_COMPOSE_PROJECT_NAME="spider-local"] The Docker Compose project name.
   compose:local:up:
+    vars:
+      SPIDER_COMPOSE_PROJECT_NAME: >-
+        {{.SPIDER_COMPOSE_PROJECT_NAME | default "spider-local"}}
     dotenv:
       - >-
         {{.SPIDER_ENV_FILE | default "/dev/null"}}
@@ -87,15 +91,24 @@ tasks:
         {{- end}}
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: >-
-      docker compose --project-name spider-local --file compose.yaml
+      docker compose --project-name "{{.SPIDER_COMPOSE_PROJECT_NAME}}" --file compose.yaml
       --file compose.local.yaml up --detach --wait --wait-timeout 300
 
+  # @param {string} [SPIDER_COMPOSE_PROJECT_NAME="spider-local"] The Docker Compose project name.
   compose:local:down:
-    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
-    cmd: "docker compose --project-name spider-local --file compose.yaml down"
-
-  compose:local:clean:
+    vars:
+      SPIDER_COMPOSE_PROJECT_NAME: >-
+        {{.SPIDER_COMPOSE_PROJECT_NAME | default "spider-local"}}
     dir: "{{.G_SPIDER_COMPOSE_DIR}}"
     cmd: >-
-      docker compose --project-name spider-local --file compose.yaml down
+      docker compose --project-name "{{.SPIDER_COMPOSE_PROJECT_NAME}}" --file compose.yaml down
+
+  # @param {string} [SPIDER_COMPOSE_PROJECT_NAME="spider-local"] The Docker Compose project name.
+  compose:local:clean:
+    vars:
+      SPIDER_COMPOSE_PROJECT_NAME: >-
+        {{.SPIDER_COMPOSE_PROJECT_NAME | default "spider-local"}}
+    dir: "{{.G_SPIDER_COMPOSE_DIR}}"
+    cmd: >-
+      docker compose --project-name "{{.SPIDER_COMPOSE_PROJECT_NAME}}" --file compose.yaml down
       --volumes --remove-orphans
