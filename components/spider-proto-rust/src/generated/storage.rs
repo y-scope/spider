@@ -2068,6 +2068,35 @@ pub mod resource_group_management_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn add_or_verify_resource_group(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddResourceGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ResourceGroupIdResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/storage.ResourceGroupManagementService/AddOrVerifyResourceGroup",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "storage.ResourceGroupManagementService",
+                        "AddOrVerifyResourceGroup",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn verify_resource_group(
             &mut self,
             request: impl tonic::IntoRequest<super::VerifyResourceGroupRequest>,
@@ -2113,6 +2142,13 @@ pub mod resource_group_management_service_server {
     #[async_trait]
     pub trait ResourceGroupManagementService: std::marker::Send + std::marker::Sync + 'static {
         async fn add_resource_group(
+            &self,
+            request: tonic::Request<super::AddResourceGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ResourceGroupIdResponse>,
+            tonic::Status,
+        >;
+        async fn add_or_verify_resource_group(
             &self,
             request: tonic::Request<super::AddResourceGroupRequest>,
         ) -> std::result::Result<
@@ -2240,6 +2276,59 @@ pub mod resource_group_management_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = AddResourceGroupSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/storage.ResourceGroupManagementService/AddOrVerifyResourceGroup" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddOrVerifyResourceGroupSvc<
+                        T: ResourceGroupManagementService,
+                    >(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ResourceGroupManagementService,
+                    > tonic::server::UnaryService<super::AddResourceGroupRequest>
+                    for AddOrVerifyResourceGroupSvc<T> {
+                        type Response = super::ResourceGroupIdResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddResourceGroupRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ResourceGroupManagementService>::add_or_verify_resource_group(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = AddOrVerifyResourceGroupSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

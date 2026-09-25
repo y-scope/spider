@@ -18,6 +18,7 @@ use spider_utils::config::Host;
 use sqlx::Connection;
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlDatabaseError;
+use subtle::ConstantTimeEq;
 
 use crate::config::DatabaseConfig;
 use crate::db::DbError;
@@ -445,19 +446,72 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             .execute(&self.pool)
             .await
             .map_err(|e| match e {
-                sqlx::Error::Database(e)
-                    if e.try_downcast_ref::<MySqlDatabaseError>()
-                        .is_some_and(|mysql_err| mysql_err.number() == MYSQL_ER_DUP_ENTRY) =>
-                {
-                    DbError::ResourceGroupAlreadyExists(
-                        credentials.get_external_resource_group_id().to_owned(),
-                    )
-                }
+                e if is_duplicate_entry(&e) => DbError::ResourceGroupAlreadyExists(
+                    credentials.get_external_resource_group_id().to_owned(),
+                ),
                 e => e.into(),
             })?
             .last_insert_id();
 
         Ok(ResourceGroupId::from(resource_group_id))
+    }
+
+    async fn add_or_verify(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, DbError> {
+        const INSERT_QUERY: &str = formatcp!(
+            "INSERT INTO `{table}` (`external_id`, `password`) VALUES (?, ?);",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+        const SELECT_QUERY: &str = formatcp!(
+            "SELECT `id`, `password` FROM `{table}` WHERE `external_id` = ? LOCK IN SHARE MODE;",
+            table = RESOURCE_GROUPS_TABLE_NAME,
+        );
+
+        run_read_committed_tx(self.pool.clone(), async move |connection| {
+            let mut tx = connection.begin().await?;
+            if let Some((resource_group_id, stored_password)) =
+                sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
+                    .bind(credentials.get_external_resource_group_id())
+                    .fetch_optional(&mut *tx)
+                    .await?
+            {
+                if !bool::from(stored_password.ct_eq(credentials.get_password())) {
+                    return Err(DbError::InvalidPassword(resource_group_id));
+                }
+                tx.commit().await?;
+                return Ok(resource_group_id);
+            }
+
+            let inserted_resource_group_id = match sqlx::query(INSERT_QUERY)
+                .bind(credentials.get_external_resource_group_id())
+                .bind(credentials.get_password())
+                .execute(&mut *tx)
+                .await
+            {
+                Ok(result) => Some(ResourceGroupId::from(result.last_insert_id())),
+                Err(error) if is_duplicate_entry(&error) => None,
+                Err(error) => return Err(error.into()),
+            };
+
+            if let Some(resource_group_id) = inserted_resource_group_id {
+                tx.commit().await?;
+                return Ok(resource_group_id);
+            }
+
+            let (resource_group_id, stored_password) =
+                sqlx::query_as::<_, (ResourceGroupId, Vec<u8>)>(SELECT_QUERY)
+                    .bind(credentials.get_external_resource_group_id())
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if !bool::from(stored_password.ct_eq(credentials.get_password())) {
+                return Err(DbError::InvalidPassword(resource_group_id));
+            }
+            tx.commit().await?;
+            Ok(resource_group_id)
+        })
+        .await
     }
 
     async fn verify(
@@ -469,8 +523,6 @@ impl ResourceGroupManagement for MariaDbStorageConnector {
             "SELECT `password` FROM `{table}` WHERE `id` = ?;",
             table = RESOURCE_GROUPS_TABLE_NAME,
         );
-
-        use subtle::ConstantTimeEq;
 
         let Some(stored_password) = sqlx::query_scalar::<_, Vec<u8>>(QUERY)
             .bind(resource_group_id)
@@ -1064,4 +1116,16 @@ async fn get_dead_execution_managers(
 
     tx.commit().await?;
     Ok(dead_ids)
+}
+
+/// # Returns
+///
+/// Whether `error` is a duplicate-entry error reported by the database.
+fn is_duplicate_entry(error: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(error) = error else {
+        return false;
+    };
+    error
+        .try_downcast_ref::<MySqlDatabaseError>()
+        .is_some_and(|mysql_error| mysql_error.number() == MYSQL_ER_DUP_ENTRY)
 }
