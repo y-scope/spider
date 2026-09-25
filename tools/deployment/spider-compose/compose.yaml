@@ -1,7 +1,7 @@
 name: "spider"
 
 include:
-  - "./configs/scheduler/${SPIDER_SCHEDULER_POLICY:-round_robin}.yaml"
+  - "./configs/scheduler/${SPIDER_SCHEDULER_POLICY:-resource_group_round_robin}.yaml"
   - "./configs/storage.yaml"
   - "./configs/worker.yaml"
 
@@ -18,6 +18,28 @@ x-healthcheck-defaults: &healthcheck_defaults
   start_interval: "2s"
   start_period: "60s"
   timeout: "2s"
+
+x-worker-defaults: &worker_defaults
+  <<: *service_defaults
+  image: >-
+    ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
+  networks:
+    - "default"
+    - "spider-internal"
+  command: [
+    "spider-execution-manager",
+    "--config", "/etc/spider/worker.yaml",
+  ]
+  configs:
+    - source: "spider-worker-config"
+      target: "/etc/spider/worker.yaml"
+  depends_on:
+    spider-scheduler:
+      condition: "service_healthy"
+      restart: true
+    spider-storage:
+      condition: "service_healthy"
+      restart: true
 
 services:
   spider-database:
@@ -111,30 +133,20 @@ services:
       ]
 
   spider-worker:
-    <<: *service_defaults
-    image: >-
-      ${SPIDER_WORKER_IMAGE_REF:-ghcr.io/y-scope/spider/worker:${SPIDER_IMAGE_TAG:-main}}
-    networks:
-      - "default"
-      - "spider-internal"
-    command: [
-      "spider-execution-manager",
-      "--config", "/etc/spider/worker.yaml",
-    ]
+    <<: *worker_defaults
     environment:
       RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
-    configs:
-      - source: "spider-worker-config"
-        target: "/etc/spider/worker.yaml"
-    depends_on:
-      spider-scheduler:
-        condition: "service_healthy"
-        restart: true
-      spider-storage:
-        condition: "service_healthy"
-        restart: true
     deploy:
       replicas: "${SPIDER_WORKER_REPLICAS:-4}"
+
+  spider-worker-dedicated:
+    <<: *worker_defaults
+    environment:
+      RUST_LOG: "${SPIDER_WORKER_LOG_LEVEL:-INFO}"
+      SPIDER_EXTERNAL_RESOURCE_GROUP_ID: "${SPIDER_DEDICATED_RESOURCE_GROUP_ID:-}"
+      SPIDER_RESOURCE_GROUP_PASSWORD: "${SPIDER_DEDICATED_RESOURCE_GROUP_PASSWORD:-}"
+    deploy:
+      replicas: "${SPIDER_DEDICATED_WORKER_REPLICAS:-0}"
 
 networks:
   default:
