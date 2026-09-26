@@ -20,8 +20,10 @@ fi
 
 # `gcc` and `libc6-dev` are required by `rustc`, which invokes the system C compiler driver to
 # link binaries against libc.
+# `uuid-runtime` provides `uuidgen`, which the test tasks use to generate unique resource names.
 DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} \
 apt-get install --no-install-recommends -y \
     gcc \
     libc6-dev \
-    protobuf-compiler
+    protobuf-compiler \
+    uuid-runtime
