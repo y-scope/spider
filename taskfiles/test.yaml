@@ -49,9 +49,8 @@ tasks:
       SPIDER_COMPOSE_PROJECT_NAME:
         # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
         sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-e2e-/'"
-      # Let Docker pick a free host port for `spider-storage` so that concurrent runs don't collide.
-      # The assigned port is looked up after the deployment starts.
-      SPIDER_STORAGE_PUBLISHED_PORT: "0"
+      SPIDER_STORAGE_PUBLISHED_PORT:
+        sh: "tools/scripts/get_free_port.py"
       SPIDER_DATABASE_IMAGE_REF: >-
         {{.SPIDER_DATABASE_IMAGE_REF | default "mariadb:10.11.16"}}
       SPIDER_WORKER_REPLICAS: "{{numCPU}}"
@@ -99,14 +98,11 @@ tasks:
           SPIDER_WORKER_IMAGE_REF:
             sh: "cat '{{.G_BUILD_DIR}}/spider-worker-image.id'"
           SPIDER_WORKER_LIBRARY_DIR: "{{.G_TDL_PACKAGES_DIR}}"
-      - |-
-        published_port="$(docker port \
-          "{{.SPIDER_COMPOSE_PROJECT_NAME}}-spider-storage-1" "{{.SPIDER_STORAGE_PORT}}" \
-          | head -n 1 | sed 's/.*://')"
+      - >-
         tools/scripts/docker/resolve-huntsman-e2e-endpoint.py connect \
           --network "{{.SPIDER_COMPOSE_NETWORK}}" \
           --storage-port "{{.SPIDER_STORAGE_PORT}}" \
-          --published-port "${published_port}" \
+          --published-port "{{.SPIDER_STORAGE_PUBLISHED_PORT}}" \
         > "{{.SPIDER_ENDPOINT_FILE}}"
       - defer: >-
           tools/scripts/docker/resolve-huntsman-e2e-endpoint.py disconnect \
