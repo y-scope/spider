@@ -24,4 +24,5 @@ DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} \
 apt-get install --no-install-recommends -y \
     gcc \
     libc6-dev \
-    protobuf-compiler
+    protobuf-compiler \
+    uuid-runtime
