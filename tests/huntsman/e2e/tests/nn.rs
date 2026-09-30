@@ -44,8 +44,11 @@ async fn run_neural_network_job_batches(resource_group_id: &'static str) -> anyh
     const NUM_JOBS_PER_BATCH: usize = 8;
 
     for batch_index in 0..NUM_BATCHES {
+        /// Each step creates two jobs: one with `shared_first_layer_inputs` enabled and one with it
+        /// disabled. Keep this constant in sync with the inner loop implementation.
+        const NUM_JOBS_PER_STEP: usize = 2;
         let mut jobs = JoinSet::new();
-        for job_index in (0..NUM_JOBS_PER_BATCH).step_by(2) {
+        for job_index in (0..NUM_JOBS_PER_BATCH).step_by(NUM_JOBS_PER_STEP) {
             let seed = u64::try_from(batch_index * NUM_JOBS_PER_BATCH + job_index)
                 .expect("neural-network job index does not fit in u64");
             jobs.spawn(async move {
