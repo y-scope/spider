@@ -548,6 +548,29 @@ impl<
         Ok(rg_id)
     }
 
+    /// Adds a resource group or verifies the password of an existing resource group.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the created or verified resource group on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagement::add_or_verify`]'s return values on failure.
+    pub async fn add_or_verify_resource_group(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, StorageServerError> {
+        let rg_id = self.inner.db.add_or_verify(credentials).await?;
+        tracing::info!(
+            rg_id = ? rg_id,
+            "Resource group added or verified.",
+        );
+        Ok(rg_id)
+    }
+
     /// Verifies the password of a resource group.
     ///
     /// # Errors
@@ -1651,6 +1674,51 @@ mod tests {
                 .await
                 .is_ok()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_or_verify_resource_group_creates_and_reuses_id() -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
+        let credentials =
+            ExternalResourceGroupCredentials::new("external_123".to_owned(), vec![1, 2, 3]);
+        let rg_id = service
+            .add_or_verify_resource_group(credentials.clone())
+            .await?;
+        service
+            .verify_resource_group(rg_id, credentials.get_password())
+            .await?;
+        assert_eq!(
+            service.add_or_verify_resource_group(credentials).await?,
+            rg_id
+        );
+        assert_eq!(db.resource_groups.len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_or_verify_resource_group_rejects_wrong_password() -> anyhow::Result<()> {
+        let db = MockDbConnector::default();
+        let service = create_test_service_with_db(db.clone());
+        let credentials =
+            ExternalResourceGroupCredentials::new("external_123".to_owned(), vec![1, 2, 3]);
+        let rg_id = service.add_resource_group(credentials.clone()).await?;
+        let result = service
+            .add_or_verify_resource_group(ExternalResourceGroupCredentials::new(
+                credentials.get_external_resource_group_id().to_owned(),
+                vec![4, 5, 6],
+            ))
+            .await;
+        assert!(matches!(
+            result,
+            Err(StorageServerError::Db(DbError::InvalidPassword(id))) if id == rg_id
+        ));
+        assert_eq!(
+            service.add_or_verify_resource_group(credentials).await?,
+            rg_id
+        );
+        assert_eq!(db.resource_groups.len(), 1);
         Ok(())
     }
 

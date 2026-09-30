@@ -302,6 +302,29 @@ pub trait ResourceGroupManagement {
         credentials: ExternalResourceGroupCredentials,
     ) -> Result<ResourceGroupId, DbError>;
 
+    /// Adds a resource group or verifies the password of an existing resource group.
+    ///
+    /// Existing resource groups keep their ID and password.
+    ///
+    /// # Parameters
+    ///
+    /// * `credentials` - The external ID and password of the resource group.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the created or authenticated resource group on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::InvalidPassword`] if the existing resource group's password is incorrect.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn add_or_verify(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, DbError>;
+
     /// Verifies the password of a resource group.
     ///
     /// # Parameters

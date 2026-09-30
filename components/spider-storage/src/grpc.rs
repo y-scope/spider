@@ -786,6 +786,30 @@ impl<
         }))
     }
 
+    async fn add_or_verify_resource_group(
+        &self,
+        request: Request<storage::AddResourceGroupRequest>,
+    ) -> Result<Response<storage::ResourceGroupIdResponse>, Status> {
+        let credentials = request.into_inner().unpack()?;
+        tracing::info!(
+            external_id = % credentials.get_external_resource_group_id(),
+            "Add or verify resource group request received."
+        );
+        let rg_id = self
+            .inner
+            .add_or_verify_resource_group(credentials)
+            .await
+            .map_err(|error| {
+                self.resource_group_management_service_error_handler(
+                    error,
+                    "add_or_verify_resource_group",
+                )
+            })?;
+        Ok(Response::new(storage::ResourceGroupIdResponse {
+            resource_group_id: rg_id.get(),
+        }))
+    }
+
     async fn verify_resource_group(
         &self,
         request: Request<storage::VerifyResourceGroupRequest>,

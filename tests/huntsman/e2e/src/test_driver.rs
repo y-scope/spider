@@ -6,7 +6,6 @@
 //! client so that shared scenarios run concurrently up to a configured limit while exclusive
 //! scenarios run in isolation.
 
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
@@ -14,9 +13,6 @@ use anyhow::Context;
 use spider_client::SpiderClient;
 use spider_core::job::JobState;
 use spider_core::types::id::JobId;
-use spider_core::types::id::ResourceGroupId;
-use spider_core::types::resource_group::ExternalResourceGroupCredentials;
-use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio::sync::Semaphore;
@@ -29,7 +25,6 @@ use crate::types::TerminationResult;
 pub struct SpiderTestDriver {
     client: RwLock<SpiderClient>,
     concurrency_limiter: Semaphore,
-    resource_groups: Mutex<HashMap<String, ResourceGroupId>>,
 }
 
 impl SpiderTestDriver {
@@ -46,7 +41,6 @@ impl SpiderTestDriver {
     ///
     /// * [`anyhow::Error`] if the concurrency limiter has been closed.
     /// * Forwards [`Self::instance`]'s return values on failure.
-    /// * Forwards [`Self::resolve_resource_group`]'s return values on failure.
     /// * Forwards [`run_scenario`]'s return values on failure.
     pub async fn run<OutcomeAssertionType>(
         job_submission: JobSubmission,
@@ -63,12 +57,8 @@ impl SpiderTestDriver {
             .await
             .context("concurrency limiter closed")?;
         let client = client_guard.clone();
-        let resource_group_id = driver
-            .resolve_resource_group(&client, &job_submission.resource_group_id)
-            .await?;
         let result = run_scenario(
             client,
-            resource_group_id,
             job_submission,
             timeout,
             async |_job_id: JobId| -> anyhow::Result<()> { Ok(()) },
@@ -91,7 +81,6 @@ impl SpiderTestDriver {
     /// Returns an error if:
     ///
     /// * Forwards [`Self::instance`]'s return values on failure.
-    /// * Forwards [`Self::resolve_resource_group`]'s return values on failure.
     /// * Forwards [`run_scenario`]'s return values on failure.
     pub async fn run_exclusive<FailureInjectionType, OutcomeAssertionType>(
         job_submission: JobSubmission,
@@ -105,12 +94,8 @@ impl SpiderTestDriver {
         let driver = Self::instance().await?;
         let client_guard = driver.client.write().await;
         let client = client_guard.clone();
-        let resource_group_id = driver
-            .resolve_resource_group(&client, &job_submission.resource_group_id)
-            .await?;
         let result = run_scenario(
             client,
-            resource_group_id,
             job_submission,
             timeout,
             failure_injection,
@@ -137,7 +122,7 @@ impl SpiderTestDriver {
         INSTANCE.get_or_try_init(Self::init).await
     }
 
-    /// Initializes the driver from the environment, connecting to the configured Spider endpoint.
+    /// Initializes the driver with the configured Spider endpoint.
     ///
     /// # Returns
     ///
@@ -165,40 +150,7 @@ impl SpiderTestDriver {
         Ok(Self {
             client: RwLock::new(client),
             concurrency_limiter: Semaphore::new(concurrency.get()),
-            resource_groups: Mutex::new(HashMap::new()),
         })
-    }
-
-    /// Resolves an external resource-group id to a Spider-assigned id, registering the resource
-    /// group on first use and caching the result.
-    ///
-    /// # Returns
-    ///
-    /// The Spider-assigned resource-group id on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`SpiderClient::add_resource_group`]'s return values on failure.
-    async fn resolve_resource_group(
-        &self,
-        client: &SpiderClient,
-        external_resource_group_id: &str,
-    ) -> anyhow::Result<ResourceGroupId> {
-        let mut resource_groups = self.resource_groups.lock().await;
-        if let Some(resource_group_id) = resource_groups.get(external_resource_group_id) {
-            return Ok(*resource_group_id);
-        }
-        let resource_group_id = client
-            .add_resource_group(ExternalResourceGroupCredentials::new(
-                external_resource_group_id.to_owned(),
-                Vec::new(),
-            ))
-            .await?;
-        resource_groups.insert(external_resource_group_id.to_owned(), resource_group_id);
-        drop(resource_groups);
-        Ok(resource_group_id)
     }
 }
 
@@ -221,7 +173,6 @@ impl SpiderTestDriver {
 /// * Forwards `outcome_assertion`'s return values on failure.
 async fn run_scenario<FailureInjectionType, OutcomeAssertionType>(
     client: SpiderClient,
-    resource_group_id: ResourceGroupId,
     job_submission: JobSubmission,
     timeout: Duration,
     failure_injection: FailureInjectionType,
@@ -230,7 +181,7 @@ async fn run_scenario<FailureInjectionType, OutcomeAssertionType>(
 where
     FailureInjectionType: AsyncFnOnce(JobId) -> anyhow::Result<()>,
     OutcomeAssertionType: AsyncFnOnce(JobId, TerminationResult) -> anyhow::Result<()>, {
-    let job_id = submit_and_start_job(&client, resource_group_id, job_submission).await?;
+    let job_id = submit_and_start_job(&client, job_submission).await?;
     let result = match tokio::time::timeout(timeout, async {
         let ((), termination) = tokio::try_join!(
             failure_injection(job_id),
@@ -246,7 +197,7 @@ where
     outcome_assertion(job_id, result).await
 }
 
-/// Submits and starts the described job.
+/// Resolves the job's resource group, then submits and starts the described job.
 ///
 /// # Returns
 ///
@@ -256,19 +207,23 @@ where
 ///
 /// Returns an error if:
 ///
+/// * Forwards [`SpiderClient::add_or_verify_resource_group`]'s return values on failure.
 /// * Forwards [`SpiderClient::submit_job`]'s return values on failure.
 /// * Forwards [`SpiderClient::start_job`]'s return values on failure.
 async fn submit_and_start_job(
     client: &SpiderClient,
-    resource_group_id: ResourceGroupId,
     job_submission: JobSubmission,
 ) -> anyhow::Result<JobId> {
+    let JobSubmission {
+        task_graph,
+        inputs,
+        resource_group_credentials,
+    } = job_submission;
+    let resource_group_id = client
+        .add_or_verify_resource_group(resource_group_credentials)
+        .await?;
     let job_id = client
-        .submit_job(
-            resource_group_id,
-            &job_submission.task_graph,
-            job_submission.inputs,
-        )
+        .submit_job(resource_group_id, &task_graph, inputs)
         .await?;
     client.start_job(job_id).await?;
     Ok(job_id)
