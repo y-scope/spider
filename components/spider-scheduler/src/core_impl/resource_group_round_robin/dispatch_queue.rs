@@ -274,8 +274,18 @@ impl DispatchQueueRegistry {
                 reader.recv_pinned(remaining).await?
             };
 
-            if assignment.session_id != self.inner.session_tracker.current() {
+            let current_session_id = self.inner.session_tracker.current();
+            if assignment.session_id != current_session_id {
                 // If the assignment is from a stale session, drop it.
+                tracing::trace!(
+                    resource_group_id = ? assignment.resource_group_id,
+                    assignment_id = ? assignment.id,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    assignment_session_id = assignment.session_id,
+                    current_session_id,
+                    "Discarded stale-session assignment during pinned dequeue."
+                );
                 continue;
             }
             return Some(assignment);
@@ -301,6 +311,11 @@ impl DispatchQueueRegistry {
             let current_session_id = self.inner.session_tracker.current();
             if hint.session_id() != current_session_id {
                 // If the hint is from a stale session, drop it.
+                tracing::trace!(
+                    hint_session_id = hint.session_id(),
+                    current_session_id,
+                    "Dropped stale-session hint without spending it."
+                );
                 continue;
             }
             let Some(assignment) = hint.consume_and_try_recv() else {
@@ -309,6 +324,15 @@ impl DispatchQueueRegistry {
 
             if assignment.session_id != current_session_id {
                 // If the assignment is from a stale session, drop it.
+                tracing::trace!(
+                    resource_group_id = ? assignment.resource_group_id,
+                    assignment_id = ? assignment.id,
+                    job_id = ? assignment.job_id,
+                    task_id = ? assignment.task_id,
+                    assignment_session_id = assignment.session_id,
+                    current_session_id,
+                    "Discarded stale-session assignment during general dequeue."
+                );
                 continue;
             }
             return Some(assignment);
