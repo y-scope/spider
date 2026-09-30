@@ -84,6 +84,38 @@ impl ResourceGroupManagementClient {
         Ok(ResourceGroupId::from(response.resource_group_id))
     }
 
+    /// Registers an external resource group, or verifies the existing registration if one already
+    /// exists.
+    ///
+    /// # Returns
+    ///
+    /// The [`ResourceGroupId`] the storage server assigned to the resource group on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`ResourceGroupManagementServiceClient::add_or_verify_resource_group`]'s status
+    ///   on failure.
+    pub async fn add_or_verify_resource_group(
+        &self,
+        credentials: ExternalResourceGroupCredentials,
+    ) -> Result<ResourceGroupId, ClientError> {
+        let pool = self.connection_pool.clone();
+        let response = call_with_retry(self.retry_config, move || {
+            let mut client = pool.get_client();
+            let request = storage::AddResourceGroupRequest {
+                credentials: Some((&credentials).into()),
+            };
+            async move { client.add_or_verify_resource_group(request).await }
+        })
+        .await
+        .map_err(|status| resource_group_status_to_error(&status))?
+        .into_inner();
+
+        Ok(ResourceGroupId::from(response.resource_group_id))
+    }
+
     /// Verifies a resource group's password.
     ///
     /// # Returns

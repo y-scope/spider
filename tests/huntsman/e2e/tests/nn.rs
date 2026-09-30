@@ -16,6 +16,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use spider_core::types::io::TaskGraphInputBuilder;
+use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use tokio::task::JoinSet;
 
 #[tokio::test]
@@ -110,6 +111,9 @@ async fn run_neural_network_job(
     /// Maximum duration of one neural-network job.
     const JOB_TIMEOUT: Duration = Duration::from_secs(600);
 
+    /// Password of the neural-network jobs' resource group.
+    const RESOURCE_GROUP_PASSWORD: &[u8] = b"";
+
     let layer_specs = (0..NUM_LAYERS)
         .map(|i| {
             (
@@ -147,9 +151,12 @@ async fn run_neural_network_job(
     let expected = nn.simulate(&inputs)?;
     let task_graph = nn.to_task_graph()?;
     let job = JobSubmission {
-        resource_group_id: resource_group_id.to_owned(),
         task_graph,
         task_graph_input: task_graph_input_builder.build(),
+        resource_group_credentials: ExternalResourceGroupCredentials::new(
+            resource_group_id.to_owned(),
+            RESOURCE_GROUP_PASSWORD.to_vec(),
+        ),
     };
 
     SpiderTestDriver::run(job, JOB_TIMEOUT, async move |_job_id, result| {
