@@ -1,7 +1,7 @@
 //! Public types shared across the end-to-end test driver.
 
 use spider_core::task::TaskGraph;
-use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 
@@ -22,8 +22,8 @@ pub struct JobSubmission {
     /// The task graph describing the job's computation.
     pub task_graph: TaskGraph,
 
-    /// The inputs supplied to the job's entry tasks.
-    pub inputs: Vec<TaskInput>,
+    /// The task graph input supplied to the job's entry tasks.
+    pub task_graph_input: TaskGraphInput,
 
     /// The credentials of the external resource group that the job runs in.
     pub resource_group_credentials: ExternalResourceGroupCredentials,

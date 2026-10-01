@@ -2065,6 +2065,7 @@ dependencies = [
  "const_format",
  "dashmap",
  "rand 0.9.5",
+ "rmp-serde",
  "secrecy",
  "serde",
  "serde_json",

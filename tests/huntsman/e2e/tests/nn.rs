@@ -9,35 +9,68 @@ use e2e::JobSubmission;
 use e2e::SpiderTestDriver;
 use e2e::TerminationResult;
 use e2e::decode_output;
-use e2e::encode_input;
 use e2e::nn::NeuralNetwork;
 use e2e::nn::Neuron;
+use huntsman_nn_core::NUM_INPUTS;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use tokio::task::JoinSet;
 
 #[tokio::test]
 async fn test_nn() -> anyhow::Result<()> {
+    run_neural_network_job_batches("e2e-nn").await
+}
+
+/// Runs batches of concurrent neural-network jobs, validating each job's outputs against the
+/// in-process simulation.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`anyhow::Error`] if a neural-network job task panics.
+/// * Forwards [`run_neural_network_job`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if a neural-network job index doesn't fit in `u64`.
+async fn run_neural_network_job_batches(resource_group_id: &'static str) -> anyhow::Result<()> {
     /// Number of neural-network job batches.
-    const NUM_BATCHES: usize = 3;
+    const NUM_BATCHES: usize = 2;
 
     /// Number of concurrent neural-network jobs in each batch.
     const NUM_JOBS_PER_BATCH: usize = 8;
 
     for batch_index in 0..NUM_BATCHES {
+        /// Each step creates two jobs: one with `shared_first_layer_inputs` enabled and one with it
+        /// disabled. Keep this constant in sync with the inner loop implementation.
+        const NUM_JOBS_PER_STEP: usize = 2;
         let mut jobs = JoinSet::new();
-        for job_index in 0..NUM_JOBS_PER_BATCH {
+        for job_index in (0..NUM_JOBS_PER_BATCH).step_by(NUM_JOBS_PER_STEP) {
             let seed = u64::try_from(batch_index * NUM_JOBS_PER_BATCH + job_index)
                 .expect("neural-network job index does not fit in u64");
             jobs.spawn(async move {
-                run_neural_network_job(seed).await.with_context(|| {
-                    format!(
-                        "neural-network job {job_index} in batch {batch_index} with seed {seed} \
-                         failed"
-                    )
-                })
+                run_neural_network_job(resource_group_id, seed, true)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "neural-network job {job_index} in batch {batch_index} with seed \
+                             {seed} failed"
+                        )
+                    })
+            });
+            jobs.spawn(async move {
+                run_neural_network_job(resource_group_id, seed, false)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "neural-network job {job_index} in batch {batch_index} with seed \
+                             {seed} failed"
+                        )
+                    })
             });
         }
         while let Some(result) = jobs.join_next().await {
@@ -55,11 +88,17 @@ async fn test_nn() -> anyhow::Result<()> {
 /// Returns an error if:
 ///
 /// * Forwards [`NeuralNetwork::new`]'s return values on failure.
+/// * Forwards [`TaskGraphInputBuilder::create_shared_input_payload`]'s return values on failure.
+/// * Forwards [`TaskGraphInputBuilder::append_shared_task_input`]'s return values on failure.
+/// * Forwards [`TaskGraphInputBuilder::append_task_input`]'s return values on failure.
 /// * Forwards [`NeuralNetwork::simulate`]'s return values on failure.
 /// * Forwards [`NeuralNetwork::to_task_graph`]'s return values on failure.
-/// * Forwards [`encode_input`]'s return values on failure.
 /// * Forwards [`SpiderTestDriver::run`]'s return values on failure.
-async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
+async fn run_neural_network_job(
+    resource_group_id: &str,
+    seed: u64,
+    share_first_layer_inputs: bool,
+) -> anyhow::Result<()> {
     /// Relative-tolerance float comparison.
     const REL_TOL: f64 = 1.0e-12;
 
@@ -71,9 +110,6 @@ async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
 
     /// Maximum duration of one neural-network job.
     const JOB_TIMEOUT: Duration = Duration::from_secs(600);
-
-    /// External resource group ID that the neural-network jobs run in.
-    const EXTERNAL_RESOURCE_GROUP_ID: &str = "e2e-nn";
 
     /// Password of the neural-network jobs' resource group.
     const RESOURCE_GROUP_PASSWORD: &[u8] = b"";
@@ -91,17 +127,34 @@ async fn run_neural_network_job(seed: u64) -> anyhow::Result<()> {
         })
         .collect::<Vec<_>>();
     let nn = NeuralNetwork::new(layer_specs, seed)?;
-    let inputs = random_f64s(nn.num_graph_inputs(), seed);
+    let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+    let inputs = if share_first_layer_inputs {
+        let num_first_layer_neurons = nn.num_graph_inputs() / NUM_INPUTS;
+        let shared_inputs = random_f64s(NUM_INPUTS, seed);
+        let shared_input_ids = shared_inputs
+            .iter()
+            .map(|input| task_graph_input_builder.create_shared_input_payload(input))
+            .collect::<Result<Vec<_>, _>>()?;
+        for _ in 0..num_first_layer_neurons {
+            for &shared_input_id in &shared_input_ids {
+                task_graph_input_builder.append_shared_task_input(shared_input_id)?;
+            }
+        }
+        shared_inputs.repeat(num_first_layer_neurons)
+    } else {
+        let inputs = random_f64s(nn.num_graph_inputs(), seed);
+        for input in &inputs {
+            task_graph_input_builder.append_task_input(input)?;
+        }
+        inputs
+    };
     let expected = nn.simulate(&inputs)?;
     let task_graph = nn.to_task_graph()?;
     let job = JobSubmission {
         task_graph,
-        inputs: inputs
-            .iter()
-            .map(encode_input)
-            .collect::<anyhow::Result<Vec<_>>>()?,
+        task_graph_input: task_graph_input_builder.build(),
         resource_group_credentials: ExternalResourceGroupCredentials::new(
-            EXTERNAL_RESOURCE_GROUP_ID.to_owned(),
+            resource_group_id.to_owned(),
             RESOURCE_GROUP_PASSWORD.to_vec(),
         ),
     };

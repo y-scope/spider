@@ -559,7 +559,7 @@ mod tests {
     use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::JobId;
     use spider_core::types::id::ResourceGroupId;
-    use spider_core::types::io::TaskInput;
+    use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::resource_group::ExternalResourceGroupCredentials;
     use tokio::sync::Mutex;
 
@@ -717,8 +717,12 @@ mod tests {
                 input_sources: None,
             })
             .expect("task insertion should succeed");
+        let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+        task_graph_input_builder
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
         let job_submission =
-            create_validated_submission(submitted, vec![TaskInput::ValuePayload(vec![0u8; 4])]);
+            create_validated_submission(submitted, task_graph_input_builder.build());
         let task_graph = crate::cache::task::TaskGraph::create(job_submission)
             .await
             .expect("cache task graph creation should succeed");
