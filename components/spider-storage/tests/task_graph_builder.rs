@@ -1,7 +1,6 @@
 use anyhow::Result;
 use rand::Rng;
 use rand::SeedableRng;
-use spider_core::compression::encode_zstd_bytes;
 use spider_core::task::DataTypeDescriptor;
 use spider_core::task::ExecutionPolicy;
 use spider_core::task::TaskDescriptor;
@@ -10,8 +9,8 @@ use spider_core::task::TaskInputOutputIndex;
 use spider_core::task::TdlContext;
 use spider_core::task::TerminationTaskDescriptor;
 use spider_core::task::ValueTypeDescriptor;
-use spider_core::types::io::TaskInput;
-use spider_core::types::io::TaskInputsSerializer;
+use spider_core::types::io::TaskGraphInput;
+use spider_core::types::io::TaskGraphInputBuilder;
 use spider_storage::job_submission::ValidatedJobSubmission;
 
 /// The submitted task graph type from spider-core.
@@ -28,27 +27,23 @@ pub fn compress_task_graph(task_graph: &SubmittedTaskGraph) -> Result<Vec<u8>> {
     Ok(task_graph.to_zstd_compressed_json()?)
 }
 
-/// Compresses job inputs into the zstd-compressed TDL wire-framed format the database persists.
+/// Compresses job inputs into the zstd-compressed serialized [`TaskGraphInput`] format the
+/// database persists.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`TaskInputsSerializer::append`]'s return values on failure.
-/// * Forwards [`encode_zstd_bytes`]'s return values on failure.
-pub fn compress_job_inputs(inputs: &[TaskInput]) -> Result<Vec<u8>> {
-    let mut serializer = TaskInputsSerializer::new();
-    for input in inputs {
-        serializer.append(input.clone())?;
-    }
-    Ok(encode_zstd_bytes(&serializer.release())?)
+/// * Forwards [`TaskGraphInput::to_zstd_compressed_bytes`]'s return values on failure.
+pub fn compress_job_inputs(task_graph_input: &TaskGraphInput) -> Result<Vec<u8>> {
+    Ok(task_graph_input.to_zstd_compressed_bytes()?)
 }
 
 /// Compresses a submitted task graph and job inputs into the formats the database persists, then
 /// builds a [`ValidatedJobSubmission`].
 ///
-/// The task graph is zstd-compressed JSON and the job inputs are zstd-compressed TDL wire-framed
-/// bytes, matching what the storage service receives from a client.
+/// The task graph is zstd-compressed JSON and the job inputs are a zstd-compressed serialized
+/// [`TaskGraphInput`], matching what the storage service receives from a client.
 ///
 /// # Panics
 ///
@@ -59,11 +54,12 @@ pub fn compress_job_inputs(inputs: &[TaskInput]) -> Result<Vec<u8>> {
 #[must_use]
 pub fn create_validated_submission(
     task_graph: SubmittedTaskGraph,
-    inputs: Vec<TaskInput>,
+    task_graph_input: TaskGraphInput,
 ) -> ValidatedJobSubmission {
     let compressed_task_graph =
         compress_task_graph(&task_graph).expect("task graph compression should succeed");
-    let compressed_inputs = compress_job_inputs(&inputs).expect("input compression should succeed");
+    let compressed_inputs =
+        compress_job_inputs(&task_graph_input).expect("input compression should succeed");
     ValidatedJobSubmission::create(compressed_task_graph, compressed_inputs)
         .expect("job submission should be valid")
 }
@@ -88,19 +84,22 @@ pub fn create_validated_submission(
 ///
 /// # Returns
 ///
-/// The submitted task graph and the corresponding job inputs (one `payload_size`-byte payload per
-/// task).
+/// The submitted task graph and the corresponding job inputs (one msgpack-serialized payload of
+/// `payload_size` zero bytes per task).
 ///
 /// # Panics
 ///
-/// Panics if the task graph or any task descriptor fails to construct.
+/// Panics if:
+///
+/// * The task graph or any task descriptor fails to construct.
+/// * Any job input fails to serialize.
 #[must_use]
 pub fn build_flat_task_graph(
     num_tasks: usize,
     payload_size: usize,
     with_commit: bool,
     with_cleanup: bool,
-) -> (SubmittedTaskGraph, Vec<TaskInput>) {
+) -> (SubmittedTaskGraph, TaskGraphInput) {
     const TDL_TASK: &str = "flat_task";
     const TDL_COMMIT_TASK: &str = "noop_commit";
     const TDL_CLEANUP_TASK: &str = "noop_cleanup";
@@ -151,11 +150,15 @@ pub fn build_flat_task_graph(
             .expect("flat task insertion should succeed");
     }
 
-    let inputs: Vec<TaskInput> = (0..num_tasks)
-        .map(|_| TaskInput::ValuePayload(vec![0u8; payload_size]))
-        .collect();
+    let payload = vec![0u8; payload_size];
+    let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+    for _ in 0..num_tasks {
+        task_graph_input_builder
+            .append_task_input(&payload)
+            .expect("flat task input appending should succeed");
+    }
 
-    (graph, inputs)
+    (graph, task_graph_input_builder.build())
 }
 
 /// Builds a neural-net workload: 10 layers of 1,000 tasks each (10,000 total), with no commit or
@@ -180,14 +183,17 @@ pub fn build_flat_task_graph(
 ///
 /// # Returns
 ///
-/// The submitted task graph and the corresponding job inputs (1,000 payloads of 128 bytes each
-/// for layer 0's 1,000 tasks x 1 input).
+/// The submitted task graph and the corresponding job inputs (1,000 msgpack-serialized payloads of
+/// 128 zero bytes each for layer 0's 1,000 tasks x 1 input).
 ///
 /// # Panics
 ///
-/// Panics if the task graph or any task descriptor fails to construct.
+/// Panics if:
+///
+/// * The task graph or any task descriptor fails to construct.
+/// * Any job input fails to serialize.
 #[must_use]
-pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
+pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, TaskGraphInput) {
     const TDL_FUNC: &str = "nn_task";
     const NUM_LAYERS: usize = 10;
     const TASKS_PER_LAYER: usize = 1_000;
@@ -250,11 +256,15 @@ pub fn build_neural_net_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
         }
     }
 
-    let inputs: Vec<TaskInput> = (0..NUM_GRAPH_INPUTS)
-        .map(|_| TaskInput::ValuePayload(vec![0u8; 128]))
-        .collect();
+    let payload = vec![0u8; 128];
+    let mut task_graph_input_builder = TaskGraphInputBuilder::new();
+    for _ in 0..NUM_GRAPH_INPUTS {
+        task_graph_input_builder
+            .append_task_input(&payload)
+            .expect("neural-net task input appending should succeed");
+    }
 
-    (graph, inputs)
+    (graph, task_graph_input_builder.build())
 }
 
 const TDL_PACKAGE: &str = "test";

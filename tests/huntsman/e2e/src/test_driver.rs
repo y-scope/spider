@@ -216,14 +216,14 @@ async fn submit_and_start_job(
 ) -> anyhow::Result<JobId> {
     let JobSubmission {
         task_graph,
-        inputs,
+        task_graph_input,
         resource_group_credentials,
     } = job_submission;
     let resource_group_id = client
         .add_or_verify_resource_group(resource_group_credentials)
         .await?;
     let job_id = client
-        .submit_job(resource_group_id, &task_graph, inputs)
+        .submit_job(resource_group_id, &task_graph, &task_graph_input)
         .await?;
     client.start_job(job_id).await?;
     Ok(job_id)

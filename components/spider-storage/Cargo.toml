@@ -43,6 +43,7 @@ tracing = { workspace = true, features = ["attributes"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 rand = { workspace = true }
+rmp-serde = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 tabled = { workspace = true }

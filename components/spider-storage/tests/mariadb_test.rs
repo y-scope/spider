@@ -8,7 +8,7 @@ use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
-use spider_core::types::io::TaskInput;
+use spider_core::types::io::TaskGraphInput;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
@@ -28,7 +28,8 @@ use super::task_graph_builder::SubmittedTaskGraph;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
 
-/// Input payload size in bytes for the single-task graph used by DB-layer tests.
+/// Number of zero bytes in each msgpack-serialized input value for the single-task graph used by
+/// DB-layer tests.
 const TEST_INPUT_PAYLOAD_SIZE: usize = 128;
 
 /// Number of execution managers to register in multi-EM tests.
@@ -41,7 +42,7 @@ const TEST_UPDATED_SCHEDULER_PORT: u16 = 6789;
 /// # Returns
 ///
 /// Forwards `build_flat_task_graph`'s return values.
-fn single_task_graph() -> (SubmittedTaskGraph, Vec<TaskInput>) {
+fn single_task_graph() -> (SubmittedTaskGraph, TaskGraphInput) {
     build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, false)
 }
 
@@ -76,8 +77,8 @@ async fn is_scheduler_registered(
 async fn test_register_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -96,8 +97,8 @@ async fn test_register_job() {
 async fn test_register_job_invalid_resource_group() {
     let storage = create_mariadb_connector().await;
     let fake_rg_id = ResourceGroupId::random();
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let result = storage.register(fake_rg_id, &job_submission).await;
 
@@ -112,8 +113,8 @@ async fn test_register_job_invalid_resource_group() {
 async fn test_start_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -134,8 +135,8 @@ async fn test_start_job() {
 async fn test_start_job_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -156,8 +157,8 @@ async fn test_start_job_wrong_state() {
 async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -183,8 +184,8 @@ async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
 async fn test_get_outputs_succeeded_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -210,8 +211,8 @@ async fn test_get_outputs_succeeded_job() {
 async fn test_get_outputs_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -230,8 +231,8 @@ async fn test_get_outputs_wrong_state() {
 async fn test_get_error_failed_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -256,8 +257,8 @@ async fn test_get_error_failed_job() {
 async fn test_get_error_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -276,8 +277,8 @@ async fn test_get_error_wrong_state() {
 async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, true);
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, true);
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -302,8 +303,8 @@ async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
 async fn test_cancel_already_terminal() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -331,8 +332,8 @@ async fn test_cancel_already_terminal() {
 async fn test_set_state_valid_transition() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -355,8 +356,8 @@ async fn test_set_state_valid_transition() {
 async fn test_set_state_invalid_transition() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -379,8 +380,8 @@ async fn test_set_state_invalid_transition() {
 async fn test_commit_outputs_without_commit_task() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -405,8 +406,8 @@ async fn test_commit_outputs_without_commit_task() {
 async fn test_commit_outputs_with_commit_task() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, true, false);
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, true, false);
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -434,8 +435,8 @@ async fn test_commit_outputs_with_commit_task() {
 async fn test_commit_outputs_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -459,8 +460,8 @@ async fn test_commit_outputs_wrong_state() {
 async fn test_fail_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -485,8 +486,8 @@ async fn test_fail_job() {
 async fn test_fail_terminal_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -515,8 +516,8 @@ async fn test_fail_terminal_state() {
 async fn test_delete_expired_terminated_jobs() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -846,8 +847,8 @@ async fn test_fail_job_not_found() {
 async fn test_cancel_from_ready_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)
@@ -871,8 +872,8 @@ async fn test_cancel_from_ready_state() {
 async fn test_delete_expired_terminated_jobs_no_match() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
-    let (graph, inputs) = single_task_graph();
-    let job_submission = create_validated_submission(graph, inputs);
+    let (graph, task_graph_input) = single_task_graph();
+    let job_submission = create_validated_submission(graph, task_graph_input);
 
     let job_id = storage
         .register(rg_id, &job_submission)

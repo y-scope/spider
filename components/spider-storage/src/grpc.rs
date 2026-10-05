@@ -486,12 +486,13 @@ impl<
         &self,
         request: Request<storage::RegisterJobRequest>,
     ) -> Result<Response<storage::RegisterJobResponse>, Status> {
-        let (rg_id, serialized_task_graph, serialized_inputs) = request.into_inner().unpack()?;
+        let (rg_id, serialized_task_graph, serialized_task_graph_input) =
+            request.into_inner().unpack()?;
         tracing::info!(rg_id = rg_id.get(), "Job submission request received.");
 
         match self
             .inner
-            .register_job(rg_id, serialized_task_graph, serialized_inputs)
+            .register_job(rg_id, serialized_task_graph, serialized_task_graph_input)
             .await
         {
             Ok(job_id) => Ok(Response::new(storage::RegisterJobResponse {
