@@ -81,7 +81,8 @@ impl<
     ///   * Any other (database or otherwise unexpected) error.
     /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
     /// * `NOT_FOUND` for a missing job.
-    /// * `FAILED_PRECONDITION` for operations on an invalid job state.
+    /// * `FAILED_PRECONDITION` for operations on an invalid job state, or for a request issued
+    ///   against a stale cache state.
     /// * `INVALID_ARGUMENT` for a malformed task graph, inputs, or request.
     pub fn job_orchestration_service_error_handler(
         &self,
@@ -120,6 +121,16 @@ impl<
                     service = SERVICE_NAME,
                     tag,
                     "Invalid job state."
+                );
+                Status::failed_precondition(error.to_string())
+            }
+
+            StorageServerError::Cache(CacheError::StaleState(_)) => {
+                tracing::warn!(
+                    error = % error,
+                    service = SERVICE_NAME,
+                    tag,
+                    "The request was issued against a stale cache state."
                 );
                 Status::failed_precondition(error.to_string())
             }
