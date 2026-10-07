@@ -111,19 +111,26 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
-             `compressed_serialized_job_inputs`) VALUES (?, ?, ?);",
+            "INSERT INTO `{table}` (`root_id`, `resource_group_id`, \
+             `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`) VALUES (0, \
+             ?, ?, ?);",
+            table = JOBS_TABLE_NAME,
+        );
+        const SET_ROOT_ID_QUERY: &str = formatcp!(
+            "UPDATE `{table}` SET `root_id` = `id` WHERE `id` = ?;",
             table = JOBS_TABLE_NAME,
         );
 
         let compressed_serialized_task_graph = job_submission.compressed_serialized_task_graph();
         let compressed_serialized_job_inputs = job_submission.compressed_serialized_job_inputs();
 
+        // The INSERT allocates the root's ID. Replace the temporary root_id before committing.
+        let mut tx = self.pool.begin().await?;
         let job_id = sqlx::query(INSERT_QUERY)
             .bind(resource_group_id)
             .bind(compressed_serialized_task_graph)
             .bind(compressed_serialized_job_inputs)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| match e {
                 sqlx::Error::Database(e)
@@ -135,6 +142,11 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
                 e => e.into(),
             })?
             .last_insert_id();
+        sqlx::query(SET_ROOT_ID_QUERY)
+            .bind(job_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(JobId::from(job_id))
     }
 
@@ -409,9 +421,9 @@ impl InternalJobOrchestration for MariaDbStorageConnector {
 
     async fn get_recoverable_jobs(&self) -> Result<Vec<RecoverableJobContext>, DbError> {
         const SELECT_QUERY: &str = formatcp!(
-            "SELECT `id`, `resource_group_id`, `state`, `compressed_serialized_task_graph`, \
-             `compressed_serialized_job_inputs`, `serialized_job_outputs` FROM `{table}` WHERE \
-             `state` IN \
+            "SELECT `id`, `parent_id`, `root_id`, `resource_group_id`, `state`, \
+             `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`, \
+             `serialized_job_outputs` FROM `{table}` WHERE `state` IN \
              ('{ready_state}','{running_state}','{commit_ready_state}','{cleanup_ready_state}');",
             table = JOBS_TABLE_NAME,
             ready_state = JobState::Ready.as_str(),
@@ -757,6 +769,8 @@ const fn jobs_creation_query() -> &'static str {
         r"
 CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `parent_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+  `root_id` BIGINT UNSIGNED NOT NULL,
   `resource_group_id` BIGINT UNSIGNED NOT NULL,
   `state` {state_enum} NOT NULL DEFAULT {default_state},
   `compressed_serialized_task_graph` LONGBLOB NOT NULL,
@@ -770,6 +784,8 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   INDEX `job_state` (`state`),
+  INDEX `job_parent_state` (`parent_id`, `state`),
+  INDEX `job_root` (`root_id`),
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT
@@ -831,6 +847,8 @@ CREATE TABLE IF NOT EXISTS `{SESSIONS_TABLE_NAME}` (
 #[derive(sqlx::FromRow)]
 struct RecoverableJobRowProjection {
     id: JobId,
+    parent_id: Option<JobId>,
+    root_id: JobId,
     resource_group_id: ResourceGroupId,
     state: JobState,
     compressed_serialized_task_graph: Vec<u8>,
@@ -867,6 +885,8 @@ impl RecoverableJobRowProjection {
             .transpose()?;
         Ok(RecoverableJobContext {
             id: self.id,
+            parent_id: self.parent_id,
+            root_id: self.root_id,
             resource_group_id: self.resource_group_id,
             state: self.state,
             submission,
