@@ -161,6 +161,7 @@ type SharedJobMap<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConne
 mod tests {
     use std::sync::Arc;
 
+    use spider_core::job::JobState;
     use spider_core::task::DataTypeDescriptor;
     use spider_core::task::ExecutionPolicy;
     use spider_core::task::TaskDescriptor;
@@ -168,12 +169,15 @@ mod tests {
     use spider_core::task::TdlContext;
     use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
     use spider_core::types::io::TaskGraphInputBuilder;
 
     use super::*;
     use crate::cache::error::InternalError;
     use crate::cache::job::SharedJobControlBlock;
+    use crate::db::RecoverableJobContext;
     use crate::inbound_queue::InboundQueueSender;
+    use crate::job_submission::ValidatedJobSubmission;
     use crate::job_submission::create_validated_submission;
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
@@ -185,7 +189,14 @@ mod tests {
         MockTaskInstancePoolConnector,
     >;
 
-    async fn create_test_jcb(job_id: JobId) -> TestJcb {
+    /// # Returns
+    ///
+    /// A validated single-task submission with a bytes input and output.
+    ///
+    /// # Panics
+    ///
+    /// Panics if task graph construction or submission validation fails.
+    fn create_test_submission() -> ValidatedJobSubmission {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
         let mut submitted =
             SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
@@ -206,12 +217,14 @@ mod tests {
         task_graph_input_builder
             .append_task_input(&[0u8; 4])
             .expect("task input appending should succeed");
-        let job_submission =
-            create_validated_submission(submitted, task_graph_input_builder.build());
+        create_validated_submission(submitted, task_graph_input_builder.build())
+    }
+
+    async fn create_test_jcb(job_id: JobId) -> TestJcb {
         SharedJobControlBlock::create(
             job_id,
             spider_core::types::id::ResourceGroupId::random(),
-            job_submission,
+            create_test_submission(),
             MockInboundQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
@@ -230,10 +243,39 @@ mod tests {
         let job_id = JobId::random();
 
         let jcb = create_test_jcb(job_id).await;
+        assert_eq!(jcb.parent_id(), None);
+        assert_eq!(jcb.root_id(), job_id);
         cache.insert(jcb).await?;
 
         let result = cache.get(job_id).await;
         assert!(result.is_some(), "inserted JCB should be retrievable");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_recovered_job_preserves_tree_ids() -> anyhow::Result<()> {
+        let job_id = JobId::random();
+        for (parent_id, root_id) in [(None, job_id), (Some(JobId::random()), JobId::random())] {
+            let jcb = TestJcb::recover(
+                RecoverableJobContext {
+                    id: job_id,
+                    parent_id,
+                    root_id,
+                    resource_group_id: ResourceGroupId::random(),
+                    state: JobState::Running,
+                    submission: create_test_submission(),
+                    outputs: None,
+                },
+                MockInboundQueueSender,
+                MockDbConnector::default(),
+                MockTaskInstancePoolConnector,
+            )
+            .await?;
+
+            assert_eq!(jcb.id(), job_id);
+            assert_eq!(jcb.parent_id(), parent_id);
+            assert_eq!(jcb.root_id(), root_id);
+        }
         Ok(())
     }
 

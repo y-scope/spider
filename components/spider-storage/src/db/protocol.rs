@@ -19,6 +19,10 @@ use crate::job_submission::ValidatedJobSubmission;
 /// All non-terminal jobs are recoverable.
 pub struct RecoverableJobContext {
     pub id: JobId,
+    /// The parent job's ID, or `None` for a root job.
+    pub parent_id: Option<JobId>,
+    /// The root job's ID, equal to `id` for a root job.
+    pub root_id: JobId,
     pub resource_group_id: ResourceGroupId,
     pub state: JobState,
     pub submission: ValidatedJobSubmission,
@@ -46,7 +50,7 @@ pub trait DbStorage:
 /// Defines the user-facing storage interface for job storage in the database.
 #[async_trait]
 pub trait ExternalJobOrchestration {
-    /// Registers a job in the database.
+    /// Registers a root job in the database with its own ID as its root ID.
     ///
     /// # Parameters
     ///

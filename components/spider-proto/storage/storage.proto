@@ -221,4 +221,5 @@ enum JobState {
   SUCCEEDED = 5;
   FAILED = 6;
   CANCELLED = 7;
+  BLOCKING_ON_CHILDREN = 8;
 }

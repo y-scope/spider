@@ -89,6 +89,8 @@ impl<
         Ok(Self {
             inner: Arc::new(JobControlBlock {
                 id,
+                parent_id: None,
+                root_id: id,
                 owner_id,
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
@@ -127,6 +129,8 @@ impl<
     ) -> Result<Self, CacheError> {
         let RecoverableJobContext {
             id,
+            parent_id,
+            root_id,
             resource_group_id,
             state,
             submission,
@@ -190,6 +194,8 @@ impl<
         Ok(Self {
             inner: Arc::new(JobControlBlock {
                 id,
+                parent_id,
+                root_id,
                 owner_id: resource_group_id,
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
@@ -202,6 +208,22 @@ impl<
     #[must_use]
     pub fn id(&self) -> JobId {
         self.inner.id
+    }
+
+    /// # Returns
+    ///
+    /// The immediate parent job's ID, or `None` for a root job.
+    #[must_use]
+    pub fn parent_id(&self) -> Option<JobId> {
+        self.inner.parent_id
+    }
+
+    /// # Returns
+    ///
+    /// The root job's ID, which is the job's own ID for a root job.
+    #[must_use]
+    pub fn root_id(&self) -> JobId {
+        self.inner.root_id
     }
 
     /// # Returns
@@ -833,6 +855,8 @@ struct JobControlBlock<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector,
 > {
     id: JobId,
+    parent_id: Option<JobId>,
+    root_id: JobId,
     owner_id: ResourceGroupId,
     job_execution_state: JobExecutionStateHandle<
         InboundQueueSenderType,
