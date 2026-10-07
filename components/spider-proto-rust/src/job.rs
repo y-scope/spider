@@ -15,6 +15,7 @@ impl From<JobState> for storage::JobState {
             JobState::Succeeded => Self::Succeeded,
             JobState::Failed => Self::Failed,
             JobState::Cancelled => Self::Cancelled,
+            JobState::BlockingOnChildren => Self::BlockingOnChildren,
         }
     }
 }
@@ -32,6 +33,7 @@ impl TryFrom<storage::JobState> for JobState {
             storage::JobState::Succeeded => Ok(Self::Succeeded),
             storage::JobState::Failed => Ok(Self::Failed),
             storage::JobState::Cancelled => Ok(Self::Cancelled),
+            storage::JobState::BlockingOnChildren => Ok(Self::BlockingOnChildren),
         }
     }
 }
