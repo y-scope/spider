@@ -221,7 +221,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::UnexpectedJobState`] if the job is not in [`JobState::Succeeded`].
+    /// * [`StaleStateError::JobNotSucceeded`] if the job is not in [`JobState::Succeeded`].
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, CacheError> {
         let jcb = &self.inner;
@@ -1168,14 +1168,10 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
+    /// * [`StaleStateError::JobNotSucceeded`] if the job is not in [`JobState::Succeeded`].
     fn ensure_succeeded(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::Succeeded) {
-            return Err(InternalError::UnexpectedJobState {
-                current: self.state,
-                expected: JobState::Succeeded,
-            }
-            .into());
+            return Err(StaleStateError::JobNotSucceeded(self.state).into());
         }
         Ok(())
     }
