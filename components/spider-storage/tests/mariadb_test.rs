@@ -432,6 +432,36 @@ async fn test_commit_outputs_with_commit_task() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
+async fn test_cancel_commit_ready_job_without_cleanup_transitions_to_cancelled() {
+    let storage = create_mariadb_connector().await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let (graph, task_graph_input) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, true, false);
+    let job_submission = create_validated_submission(graph, task_graph_input);
+
+    let job_id = storage
+        .register(rg_id, &job_submission)
+        .await
+        .expect("register should succeed");
+
+    storage.start(job_id).await.expect("start should succeed");
+
+    InternalJobOrchestration::commit_outputs(&storage, job_id, vec![vec![]], true)
+        .await
+        .expect("commit_outputs should succeed");
+
+    InternalJobOrchestration::cancel(&storage, job_id, false)
+        .await
+        .expect("cancel should succeed");
+
+    let state = storage
+        .get_state(job_id)
+        .await
+        .expect("get_state should succeed");
+    assert_eq!(state, JobState::Cancelled);
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
 async fn test_commit_outputs_wrong_state() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;

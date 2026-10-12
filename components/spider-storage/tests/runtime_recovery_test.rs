@@ -200,6 +200,48 @@ async fn restarted_storage_cache_cancels_commit_ready_job_with_cleanup_task() ->
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
+async fn restarted_storage_cache_cancels_commit_ready_job_without_cleanup_task()
+-> anyhow::Result<()> {
+    let config = create_runtime_config();
+    let (job_id, recovered_runtime) = restart_after_commit_ready(&config, false).await?;
+    let recovered_service = recovered_runtime.get_service_state();
+
+    let state = recovered_service.cancel_job(job_id).await?;
+    assert_eq!(state, JobState::Cancelled);
+    assert_eq!(
+        create_mariadb_connector().await.get_state(job_id).await?,
+        JobState::Cancelled
+    );
+
+    let execution_manager_id = recovered_service
+        .register_execution_manager(IpAddr::from([127, 0, 0, 1]), None)
+        .await?
+        .0;
+    let result = recovered_service
+        .create_task_instance(
+            recovered_service.session_id(),
+            job_id,
+            spider_core::types::id::TaskId::Commit,
+            execution_manager_id,
+        )
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(StorageServerError::Cache(CacheError::StaleState(
+                StaleStateError::JobNoLongerCommitReady
+            )))
+        ),
+        "registering a commit task on a cancelled job should fail with JobNoLongerCommitReady, \
+         got {result:?}"
+    );
+    recovered_runtime.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<()> {
     let config = create_runtime_config();
     let (job_id, recovered_runtime) = restart_after_cleanup_ready(&config).await?;
