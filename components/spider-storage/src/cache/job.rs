@@ -221,7 +221,7 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StaleStateError::JobNotSucceeded`] if the job is not in [`JobState::Succeeded`].
+    /// * Forwards [`JobExecutionStateHandle::read_succeeded`]'s return values on failure.
     /// * Forwards [`TaskGraph::read_output_payloads`]'s return values on failure.
     pub async fn get_outputs(&self) -> Result<Vec<TaskOutput>, CacheError> {
         let jcb = &self.inner;
