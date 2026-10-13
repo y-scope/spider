@@ -906,10 +906,8 @@ mod tests {
     }
 
     fn create_inbound_queue_receiver() -> InboundQueueReceiverHandle {
-        use crate::inbound_queue::InboundQueueConfig;
         use crate::inbound_queue::create_inbound_queue;
-        let (_sender, receiver) =
-            create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
+        let (_sender, receiver) = create_inbound_queue();
         receiver
     }
 
@@ -921,10 +919,8 @@ mod tests {
     fn create_test_service_with_inbound_queue(
         db: MockDbConnector,
     ) -> (TestServiceStateWithInboundQueue, InboundQueueSenderHandle) {
-        use crate::inbound_queue::InboundQueueConfig;
         use crate::inbound_queue::create_inbound_queue;
-        let (sender, receiver) =
-            create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
+        let (sender, receiver) = create_inbound_queue();
         let service = TestServiceStateWithInboundQueue::new(ServiceStateParams {
             db,
             session_id: 0,

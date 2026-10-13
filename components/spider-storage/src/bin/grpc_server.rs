@@ -95,9 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }),
     );
 
-    // Initialize the inbound queue by resending all ready tasks from the current cache. This must
-    // be done after the server becomes serviceable. Otherwise, the inbound queue could fill up and
-    // cause a deadlock.
+    // Initialize the inbound queue by resending all ready tasks from the current cache.
     //
     // This operation may duplicate ready tasks for jobs submitted after the server starts but
     // before the resend starts. This is safe because the system is designed to tolerate
