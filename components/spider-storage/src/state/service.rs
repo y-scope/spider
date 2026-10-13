@@ -850,6 +850,7 @@ mod tests {
     use spider_core::task::TaskDescriptor;
     use spider_core::task::TaskGraph as SubmittedTaskGraph;
     use spider_core::task::TdlContext;
+    use spider_core::task::TerminationTaskDescriptor;
     use spider_core::task::ValueTypeDescriptor;
     use spider_core::types::id::ExecutionManagerId;
     use spider_core::types::id::JobId;
@@ -862,6 +863,7 @@ mod tests {
     use crate::cache::error::StaleStateError;
     use crate::cache::job::SharedJobControlBlock;
     use crate::db::DbError;
+    use crate::db::RecoverableJobContext;
     use crate::inbound_queue::InboundQueueSenderHandle;
     use crate::job_submission::compress_job_inputs;
     use crate::job_submission::compress_task_graph;
@@ -938,9 +940,16 @@ mod tests {
     }
 
     fn create_test_task_graph() -> SubmittedTaskGraph {
+        create_test_task_graph_with_termination_tasks(None, None)
+    }
+
+    fn create_test_task_graph_with_termination_tasks(
+        commit_task: Option<TerminationTaskDescriptor>,
+        cleanup_task: Option<TerminationTaskDescriptor>,
+    ) -> SubmittedTaskGraph {
         let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-        let mut task_graph =
-            SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
+        let mut task_graph = SubmittedTaskGraph::new(commit_task, cleanup_task)
+            .expect("task graph creation should succeed");
         task_graph
             .insert_task(TaskDescriptor {
                 tdl_context: TdlContext {
@@ -1167,6 +1176,67 @@ mod tests {
             service.inner.job_cache.get(job_id).await.is_some(),
             "JCB should remain in cache after terminal cancel"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancel_job_enqueues_cleanup_task_of_recovered_commit_ready_job() -> anyhow::Result<()>
+    {
+        let db = MockDbConnector::default();
+        let (service, sender) = create_test_service_with_inbound_queue(db.clone());
+
+        let create_termination_task_descriptor = |task_func: &str| TerminationTaskDescriptor {
+            tdl_context: TdlContext {
+                package: "test_pkg".to_owned(),
+                task_func: task_func.to_owned(),
+            },
+            execution_policy: Some(ExecutionPolicy::default()),
+        };
+        let task_graph = create_test_task_graph_with_termination_tasks(
+            Some(create_termination_task_descriptor("commit_fn")),
+            Some(create_termination_task_descriptor("cleanup_fn")),
+        );
+
+        let job_id = JobId::random();
+        let jcb = SharedJobControlBlock::recover(
+            RecoverableJobContext {
+                id: job_id,
+                resource_group_id: ResourceGroupId::random(),
+                state: JobState::CommitReady,
+                submission: create_validated_submission(task_graph, create_test_task_graph_input()),
+                outputs: Some(TaskOutputsSerializer::deserialize(
+                    &create_test_serialized_outputs(),
+                )?),
+            },
+            sender,
+            db,
+            MockTaskInstancePoolConnector,
+        )
+        .await?;
+        service.inner.job_cache.insert(jcb).await?;
+
+        let state = service.cancel_job(job_id).await?;
+        assert_eq!(state, JobState::CleanupReady);
+
+        let entries = service
+            .poll_cleanup_ready_tasks(10, Duration::from_millis(100))
+            .await?;
+        assert_eq!(entries.len(), 1, "should receive one cleanup-ready entry");
+        assert_eq!(entries[0].job_id, job_id);
+        assert_eq!(entries[0].task_kind, CleanupTaskMarker);
+
+        let context = service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Cleanup,
+                ExecutionManagerId::random(),
+            )
+            .await?;
+        let state = service
+            .succeed_cleanup_task_instance(TEST_SESSION_ID, job_id, context.task_instance_id)
+            .await?;
+        assert_eq!(state, JobState::Cancelled);
         Ok(())
     }
 

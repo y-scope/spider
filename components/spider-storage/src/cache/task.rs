@@ -132,10 +132,11 @@ impl TaskGraph {
     ///
     /// # Returns
     ///
-    /// The task graph with task outputs and the commit task recovered, while the underlying task
-    /// graph is initialized to empty.
+    /// The task graph with task outputs, the commit task, and the cleanup task (if any) recovered,
+    /// while the underlying task graph is initialized to empty.
     pub(super) fn recover_from_commit_ready(
         commit_task_descriptor: &TerminationTaskDescriptor,
+        cleanup_task_descriptor: Option<&TerminationTaskDescriptor>,
         outputs: Vec<TaskOutput>,
     ) -> Self {
         let outputs = outputs
@@ -148,7 +149,7 @@ impl TaskGraph {
             commit_task: Some(SharedTerminationTaskControlBlock::create(
                 commit_task_descriptor,
             )),
-            cleanup_task: None,
+            cleanup_task: cleanup_task_descriptor.map(SharedTerminationTaskControlBlock::create),
         }
     }
 
