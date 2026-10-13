@@ -154,8 +154,11 @@ impl<
                     ))
                     .into());
                 };
-                let task_graph =
-                    TaskGraph::recover_from_commit_ready(commit_task_descriptor, outputs);
+                let task_graph = TaskGraph::recover_from_commit_ready(
+                    commit_task_descriptor,
+                    submission.task_graph().get_cleanup_task_descriptor(),
+                    outputs,
+                );
                 (0, task_graph)
             }
             JobState::CleanupReady => {

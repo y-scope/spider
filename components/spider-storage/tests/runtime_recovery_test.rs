@@ -96,7 +96,7 @@ async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Re
 #[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<()> {
     let config = create_runtime_config();
-    let (job_id, recovered_runtime) = restart_after_commit_ready(&config).await?;
+    let (job_id, recovered_runtime) = restart_after_commit_ready(&config, false).await?;
     let recovered_service = recovered_runtime.get_service_state();
 
     recovered_service.resend_ready_tasks().await?;
@@ -146,6 +146,96 @@ async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<(
     .await?;
     recovered_runtime.stop().await?;
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn restarted_storage_cache_cancels_commit_ready_job_with_cleanup_task() -> anyhow::Result<()>
+{
+    let config = create_runtime_config();
+    let (job_id, recovered_runtime) = restart_after_commit_ready(&config, true).await?;
+    let recovered_service = recovered_runtime.get_service_state();
+
+    let state = recovered_service.cancel_job(job_id).await?;
+    assert_eq!(state, JobState::CleanupReady);
+
+    let inbound_entries = recovered_service
+        .poll_cleanup_ready_tasks(32, Duration::from_secs(1))
+        .await?;
+    let job_entries = find_entry_for_job(inbound_entries, job_id);
+    assert_eq!(job_entries.len(), 1);
+    assert_eq!(job_entries[0].task_kind, CleanupTaskMarker);
+
+    let execution_manager_id = recovered_service
+        .register_execution_manager(IpAddr::from([127, 0, 0, 1]), None)
+        .await?
+        .0;
+    let execution_context = recovered_service
+        .create_task_instance(
+            recovered_service.session_id(),
+            job_id,
+            spider_core::types::id::TaskId::Cleanup,
+            execution_manager_id,
+        )
+        .await?;
+    let state = recovered_service
+        .succeed_cleanup_task_instance(
+            recovered_service.session_id(),
+            job_id,
+            execution_context.task_instance_id,
+        )
+        .await?;
+    assert_eq!(state, JobState::Cancelled);
+
+    assert_eq!(
+        create_mariadb_connector().await.get_state(job_id).await?,
+        JobState::Cancelled
+    );
+    recovered_runtime.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+#[serial_test::file_serial]
+async fn restarted_storage_cache_cancels_commit_ready_job_without_cleanup_task()
+-> anyhow::Result<()> {
+    let config = create_runtime_config();
+    let (job_id, recovered_runtime) = restart_after_commit_ready(&config, false).await?;
+    let recovered_service = recovered_runtime.get_service_state();
+
+    let state = recovered_service.cancel_job(job_id).await?;
+    assert_eq!(state, JobState::Cancelled);
+    assert_eq!(
+        create_mariadb_connector().await.get_state(job_id).await?,
+        JobState::Cancelled
+    );
+
+    let execution_manager_id = recovered_service
+        .register_execution_manager(IpAddr::from([127, 0, 0, 1]), None)
+        .await?
+        .0;
+    let result = recovered_service
+        .create_task_instance(
+            recovered_service.session_id(),
+            job_id,
+            spider_core::types::id::TaskId::Commit,
+            execution_manager_id,
+        )
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(StorageServerError::Cache(CacheError::StaleState(
+                StaleStateError::JobNoLongerCommitReady
+            )))
+        ),
+        "registering a commit task on a cancelled job should fail with JobNoLongerCommitReady, \
+         got {result:?}"
+    );
+    recovered_runtime.stop().await?;
     Ok(())
 }
 
@@ -270,6 +360,7 @@ async fn restart_after_starting_job(
 /// * Forwards [`create_runtime`]'s return values on failure.
 async fn restart_after_commit_ready(
     config: &RuntimeConfig,
+    with_cleanup: bool,
 ) -> anyhow::Result<(
     JobId,
     Runtime<
@@ -278,7 +369,7 @@ async fn restart_after_commit_ready(
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
 )> {
-    let (job_id, runtime) = restart_after_starting_job(config, true, false).await?;
+    let (job_id, runtime) = restart_after_starting_job(config, true, with_cleanup).await?;
     let service = runtime.get_service_state();
 
     service.resend_ready_tasks().await?;
