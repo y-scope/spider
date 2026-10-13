@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::cache::error::InternalError;
 use crate::db::InternalJobOrchestration;
 use crate::inbound_queue::InboundQueueSender;
+use crate::shutdown::ShutdownHandle;
 use crate::state::JobCache;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 
@@ -111,7 +112,7 @@ pub fn create_job_cache_gc<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
     job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    cancellation_token: CancellationToken,
+    shutdown: ShutdownHandle,
     config: &JobCacheGcConfig,
 ) -> Result<(JobCacheGcHandle, JoinHandle<Result<(), InternalError>>), InternalError> {
     config.validate()?;
@@ -123,9 +124,9 @@ pub fn create_job_cache_gc<
         receiver,
     );
     let join_handle = tokio::spawn(async move {
-        gc.run(cancellation_token.clone(), gc_interval_sec).await.inspect_err(|e| {
+        gc.run(shutdown.token().clone(), gc_interval_sec).await.inspect_err(|e| {
             tracing::error!(error = % e, "Job cache GC actor exited with error. Cancelling the service.");
-            cancellation_token.cancel();
+            shutdown.shut_down_fatally();
         })
     });
     Ok((JobCacheGcHandle::new(sender), join_handle))

@@ -14,7 +14,6 @@ use spider_proto_rust::storage::SessionManagementService;
 use spider_proto_rust::storage::TaskInstanceManagementService;
 use spider_proto_rust::storage::{self};
 use spider_proto_rust::unpack::RequestUnpack;
-use tokio_util::sync::CancellationToken;
 use tonic::Request;
 use tonic::Response;
 use tonic::Status;
@@ -24,6 +23,7 @@ use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueSender;
+use crate::shutdown::ShutdownHandle;
 use crate::state::ServiceState;
 use crate::state::StorageServerError;
 use crate::task_instance_pool::TaskInstancePoolConnector;
@@ -42,7 +42,7 @@ pub struct GrpcServiceState<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     inner: ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    cancellation_token: CancellationToken,
+    shutdown: ShutdownHandle,
 }
 
 impl<
@@ -59,12 +59,9 @@ impl<
     #[must_use]
     pub const fn new(
         inner: ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        cancellation_token: CancellationToken,
+        shutdown: ShutdownHandle,
     ) -> Self {
-        Self {
-            inner,
-            cancellation_token,
-        }
+        Self { inner, shutdown }
     }
 
     /// Error handler for job orchestration service errors.
@@ -379,15 +376,15 @@ impl<
     /// Handles generic storage server errors.
     ///
     /// This handler maps every [`StorageServerError`] to an `INTERNAL` [`Status`] with a generic
-    /// error message. Errors are treated as fatal, and the storage service is cancelled in any of
-    /// the following cases:
+    /// error message. Errors are treated as fatal, and the storage service is shut down fatally in
+    /// any of the following cases:
     ///
     /// * The error is [`CacheError::Internal`].
     /// * The error is [`DbError::CorruptedDbState`].
     /// * `strict_mode` is enabled.
     ///
-    /// Non-fatal errors are logged as warnings. Fatal errors are logged as errors before
-    /// cancellation.
+    /// Non-fatal errors are logged as warnings. Fatal errors are logged as errors before the
+    /// shutdown.
     ///
     /// # Returns
     ///
@@ -408,7 +405,7 @@ impl<
                     tag,
                     "Internal error in the cache layer. Cancelling service."
                 );
-                self.cancellation_token.cancel();
+                self.shutdown.shut_down_fatally();
             }
 
             StorageServerError::Db(DbError::CorruptedDbState(e)) => {
@@ -418,7 +415,7 @@ impl<
                     tag,
                     "Internal error in the database layer. Cancelling service."
                 );
-                self.cancellation_token.cancel();
+                self.shutdown.shut_down_fatally();
             }
 
             e => {
@@ -429,7 +426,7 @@ impl<
                         tag,
                         "Unexpected internal error. Cancelling service."
                     );
-                    self.cancellation_token.cancel();
+                    self.shutdown.shut_down_fatally();
                 } else {
                     tracing::warn!(
                         error = % e,

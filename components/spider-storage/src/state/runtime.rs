@@ -15,6 +15,7 @@ use crate::inbound_queue::InboundQueueConfig;
 use crate::inbound_queue::InboundQueueSender;
 use crate::inbound_queue::InboundQueueSenderHandle;
 use crate::inbound_queue::create_inbound_queue;
+use crate::shutdown::ShutdownHandle;
 use crate::state::JobCache;
 use crate::state::JobCacheGcConfig;
 use crate::state::ServiceState;
@@ -67,14 +68,14 @@ impl<
     /// Stops the runtime.
     ///
     /// The background tasks will be cancelled and joined. The errors of the background tasks are
-    /// logged and will not be returned through this method.
+    /// logged.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`StorageServerError::Stopping`] if any of the background tasks does not stop before
-    ///   timeout.
+    ///   timeout, or exits on an error or a panic.
     pub async fn stop(self) -> Result<(), StorageServerError> {
         self.cancellation_token.cancel();
 
@@ -82,12 +83,15 @@ impl<
             match self.task_instance_pool_join_handle.await {
                 Ok(Ok(())) => {
                     tracing::info!("Task instance pool stopped.");
+                    true
                 }
                 Ok(Err(e)) => {
                     tracing::error!(error = % e, "Task instance pool exited on error.");
+                    false
                 }
                 Err(e) => {
                     tracing::error!(error = % e, "Task instance pool exited on panic.");
+                    false
                 }
             }
         };
@@ -96,21 +100,32 @@ impl<
             match self.job_cache_gc_join_handle.await {
                 Ok(Ok(())) => {
                     tracing::info!("Job cache GC stopped.");
+                    true
                 }
                 Ok(Err(e)) => {
                     tracing::error!(error = % e, "Job cache GC exited on error.");
+                    false
                 }
                 Err(e) => {
                     tracing::error!(error = % e, "Job cache GC exited on panic.");
+                    false
                 }
             }
         };
 
-        let _ = tokio::time::timeout(self.stop_timeout, async {
-            tokio::join!(join_task_instance_pool, join_job_cache_gc,)
-        })
-        .await
-        .map_err(|_| StorageServerError::Stopping("background task stop timed out".to_owned()))?;
+        let (is_task_instance_pool_stopped, is_job_cache_gc_stopped) =
+            tokio::time::timeout(self.stop_timeout, async {
+                tokio::join!(join_task_instance_pool, join_job_cache_gc)
+            })
+            .await
+            .map_err(|_| {
+                StorageServerError::Stopping("background task stop timed out".to_owned())
+            })?;
+        if !(is_task_instance_pool_stopped && is_job_cache_gc_stopped) {
+            return Err(StorageServerError::Stopping(
+                "background task exited on an error or a panic".to_owned(),
+            ));
+        }
 
         Ok(())
     }
@@ -133,7 +148,7 @@ impl<
 /// A tuple on success, containing:
 ///
 /// * The newly created runtime instance.
-/// * The runtime's cancellation token.
+/// * The runtime's shutdown handle.
 ///
 /// # Errors
 ///
@@ -148,11 +163,12 @@ pub async fn create_runtime(
 ) -> Result<
     (
         Runtime<InboundQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
-        CancellationToken,
+        ShutdownHandle,
     ),
     StorageServerError,
 > {
     let cancellation_token = CancellationToken::new();
+    let shutdown = ShutdownHandle::new(cancellation_token.clone());
     let db = MariaDbStorageConnector::connect(&config.db).await?;
     let session_id = db.session_id();
     let (inbound_queue_sender, inbound_queue_receiver) =
@@ -160,7 +176,7 @@ pub async fn create_runtime(
     let (task_instance_pool_connector, task_instance_pool_join_handle) = create_task_instance_pool(
         inbound_queue_sender.clone(),
         db.clone(),
-        cancellation_token.clone(),
+        shutdown.clone(),
         &config.task_instance_pool,
     )
     .map_err(CacheError::from)?;
@@ -171,12 +187,9 @@ pub async fn create_runtime(
         task_instance_pool_connector.clone(),
     )
     .await?;
-    let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
-        job_cache.clone(),
-        cancellation_token.clone(),
-        &config.job_cache_gc,
-    )
-    .map_err(CacheError::from)?;
+    let (job_cache_gc_handle, job_cache_gc_join_handle) =
+        create_job_cache_gc(job_cache.clone(), shutdown.clone(), &config.job_cache_gc)
+            .map_err(CacheError::from)?;
     let service_state = ServiceState::new(ServiceStateParams {
         db,
         session_id,
@@ -185,18 +198,18 @@ pub async fn create_runtime(
         inbound_queue_receiver,
         task_instance_pool_connector,
         job_cache_gc_handle,
-        cancellation_token: cancellation_token.clone(),
+        shutdown: shutdown.clone(),
     });
 
     Ok((
         Runtime {
             service_state,
-            cancellation_token: cancellation_token.clone(),
+            cancellation_token,
             task_instance_pool_join_handle,
             job_cache_gc_join_handle,
             stop_timeout: Duration::from_secs(STOP_BACKGROUND_TASKS_TIMEOUT_SEC),
         },
-        cancellation_token,
+        shutdown,
     ))
 }
 
@@ -281,9 +294,10 @@ mod tests {
         let (sender, receiver) =
             create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
         let job_cache = JobCache::new();
+        let shutdown = ShutdownHandle::new(cancellation_token.clone());
         let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
             job_cache.clone(),
-            cancellation_token.clone(),
+            shutdown.clone(),
             &JobCacheGcConfig::default(),
         )
         .expect("job cache GC creation");
@@ -295,7 +309,7 @@ mod tests {
             inbound_queue_receiver: receiver,
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle,
-            cancellation_token: cancellation_token.clone(),
+            shutdown,
         });
 
         // Wired with a real job cache GC task, which should always be terminated without errors.
@@ -367,8 +381,28 @@ mod tests {
         let result = runtime.stop().await;
 
         assert!(
-            matches!(result, Ok(())),
-            "pool task failure should not be forwarded as an error"
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "pool task failure should return Stopping"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stop_runtime_on_task_panic() -> anyhow::Result<()> {
+        let cancellation_token = CancellationToken::new();
+        let mock_task_instance_pool_handle: JoinHandle<Result<(), InternalError>> =
+            tokio::spawn(async move { panic!("test panic") });
+
+        let runtime = create_test_runtime(
+            cancellation_token,
+            mock_task_instance_pool_handle,
+            STOP_BACKGROUND_TASKS_TIMEOUT_SEC,
+        );
+        let result = runtime.stop().await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "pool task panic should return Stopping"
         );
         Ok(())
     }
