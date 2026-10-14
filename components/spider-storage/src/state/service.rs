@@ -861,6 +861,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::*;
+    use crate::cache::error::StaleStateError;
     use crate::cache::job::SharedJobControlBlock;
     use crate::db::DbError;
     use crate::db::RecoverableJobContext;
@@ -1357,8 +1358,13 @@ mod tests {
         // JCB is in cache but job is still Ready (not Succeeded).
         let result = service.get_job_outputs(job_id).await;
         assert!(
-            result.is_err(),
-            "get_job_outputs should fail when job is not Succeeded"
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::StaleState(
+                    StaleStateError::JobNotSucceeded(JobState::Ready)
+                )))
+            ),
+            "get_job_outputs should fail with a stale-state error when job is not Succeeded"
         );
         Ok(())
     }
