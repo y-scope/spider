@@ -14,7 +14,6 @@ use spider_storage::cache::error::StaleStateError;
 use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::inbound_queue::CleanupTaskMarker;
 use spider_storage::inbound_queue::CommitTaskMarker;
-use spider_storage::inbound_queue::InboundQueueConfig;
 use spider_storage::inbound_queue::InboundQueueEntry;
 use spider_storage::state::JobCacheGcConfig;
 use spider_storage::state::Runtime;
@@ -295,7 +294,6 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
 fn create_runtime_config() -> RuntimeConfig {
     RuntimeConfig {
         db: create_mariadb_config(),
-        inbound_queue: InboundQueueConfig::default(),
         task_instance_pool: TaskInstancePoolConfig::default(),
         job_cache_gc: JobCacheGcConfig::default(),
     }

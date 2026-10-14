@@ -79,9 +79,6 @@ pub enum InternalError {
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),
 
-    #[error("invalid inbound-queue config: {0}")]
-    InboundQueueInvalidConfig(&'static str),
-
     #[error("invalid task instance pool config: {0}")]
     TaskInstancePoolInvalidConfig(&'static str),
 
