@@ -106,11 +106,13 @@ pub enum InternalError {
 
 /// Enums for all errors representing operations that are rejected due to stale cache state.
 ///
-/// A stale-state error indicates that the operation was valid at the time it was issued, but can no
-/// longer be applied because the cache state has since changed.
+/// A stale-state error indicates that the operation cannot be applied to the current cache state:
+/// either the state has changed since the operation was issued, or it has not yet reached the state
+/// the operation requires.
 ///
 /// These errors are typically caused by stale requests (e.g., outdated cache session or concurrent
-/// updates). They are expected during normal operation and should be propagated to the caller for
+/// updates), or by requests made too early (e.g., reading the outputs of a job that has not
+/// succeeded). They are expected during normal operation and should be propagated to the caller for
 /// notification.
 #[derive(thiserror::Error, Debug)]
 pub enum StaleStateError {
@@ -143,4 +145,7 @@ pub enum StaleStateError {
 
     #[error("job already started")]
     JobAlreadyStarted,
+
+    #[error("job not succeeded: in state {0:?}")]
+    JobNotSucceeded(JobState),
 }
