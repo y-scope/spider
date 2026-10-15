@@ -33,57 +33,14 @@ if(NOT CMAKE_BUILD_TYPE)
     )
 endif()
 
-# Add local CMake module directory to CMake's modules path
-set(CMAKE_MODULE_PATH
-    ${CMAKE_MODULE_PATH}
-    "${PROJECT_SOURCE_DIR}/cmake/Modules/"
-)
-
 # Set the project dependency file path
 set(SPIDER_CMAKE_DEPENDENCY_FILE "" CACHE STRING "The cmake dependency file to include.")
 if(NOT SPIDER_CMAKE_DEPENDENCY_FILE STREQUAL "")
     include("${SPIDER_CMAKE_DEPENDENCY_FILE}")
 endif()
 
-# Profiling options
-add_definitions(-DPROF_ENABLED=0)
-
-# Compile-in debug logging statements
-#add_definitions(-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
-
-# Flush to disk switch
-add_definitions(-DFLUSH_TO_DISK_ENABLED=1)
-
-# Make off_t 64-bit
-add_definitions(-D_FILE_OFFSET_BITS=64)
-
 # Turn on PIC
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-# Detect linking mode (static or shared); Default to static.
-set(SPIDER_USE_STATIC_LIBS ON CACHE BOOL "Whether to link against static libraries")
-if(SPIDER_USE_STATIC_LIBS)
-    if(APPLE)
-        set(SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM "macOS")
-    elseif(EXISTS "/etc/centos-release")
-        set(SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM "CentOS")
-    endif()
-
-    if(DEFINED SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM)
-        message(
-            AUTHOR_WARNING
-            "Building with static libraries is unsupported on"
-            " ${SPIDER_STATIC_LIBS_UNSUPPORTED_PLATFORM}. Switching to shared libraries."
-        )
-        set(SPIDER_USE_STATIC_LIBS OFF)
-    endif()
-endif()
-if(SPIDER_USE_STATIC_LIBS)
-    set(SPIDER_LIBS_STRING "static")
-else()
-    set(SPIDER_LIBS_STRING "shared")
-endif()
-message(STATUS "Building using ${SPIDER_LIBS_STRING} libraries")
 
 if(SPIDER_BUILD_TESTING)
     include(CTest)
@@ -94,78 +51,13 @@ endif()
 find_package(antlr4-runtime REQUIRED)
 message(STATUS "Found antlr4-runtime ${antlr4-runtime_VERSION}")
 
-# Find and setup Boost Library
-if(SPIDER_USE_STATIC_LIBS)
-    set(Boost_USE_STATIC_LIBS ON)
-endif()
-find_package(
-    Boost
-    1.74
-    REQUIRED
-    COMPONENTS
-        headers
-        process
-        program_options
-        filesystem
-        system
-)
-if(Boost_FOUND)
-    message(STATUS "Found Boost ${Boost_VERSION}")
-else()
-    message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for Boost")
-endif()
+# Find and setup Boost
+find_package(Boost 1.81 REQUIRED COMPONENTS headers)
+message(STATUS "Found Boost ${Boost_VERSION}")
 
 # Find and setup fmt
 find_package(fmt 8.0.1 REQUIRED)
-if(fmt_FOUND)
-    message(STATUS "Found fmt ${fmt_VERSION}")
-else()
-    message(FATAL_ERROR "Could not find static libraries for fmt")
-endif()
-
-# Find and setup spdlog
-if(SPIDER_USE_STATIC_LIBS)
-    # NOTE: On some Linux distributions (e.g. Ubuntu), the spdlog package only contains a dynamic
-    # library. If the `find_package(spdlog)` call below fails, re-run
-    # `tools/scripts/lib_install/<dist_name>/install-packages-from-source.sh` to build spdlog from
-    # source.
-    set(spdlog_USE_STATIC_LIBS ON)
-endif()
-set(SPDLOG_FMT_EXTERNAL ON)
-add_compile_definitions(SPDLOG_FMT_EXTERNAL)
-find_package(spdlog 1.9.2 REQUIRED)
-if(spdlog_FOUND)
-    message(STATUS "Found spdlog ${spdlog_VERSION}")
-else()
-    if(SPIDER_USE_STATIC_LIBS)
-        message(FATAL_ERROR "Could not find static libraries for spdlog.")
-    else()
-        message(FATAL_ERROR "Could not find libraries for spdlog.")
-    endif()
-endif()
-
-# Find and setup MariaDBClient library
-if(SPIDER_USE_STATIC_LIBS)
-    # NOTE: We can't statically link to MariaDBClient since it's GPL
-    message(AUTHOR_WARNING "MariaDBClient cannot be statically linked due to its license.")
-endif()
-find_package(MariaDBClientCpp 1.0 REQUIRED)
-if(MariaDBClientCpp_FOUND)
-    message(STATUS "Found MariaDBClientCpp ${MariaDBClientCpp_VERSION}")
-else()
-    message(FATAL_ERROR "Could not find ${SPIDER_LIBS_STRING} libraries for MariaDBClientCpp")
-endif()
-
-# Find and setup msgpack
-if(SPIDER_USE_STATIC_LIBS)
-    set(msgpack-cxx_USE_STATIC_LIBS ON)
-endif()
-find_package(msgpack-cxx 7.0.0 REQUIRED)
-if(msgpack-cxx_FOUND)
-    message(STATUS "Found msgpack-cxx ${msgpack-cxx_VERSION}")
-else()
-    message(FATAL_ERROR "Could not find msgpack-cxx")
-endif()
+message(STATUS "Found fmt ${fmt_VERSION}")
 
 if(SPIDER_ENABLE_TESTS)
     find_package(Catch2 3.8.0 REQUIRED)
@@ -175,20 +67,14 @@ endif()
 # Add abseil
 set(ABSL_PROPAGATE_CXX_STD ON)
 find_package(absl REQUIRED)
-if(absl_FOUND)
-    message(STATUS "Found abseil ${absl_VERSION}.")
-else()
-    message(FATAL_ERROR "Could not find libraries for abseil.")
-endif()
+message(STATUS "Found abseil ${absl_VERSION}.")
 
 # Add ystdlib-cpp
 find_package(ystdlib REQUIRED)
 message(STATUS "Found ystdlib ${ystdlib_VERSION}.")
 
-find_package(Threads REQUIRED)
-
 add_subdirectory(src/spider)
 
 if(SPIDER_ENABLE_TESTS)
-    add_subdirectory(tests/wolf)
+    add_subdirectory(tests/tdl)
 endif()
