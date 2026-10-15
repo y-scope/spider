@@ -1,12 +1,9 @@
 # Docs
 
-This directory contains the files necessary to generate Sphinx-based documentation websites for this
-project. There are two documentation sites, each for a different version of Spider:
+This directory contains the files necessary to generate the Sphinx-based documentation website for
+Spider Huntsman, the Spider implementation written in Rust.
 
-* **`wolf`**: Documentation for Spider Wolf, the legacy Spider implementation written in C++.
-* **`huntsman`**: Documentation for Spider Huntsman, the new Spider implementation written in Rust.
-
-Each site has its own directory with:
+The site's directory, `huntsman`, contains:
 
 * `conf` - Configuration files
 * `src` - The actual docs
@@ -18,14 +15,6 @@ Each site has its own directory with:
 * [Task] 3.40.0 or higher
 
 ## Build commands
-
-* Build the Wolf site incrementally:
-
-  ```shell
-  task docs:wolf:site
-  ```
-  
-  * The output of the build will be in `../build/docs/wolf`.
 
 * Build the Huntsman site incrementally:
 
@@ -43,19 +32,13 @@ Each site has its own directory with:
 
 ## Viewing the output
 
-* Serve the Wolf site:
-
-  ```shell
-  task docs:wolf:serve
-  ```
-
 * Serve the Huntsman site:
 
   ```shell
   task docs:huntsman:serve
   ```
 
-Each command above will install [http-server] and serve the built docs site; `http-server` will
+The command above will install [http-server] and serve the built docs site; `http-server` will
 print the address it binds to (usually <http://localhost:8080>).
 
 [http-server]: https://www.npmjs.com/package/http-server
