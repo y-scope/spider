@@ -42,7 +42,7 @@ pub struct GrpcServiceState<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 > {
     inner: ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    shutdown: ShutdownHandle,
+    shutdown_handle: ShutdownHandle,
 }
 
 impl<
@@ -59,9 +59,12 @@ impl<
     #[must_use]
     pub const fn new(
         inner: ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-        shutdown: ShutdownHandle,
+        shutdown_handle: ShutdownHandle,
     ) -> Self {
-        Self { inner, shutdown }
+        Self {
+            inner,
+            shutdown_handle,
+        }
     }
 
     /// Error handler for job orchestration service errors.
@@ -405,7 +408,7 @@ impl<
                     tag,
                     "Internal error in the cache layer. Cancelling service."
                 );
-                self.shutdown.shut_down_fatally();
+                self.shutdown_handle.shut_down_fatally();
             }
 
             StorageServerError::Db(DbError::CorruptedDbState(e)) => {
@@ -415,7 +418,7 @@ impl<
                     tag,
                     "Internal error in the database layer. Cancelling service."
                 );
-                self.shutdown.shut_down_fatally();
+                self.shutdown_handle.shut_down_fatally();
             }
 
             e => {
@@ -426,7 +429,7 @@ impl<
                         tag,
                         "Unexpected internal error. Cancelling service."
                     );
-                    self.shutdown.shut_down_fatally();
+                    self.shutdown_handle.shut_down_fatally();
                 } else {
                     tracing::warn!(
                         error = % e,
