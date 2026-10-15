@@ -11,7 +11,6 @@ use crate::config::DatabaseConfig;
 use crate::db::DbStorage;
 use crate::db::MariaDbStorageConnector;
 use crate::db::SessionManagement;
-use crate::inbound_queue::InboundQueueConfig;
 use crate::inbound_queue::InboundQueueSender;
 use crate::inbound_queue::InboundQueueSenderHandle;
 use crate::inbound_queue::create_inbound_queue;
@@ -31,8 +30,6 @@ use crate::task_instance_pool::create_task_instance_pool;
 #[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeConfig {
     pub db: DatabaseConfig,
-    #[serde(default)]
-    pub inbound_queue: InboundQueueConfig,
     #[serde(default)]
     pub task_instance_pool: TaskInstancePoolConfig,
     #[serde(default)]
@@ -156,7 +153,6 @@ impl<
 ///
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
 /// * Forwards [`create_task_instance_pool`]'s return values on failure.
-/// * Forwards [`create_inbound_queue`]'s return values on failure.
 /// * Forwards [`create_job_cache_gc`]'s return values on failure.
 pub async fn create_runtime(
     config: &RuntimeConfig,
@@ -171,8 +167,7 @@ pub async fn create_runtime(
     let shutdown = ShutdownHandle::new(cancellation_token.clone());
     let db = MariaDbStorageConnector::connect(&config.db).await?;
     let session_id = db.session_id();
-    let (inbound_queue_sender, inbound_queue_receiver) =
-        create_inbound_queue(&config.inbound_queue).map_err(CacheError::from)?;
+    let (inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
     let (task_instance_pool_connector, task_instance_pool_join_handle) = create_task_instance_pool(
         inbound_queue_sender.clone(),
         db.clone(),
@@ -271,7 +266,6 @@ mod tests {
     use super::*;
     use crate::cache::error::InternalError;
     use crate::db::SessionManagement;
-    use crate::inbound_queue::InboundQueueConfig;
     use crate::inbound_queue::InboundQueueSenderHandle;
     use crate::inbound_queue::create_inbound_queue;
     use crate::state::JobCache;
@@ -291,8 +285,7 @@ mod tests {
     ) -> TestServerRuntime {
         let db = MockDbConnector::default();
         let session_id = db.session_id();
-        let (sender, receiver) =
-            create_inbound_queue(&InboundQueueConfig::default()).expect("inbound queue creation");
+        let (sender, receiver) = create_inbound_queue();
         let job_cache = JobCache::new();
         let shutdown = ShutdownHandle::new(cancellation_token.clone());
         let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(

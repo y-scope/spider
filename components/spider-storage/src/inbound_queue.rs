@@ -1,7 +1,7 @@
 //! In-memory inbound queue for schedulable tasks.
 //!
-//! The queue is a set of three independent MPMC async channels — one for regular tasks, one for
-//! commit tasks, and one for cleanup tasks. Each channel carries an [`InboundQueueEntry`]
+//! The queue is a set of three independent, unbounded MPMC async channels — one for regular tasks,
+//! one for commit tasks, and one for cleanup tasks. Each channel carries an [`InboundQueueEntry`]
 //! parameterized by the lane-specific task kind: [`TaskIndex`] for the regular lane,
 //! [`CommitTaskMarker`] for the commit lane, and [`CleanupTaskMarker`] for the cleanup lane.
 //!
@@ -14,7 +14,6 @@ use std::time::Duration;
 use async_channel::Receiver;
 use async_channel::Sender;
 use async_trait::async_trait;
-use serde::Deserialize;
 use spider_core::task::TaskIndex;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -45,45 +44,6 @@ pub struct InboundQueueEntry<TaskKind> {
     pub job_id: JobId,
     /// The per-lane task specifier.
     pub task_kind: TaskKind,
-}
-
-/// Configuration of an inbound queue.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(default)]
-pub struct InboundQueueConfig {
-    /// The capacity of the task lane. Must be greater than zero.
-    pub task_capacity: usize,
-    /// The capacity of the commit lane. Must be greater than zero.
-    pub commit_capacity: usize,
-    /// The capacity of the cleanup lane. Must be greater than zero.
-    pub cleanup_capacity: usize,
-}
-
-impl Default for InboundQueueConfig {
-    fn default() -> Self {
-        Self {
-            task_capacity: DEFAULT_TASK_CAPACITY,
-            commit_capacity: DEFAULT_COMMIT_CAPACITY,
-            cleanup_capacity: DEFAULT_CLEANUP_CAPACITY,
-        }
-    }
-}
-
-impl InboundQueueConfig {
-    /// Validates the config.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`InternalError::InboundQueueInvalidConfig`] if any of the configured capacity is 0.
-    const fn validate(self) -> Result<(), InternalError> {
-        const ERROR_MESSAGE: &str = "capacity must be greater than 0";
-        if self.task_capacity == 0 || self.commit_capacity == 0 || self.cleanup_capacity == 0 {
-            return Err(InternalError::InboundQueueInvalidConfig(ERROR_MESSAGE));
-        }
-        Ok(())
-    }
 }
 
 /// Connector for publishing task execution events to the inbound queue.
@@ -168,8 +128,7 @@ impl InboundQueueSender for InboundQueueSenderHandle {
                 task_kind: task_index,
             };
             self.task
-                .send(entry)
-                .await
+                .try_send(entry)
                 .map_err(|_| InternalError::InboundQueueChannelClosed)?;
         }
         Ok(())
@@ -186,8 +145,7 @@ impl InboundQueueSender for InboundQueueSenderHandle {
             task_kind: CommitTaskMarker,
         };
         self.commit
-            .send(entry)
-            .await
+            .try_send(entry)
             .map_err(|_| InternalError::InboundQueueChannelClosed)
     }
 
@@ -202,8 +160,7 @@ impl InboundQueueSender for InboundQueueSenderHandle {
             task_kind: CleanupTaskMarker,
         };
         self.cleanup
-            .send(entry)
-            .await
+            .try_send(entry)
             .map_err(|_| InternalError::InboundQueueChannelClosed)
     }
 }
@@ -287,24 +244,15 @@ impl InboundQueueReceiverHandle {
 ///
 /// # Returns
 ///
-/// A pair on success, containing:
+/// A pair, containing:
 ///
 /// * The sender handle of the inbound queue.
 /// * The receiver handle of the inbound queue.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`InboundQueueConfig::validate`]'s return values on failure.
-pub fn create_inbound_queue(
-    config: &InboundQueueConfig,
-) -> Result<(InboundQueueSenderHandle, InboundQueueReceiverHandle), InternalError> {
-    config.validate()?;
-
-    let (task_tx, task_rx) = async_channel::bounded(config.task_capacity);
-    let (commit_tx, commit_rx) = async_channel::bounded(config.commit_capacity);
-    let (cleanup_tx, cleanup_rx) = async_channel::bounded(config.cleanup_capacity);
+#[must_use]
+pub fn create_inbound_queue() -> (InboundQueueSenderHandle, InboundQueueReceiverHandle) {
+    let (task_tx, task_rx) = async_channel::unbounded();
+    let (commit_tx, commit_rx) = async_channel::unbounded();
+    let (cleanup_tx, cleanup_rx) = async_channel::unbounded();
 
     let sender = InboundQueueSenderHandle {
         task: task_tx,
@@ -316,17 +264,8 @@ pub fn create_inbound_queue(
         commit: commit_rx,
         cleanup: cleanup_rx,
     };
-    Ok((sender, receiver))
+    (sender, receiver)
 }
-
-/// Default capacity for the task lane.
-const DEFAULT_TASK_CAPACITY: usize = 65_536;
-
-/// Default capacity for the commit lane.
-const DEFAULT_COMMIT_CAPACITY: usize = 1024;
-
-/// Default capacity for the cleanup lane.
-const DEFAULT_CLEANUP_CAPACITY: usize = 1024;
 
 /// Receives up to `max_items` entries from a lane within a total time interval specified by `wait`.
 ///
@@ -381,11 +320,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_returns_early_when_max_items_reached() -> anyhow::Result<()> {
-        let (sender, receiver) = create_inbound_queue(&InboundQueueConfig {
-            task_capacity: 1,
-            commit_capacity: 1,
-            cleanup_capacity: 1,
-        })?;
+        let (sender, receiver) = create_inbound_queue();
 
         let resource_group_id = ResourceGroupId::default();
         let job_id = JobId::default();
@@ -427,11 +362,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn recv_returns_empty_when_wait_elapses() -> anyhow::Result<()> {
-        let (_sender, receiver) = create_inbound_queue(&InboundQueueConfig {
-            task_capacity: 1,
-            commit_capacity: 1,
-            cleanup_capacity: 1,
-        })?;
+        let (_sender, receiver) = create_inbound_queue();
 
         let wait = Duration::from_millis(50);
         let start = std::time::Instant::now();
@@ -443,6 +374,75 @@ mod tests {
             elapsed >= wait,
             "recv should block for the full wait duration when no entries arrive",
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sends_never_wait_for_a_lane_that_nobody_polls() -> anyhow::Result<()> {
+        const NUM_ENTRIES_PER_LANE: usize = 100_000;
+
+        let (sender, receiver) = create_inbound_queue();
+        let resource_group_id = ResourceGroupId::default();
+        let job_id = JobId::default();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            sender
+                .send_task_ready(
+                    resource_group_id,
+                    job_id,
+                    (0..NUM_ENTRIES_PER_LANE).collect(),
+                )
+                .await?;
+            for _ in 0..NUM_ENTRIES_PER_LANE {
+                sender.send_commit_ready(resource_group_id, job_id).await?;
+                sender.send_cleanup_ready(resource_group_id, job_id).await?;
+            }
+            anyhow::Ok(())
+        })
+        .await??;
+
+        let wait = Duration::from_secs(1);
+        let task_indices: Vec<TaskIndex> = receiver
+            .recv_tasks(NUM_ENTRIES_PER_LANE, wait)
+            .await?
+            .into_iter()
+            .map(|entry| entry.task_kind)
+            .collect();
+        assert_eq!(task_indices, (0..NUM_ENTRIES_PER_LANE).collect::<Vec<_>>());
+        assert_eq!(
+            receiver
+                .recv_commits(NUM_ENTRIES_PER_LANE, wait)
+                .await?
+                .len(),
+            NUM_ENTRIES_PER_LANE
+        );
+        assert_eq!(
+            receiver
+                .recv_cleanups(NUM_ENTRIES_PER_LANE, wait)
+                .await?
+                .len(),
+            NUM_ENTRIES_PER_LANE
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_send_after_the_receiver_is_dropped_fails_with_a_closed_lane() -> anyhow::Result<()> {
+        let (sender, receiver) = create_inbound_queue();
+        drop(receiver);
+        let resource_group_id = ResourceGroupId::default();
+        let job_id = JobId::default();
+        for result in [
+            sender
+                .send_task_ready(resource_group_id, job_id, vec![0])
+                .await,
+            sender.send_commit_ready(resource_group_id, job_id).await,
+            sender.send_cleanup_ready(resource_group_id, job_id).await,
+        ] {
+            assert!(
+                matches!(result, Err(InternalError::InboundQueueChannelClosed)),
+                "a send into a closed lane should fail, got {result:?}"
+            );
+        }
         Ok(())
     }
 }
