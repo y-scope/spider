@@ -10,9 +10,6 @@ outputs:
   cpp_changed:
     description: "Whether C++ related files have changed."
     value: "${{steps.paths-filter.outputs.cpp}}"
-  python_changed:
-    description: "Whether Python related files have changed."
-    value: "${{steps.paths-filter.outputs.python}}"
   rust_changed:
     description: "Whether Rust related files have changed."
     value: "${{steps.paths-filter.outputs.rust}}"
@@ -50,16 +47,8 @@ runs:
             - *_common
             - ".gersemirc"
             - "CMakeLists.txt"
-            - "cmake/Modules/**"
-            - "examples/wolf/**"
             - "src/spider/**"
-            - "tests/wolf/**"
-          python:
-            - *_common
-            - "mypy.ini"
-            - "python/**"
-            - "ruff.toml"
-            - "tests/wolf/**"
+            - "tests/tdl/**"
           rust:
             - *_rust_common
             - "examples/huntsman/**"

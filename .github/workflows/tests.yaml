@@ -21,7 +21,6 @@ jobs:
     runs-on: "ubuntu-latest"
     outputs:
       cpp_changed: "${{steps.filter.outputs.cpp_changed}}"
-      python_changed: "${{steps.filter.outputs.python_changed}}"
       rust_changed: "${{steps.filter.outputs.rust_changed}}"
       huntsman_e2e_tests_required: "${{steps.filter.outputs.huntsman_e2e_tests_required}}"
     steps:
@@ -34,13 +33,12 @@ jobs:
         with:
           workflow_path: ".github/workflows/tests.yaml"
 
-  wolf-tests:
+  tdl-unit-tests:
     needs: "filter-relevant-changes"
     if: >-
       github.event_name == 'schedule'
       || github.event_name == 'workflow_dispatch'
       || needs.filter-relevant-changes.outputs.cpp_changed == 'true'
-      || needs.filter-relevant-changes.outputs.python_changed == 'true'
     strategy:
       matrix:
         os: ["ubuntu-22.04", "ubuntu-24.04"]
@@ -60,7 +58,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/ubuntu/install-dev-wolf.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-cpp.sh"
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
@@ -71,10 +69,6 @@ jobs:
         run: "task deps:lib_install"
 
       - run: "task test:cpp-unit-tests"
-
-      - run: "task test:cpp-integration"
-
-      - run: "task test:spider-py-unit-tests"
 
   rust-unit-tests:
     needs: "filter-relevant-changes"

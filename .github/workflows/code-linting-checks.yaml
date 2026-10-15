@@ -21,7 +21,6 @@ jobs:
     runs-on: "ubuntu-latest"
     outputs:
       cpp_changed: "${{steps.filter.outputs.cpp_changed}}"
-      python_changed: "${{steps.filter.outputs.python_changed}}"
       rust_changed: "${{steps.filter.outputs.rust_changed}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
@@ -75,7 +74,7 @@ jobs:
       - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
 
       - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/ubuntu/install-dev-wolf.sh"
+        run: "./tools/scripts/lib_install/ubuntu/install-dev-cpp.sh"
 
       - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
 
@@ -131,29 +130,6 @@ jobs:
               '.task/checksum/utils-cpp-lint-clang-tidy-*',
               'build/lint-clang-tidy/**/*'
             )}}
-
-  lint-python:
-    needs: "filter-relevant-changes"
-    if: >-
-      github.event_name == 'schedule'
-      || github.event_name == 'workflow_dispatch'
-      || needs.filter-relevant-changes.outputs.python_changed == 'true'
-    runs-on: "ubuntu-latest"
-    steps:
-      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
-        with:
-          submodules: "recursive"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
-
-      - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/ubuntu/install-dev-wolf.sh"
-
-      - run: "task lint:py-check"
 
   lint-rust:
     needs: "filter-relevant-changes"
