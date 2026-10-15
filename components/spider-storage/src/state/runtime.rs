@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
+use spider_utils::shutdown::ShutdownHandle;
 use tokio::task::JoinHandle;
 
 use crate::cache::error::CacheError;
@@ -13,7 +14,6 @@ use crate::db::SessionManagement;
 use crate::inbound_queue::InboundQueueSender;
 use crate::inbound_queue::InboundQueueSenderHandle;
 use crate::inbound_queue::create_inbound_queue;
-use crate::shutdown::ShutdownHandle;
 use crate::state::JobCache;
 use crate::state::JobCacheGcConfig;
 use crate::state::ServiceState;
@@ -117,7 +117,7 @@ impl<
             .map_err(|_| {
                 StorageServerError::Stopping("background task stop timed out".to_owned())
             })?;
-        if !(is_task_instance_pool_stopped && is_job_cache_gc_stopped) {
+        if !is_task_instance_pool_stopped || !is_job_cache_gc_stopped {
             return Err(StorageServerError::Stopping(
                 "background task exited on an error or a panic".to_owned(),
             ));

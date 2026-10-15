@@ -27,6 +27,7 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
+use spider_utils::shutdown::ShutdownHandle;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -35,7 +36,6 @@ use crate::cache::task::SharedTaskControlBlock;
 use crate::cache::task::SharedTerminationTaskControlBlock;
 use crate::db::ExecutionManagerLivenessManagement;
 use crate::inbound_queue::InboundQueueSender;
-use crate::shutdown::ShutdownHandle;
 
 /// Configuration for a task instance pool actor.
 ///

@@ -18,6 +18,7 @@ use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 use spider_tdl::error::TdlError;
 use spider_utils::config::Host;
+use spider_utils::shutdown::ShutdownHandle;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
@@ -29,7 +30,6 @@ use crate::inbound_queue::InboundQueueEntry;
 use crate::inbound_queue::InboundQueueReceiverHandle;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
-use crate::shutdown::ShutdownHandle;
 use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;

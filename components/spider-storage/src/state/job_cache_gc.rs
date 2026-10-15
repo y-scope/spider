@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use serde::Deserialize;
 use spider_core::types::id::JobId;
+use spider_utils::shutdown::ShutdownHandle;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
@@ -14,7 +15,6 @@ use tokio::task::JoinHandle;
 use crate::cache::error::InternalError;
 use crate::db::InternalJobOrchestration;
 use crate::inbound_queue::InboundQueueSender;
-use crate::shutdown::ShutdownHandle;
 use crate::state::JobCache;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 

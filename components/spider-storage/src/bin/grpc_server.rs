@@ -16,11 +16,11 @@ use spider_proto_rust::storage::SessionManagementServiceServer;
 use spider_proto_rust::storage::TaskInstanceManagementServiceServer;
 use spider_storage::ServerConfig;
 use spider_storage::grpc::GrpcServiceState;
-use spider_storage::shutdown::ShutdownHandle;
 use spider_storage::state::StorageServerError;
 use spider_storage::state::runtime::create_runtime;
 use spider_utils::config::YamlConfig;
 use spider_utils::logging::set_up_logging;
+use spider_utils::shutdown::ShutdownHandle;
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::signal::unix::SignalKind;
@@ -30,7 +30,10 @@ use tonic::transport::Server;
 use tonic::transport::server::TcpIncoming;
 
 /// How long the storage service may take to shut down once its cancellation token is cancelled.
-/// 30 s matches Kubernetes' default termination grace period (`terminationGracePeriodSeconds`).
+/// The hardcoded 30-second budget matches Kubernetes' default termination grace period
+/// [`terminationGracePeriodSeconds`][k8s].
+///
+/// [k8s]: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow
 const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Command-line arguments for the storage gRPC server.
@@ -135,8 +138,8 @@ async fn run() -> Result<ExitCode, Box<dyn Error>> {
     // Initialize the inbound queue by resending all ready tasks from the current cache.
     //
     // This operation may duplicate ready tasks for jobs submitted after the server starts but
-    // before the resend starts. This is safe because the system is designed to tolerate
-    // duplicate entries in the inbound queue.
+    // before the resend starts. This is safe because the system is designed to tolerate duplicate
+    // entries in the inbound queue.
     let service_state = runtime.get_service_state();
     if let Err(e) = service_state.resend_ready_tasks().await {
         tracing::error!(error = % e, "Failed to initialize inbound queue.");
@@ -152,8 +155,12 @@ async fn run() -> Result<ExitCode, Box<dyn Error>> {
 ///
 /// # Returns
 ///
-/// [`ExitCode::FAILURE`] if the server or the runtime missed the deadline, the server failed, the
-/// runtime failed to stop, or the service shut down fatally. [`ExitCode::SUCCESS`] otherwise.
+/// * [`ExitCode::FAILURE`] if:
+///   * The server or the runtime missed the deadline.
+///   * The server failed.
+///   * The runtime failed to stop.
+///   * The service shut down fatally.
+/// * [`ExitCode::SUCCESS`] otherwise.
 async fn wait_for_shutdown(
     mut server: JoinHandle<Result<(), tonic::transport::Error>>,
     stop_runtime: impl Future<Output = Result<(), StorageServerError>>,
@@ -210,8 +217,8 @@ mod tests {
     use std::process::ExitCode;
     use std::time::Duration;
 
-    use spider_storage::shutdown::ShutdownHandle;
     use spider_storage::state::StorageServerError;
+    use spider_utils::shutdown::ShutdownHandle;
 
     use super::wait_for_shutdown;
 

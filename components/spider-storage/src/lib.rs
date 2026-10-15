@@ -4,7 +4,6 @@ pub mod db;
 pub mod grpc;
 pub mod inbound_queue;
 pub mod job_submission;
-pub mod shutdown;
 pub mod state;
 pub mod task_instance_pool;
 

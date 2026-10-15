@@ -2137,6 +2137,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tonic",
  "tracing-appender",
  "tracing-subscriber",

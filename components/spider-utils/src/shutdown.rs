@@ -1,5 +1,4 @@
-//! Shutdown signalling for the storage service, which distinguishes a fatal shutdown from a
-//! graceful one.
+//! Shutdown signalling for a service, which distinguishes a fatal shutdown from a graceful one.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -7,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use tokio_util::sync::CancellationToken;
 
-/// A cloneable handle to the storage service's cancellation token and its fatal flag.
+/// A cloneable handle to a service's cancellation token and its fatal flag.
 #[derive(Clone, Debug, Default)]
 pub struct ShutdownHandle {
     token: CancellationToken,
