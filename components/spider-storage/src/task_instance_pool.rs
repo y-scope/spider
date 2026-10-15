@@ -29,7 +29,6 @@ use spider_core::types::id::TaskId;
 use spider_core::types::id::TaskInstanceId;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 use crate::cache::error::InternalError;
 use crate::cache::task::SharedTaskControlBlock;
@@ -298,7 +297,7 @@ impl<
     /// * Forwards [`Self::run_gc_cycle_at`]'s return values on failure.
     async fn run(
         mut self,
-        cancellation_token: CancellationToken,
+        shutdown_handle: &ShutdownHandle,
         gc_interval_sec: u64,
     ) -> Result<(), InternalError> {
         let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval_sec));
@@ -307,7 +306,7 @@ impl<
 
         loop {
             tokio::select! {
-                () = cancellation_token.cancelled() => {
+                () = shutdown_handle.cancelled() => {
                     return Ok(());
                 }
                 message = self.receiver.recv() => {
@@ -507,7 +506,7 @@ pub fn create_task_instance_pool<
 >(
     inbound_queue_sender: InboundQueueSenderType,
     execution_manager_liveness_store: LivenessStoreType,
-    shutdown: ShutdownHandle,
+    shutdown_handle: ShutdownHandle,
     config: &TaskInstancePoolConfig,
 ) -> Result<
     (
@@ -531,9 +530,9 @@ pub fn create_task_instance_pool<
     };
     let gc_interval_sec = config.gc_interval_sec;
     let pool_join_handle = tokio::spawn(async move {
-        pool.run(shutdown.token().clone(), gc_interval_sec).await.inspect_err(|e| {
+        pool.run(&shutdown_handle, gc_interval_sec).await.inspect_err(|e| {
             tracing::error!(error = % e, "Task instance pool actor exited with error. Cancelling the service.");
-            shutdown.shut_down_fatally();
+            shutdown_handle.shut_down_fatally();
         })
     });
     let handle = TaskInstancePoolHandle {
@@ -849,11 +848,11 @@ mod tests {
     #[tokio::test]
     async fn dead_execution_manager_registration_triggers_recovery() {
         let inbound_queue_sender = MockInboundQueueSender::default();
-        let cancellation_token = CancellationToken::new();
+        let shutdown_handle = ShutdownHandle::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
             inbound_queue_sender.clone(),
             RejectAllLivenessStore,
-            ShutdownHandle::new(cancellation_token.clone()),
+            shutdown_handle.clone(),
             &TaskInstancePoolConfig {
                 execution_manager_stale_cutoff_sec: 60,
                 gc_interval_sec: 60,
@@ -887,7 +886,7 @@ mod tests {
             messages.contains(&InboundMessage::Task(job_id, 0)),
             "task should be re-enqueued for dead EM, got: {messages:?}"
         );
-        cancellation_token.cancel();
+        shutdown_handle.shut_down_gracefully();
         tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
@@ -899,11 +898,11 @@ mod tests {
     async fn valid_em_is_cached_and_subsequent_registrations_skip_verify() {
         let inbound_queue_sender = MockInboundQueueSender::default();
         let liveness_store = MockExecutionManagerLivenessManagement::default();
-        let cancellation_token = CancellationToken::new();
+        let shutdown_handle = ShutdownHandle::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
             inbound_queue_sender,
             liveness_store.clone(),
-            ShutdownHandle::new(cancellation_token.clone()),
+            shutdown_handle.clone(),
             &TaskInstancePoolConfig {
                 execution_manager_stale_cutoff_sec: 60,
                 gc_interval_sec: 60,
@@ -945,7 +944,7 @@ mod tests {
             1,
             "liveness store should be called exactly once for two registrations with the same EM"
         );
-        cancellation_token.cancel();
+        shutdown_handle.shut_down_gracefully();
         tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
@@ -955,11 +954,11 @@ mod tests {
 
     #[tokio::test]
     async fn spawned_pool_exits_when_cancelled() {
-        let cancellation_token = CancellationToken::new();
+        let shutdown_handle = ShutdownHandle::new();
         let (_pool, pool_join_handle) = create_task_instance_pool(
             MockInboundQueueSender::default(),
             MockExecutionManagerLivenessManagement::default(),
-            ShutdownHandle::new(cancellation_token.clone()),
+            shutdown_handle.clone(),
             &TaskInstancePoolConfig {
                 execution_manager_stale_cutoff_sec: 60,
                 gc_interval_sec: 60,
@@ -968,7 +967,7 @@ mod tests {
         )
         .expect("pool creation should succeed");
 
-        cancellation_token.cancel();
+        shutdown_handle.shut_down_gracefully();
 
         tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
@@ -980,11 +979,11 @@ mod tests {
     #[tokio::test]
     async fn spawned_pool_processes_registration_before_shutdown() {
         let inbound_queue_sender = MockInboundQueueSender::default();
-        let cancellation_token = CancellationToken::new();
+        let shutdown_handle = ShutdownHandle::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
             inbound_queue_sender.clone(),
             RejectAllLivenessStore,
-            ShutdownHandle::new(cancellation_token.clone()),
+            shutdown_handle.clone(),
             &TaskInstancePoolConfig {
                 execution_manager_stale_cutoff_sec: 60,
                 gc_interval_sec: 60,
@@ -1010,7 +1009,7 @@ mod tests {
             .await
             .expect("registration should be sent");
         tokio::time::sleep(Duration::from_millis(100)).await;
-        cancellation_token.cancel();
+        shutdown_handle.shut_down_gracefully();
         tokio::time::timeout(Duration::from_secs(1), pool_join_handle)
             .await
             .expect("pool task should exit before timeout")
@@ -1026,11 +1025,11 @@ mod tests {
 
     #[tokio::test]
     async fn spawned_pool_shuts_the_service_down_fatally_on_error() -> anyhow::Result<()> {
-        let shutdown = ShutdownHandle::new(CancellationToken::new());
+        let shutdown_handle = ShutdownHandle::new();
         let (pool, pool_join_handle) = create_task_instance_pool(
             MockInboundQueueSender::default(),
             FailingLivenessStore,
-            shutdown.clone(),
+            shutdown_handle.clone(),
             &TaskInstancePoolConfig {
                 execution_manager_stale_cutoff_sec: 60,
                 gc_interval_sec: 60,
@@ -1053,8 +1052,8 @@ mod tests {
             matches!(result, Err(InternalError::Db(DbError::CorruptedDbState(_)))),
             "pool task should return the liveness store error, got: {result:?}"
         );
-        assert!(shutdown.is_fatal());
-        assert!(shutdown.token().is_cancelled());
+        assert!(shutdown_handle.is_fatal());
+        assert!(shutdown_handle.is_cancelled());
         Ok(())
     }
 

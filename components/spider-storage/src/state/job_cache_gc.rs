@@ -10,7 +10,6 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 use crate::cache::error::InternalError;
 use crate::db::InternalJobOrchestration;
@@ -112,7 +111,7 @@ pub fn create_job_cache_gc<
     TaskInstancePoolConnectorType: TaskInstancePoolConnector + 'static,
 >(
     job_cache: JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
-    shutdown: ShutdownHandle,
+    shutdown_handle: ShutdownHandle,
     config: &JobCacheGcConfig,
 ) -> Result<(JobCacheGcHandle, JoinHandle<Result<(), InternalError>>), InternalError> {
     config.validate()?;
@@ -124,9 +123,9 @@ pub fn create_job_cache_gc<
         receiver,
     );
     let join_handle = tokio::spawn(async move {
-        gc.run(shutdown.token().clone(), gc_interval_sec).await.inspect_err(|e| {
+        gc.run(&shutdown_handle, gc_interval_sec).await.inspect_err(|e| {
             tracing::error!(error = % e, "Job cache GC actor exited with error. Cancelling the service.");
-            shutdown.shut_down_fatally();
+            shutdown_handle.shut_down_fatally();
         })
     });
     Ok((JobCacheGcHandle::new(sender), join_handle))
@@ -177,7 +176,7 @@ impl<
     /// No errors are returned by the current implementation.
     async fn run(
         mut self,
-        cancellation_token: CancellationToken,
+        shutdown_handle: &ShutdownHandle,
         gc_interval_sec: u64,
     ) -> Result<(), InternalError> {
         let mut gc_interval = tokio::time::interval(Duration::from_secs(gc_interval_sec));
@@ -186,7 +185,7 @@ impl<
         loop {
             tokio::select! {
                 biased;
-                () = cancellation_token.cancelled() => {
+                () = shutdown_handle.cancelled() => {
                     return Ok(());
                 }
                 _ = gc_interval.tick() => {

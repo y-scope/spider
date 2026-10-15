@@ -34,13 +34,13 @@ use crate::task_graph_builder::compress_task_graph;
 #[serial_test::file_serial]
 async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
     let config = create_runtime_config();
-    let (runtime, _) = create_runtime(&config).await?;
+    let runtime = create_runtime(&config).await?;
     let service = runtime.get_service_state();
     let job_id = register_job(&service, false, false).await?;
     assert_eq!(service.get_job_state(job_id).await?, JobState::Ready);
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(&config).await?;
+    let recovered_runtime = create_runtime(&config).await?;
     let recovered_service = recovered_runtime.get_service_state();
     recovered_service.start_job(job_id).await?;
     assert_eq!(
@@ -52,7 +52,7 @@ async fn restarted_storage_cache_recovers_ready_job() -> anyhow::Result<()> {
     recovered_runtime.stop().await?;
 
     // Create another runtime to test the job state and outputs are persisted.
-    let (recovered_runtime, _) = create_runtime(&config).await?;
+    let recovered_runtime = create_runtime(&config).await?;
     assert_job_outputs_on_success(
         &recovered_runtime.get_service_state(),
         job_id,
@@ -78,7 +78,7 @@ async fn restarted_storage_cache_recovers_running_job_from_start() -> anyhow::Re
     recovered_runtime.stop().await?;
 
     // Create another runtime to test the job state and outputs are persisted.
-    let (recovered_runtime, _) = create_runtime(&config).await?;
+    let recovered_runtime = create_runtime(&config).await?;
     assert_job_outputs_on_success(
         &recovered_runtime.get_service_state(),
         job_id,
@@ -136,7 +136,7 @@ async fn restarted_storage_cache_recovers_commit_ready_job() -> anyhow::Result<(
     recovered_runtime.stop().await?;
 
     // Create another runtime to test the job state and outputs are persisted.
-    let (recovered_runtime, _) = create_runtime(&config).await?;
+    let recovered_runtime = create_runtime(&config).await?;
     assert_job_outputs_on_success(
         &recovered_runtime.get_service_state(),
         job_id,
@@ -327,12 +327,12 @@ async fn restart_after_starting_job(
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
 )> {
-    let (runtime, _) = create_runtime(config).await?;
+    let runtime = create_runtime(config).await?;
     let service = runtime.get_service_state();
     let job_id = register_and_start_job(&service, with_commit, with_cleanup).await?;
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(config).await?;
+    let recovered_runtime = create_runtime(config).await?;
     Ok((job_id, recovered_runtime))
 }
 
@@ -390,7 +390,7 @@ async fn restart_after_commit_ready(
     assert_eq!(state, JobState::CommitReady);
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(config).await?;
+    let recovered_runtime = create_runtime(config).await?;
     Ok((job_id, recovered_runtime))
 }
 
@@ -422,14 +422,14 @@ async fn restart_after_cleanup_ready(
         spider_storage::task_instance_pool::TaskInstancePoolHandle,
     >,
 )> {
-    let (runtime, _) = create_runtime(config).await?;
+    let runtime = create_runtime(config).await?;
     let service = runtime.get_service_state();
     let job_id = register_and_start_job(&service, false, true).await?;
     let state = service.cancel_job(job_id).await?;
     assert_eq!(state, JobState::CleanupReady);
     runtime.stop().await?;
 
-    let (recovered_runtime, _) = create_runtime(config).await?;
+    let recovered_runtime = create_runtime(config).await?;
     Ok((job_id, recovered_runtime))
 }
 

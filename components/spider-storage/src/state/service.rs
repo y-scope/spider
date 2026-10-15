@@ -56,7 +56,7 @@ pub struct ServiceStateParams<
     pub inbound_queue_receiver: InboundQueueReceiverHandle,
     pub task_instance_pool_connector: TaskInstancePoolConnectorType,
     pub job_cache_gc_handle: JobCacheGcHandle,
-    pub shutdown: ShutdownHandle,
+    pub shutdown_handle: ShutdownHandle,
 }
 
 /// Per-request service state providing access to the storage layer.
@@ -107,7 +107,7 @@ impl<
             inbound_queue_receiver,
             task_instance_pool_connector,
             job_cache_gc_handle,
-            shutdown,
+            shutdown_handle,
         } = params;
         Self {
             inner: Arc::new(ServiceStateInner {
@@ -119,7 +119,7 @@ impl<
                 task_instance_pool_connector,
                 job_cache_gc_handle,
                 has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
-                shutdown,
+                shutdown_handle,
             }),
         }
     }
@@ -759,7 +759,7 @@ impl<
                  a background task."
             );
             let job_cache = self.inner.job_cache.clone();
-            let shutdown = self.inner.shutdown.clone();
+            let shutdown_handle = self.inner.shutdown_handle.clone();
             tokio::spawn(async move {
                 if let Err(e) = job_cache.resend_ready_tasks().await {
                     tracing::error!(
@@ -767,7 +767,7 @@ impl<
                         "Failed to resend ready-tasks after scheduler registration. Cancelling the \
                          service."
                     );
-                    shutdown.shut_down_fatally();
+                    shutdown_handle.shut_down_fatally();
                 }
             });
         }
@@ -838,7 +838,7 @@ struct ServiceStateInner<
     task_instance_pool_connector: TaskInstancePoolConnectorType,
     job_cache_gc_handle: JobCacheGcHandle,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
-    shutdown: ShutdownHandle,
+    shutdown_handle: ShutdownHandle,
 }
 
 #[cfg(test)]
@@ -858,7 +858,6 @@ mod tests {
     use spider_core::types::io::TaskGraphInput;
     use spider_core::types::io::TaskGraphInputBuilder;
     use spider_core::types::io::TaskOutput;
-    use tokio_util::sync::CancellationToken;
 
     use super::*;
     use crate::cache::error::StaleStateError;
@@ -903,7 +902,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
-            shutdown: ShutdownHandle::new(CancellationToken::new()),
+            shutdown_handle: ShutdownHandle::new(),
         })
     }
 
@@ -931,7 +930,7 @@ mod tests {
             inbound_queue_receiver: receiver,
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
-            shutdown: ShutdownHandle::new(CancellationToken::new()),
+            shutdown_handle: ShutdownHandle::new(),
         });
         (service, sender)
     }
@@ -1563,7 +1562,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
-            shutdown: ShutdownHandle::new(CancellationToken::new()),
+            shutdown_handle: ShutdownHandle::new(),
         });
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
@@ -1590,7 +1589,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
-            shutdown: ShutdownHandle::new(CancellationToken::new()),
+            shutdown_handle: ShutdownHandle::new(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
@@ -1640,7 +1639,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
-            shutdown: ShutdownHandle::new(CancellationToken::new()),
+            shutdown_handle: ShutdownHandle::new(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
