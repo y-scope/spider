@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Installs the dev dependencies shared by all versions of Spider.
+# Installs the dev dependencies shared by Spider Huntsman and the C++ TDL compiler.
 
 # Exit on any error
 set -e

@@ -23,10 +23,6 @@ tasks:
     cmds:
       - "cmake --build {{.G_BUILD_SPIDER_DIR}} --target clean --parallel {{numCPU}}"
 
-  spider-py:
-    cmds:
-      - "uv build --directory {{.G_SRC_PYTHON_DIR}} -o {{.G_BUILD_PYTHON_DIR}}"
-
   spider-proto-rust-codegen:
     env:
       SPIDER_PROTO_RUST_GENERATE_FROM_SOURCE: "ON"

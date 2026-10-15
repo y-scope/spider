@@ -3,7 +3,6 @@ version: "3"
 vars:
   # Paths
   G_DOCS_BUILD_DIR: "{{.G_BUILD_DIR}}/docs"
-  G_DOCS_WOLF_BUILD_DIR: "{{.G_DOCS_BUILD_DIR}}/wolf"
   G_DOCS_HUNTSMAN_BUILD_DIR: "{{.G_DOCS_BUILD_DIR}}/huntsman"
   G_DOCS_VENV_DIR: "{{.G_BUILD_DIR}}/docs-venv"
   G_NODE_DEPS_DIR: "{{.G_BUILD_DIR}}/docs-node"
@@ -15,22 +14,6 @@ tasks:
   clean:
     cmds:
       - "rm -rf '{{.G_DOCS_BUILD_DIR}}'"
-
-  wolf:site:
-    cmds:
-      - task: "site"
-        vars:
-          TASK_NAME: "{{.TASK}}"
-          CHECKSUM_FILE: "{{.G_BUILD_DIR}}/docs#wolf#site.md5"
-          OUTPUT_DIR: "{{.G_DOCS_WOLF_BUILD_DIR}}"
-          SRC_DIR: "{{.ROOT_DIR}}/docs/wolf"
-
-  wolf:serve:
-    deps:
-      - "http-server"
-      - "wolf:site"
-    cmds:
-      - "npm --prefix '{{.G_NODE_DEPS_DIR}}' exec http-server '{{.G_DOCS_WOLF_BUILD_DIR}}' -c-1"
 
   huntsman:site:
     cmds:

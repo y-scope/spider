@@ -4,8 +4,6 @@ includes:
   toolchains: "toolchains.yaml"
 
 vars:
-  G_SCRIPT_DIR: "{{.ROOT_DIR}}/tools/scripts"
-
   # Antlr
   G_ANTLR_VERSION: "4.13.2"
   G_ANTLR_JAR_FILE: "{{.G_DEPS_DIR}}/antlr-{{.G_ANTLR_VERSION}}-complete.jar"
@@ -39,9 +37,6 @@ tasks:
       - task: "install-boost"
       - task: "install-Catch2"
       - task: "install-fmtlib"
-      - task: "install-mariadb-connector-cpp"
-      - task: "install-msgpack"
-      - task: "install-spdlog"
       - task: "install-ystdlib"
 
   install-abseil:
@@ -194,68 +189,6 @@ tasks:
             - "-DFMT_DOC=OFF"
           JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
 
-  install-spdlog:
-    internal: true
-    run: "once"
-    deps:
-      - "install-boost"
-      - "install-fmtlib"
-    cmds:
-      - task: ":utils:cmake:install-remote-tar"
-        vars:
-          CMAKE_PACKAGE_NAME: "spdlog"
-          WORK_DIR: "{{.G_DEPS_DIR}}/spdlog"
-          TAR_SHA256: "9962648c9b4f1a7bbc76fd8d9172555bad1871fdb14ff4f842ef87949682caa5"
-          TAR_URL: "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz"
-          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          CMAKE_GEN_ARGS:
-            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-            - "-DSPDLOG_BUILD_TESTS=OFF"
-            - "-DUSE_EXTERNAL_FMT=ON"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
-            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/fmt.cmake"
-          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
-
-  install-mariadb-connector-cpp:
-    internal: true
-    run: "once"
-    cmds:
-      - task: ":utils:cmake:install-remote-tar"
-        vars:
-          CMAKE_PACKAGE_NAME: "mariadb-connector-cpp"
-          WORK_DIR: "{{.G_DEPS_DIR}}/mariadb-connector-cpp"
-          TAR_SHA256: "0e3dfe9f2bc3f7bb6f7c159009556290064a7c23402ea08019fa8aebfc3ff2c9"
-          TAR_URL: "https://github.com/mariadb-corporation/mariadb-connector-cpp/archive/refs/tags/\
-            1.1.5.tar.gz"
-          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          CMAKE_GEN_ARGS:
-            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-            - "-DUSE_SYSTEM_INSTALLED_LIB=ON"
-            - "-DINSTALL_LAYOUT=RPM"
-          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
-
-  install-msgpack:
-    internal: true
-    run: "once"
-    deps:
-      - "install-boost"
-    cmds:
-      - task: ":utils:cmake:install-remote-tar"
-        vars:
-          CMAKE_PACKAGE_NAME: "msgpack-cxx"
-          WORK_DIR: "{{.G_DEPS_DIR}}/msgpack"
-          TAR_SHA256: "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f"
-          TAR_URL: "https://github.com/msgpack/msgpack-c/releases/download/\
-            cpp-7.0.0/msgpack-cxx-7.0.0.tar.gz"
-          CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          CMAKE_GEN_ARGS:
-            - "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-            - "-DMSGPACK_BUILD_TESTS=OFF"
-            - "-C {{.G_DEPS_CMAKE_SETTINGS_DIR}}/Boost.cmake"
-            - "-DCMAKE_POLICY_DEFAULT_CMP0074=NEW"
-          JOBS: "{{.G_DEPS_MAX_PARALLELISM_PER_TASK}}"
-
   install-boost:
     internal: true
     run: "once"
@@ -267,13 +200,8 @@ tasks:
           URL: "https://github.com/boostorg/boost/releases/download/boost-1.87.0/\
             boost-1.87.0-b2-nodocs.tar.gz"
           CMAKE_SETTINGS_DIR: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}"
-          TARGETS:
-            - "filesystem"
-            - "iostreams"
-            - "process"
-            - "program_options"
-            - "regex"
-            - "system"
+          TARGETS: ["headers"]
+          BUILD_AND_INSTALL_ARGS: ["--with-headers"]
 
   # Runs `cargo fetch` in the root Rust workspace directory with the specified flags.
   #

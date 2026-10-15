@@ -4,9 +4,7 @@ includes:
   toolchains: "toolchains.yaml"
 
 vars:
-  G_UNIT_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/wolf/unitTest"
-  G_TEST_VENV_DIR: "{{.G_BUILD_DIR}}/test-venv"
-  G_TEST_VENV_CHECKSUM_FILE: "{{.G_BUILD_DIR}}/test#venv.md5"
+  G_UNIT_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/tdl/unitTest"
   G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
   G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
 
@@ -17,22 +15,9 @@ vars:
 
 tasks:
   cpp-unit-tests:
-    cmds:
-      - task: "wolf-mariadb-storage-task-executor"
-        vars:
-          STORAGE_TASK: "spider-wolf-unit-tests-executor"
-
-  cpp-integration:
-    cmds:
-      - task: "wolf-mariadb-storage-task-executor"
-        vars:
-          STORAGE_TASK: "spider-wolf-integration-tests-executor"
-
-  spider-py-unit-tests:
-    cmds:
-      - task: "wolf-mariadb-storage-task-executor"
-        vars:
-          STORAGE_TASK: "spider-py-unit-tests-executor"
+    dir: "{{.ROOT_DIR}}"
+    deps: ["build-unit-test"]
+    cmd: "{{.G_UNIT_TEST_BINARY}}"
 
   rust-unit-tests:
     deps:
@@ -119,74 +104,7 @@ tasks:
     deps:
       - task: ":build:cpp-target"
         vars:
-          TARGETS: ["spider_task_executor", "unitTest", "worker_test"]
-
-  venv:
-    internal: true
-    vars:
-      CHECKSUM_FILE: "{{.G_TEST_VENV_CHECKSUM_FILE}}"
-      OUTPUT_DIR: "{{.G_TEST_VENV_DIR}}"
-    sources:
-      - "{{.ROOT_TASKFILE}}"
-      - "{{.TASKFILE}}"
-      - "requirements-dev.txt"
-    generates: ["{{.CHECKSUM_FILE}}"]
-    run: "once"
-    deps:
-      - ":init"
-      - task: ":utils:checksum:validate"
-        vars:
-          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
-          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
-    cmds:
-      - task: ":utils:misc:create-venv"
-        vars:
-          LABEL: "test"
-          OUTPUT_DIR: "{{.OUTPUT_DIR}}"
-          REQUIREMENTS_FILE: "{{.ROOT_DIR}}/requirements-dev.txt"
-      # This command must be last
-      - task: ":utils:checksum:compute"
-        vars:
-          CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
-          INCLUDE_PATTERNS: ["{{.OUTPUT_DIR}}"]
-
-  # A generic wrapper that runs the given task with a MariaDB storage backend for Spider Wolf.
-  #
-  # @param {string} STORAGE_TASK The task to execute. The task must accept no parameters other than
-  # `SPIDER_STORAGE_URL`, which is set to the MariaDB instance URL.
-  wolf-mariadb-storage-task-executor:
-    internal: true
-    vars:
-      MARIADB_CONTAINER_NAME:
-        # Normalize UUID casing: macOS generates uppercase while Linux generates lowercase.
-        sh: "uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/^/spider-mariadb-/'"
-      MARIADB_PORT:
-        sh: "tools/scripts/get_free_port.py"
-    requires:
-      vars: ["STORAGE_TASK"]
-    dir: "{{.ROOT_DIR}}"
-    cmds:
-      - |-
-        tools/scripts/mariadb/start.py \
-        --name "{{.MARIADB_CONTAINER_NAME}}" \
-        --port "{{.MARIADB_PORT}}" \
-        --database "{{.G_MARIADB_DATABASE}}" \
-        --username "{{.G_MARIADB_USERNAME}}" \
-        --password "{{.G_MARIADB_PASSWORD}}"
-      - defer: |-
-          {{.ROOT_DIR}}/tools/scripts/mariadb/stop.py \
-          --name "{{.MARIADB_CONTAINER_NAME}}"
-      - |-
-        tools/scripts/mariadb/wolf/init_db.py \
-        --port "{{.MARIADB_PORT}}" \
-        --database "{{.G_MARIADB_DATABASE}}" \
-        --username "{{.G_MARIADB_USERNAME}}" \
-        --password "{{.G_MARIADB_PASSWORD}}"
-      - task: "{{.STORAGE_TASK}}"
-        vars:
-          SPIDER_STORAGE_URL:
-            "jdbc:mariadb://127.0.0.1:{{.MARIADB_PORT}}/{{.G_MARIADB_DATABASE}}?\
-            user={{.G_MARIADB_USERNAME}}&password={{.G_MARIADB_PASSWORD}}"
+          TARGETS: ["unitTest"]
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #
@@ -225,64 +143,12 @@ tasks:
           SPIDER_STORAGE_DB_USERNAME: "{{.G_MARIADB_USERNAME}}"
           SPIDER_STORAGE_DB_PASSWORD: "{{.G_MARIADB_PASSWORD}}"
 
-  # Internal task that runs all spider-py's unit tests.
-  #
-  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
-  spider-py-unit-tests-executor:
-    internal: true
-    env:
-      # Don't create __pycache__ directories in the source tree.
-      PYTHONDONTWRITEBYTECODE: "1"
-      SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
-    requires:
-      vars: ["SPIDER_STORAGE_URL"]
-    dir: "{{.G_SRC_PYTHON_DIR}}"
-    cmd: "uv run pytest"
-
-  # Internal task that runs all Spider Wolf's unit tests.
-  #
-  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
-  spider-wolf-unit-tests-executor:
-    internal: true
-    env:
-      SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
-    requires:
-      vars: ["SPIDER_STORAGE_URL"]
-    dir: "{{.ROOT_DIR}}"
-    deps:
-      - "build-unit-test"
-    cmd: "{{.G_UNIT_TEST_BINARY}}"
-
-  # Internal task that runs all Spider Wolf's integration tests.
-  #
-  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
-  spider-wolf-integration-tests-executor:
-    internal: true
-    env:
-      SPIDER_STORAGE_URL: "{{.SPIDER_STORAGE_URL}}"
-    requires:
-      vars: ["SPIDER_STORAGE_URL"]
-    dir: "{{.G_BUILD_SPIDER_DIR}}"
-    deps:
-      - "venv"
-      - task: ":build:cpp-target"
-        vars:
-          TARGETS: [
-            "spider_task_executor",
-            "worker_test",
-            "client_test",
-            "spider_worker",
-            "spider_scheduler",
-            "integrationTest"
-          ]
-    cmds:
-      - |-
-        . {{.G_TEST_VENV_DIR}}/bin/activate
-        {{.G_TEST_VENV_DIR}}/bin/pytest tests/wolf/integration
-
   # Internal task that runs all Spider Huntsman's unit tests.
   #
-  # @param {string} SPIDER_STORAGE_URL An URL pointing to the MariaDB instance.
+  # @param {string} MARIADB_PORT The port of the MariaDB instance.
+  # @param {string} MARIADB_DATABASE The name of the MariaDB database.
+  # @param {string} SPIDER_STORAGE_DB_USERNAME The MariaDB username.
+  # @param {string} SPIDER_STORAGE_DB_PASSWORD The MariaDB password.
   spider-huntsman-unit-tests-executor:
     internal: true
     env:

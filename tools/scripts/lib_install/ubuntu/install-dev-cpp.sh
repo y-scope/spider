@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Installs the dev dependencies for Spider Wolf.
+# Installs the dev dependencies for building, testing, and linting the C++ TDL compiler.
 
 # Exit on any error
 set -e
@@ -20,17 +20,12 @@ fi
 
 DEBIAN_FRONTEND=noninteractive ${privileged_command_prefix} \
 apt-get install --no-install-recommends -y \
-    checkinstall \
     g++ \
     gcc \
     jq \
-    libcurl4 \
-    libcurl4-openssl-dev \
-    libmariadb-dev \
     libssl-dev \
     make \
-    openjdk-11-jdk \
-    pkg-config
+    openjdk-11-jdk
 
 lib_install_scripts_dir="$script_dir/.."
 ${privileged_command_prefix} "$lib_install_scripts_dir"/install-cmake.sh 3.23.5
