@@ -12,6 +12,7 @@ tasks:
     cmds:
       - task: "check-rust"
       - task: "check-helm"
+      - task: "py-check"
       - task: "toml-check"
       - task: "yml-check"
 
@@ -19,6 +20,7 @@ tasks:
     cmds:
       - task: "fix-rust"
       - task: "fix-helm"
+      - task: "py-fix"
       - task: "toml-fix"
       - task: "yml-fix"
 
@@ -37,6 +39,31 @@ tasks:
           --chart-dirs="tools/deployment" \
           --chart-yaml-schema="{{.G_HELM_TOOLCHAIN_DIR}}/etc/chart_schema.yaml" \
           --lint-conf="tools/yscope-dev-utils/exports/lint-configs/.yamllint.yml"
+
+  py-check:
+    cmds:
+      - task: "py"
+        vars:
+          RUFF_FORMAT_FLAGS: "--diff"
+
+  py-fix:
+    cmds:
+      - task: "py"
+        vars:
+          RUFF_CHECK_FLAGS: "--fix"
+
+  py:
+    internal: true
+    deps: ["venv"]
+    vars:
+      RUFF_CHECK_FLAGS: "{{.RUFF_CHECK_FLAGS | default \"\"}}"
+      RUFF_FORMAT_FLAGS: "{{.RUFF_FORMAT_FLAGS | default \"\"}}"
+    cmds:
+      - |-
+        . "{{.G_LINT_VENV_DIR}}/bin/activate"
+        mypy tools/scripts/
+        ruff check {{.RUFF_CHECK_FLAGS}} tools/scripts/
+        ruff format {{.RUFF_FORMAT_FLAGS}} tools/scripts/
 
   yml:
     aliases:

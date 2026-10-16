@@ -7,6 +7,9 @@ inputs:
     required: true
 
 outputs:
+  python_changed:
+    description: "Whether Python related files have changed."
+    value: "${{steps.paths-filter.outputs.python}}"
   rust_changed:
     description: "Whether Rust related files have changed."
     value: "${{steps.paths-filter.outputs.rust}}"
@@ -40,6 +43,10 @@ runs:
             - "Cargo.lock"
             - "Cargo.toml"
             - "components/**"
+          python:
+            - *_common
+            - "mypy.ini"
+            - "ruff.toml"
           rust:
             - *_rust_common
             - "examples/huntsman/**"
