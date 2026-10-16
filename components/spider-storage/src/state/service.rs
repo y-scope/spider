@@ -22,6 +22,7 @@ use spider_utils::shutdown::ShutdownHandle;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
+use crate::cache::error::StaleStateError;
 use crate::cache::job::SharedJobControlBlock;
 use crate::db::DbStorage;
 use crate::inbound_queue::CleanupTaskMarker;
@@ -196,21 +197,30 @@ impl<
     ///
     /// Returns an error if:
     ///
-    /// * [`StorageServerError::JobNotFound`] if the job is not in the cache.
+    /// * [`InternalError::JobNotFound`] if the job is not in a terminal state, but it is not in the
+    ///   cache.
+    /// * [`StaleStateError::JobAlreadyTerminated`] if the job is not in the cache and is in a
+    ///   terminal state in the database.
     /// * Forwards [`SharedJobControlBlock::start`]'s return values on failure.
+    /// * Forwards [`ExternalJobOrchestration::get_state`]'s return values on failure.
     pub async fn start_job(&self, job_id: JobId) -> Result<(), StorageServerError> {
-        let jcb = self
-            .inner
-            .job_cache
-            .get(job_id)
-            .await
-            .ok_or(StorageServerError::JobNotFound(job_id))?;
-        jcb.start().await?;
-        tracing::info!(
-            job_id = ? job_id,
-            "Job started.",
-        );
-        Ok(())
+        if let Some(jcb) = self.inner.job_cache.get(job_id).await {
+            jcb.start().await?;
+            tracing::info!(
+                job_id = ? job_id,
+                "Job started.",
+            );
+            return Ok(());
+        }
+        let state = self.inner.db.get_state(job_id).await?;
+        if !state.is_terminal() {
+            return Err(StorageServerError::Cache(CacheError::Internal(
+                InternalError::JobNotFound(job_id),
+            )));
+        }
+        Err(StorageServerError::Cache(CacheError::StaleState(
+            StaleStateError::JobAlreadyTerminated(state),
+        )))
     }
 
     /// Cancels a job.
@@ -860,7 +870,6 @@ mod tests {
     use spider_core::types::io::TaskOutput;
 
     use super::*;
-    use crate::cache::error::StaleStateError;
     use crate::cache::job::SharedJobControlBlock;
     use crate::db::DbError;
     use crate::db::RecoverableJobContext;
@@ -1119,13 +1128,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
+    async fn test_start_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
         let service = create_test_service();
-        let result = service.start_job(JobId::random()).await;
+        let job_id = JobId::random();
+        let result = service.start_job(job_id).await;
         assert!(
-            matches!(result, Err(StorageServerError::JobNotFound(_))),
-            "start_job should return JobNotFound when job is not in cache"
+            matches!(result, Err(StorageServerError::Db(DbError::JobNotFound(id))) if id == job_id),
+            "unexpected result: {result:?}"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_start_job_rejects_terminal_jobs_not_in_cache() -> anyhow::Result<()> {
+        for state in [JobState::Succeeded, JobState::Failed, JobState::Cancelled] {
+            let db = MockDbConnector::default();
+            let job_id = JobId::random();
+            db.states.insert(job_id, state);
+            let service = create_test_service_with_db(db);
+
+            let result = service.start_job(job_id).await;
+            assert!(
+                matches!(
+                    result,
+                    Err(StorageServerError::Cache(CacheError::StaleState(
+                        StaleStateError::JobAlreadyTerminated(actual)
+                    ))) if actual == state
+                ),
+                "unexpected result for {state:?}: {result:?}"
+            );
+        }
         Ok(())
     }
 
