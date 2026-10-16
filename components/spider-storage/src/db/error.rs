@@ -4,6 +4,7 @@ use spider_core::job::JobState;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SessionId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {
@@ -37,6 +38,9 @@ pub enum DbError {
         expected: ExpectedStates,
     },
 
+    #[error("storage session {mine} is fenced off by the newer session {current}")]
+    Fenced { mine: SessionId, current: SessionId },
+
     #[error("database corrupted: {0}")]
     CorruptedDbState(String),
 
@@ -51,6 +55,9 @@ pub enum DbError {
 
     #[error("Value deserialization failure: {0}")]
     ValueDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("invalid database config: {0}")]
+    InvalidConfig(String),
 
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
