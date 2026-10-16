@@ -212,6 +212,11 @@ impl RgSchedulingState {
         {
             if let Some(entry) = job_registry.get_mut(job_key) {
                 entry.reset_downgrade_counter();
+                tracing::info!(
+                    resource_group_id = ? self.rg_id,
+                    job_id = ? entry.job_id(),
+                    "Active job downgraded to pending job."
+                );
             }
             self.pending_jobs.push_front(job_key);
         }
@@ -317,9 +322,19 @@ impl RgSchedulingState {
                 continue;
             };
             if entry.has_ready_task() {
+                tracing::info!(
+                    resource_group_id = ? self.rg_id,
+                    job_id = ? entry.job_id(),
+                    "Pending job promoted to active job."
+                );
                 return Some(job_key);
             }
             if 0 == entry.downgrade_counter() {
+                tracing::info!(
+                    resource_group_id = ? self.rg_id,
+                    job_id = ? entry.job_id(),
+                    "Retiring pending job."
+                );
                 jobs_to_retire.push(job_key);
             } else {
                 entry.decrement_downgrade_counter();
