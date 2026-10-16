@@ -3,4 +3,5 @@
 pub mod config;
 pub mod grpc;
 pub mod logging;
+pub mod shutdown;
 pub mod wire;
