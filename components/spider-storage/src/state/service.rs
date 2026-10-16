@@ -18,7 +18,7 @@ use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
 use spider_tdl::error::TdlError;
 use spider_utils::config::Host;
-use tokio_util::sync::CancellationToken;
+use spider_utils::shutdown::ShutdownHandle;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
@@ -56,7 +56,7 @@ pub struct ServiceStateParams<
     pub inbound_queue_receiver: InboundQueueReceiverHandle,
     pub task_instance_pool_connector: TaskInstancePoolConnectorType,
     pub job_cache_gc_handle: JobCacheGcHandle,
-    pub cancellation_token: CancellationToken,
+    pub shutdown_handle: ShutdownHandle,
 }
 
 /// Per-request service state providing access to the storage layer.
@@ -107,7 +107,7 @@ impl<
             inbound_queue_receiver,
             task_instance_pool_connector,
             job_cache_gc_handle,
-            cancellation_token,
+            shutdown_handle,
         } = params;
         Self {
             inner: Arc::new(ServiceStateInner {
@@ -119,7 +119,7 @@ impl<
                 task_instance_pool_connector,
                 job_cache_gc_handle,
                 has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
-                cancellation_token,
+                shutdown_handle,
             }),
         }
     }
@@ -759,7 +759,7 @@ impl<
                  a background task."
             );
             let job_cache = self.inner.job_cache.clone();
-            let cancellation_token = self.inner.cancellation_token.clone();
+            let shutdown_handle = self.inner.shutdown_handle.clone();
             tokio::spawn(async move {
                 if let Err(e) = job_cache.resend_ready_tasks().await {
                     tracing::error!(
@@ -767,7 +767,7 @@ impl<
                         "Failed to resend ready-tasks after scheduler registration. Cancelling the \
                          service."
                     );
-                    cancellation_token.cancel();
+                    shutdown_handle.shut_down_fatally();
                 }
             });
         }
@@ -838,7 +838,7 @@ struct ServiceStateInner<
     task_instance_pool_connector: TaskInstancePoolConnectorType,
     job_cache_gc_handle: JobCacheGcHandle,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
-    cancellation_token: CancellationToken,
+    shutdown_handle: ShutdownHandle,
 }
 
 #[cfg(test)]
@@ -902,7 +902,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
-            cancellation_token: CancellationToken::new(),
+            shutdown_handle: ShutdownHandle::new(),
         })
     }
 
@@ -930,7 +930,7 @@ mod tests {
             inbound_queue_receiver: receiver,
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
-            cancellation_token: CancellationToken::new(),
+            shutdown_handle: ShutdownHandle::new(),
         });
         (service, sender)
     }
@@ -1562,7 +1562,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
-            cancellation_token: CancellationToken::new(),
+            shutdown_handle: ShutdownHandle::new(),
         });
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
@@ -1589,7 +1589,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
-            cancellation_token: CancellationToken::new(),
+            shutdown_handle: ShutdownHandle::new(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
@@ -1639,7 +1639,7 @@ mod tests {
             inbound_queue_receiver: create_inbound_queue_receiver(),
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
-            cancellation_token: CancellationToken::new(),
+            shutdown_handle: ShutdownHandle::new(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();

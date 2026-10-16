@@ -9,7 +9,7 @@ x-service-defaults: &service_defaults
   logging:
     driver: "local"
   pull_policy: "${SPIDER_PULL_POLICY:-always}"
-  restart: "${SPIDER_RESTART_POLICY:-on-failure:3}"
+  restart: "${SPIDER_RESTART_POLICY:-unless-stopped}"
   stop_grace_period: "60s"
 
 x-healthcheck-defaults: &healthcheck_defaults
