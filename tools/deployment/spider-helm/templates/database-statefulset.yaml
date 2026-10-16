@@ -47,6 +47,9 @@ spec:
           volumeMounts:
             - name: "data"
               mountPath: "/var/lib/mysql"
+            - name: "init-scripts"
+              mountPath: "/docker-entrypoint-initdb.d"
+              readOnly: true
           readinessProbe:
             {{- include "spider.readinessProbeTimings" . | nindent 12 }}
             exec: &health-check
@@ -60,6 +63,10 @@ spec:
           livenessProbe:
             {{- include "spider.livenessProbeTimings" . | nindent 12 }}
             exec: *health-check
+      volumes:
+        - name: "init-scripts"
+          configMap:
+            name: {{ include "spider.componentFullname" (dict "root" . "component" "database-init") }}
   volumeClaimTemplates:
     - metadata:
         name: "data"

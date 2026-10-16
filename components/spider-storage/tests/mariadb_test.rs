@@ -9,7 +9,9 @@ use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SchedulerId;
 use spider_core::types::io::TaskGraphInput;
+use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
+use spider_storage::DatabaseConfig;
 use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
 use spider_storage::db::ExternalJobOrchestration;
@@ -18,11 +20,15 @@ use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
 use spider_storage::db::SchedulerRegistrationManagement;
 use spider_storage::db::SessionManagement;
+use spider_storage::job_submission::ValidatedJobSubmission;
+use sqlx::MySqlPool;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
 
+use super::mariadb_infra::ScratchDatabase;
 use super::mariadb_infra::create_mariadb_config;
 use super::mariadb_infra::create_mariadb_connector;
+use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
 use super::task_graph_builder::SubmittedTaskGraph;
 use super::task_graph_builder::build_flat_task_graph;
@@ -44,6 +50,56 @@ const TEST_UPDATED_SCHEDULER_PORT: u16 = 6789;
 /// Forwards `build_flat_task_graph`'s return values.
 fn single_task_graph() -> (SubmittedTaskGraph, TaskGraphInput) {
     build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, false)
+}
+
+/// # Returns
+///
+/// A validated submission of a one-task job whose only input is `input`.
+///
+/// # Panics
+///
+/// Panics if the job fails to build, compress or validate.
+fn submission_with_input(input: &[u8]) -> ValidatedJobSubmission {
+    let (graph, _) = build_flat_task_graph(1, 0, false, false);
+    let mut inputs = TaskGraphInputBuilder::new();
+    inputs
+        .append_task_input(input)
+        .expect("task input appending should succeed");
+    create_validated_submission(graph, inputs.build())
+}
+
+/// # Returns
+///
+/// `size` pseudo-random bytes.
+///
+/// # Panics
+///
+/// Panics if `size` does not fit in `usize`.
+fn incompressible(size: u64) -> Vec<u8> {
+    let mut xorshift_state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..usize::try_from(size).expect("the size should fit in `usize`"))
+        .map(|_| {
+            xorshift_state ^= xorshift_state << 13;
+            xorshift_state ^= xorshift_state >> 7;
+            xorshift_state ^= xorshift_state << 17;
+            xorshift_state.to_le_bytes()[0]
+        })
+        .collect()
+}
+
+/// # Returns
+///
+/// The IDs of every row of the `jobs` table of `pool`'s database, by ascending ID, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`sqlx::query::QueryScalar::fetch_all`]'s return values on failure.
+async fn job_ids(pool: &MySqlPool) -> Result<Vec<JobId>, sqlx::Error> {
+    sqlx::query_scalar("SELECT `id` FROM `jobs` ORDER BY `id`;")
+        .fetch_all(pool)
+        .await
 }
 
 /// Registers a new execution manager with `127.0.0.1` as the IP address.
@@ -106,6 +162,46 @@ async fn test_register_job_invalid_resource_group() {
         matches!(result, Err(DbError::ResourceGroupNotFound(_))),
         "expected ResourceGroupNotFound, got {result:?}"
     );
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn a_register_over_the_packet_size_writes_no_row() -> anyhow::Result<()> {
+    let job_submission = submission_with_input(b"fits");
+    for fence_in_write_statement in [false, true] {
+        let scratch = ScratchDatabase::create().await;
+        let config = DatabaseConfig {
+            fence_in_write_statement,
+            ..scratch.config()
+        };
+        let raw_pool = create_raw_pool(&config).await;
+        let storage = MariaDbStorageConnector::connect(&config).await?;
+        let rg_id = create_test_resource_group(&storage).await;
+        let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
+            .fetch_one(&raw_pool)
+            .await?;
+        let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
+        assert!(
+            oversized.compressed_serialized_job_inputs().len() as u64 > max_allowed_packet,
+            "the oversized job inputs should not compress below the packet size"
+        );
+
+        let result = storage.register(rg_id, &oversized).await;
+
+        assert!(
+            matches!(result, Err(DbError::Sql(_))),
+            "a register over the packet size should be an SQL error with {config:?}, got \
+             {result:?}"
+        );
+        assert_eq!(job_ids(&raw_pool).await?, Vec::new(), "{config:?}");
+        let job_id = storage.register(rg_id, &job_submission).await?;
+        assert_eq!(job_ids(&raw_pool).await?, vec![job_id], "{config:?}");
+
+        raw_pool.close().await;
+        drop(storage);
+        scratch.drop_database().await;
+    }
+    Ok(())
 }
 
 #[tokio::test]
