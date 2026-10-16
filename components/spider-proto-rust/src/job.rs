@@ -15,6 +15,7 @@ impl From<JobState> for storage::JobState {
             JobState::Succeeded => Self::Succeeded,
             JobState::Failed => Self::Failed,
             JobState::Cancelled => Self::Cancelled,
+            JobState::BlockingOnChildren => Self::BlockingOnChildren,
         }
     }
 }
@@ -32,6 +33,7 @@ impl TryFrom<storage::JobState> for JobState {
             storage::JobState::Succeeded => Ok(Self::Succeeded),
             storage::JobState::Failed => Ok(Self::Failed),
             storage::JobState::Cancelled => Ok(Self::Cancelled),
+            storage::JobState::BlockingOnChildren => Ok(Self::BlockingOnChildren),
         }
     }
 }
@@ -56,6 +58,16 @@ mod tests {
             .expect("protocol job state conversion should succeed");
 
         assert_eq!(state, JobState::CleanupReady);
+    }
+
+    #[test]
+    fn blocking_on_children_round_trips() {
+        let protocol_state = ProtocolJobState::from(JobState::BlockingOnChildren);
+        assert_eq!(protocol_state, ProtocolJobState::BlockingOnChildren);
+
+        let state = JobState::try_from(protocol_state)
+            .expect("protocol job state conversion should succeed");
+        assert_eq!(state, JobState::BlockingOnChildren);
     }
 
     #[test]
