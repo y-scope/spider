@@ -7,9 +7,6 @@ inputs:
     required: true
 
 outputs:
-  cpp_changed:
-    description: "Whether C++ related files have changed."
-    value: "${{steps.paths-filter.outputs.cpp}}"
   rust_changed:
     description: "Whether Rust related files have changed."
     value: "${{steps.paths-filter.outputs.rust}}"
@@ -43,12 +40,6 @@ runs:
             - "Cargo.lock"
             - "Cargo.toml"
             - "components/**"
-          cpp:
-            - *_common
-            - ".gersemirc"
-            - "CMakeLists.txt"
-            - "src/spider/**"
-            - "tests/tdl/**"
           rust:
             - *_rust_common
             - "examples/huntsman/**"

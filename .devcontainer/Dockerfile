@@ -5,7 +5,6 @@ WORKDIR /root
 RUN mkdir -p ./tools/scripts/lib_install
 COPY ./tools/scripts/lib_install ./tools/scripts/lib_install
 
-RUN ./tools/scripts/lib_install/ubuntu/install-dev-cpp.sh
 RUN ./tools/scripts/lib_install/ubuntu/install-dev-huntsman.sh
 
 # NOTE:

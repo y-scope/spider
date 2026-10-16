@@ -4,7 +4,6 @@ includes:
   toolchains: "toolchains.yaml"
 
 vars:
-  G_UNIT_TEST_BINARY: "{{.G_BUILD_SPIDER_DIR}}/tests/tdl/unitTest"
   G_RUST_RELEASE_DIR: "{{.G_RUST_BUILD_DIR}}/release"
   G_TDL_PACKAGES_DIR: "{{.G_BUILD_DIR}}/tdl_packages"
 
@@ -14,11 +13,6 @@ vars:
   G_MARIADB_PASSWORD: "spider-password"
 
 tasks:
-  cpp-unit-tests:
-    dir: "{{.ROOT_DIR}}"
-    deps: ["build-unit-test"]
-    cmd: "{{.G_UNIT_TEST_BINARY}}"
-
   rust-unit-tests:
     deps:
       - ":build:rust"
@@ -98,13 +92,6 @@ tasks:
         SPIDER_ENDPOINT="$(cat '{{.SPIDER_ENDPOINT_FILE}}')" \
         SPIDER_CONCURRENCY="8" \
           cargo nextest run --release --package e2e --test nn -- --nocapture
-
-  build-unit-test:
-    internal: true
-    deps:
-      - task: ":build:cpp-target"
-        vars:
-          TARGETS: ["unitTest"]
 
   # A generic wrapper that runs the given task with a MariaDB storage backend.
   #

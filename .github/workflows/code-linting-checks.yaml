@@ -20,7 +20,6 @@ jobs:
   filter-relevant-changes:
     runs-on: "ubuntu-latest"
     outputs:
-      cpp_changed: "${{steps.filter.outputs.cpp_changed}}"
       rust_changed: "${{steps.filter.outputs.rust_changed}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
@@ -51,85 +50,6 @@ jobs:
       - run: "task lint:toml-check"
 
       - run: "task lint:yml-check"
-
-  lint-cpp:
-    needs: "filter-relevant-changes"
-    if: >-
-      github.event_name == 'schedule'
-      || github.event_name == 'workflow_dispatch'
-      || needs.filter-relevant-changes.outputs.cpp_changed == 'true'
-    runs-on: "ubuntu-latest"
-    steps:
-      - name: "Remove default CMake installation in the runner"
-        run: "rm '/usr/local/bin/cmake'"
-
-      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
-        with:
-          submodules: "recursive"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
-
-      - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/ubuntu/install-dev-cpp.sh"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
-
-      - name: "Install project dependencies"
-        timeout-minutes: 10
-        env:
-          SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
-        run: "task deps:lib_install"
-
-      # NOTE: We don't restore the cache for `schedule` runs so that below,
-      # `lint:cpp-static-check` runs on all files. If we don't do this periodically,
-      # `lint:cpp-static-check` could miss issues in files that haven't changed but depend on
-      # files which have changed.
-      - if: "'schedule' != github.event_name"
-        name: "Restore lint:cpp-static-check cache"
-        id: "cache-restore-lint-cpp-static-check"
-        uses: "actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684"
-        with:
-          path: |
-            .task/checksum/lint-cpp-static-check
-            .task/checksum/utils-cpp-lint-clang-tidy-*
-            build/lint-clang-tidy
-
-          # NOTE:
-          # * This key must be kept in-sync with the key prefix in the `actions/cache/save` step
-          #   below (we can't use the output of the current step since `schedule` workflow runs
-          #   don't run this step).
-          # * Do not provide an exact (explicit) key here. Use a prefix so the cache action can
-          #   match and restore the most recent cache entry that shares that prefix.
-          key: "lint:check-cpp-static-on-ubuntu-latest"
-
-      - run: "task lint:cpp-check -C $(nproc)"
-
-      - run: "task lint:cmake-check"
-
-      # Cache the source file checksums and the generated files (logs) for the
-      # lint:cpp-static-check task, but only if it runs successfully on the main branch.
-      # NOTE: If we don't cache the generated files, the task will re-run to generate them.
-      - if: "'pull_request' != github.event_name && 'refs/heads/main' == github.ref"
-        name: "Update lint:cpp-static-check cache"
-        uses: "actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684"
-        with:
-          path: |
-            .task/checksum/lint-cpp-static-check
-            .task/checksum/utils-cpp-lint-clang-tidy-*
-            build/lint-clang-tidy
-
-          # NOTE: This key prefix (without the hash) must be kept in-sync with the
-          # `actions/cache/restore` step above.
-          key: >-
-            lint:check-cpp-static-on-ubuntu-latest-${{hashFiles(
-              '.task/checksum/lint-cpp-static-check',
-              '.task/checksum/utils-cpp-lint-clang-tidy-*',
-              'build/lint-clang-tidy/**/*'
-            )}}
 
   lint-rust:
     needs: "filter-relevant-changes"

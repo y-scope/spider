@@ -14,39 +14,12 @@ includes:
 
 vars:
   G_BUILD_DIR: "{{.ROOT_DIR}}/build"
-  G_BUILD_SPIDER_DIR: "{{.G_BUILD_DIR}}/spider"
-  G_SPIDER_CMAKE_CACHE: "{{.G_BUILD_SPIDER_DIR}}/CMakeCache.txt"
-  G_SPIDER_COMPILE_COMMANDS_DB: "{{.G_BUILD_SPIDER_DIR}}/compile_commands.json"
   G_RUST_BUILD_DIR: "{{.G_BUILD_DIR}}/rust-targets"
-  G_SRC_SPIDER_DIR: "{{.ROOT_DIR}}/src/spider"
-  G_TEST_DIR: "{{.ROOT_DIR}}/tests"
-
-  # Build parameters
-  # NOTE: Defaulting to an empty string is safe since CMake ignores an empty string.
-  G_DEPS_MAX_PARALLELISM_PER_TASK: >-
-    {{default "" (env "SPIDER_DEPS_MAX_PARALLELISM_PER_TASK")}}
-  G_DEPS_DIR: "{{.G_BUILD_DIR}}/deps"
-  G_DEPS_CMAKE_SETTINGS_DIR: "{{.G_DEPS_DIR}}/cmake-settings"
-  G_CMAKE_DEPENDENCY_FILE: "{{.G_DEPS_CMAKE_SETTINGS_DIR}}/all.cmake"
 
 tasks:
   clean:
     cmds:
       - "rm -rf '{{.G_BUILD_DIR}}'"
-
-  config-cmake-project:
-    internal: true
-    sources:
-      - "{{.TASKFILE}}"
-      - "CMakeLists.txt"
-    generates:
-      - "{{.G_SPIDER_CMAKE_CACHE}}"
-      - "{{.G_SPIDER_COMPILE_COMMANDS_DB}}"
-    cmds:
-      - >-
-       cmake -S '{{.ROOT_DIR}}'
-       -DSPIDER_CMAKE_DEPENDENCY_FILE='{{.G_CMAKE_DEPENDENCY_FILE}}'
-       -B '{{.G_BUILD_SPIDER_DIR}}'
 
   init:
     internal: true
@@ -54,4 +27,3 @@ tasks:
     run: "once"
     cmds:
       - "mkdir -p '{{.G_BUILD_DIR}}'"
-      - "mkdir -p '{{.G_BUILD_SPIDER_DIR}}'"

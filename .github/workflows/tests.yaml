@@ -20,7 +20,6 @@ jobs:
   filter-relevant-changes:
     runs-on: "ubuntu-latest"
     outputs:
-      cpp_changed: "${{steps.filter.outputs.cpp_changed}}"
       rust_changed: "${{steps.filter.outputs.rust_changed}}"
       huntsman_e2e_tests_required: "${{steps.filter.outputs.huntsman_e2e_tests_required}}"
     steps:
@@ -32,43 +31,6 @@ jobs:
         uses: "./.github/actions/filter-relevant-changes"
         with:
           workflow_path: ".github/workflows/tests.yaml"
-
-  tdl-unit-tests:
-    needs: "filter-relevant-changes"
-    if: >-
-      github.event_name == 'schedule'
-      || github.event_name == 'workflow_dispatch'
-      || needs.filter-relevant-changes.outputs.cpp_changed == 'true'
-    strategy:
-      matrix:
-        os: ["ubuntu-22.04", "ubuntu-24.04"]
-    runs-on: "${{matrix.os}}"
-    steps:
-      - name: "Remove default CMake installation in the runner"
-        run: "rm '/usr/local/bin/cmake'"
-
-      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
-        with:
-          submodules: "recursive"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-python"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-go-task"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/install-uv"
-
-      - name: "Install dev dependencies"
-        run: "./tools/scripts/lib_install/ubuntu/install-dev-cpp.sh"
-
-      - uses: "./tools/yscope-dev-utils/exports/github/actions/print-tool-versions"
-
-      - name: "Install project dependencies"
-        timeout-minutes: 10
-        env:
-          SPIDER_DEPS_MAX_PARALLELISM_PER_TASK: "1"
-        run: "task deps:lib_install"
-
-      - run: "task test:cpp-unit-tests"
 
   rust-unit-tests:
     needs: "filter-relevant-changes"
