@@ -16,7 +16,8 @@ use crate::job_submission::ValidatedJobSubmission;
 
 /// A job persisted in the database that should be rebuilt in the storage cache on startup.
 ///
-/// All non-terminal jobs are recoverable.
+/// Jobs in [`JobState::Ready`], [`JobState::Running`], [`JobState::CommitReady`] or
+/// [`JobState::CleanupReady`] are recoverable.
 pub struct RecoverableJobContext {
     pub id: JobId,
     pub resource_group_id: ResourceGroupId,

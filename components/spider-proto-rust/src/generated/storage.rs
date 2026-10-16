@@ -102,7 +102,7 @@ pub struct TimeoutPolicy {
     #[prost(uint64, tag = "2")]
     pub hard_timeout_ms: u64,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReportTaskSuccessRequest {
     #[prost(uint64, tag = "1")]
     pub job_id: u64,
@@ -116,6 +116,15 @@ pub struct ReportTaskSuccessRequest {
     pub session_id: u64,
     #[prost(bytes = "vec", tag = "6")]
     pub serialized_outputs: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "7")]
+    pub children: ::prost::alloc::vec::Vec<ChildJobRequest>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ChildJobRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub compressed_serialized_task_graph: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub compressed_serialized_task_graph_input: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ReportTaskFailureRequest {
@@ -243,6 +252,7 @@ pub enum JobState {
     Succeeded = 5,
     Failed = 6,
     Cancelled = 7,
+    BlockingOnChildren = 8,
 }
 impl JobState {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -259,6 +269,7 @@ impl JobState {
             Self::Succeeded => "SUCCEEDED",
             Self::Failed => "FAILED",
             Self::Cancelled => "CANCELLED",
+            Self::BlockingOnChildren => "BLOCKING_ON_CHILDREN",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -272,6 +283,7 @@ impl JobState {
             "SUCCEEDED" => Some(Self::Succeeded),
             "FAILED" => Some(Self::Failed),
             "CANCELLED" => Some(Self::Cancelled),
+            "BLOCKING_ON_CHILDREN" => Some(Self::BlockingOnChildren),
             _ => None,
         }
     }
