@@ -3,7 +3,7 @@ version: "3"
 vars:
   # Paths
   G_DOCS_BUILD_DIR: "{{.G_BUILD_DIR}}/docs"
-  G_DOCS_HUNTSMAN_BUILD_DIR: "{{.G_DOCS_BUILD_DIR}}/huntsman"
+  G_DOCS_HUNTSMAN_BUILD_DIR: "{{.G_DOCS_BUILD_DIR}}/html"
   G_DOCS_VENV_DIR: "{{.G_BUILD_DIR}}/docs-venv"
   G_NODE_DEPS_DIR: "{{.G_BUILD_DIR}}/docs-node"
 

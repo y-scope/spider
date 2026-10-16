@@ -22,7 +22,7 @@ The site's directory, `huntsman`, contains:
   task docs:huntsman:site
   ```
 
-  * The output of the build will be in `../build/docs/huntsman`.
+  * The output of the build will be in `../build/docs/html`.
 
 * Clean up all builds:
 
