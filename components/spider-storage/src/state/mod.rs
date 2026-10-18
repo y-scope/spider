@@ -15,4 +15,4 @@ pub use service::ServiceState;
 pub use service::ServiceStateParams;
 
 #[cfg(test)]
-pub(crate) mod test_utils;
+mod test_utils;

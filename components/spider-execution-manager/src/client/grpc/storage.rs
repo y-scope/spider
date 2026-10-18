@@ -104,7 +104,6 @@ impl StorageClient for GrpcStorageClient {
             session_id,
             serialized_outputs: serialized_outputs.unwrap_or_default(),
             task_instance_id,
-            children: Vec::new(),
         };
         self.connection_pool
             .get_client()

@@ -641,9 +641,7 @@ impl<
         &self,
         request: Request<storage::ReportTaskSuccessRequest>,
     ) -> Result<Response<common::Void>, Status> {
-        const TAG: &str = "report_task_success";
-
-        let (session_id, job_id, task_id, task_instance_id, serialized_outputs, children) =
+        let (session_id, job_id, task_id, task_instance_id, serialized_outputs) =
             request.into_inner().unpack()?;
         tracing::info!(
             session_id = session_id,
@@ -652,13 +650,6 @@ impl<
             task_instance_id,
             "Task instance completion request (success) received."
         );
-
-        if !children.is_empty() {
-            return Err(self.task_instance_management_service_error_handler(
-                StorageServerError::BadRequest("child jobs are not supported".to_owned()),
-                TAG,
-            ));
-        }
 
         let _job_state = match task_id {
             TaskId::Index(task_index) => {
@@ -683,7 +674,9 @@ impl<
                     .await
             }
         }
-        .map_err(|error| self.task_instance_management_service_error_handler(error, TAG))?;
+        .map_err(|error| {
+            self.task_instance_management_service_error_handler(error, "report_task_success")
+        })?;
 
         Ok(Response::new(common::Void {}))
     }
@@ -972,173 +965,4 @@ fn make_job_state_response(
     Response::new(storage::JobStateResponse {
         state: storage::JobState::from(state).into(),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use spider_core::task::DataTypeDescriptor;
-    use spider_core::task::ExecutionPolicy;
-    use spider_core::task::TaskDescriptor;
-    use spider_core::task::TaskGraph as SubmittedTaskGraph;
-    use spider_core::task::TdlContext;
-    use spider_core::task::ValueTypeDescriptor;
-    use spider_core::types::id::SessionId;
-    use spider_core::types::id::TaskId;
-    use spider_core::types::io::TaskGraphInputBuilder;
-    use spider_core::types::io::TaskOutputsSerializer;
-    use spider_proto_rust::common;
-    use spider_proto_rust::storage::JobOrchestrationService;
-    use spider_proto_rust::storage::TaskInstanceManagementService;
-    use spider_proto_rust::storage::{self};
-    use tokio_util::sync::CancellationToken;
-    use tonic::Code;
-    use tonic::Request;
-
-    use super::GrpcServiceState;
-    use crate::inbound_queue::create_inbound_queue;
-    use crate::job_submission::compress_job_inputs;
-    use crate::job_submission::compress_task_graph;
-    use crate::state::JobCache;
-    use crate::state::JobCacheGcHandle;
-    use crate::state::ServiceState;
-    use crate::state::ServiceStateParams;
-    use crate::state::test_utils::MockDbConnector;
-    use crate::state::test_utils::MockInboundQueueSender;
-    use crate::state::test_utils::MockTaskInstancePoolConnector;
-
-    type TestGrpcServiceState =
-        GrpcServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
-
-    const TEST_SESSION_ID: SessionId = 0;
-
-    impl TestGrpcServiceState {
-        /// Factory function.
-        ///
-        /// # Returns
-        ///
-        /// A [`GrpcServiceState`] over a [`ServiceState`] backed by the test mocks and
-        /// [`TEST_SESSION_ID`].
-        fn new_with_mocks() -> Self {
-            let (_inbound_queue_sender, inbound_queue_receiver) = create_inbound_queue();
-            let cancellation_token = CancellationToken::new();
-            Self::new(
-                ServiceState::new(ServiceStateParams {
-                    db: MockDbConnector::default(),
-                    session_id: TEST_SESSION_ID,
-                    job_cache: JobCache::new(),
-                    inbound_queue_sender: MockInboundQueueSender,
-                    inbound_queue_receiver,
-                    task_instance_pool_connector: MockTaskInstancePoolConnector,
-                    job_cache_gc_handle: JobCacheGcHandle::new(
-                        tokio::sync::mpsc::unbounded_channel().0,
-                    ),
-                    cancellation_token: cancellation_token.clone(),
-                }),
-                cancellation_token,
-            )
-        }
-
-        /// # Returns
-        ///
-        /// The ID of a started job with a single regular task, registered through this service.
-        ///
-        /// # Panics
-        ///
-        /// Panics if building the job submission, registering the job or starting it fails.
-        async fn register_and_start_single_task_job(&self) -> u64 {
-            let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
-            let mut task_graph =
-                SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
-            task_graph
-                .insert_task(TaskDescriptor {
-                    tdl_context: TdlContext {
-                        package: "test_pkg".to_owned(),
-                        task_func: "test_fn".to_owned(),
-                    },
-                    execution_policy: Some(ExecutionPolicy::default()),
-                    inputs: vec![bytes_type.clone()],
-                    outputs: vec![bytes_type],
-                    input_sources: None,
-                })
-                .expect("task insertion should succeed");
-            let mut task_graph_input_builder = TaskGraphInputBuilder::new();
-            task_graph_input_builder
-                .append_task_input(&[0u8; 4])
-                .expect("task input appending should succeed");
-
-            let job_id = self
-                .register_job(Request::new(storage::RegisterJobRequest {
-                    resource_group_id: 1,
-                    compressed_serialized_task_graph: compress_task_graph(&task_graph),
-                    compressed_serialized_task_graph_input: compress_job_inputs(
-                        &task_graph_input_builder.build(),
-                    ),
-                }))
-                .await
-                .expect("job registration should succeed")
-                .into_inner()
-                .job_id;
-            self.start_job(Request::new(storage::JobIdRequest { job_id }))
-                .await
-                .expect("job start should succeed");
-            job_id
-        }
-    }
-
-    #[tokio::test]
-    async fn report_task_success_returns_invalid_argument_on_non_empty_children()
-    -> anyhow::Result<()> {
-        const EXECUTION_MANAGER_ID: u64 = 1;
-
-        let grpc_service = TestGrpcServiceState::new_with_mocks();
-        let job_id = grpc_service.register_and_start_single_task_job().await;
-        let task_id = Some(common::TaskId::from(TaskId::Index(0)));
-        let task_instance_id = grpc_service
-            .register_task_instance(Request::new(storage::RegisterTaskInstanceRequest {
-                job_id,
-                task_id,
-                execution_manager_id: EXECUTION_MANAGER_ID,
-                session_id: TEST_SESSION_ID,
-            }))
-            .await?
-            .into_inner()
-            .execution_context
-            .expect("the response should carry an execution context")
-            .task_instance_id;
-        let report_without_children = storage::ReportTaskSuccessRequest {
-            job_id,
-            task_id,
-            task_instance_id,
-            execution_manager_id: EXECUTION_MANAGER_ID,
-            session_id: TEST_SESSION_ID,
-            serialized_outputs: TaskOutputsSerializer::from_tuple(&(1,))?,
-            children: Vec::new(),
-        };
-
-        let status = grpc_service
-            .report_task_success(Request::new(storage::ReportTaskSuccessRequest {
-                children: vec![storage::ChildJobRequest::default()],
-                ..report_without_children.clone()
-            }))
-            .await
-            .expect_err("a report with children should be rejected");
-        assert_eq!(status.code(), Code::InvalidArgument);
-        let job_state = grpc_service
-            .get_job_state(Request::new(storage::JobIdRequest { job_id }))
-            .await?
-            .into_inner()
-            .state();
-        assert_eq!(job_state, storage::JobState::Running);
-
-        grpc_service
-            .report_task_success(Request::new(report_without_children))
-            .await?;
-        let job_state = grpc_service
-            .get_job_state(Request::new(storage::JobIdRequest { job_id }))
-            .await?
-            .into_inner()
-            .state();
-        assert_eq!(job_state, storage::JobState::Succeeded);
-        Ok(())
-    }
 }

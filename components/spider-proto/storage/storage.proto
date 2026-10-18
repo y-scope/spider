@@ -128,12 +128,6 @@ message ReportTaskSuccessRequest {
   uint64 execution_manager_id = 4;
   uint64 session_id = 5;
   bytes serialized_outputs = 6;
-  repeated ChildJobRequest children = 7;
-}
-
-message ChildJobRequest {
-  bytes compressed_serialized_task_graph = 1;
-  bytes compressed_serialized_task_graph_input = 2;
 }
 
 message ReportTaskFailureRequest {

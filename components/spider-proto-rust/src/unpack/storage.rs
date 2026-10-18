@@ -14,7 +14,6 @@ use spider_utils::config::Host;
 use tonic::Code;
 
 use crate::storage::AddResourceGroupRequest;
-use crate::storage::ChildJobRequest;
 use crate::storage::ExecutionManagerIdRequest;
 use crate::storage::JobIdRequest;
 use crate::storage::PollReadyTasksRequest;
@@ -89,16 +88,8 @@ impl RequestUnpack for RegisterTaskInstanceRequest {
 /// * The task ID.
 /// * The task instance ID.
 /// * The serialized task outputs.
-/// * The child jobs.
 impl RequestUnpack for ReportTaskSuccessRequest {
-    type Unpacked = (
-        SessionId,
-        JobId,
-        TaskId,
-        TaskInstanceId,
-        Vec<u8>,
-        Vec<ChildJobRequest>,
-    );
+    type Unpacked = (SessionId, JobId, TaskId, TaskInstanceId, Vec<u8>);
 
     fn unpack(self) -> Result<Self::Unpacked, UnpackError> {
         let task_id = unpack_task_id(self.task_id).inspect_err(|error| {
@@ -117,7 +108,6 @@ impl RequestUnpack for ReportTaskSuccessRequest {
             task_id,
             self.task_instance_id,
             self.serialized_outputs,
-            self.children,
         ))
     }
 }
