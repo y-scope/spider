@@ -3,13 +3,10 @@
 build
 
 # Generated lint configs
-.clang-format
-.clang-tidy
 .rustfmt.toml
 
 # IDE-related directories and files
 .idea
-cmake-build-debug
 
 # Local Docker Compose credentials
 tools/deployment/spider-compose/.env
