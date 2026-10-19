@@ -83,6 +83,7 @@ tasks:
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: *output_patterns
+          METADATA_ONLY: "true"
     cmds:
       - |-
         curl --proto "=https" --tlsv1.2 --silent --show-error --fail https://sh.rustup.rs \
@@ -118,3 +119,4 @@ tasks:
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
           INCLUDE_PATTERNS: *output_patterns
+          METADATA_ONLY: "true"
