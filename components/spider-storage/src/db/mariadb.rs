@@ -80,6 +80,7 @@ impl MariaDbStorageConnector {
             .database(&config.name)
             .username(&config.credentials.username)
             .password(config.credentials.password.expose_secret());
+        let fence_id = config.fence_id.unwrap_or(PRODUCTION_FENCE_ID);
 
         let pool = Self::pool_options(config)
             .after_connect(|connection, _| {
@@ -113,7 +114,7 @@ impl MariaDbStorageConnector {
             .execute(&pool)
             .await?;
         sqlx::query(INSERT_FENCE_QUERY)
-            .bind(config.fence_id)
+            .bind(fence_id)
             .execute(&pool)
             .await?;
 
@@ -123,12 +124,12 @@ impl MariaDbStorageConnector {
                 .await?
                 .last_insert_id(),
         );
-        bump_fence(&pool, config.fence_id, session_id).await?;
+        bump_fence(&pool, fence_id, session_id).await?;
 
         Ok(Self {
             pool,
             session_id,
-            fence_id: config.fence_id,
+            fence_id,
         })
     }
 
@@ -881,6 +882,10 @@ const SCHEDULERS_TABLE_NAME: &str = "schedulers";
 const SESSIONS_TABLE_NAME: &str = "sessions";
 const STORAGE_FENCE_TABLE_NAME: &str = "storage_fence";
 
+/// The ID of the `storage_fence` row that a storage service fences its writes with unless
+/// [`DatabaseConfig::fence_id`] overrides it.
+const PRODUCTION_FENCE_ID: u64 = 0;
+
 /// The number of seconds that a database session may idle before the server closes it, which must
 /// stay above twice [`UNPINGED_CONNECTION_MAX_LIFETIME_SEC`].
 const SESSION_WAIT_TIMEOUT_SEC: u64 = 900;
@@ -1550,7 +1555,7 @@ mod tests {
             port: 3306,
             name: "spider".to_owned(),
             max_connections: 8,
-            fence_id: 0,
+            fence_id: None,
             credentials: DatabaseCredentials {
                 username: "user".to_owned(),
                 password: SecretString::from("pass"),
@@ -1576,7 +1581,7 @@ mod tests {
             host: "localhost".to_owned(),
             port: std::env::var("MARIADB_PORT")?.parse()?,
             name: std::env::var("MARIADB_DATABASE")?,
-            fence_id: rand::random(),
+            fence_id: Some(rand::random()),
             credentials: DatabaseCredentials::from_env()?,
             ..base_config()
         })
@@ -1671,7 +1676,11 @@ mod tests {
             .execute(&mut connection)
             .await?;
             let snapshot_session_id: SessionId = sqlx::query_scalar(SELECT_FENCE_QUERY)
-                .bind(config.fence_id)
+                .bind(
+                    config
+                        .fence_id
+                        .expect("the MariaDB test config should set a fence ID"),
+                )
                 .fetch_one(&mut connection)
                 .await?;
             assert_eq!(snapshot_session_id, older.session_id);

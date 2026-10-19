@@ -20,6 +20,7 @@ use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
 use super::mariadb_infra::has_mysql_error_number;
 use super::mariadb_infra::root_credentials;
+use super::mariadb_infra::test_fence_id;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
 
@@ -112,12 +113,12 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
 async fn connectors_with_different_fence_ids_are_independent() -> anyhow::Result<()> {
     let scratch = ScratchDatabase::create().await;
     let first = connect(&DatabaseConfig {
-        fence_id: 1,
+        fence_id: Some(1),
         ..scratch.config()
     })
     .await;
     let second = connect(&DatabaseConfig {
-        fence_id: 2,
+        fence_id: Some(2),
         ..scratch.config()
     })
     .await;
@@ -149,7 +150,7 @@ async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Resul
     let mut raw_connection = raw_pool.acquire().await?;
     let mut raw_tx = raw_connection.begin().await?;
     sqlx::query(SELECT_FENCE_FOR_SHARE_QUERY)
-        .bind(config.fence_id)
+        .bind(test_fence_id(&config))
         .execute(&mut *raw_tx)
         .await?;
 
@@ -158,7 +159,7 @@ async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Resul
         tokio::spawn(async move { connect(&unprivileged_config).await });
     tokio::time::timeout_at(
         first_bump_attempt_deadline,
-        wait_for_queued_fence_bump(&root_pool, config.fence_id),
+        wait_for_queued_fence_bump(&root_pool, test_fence_id(&config)),
     )
     .await
     .unwrap_or_else(|_| {
@@ -281,14 +282,14 @@ async fn connect_never_lowers_the_fence() -> anyhow::Result<()> {
     let newest_session_id = SessionId::MAX;
     sqlx::query("UPDATE `storage_fence` SET `session_id` = ? WHERE `id` = ?;")
         .bind(newest_session_id)
-        .bind(config.fence_id)
+        .bind(test_fence_id(&config))
         .execute(&raw_pool)
         .await?;
 
     let newer = connect(&config).await;
 
     let fence_session_id: SessionId = sqlx::query_scalar(SELECT_FENCE_QUERY)
-        .bind(config.fence_id)
+        .bind(test_fence_id(&config))
         .fetch_one(&raw_pool)
         .await?;
     assert_eq!(fence_session_id, newest_session_id);
@@ -360,7 +361,7 @@ async fn connect_kills_an_orphaned_fence_holder_when_privileged() -> anyhow::Res
         let mut orphan_connection = raw_pool.acquire().await?;
         let mut orphan_tx = orphan_connection.begin().await?;
         sqlx::query(SELECT_FENCE_FOR_SHARE_QUERY)
-            .bind(user_config.fence_id)
+            .bind(test_fence_id(&user_config))
             .execute(&mut *orphan_tx)
             .await?;
 
@@ -401,7 +402,7 @@ async fn connect_retries_the_fence_bump_without_the_process_privilege() -> anyho
     let mut orphan_connection = raw_pool.acquire().await?;
     let mut orphan_tx = orphan_connection.begin().await?;
     sqlx::query(SELECT_FENCE_FOR_SHARE_QUERY)
-        .bind(user_config.fence_id)
+        .bind(test_fence_id(&user_config))
         .execute(&mut *orphan_tx)
         .await?;
 
@@ -453,7 +454,7 @@ async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Resu
     );
 
     sqlx::query("DELETE FROM `storage_fence` WHERE `id` = ?;")
-        .bind(config.fence_id)
+        .bind(test_fence_id(&config))
         .execute(&raw_pool)
         .await?;
     let results = [
@@ -679,7 +680,7 @@ async fn commit_behind_a_queued_fence_bump<
     let newer_connect_join_handle = tokio::spawn(async move { connect(&connect_config).await });
     tokio::time::timeout(
         Duration::from_secs(5),
-        wait_for_queued_fence_bump(root_pool, newer_config.fence_id),
+        wait_for_queued_fence_bump(root_pool, test_fence_id(newer_config)),
     )
     .await
     .unwrap_or_else(|_| {

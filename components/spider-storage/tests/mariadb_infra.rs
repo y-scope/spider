@@ -249,7 +249,7 @@ pub fn create_mariadb_config() -> DatabaseConfig {
         port,
         name: database,
         max_connections: 5,
-        fence_id: rand::random(),
+        fence_id: Some(rand::random()),
         credentials: DatabaseCredentials::from_env().expect("database credentials"),
         pool: DatabasePoolConfig::default(),
     };
@@ -272,6 +272,20 @@ pub fn apply_test_db_overrides(config: &mut DatabaseConfig) {
     {
         config.pool.check_connection_before_use = value;
     }
+}
+
+/// # Returns
+///
+/// The fence ID that `config`, a test config, sets.
+///
+/// # Panics
+///
+/// Panics if `config` does not set a fence ID.
+#[must_use]
+pub const fn test_fence_id(config: &DatabaseConfig) -> u64 {
+    config
+        .fence_id
+        .expect("a test config should set a fence ID")
 }
 
 /// Reads the `MariaDB` root password from `MARIADB_ROOT_PASSWORD`, falling back to

@@ -44,10 +44,14 @@ pub struct DatabaseConfig {
     /// The maximum number of database connections maintained by the pool.
     pub max_connections: u32,
 
-    /// The ID of the `storage_fence` row that this storage service fences its writes with. Storage
-    /// services that share a database and a fence ID fence each other.
+    /// A test-only override of the ID of the `storage_fence` row that this storage service fences
+    /// its writes with. It cannot be set from a configuration file.
+    ///
+    /// Tests set it so that several storage services can share one database without fencing each
+    /// other off. `None`, the default, is the expected value on every production code path, and
+    /// makes storage use the production fence row.
     #[serde(skip)]
-    pub fence_id: u64,
+    pub fence_id: Option<u64>,
 
     /// The credentials used to connect to the database.
     ///
@@ -221,7 +225,7 @@ mod tests {
     fn deserialize_fills_missing_lever_keys_with_defaults() -> anyhow::Result<()> {
         let config = deserialize_with(serde_json::json!({}))?;
 
-        assert_eq!(config.fence_id, 0);
+        assert_eq!(config.fence_id, None);
         assert_eq!(
             config.pool,
             DatabasePoolConfig {
@@ -285,11 +289,18 @@ mod tests {
     fn deserialize_accepts_unknown_top_level_keys() -> anyhow::Result<()> {
         let config = deserialize_with(serde_json::json!({
             "fence_in_write_statement": false,
-            "fence_id": 7,
+            "retired_key": 1,
         }))?;
 
-        assert_eq!(config.fence_id, 0);
         assert_eq!(config.pool, DatabasePoolConfig::default());
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_ignores_the_fence_id_key() -> anyhow::Result<()> {
+        let config = deserialize_with(serde_json::json!({"fence_id": 7}))?;
+
+        assert_eq!(config.fence_id, None);
         Ok(())
     }
 

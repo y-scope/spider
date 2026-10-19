@@ -298,7 +298,7 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
     let scratch = ScratchDatabase::create().await;
     let config = RuntimeConfig {
         db: DatabaseConfig {
-            fence_id: 1,
+            fence_id: Some(1),
             ..scratch.config()
         },
         ..create_runtime_config()
@@ -331,7 +331,7 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
         "expected a fenced registration, got {register_error:?}"
     );
     let reader = MariaDbStorageConnector::connect(&DatabaseConfig {
-        fence_id: 2,
+        fence_id: Some(2),
         ..scratch.config()
     })
     .await?;
