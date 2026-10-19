@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Installs the dev dependencies shared by all versions of Spider.
+# Installs the dev dependencies shared by development and CI tooling.
 
 # Exit on any error
 set -e

@@ -1022,8 +1022,11 @@ CREATE TABLE IF NOT EXISTS `{JOBS_TABLE_NAME}` (
   `ended_at` TIMESTAMP,
   `max_num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
   `num_retries` INT UNSIGNED NOT NULL DEFAULT 0,
+  `parent_id` BIGINT UNSIGNED DEFAULT NULL,
+  `root_id` BIGINT UNSIGNED DEFAULT NULL,
   PRIMARY KEY (`id`),
   INDEX `job_state` (`state`),
+  INDEX `job_parent` (`parent_id`),
   CONSTRAINT `job_resource_group` FOREIGN KEY (`resource_group_id`)
     REFERENCES `{RESOURCE_GROUPS_TABLE_NAME}` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT

@@ -1128,10 +1128,16 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
-    /// * [`StaleStateError::JobNoLongerCommitReady`] if the job is no longer commit-ready.
+    /// * [`StaleStateError::JobNoLongerCommitReady`] if the job is not commit-ready and the request
+    ///   is stale.
     fn ensure_commit_ready(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::CommitReady) {
-            if self.state.is_terminal() || matches!(self.state, JobState::CleanupReady) {
+            if self.state.is_terminal()
+                || matches!(
+                    self.state,
+                    JobState::CleanupReady | JobState::BlockingOnChildren
+                )
+            {
                 return Err(StaleStateError::JobNoLongerCommitReady.into());
             }
             return Err(InternalError::UnexpectedJobState {
@@ -1150,10 +1156,11 @@ impl<
     /// Returns an error if:
     ///
     /// * [`InternalError::UnexpectedJobState`] if the job is in an unexpected state.
-    /// * [`StaleStateError::JobNoLongerCleanupReady`] if the job is no longer cleanup-ready.
+    /// * [`StaleStateError::JobNoLongerCleanupReady`] if the job is not cleanup-ready and the
+    ///   request is stale.
     fn ensure_cleanup_ready(&self) -> Result<(), CacheError> {
         if !matches!(self.state, JobState::CleanupReady) {
-            if self.state.is_terminal() {
+            if self.state.is_terminal() || matches!(self.state, JobState::BlockingOnChildren) {
                 return Err(StaleStateError::JobNoLongerCleanupReady.into());
             }
             return Err(InternalError::UnexpectedJobState {

@@ -14,9 +14,13 @@ use spider_core::types::scheduler::RegisteredScheduler;
 use crate::db::error::DbError;
 use crate::job_submission::ValidatedJobSubmission;
 
-/// A job persisted in the database that should be rebuilt in the storage cache on startup.
+/// A job persisted in the database that should be rebuilt in the storage cache on startup. Jobs in
+/// the following states are considered recoverable:
 ///
-/// All non-terminal jobs are recoverable.
+/// * [`JobState::Ready`]
+/// * [`JobState::Running`]
+/// * [`JobState::CommitReady`]
+/// * [`JobState::CleanupReady`]
 pub struct RecoverableJobContext {
     pub id: JobId,
     pub resource_group_id: ResourceGroupId,
