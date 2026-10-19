@@ -5,7 +5,6 @@ use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
-use spider_storage::DEFAULT_FENCE_IN_WRITE_STATEMENT;
 use spider_storage::DatabaseConfig;
 use spider_storage::DatabaseCredentials;
 use spider_storage::DatabasePoolConfig;
@@ -252,7 +251,6 @@ pub fn create_mariadb_config() -> DatabaseConfig {
         max_connections: 5,
         fence_id: rand::random(),
         credentials: DatabaseCredentials::from_env().expect("database credentials"),
-        fence_in_write_statement: DEFAULT_FENCE_IN_WRITE_STATEMENT,
         pool: DatabasePoolConfig::default(),
     };
     apply_test_db_overrides(&mut config);
@@ -262,7 +260,6 @@ pub fn create_mariadb_config() -> DatabaseConfig {
 /// Overrides the database flags of `config` with the values of the following environment
 /// variables, for each one that is set:
 ///
-/// * `SPIDER_TEST_DB_FENCE_IN_WRITE_STATEMENT` (`true` or `false`): `fence_in_write_statement`.
 /// * `SPIDER_TEST_DB_TEST_BEFORE_ACQUIRE` (`true` or `false`): `pool.test_before_acquire`.
 /// * `SPIDER_TEST_DB_STATEMENT_CACHE_CAPACITY` (an unsigned integer):
 ///   `pool.statement_cache_capacity`.
@@ -272,11 +269,6 @@ pub fn create_mariadb_config() -> DatabaseConfig {
 ///
 /// Forwards [`read_test_db_override`]'s panics.
 pub fn apply_test_db_overrides(config: &mut DatabaseConfig) {
-    if let Some(value) =
-        read_test_db_override("SPIDER_TEST_DB_FENCE_IN_WRITE_STATEMENT", str::parse)
-    {
-        config.fence_in_write_statement = value;
-    }
     if let Some(value) = read_test_db_override("SPIDER_TEST_DB_TEST_BEFORE_ACQUIRE", str::parse) {
         config.pool.test_before_acquire = value;
     }

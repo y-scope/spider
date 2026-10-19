@@ -13,9 +13,6 @@ pub const DB_USERNAME_ENV: &str = "SPIDER_STORAGE_DB_USERNAME";
 /// Environment variable that supplies the database password.
 pub const DB_PASSWORD_ENV: &str = "SPIDER_STORAGE_DB_PASSWORD";
 
-/// The default value of [`DatabaseConfig::fence_in_write_statement`].
-pub const DEFAULT_FENCE_IN_WRITE_STATEMENT: bool = true;
-
 /// The default capacity of each connection's prepared statement cache, equal to sqlx's default.
 pub const DEFAULT_STATEMENT_CACHE_CAPACITY: usize = 100;
 
@@ -67,11 +64,6 @@ pub struct DatabaseConfig {
     /// configuration file.
     #[serde(skip_serializing)]
     pub credentials: DatabaseCredentials,
-
-    /// Whether a job registration carries the fence check in its insert statement instead of a
-    /// separate locking read in an explicit transaction.
-    #[serde(default = "default_fence_in_write_statement")]
-    pub fence_in_write_statement: bool,
 
     /// The connection pool options.
     #[serde(default)]
@@ -162,13 +154,6 @@ impl TryFrom<Option<RawCredentials>> for DatabaseCredentials {
     }
 }
 
-/// # Returns
-///
-/// The default value of [`DatabaseConfig::fence_in_write_statement`].
-const fn default_fence_in_write_statement() -> bool {
-    DEFAULT_FENCE_IN_WRITE_STATEMENT
-}
-
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -255,7 +240,6 @@ mod tests {
     fn deserialize_fills_missing_lever_keys_with_defaults() -> anyhow::Result<()> {
         let config = deserialize_with(serde_json::json!({}))?;
 
-        assert!(config.fence_in_write_statement);
         assert_eq!(config.fence_id, 0);
         assert_eq!(
             config.pool,
@@ -271,7 +255,6 @@ mod tests {
     #[test]
     fn deserialize_parses_every_lever_key() -> anyhow::Result<()> {
         let config = deserialize_with(serde_json::json!({
-            "fence_in_write_statement": false,
             "pool": {
                 "test_before_acquire": true,
                 "statement_cache_capacity": 7,
@@ -279,7 +262,6 @@ mod tests {
             },
         }))?;
 
-        assert!(!config.fence_in_write_statement);
         assert_eq!(
             config.pool,
             DatabasePoolConfig {
@@ -321,10 +303,13 @@ mod tests {
 
     #[test]
     fn deserialize_accepts_unknown_top_level_keys() -> anyhow::Result<()> {
-        let config = deserialize_with(serde_json::json!({"retired_key": 1, "fence_id": 7}))?;
+        let config = deserialize_with(serde_json::json!({
+            "fence_in_write_statement": false,
+            "fence_id": 7,
+        }))?;
 
-        assert!(config.fence_in_write_statement);
         assert_eq!(config.fence_id, 0);
+        assert_eq!(config.pool, DatabasePoolConfig::default());
         Ok(())
     }
 

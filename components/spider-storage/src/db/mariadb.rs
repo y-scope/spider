@@ -45,7 +45,6 @@ pub struct MariaDbStorageConnector {
     pool: MySqlPool,
     session_id: SessionId,
     fence_id: u64,
-    fence_in_write_statement: bool,
 }
 
 impl MariaDbStorageConnector {
@@ -132,7 +131,6 @@ impl MariaDbStorageConnector {
             pool,
             session_id,
             fence_id: config.fence_id,
-            fence_in_write_statement: config.fence_in_write_statement,
         })
     }
 
@@ -262,66 +260,11 @@ impl MariaDbStorageConnector {
             .bind(job_submission.compressed_serialized_task_graph())
             .bind(job_submission.compressed_serialized_job_inputs())
     }
+}
 
-    /// Registers a job by checking the fence with a locking read and then inserting the job, in one
-    /// transaction.
-    ///
-    /// # Returns
-    ///
-    /// The ID of the new job on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`sqlx::Pool::begin`]'s return values on failure.
-    /// * Forwards [`Self::check_fence`]'s return values on failure.
-    /// * Forwards [`sqlx::query::Query::execute`]'s return values as mapped by
-    ///   [`map_job_insert_error`] on failure.
-    /// * Forwards [`sqlx::Transaction::commit`]'s return values on failure.
-    async fn register_inline_after_fence_check(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_submission: &ValidatedJobSubmission,
-    ) -> Result<JobId, DbError> {
-        const INSERT_QUERY: &str = formatcp!(
-            "INSERT INTO `{table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
-             `compressed_serialized_job_inputs`) VALUES (?, ?, ?);",
-            table = JOBS_TABLE_NAME,
-        );
-
-        let mut tx = self.pool.begin().await?;
-        self.check_fence(&mut tx).await?;
-
-        let job_id = sqlx::query(INSERT_QUERY)
-            .bind(resource_group_id)
-            .bind(job_submission.compressed_serialized_task_graph())
-            .bind(job_submission.compressed_serialized_job_inputs())
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| map_job_insert_error(e, resource_group_id))?
-            .last_insert_id();
-
-        tx.commit().await?;
-        Ok(JobId::from(job_id))
-    }
-
-    /// Registers a job with one autocommit insert that carries the fence.
-    ///
-    /// # Returns
-    ///
-    /// The ID of the new job on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::CorruptedDbState`] if the insert wrote no row while the fence holds this
-    ///   session.
-    /// * Forwards [`sqlx::Pool::acquire`]'s return values on failure.
-    /// * Forwards [`execute_fenced_job_insert`]'s return values on failure.
-    /// * Forwards [`Self::probe_fence`]'s return values on failure.
-    async fn register_inline_in_statement(
+#[async_trait]
+impl ExternalJobOrchestration for MariaDbStorageConnector {
+    async fn register(
         &self,
         resource_group_id: ResourceGroupId,
         job_submission: &ValidatedJobSubmission,
@@ -341,23 +284,6 @@ impl MariaDbStorageConnector {
         Err(DbError::CorruptedDbState(
             "fenced insert wrote no row while the fence holds this session".to_owned(),
         ))
-    }
-}
-
-#[async_trait]
-impl ExternalJobOrchestration for MariaDbStorageConnector {
-    async fn register(
-        &self,
-        resource_group_id: ResourceGroupId,
-        job_submission: &ValidatedJobSubmission,
-    ) -> Result<JobId, DbError> {
-        if self.fence_in_write_statement {
-            return self
-                .register_inline_in_statement(resource_group_id, job_submission)
-                .await;
-        }
-        self.register_inline_after_fence_check(resource_group_id, job_submission)
-            .await
     }
 
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
@@ -1630,7 +1556,6 @@ mod tests {
     use super::STORAGE_FENCE_TABLE_NAME;
     use super::UNPINGED_CONNECTION_MAX_LIFETIME_SEC;
     use super::has_mysql_error_number;
-    use crate::config::DEFAULT_FENCE_IN_WRITE_STATEMENT;
     use crate::config::DatabaseConfig;
     use crate::config::DatabaseCredentials;
     use crate::config::DatabasePoolConfig;
@@ -1650,7 +1575,6 @@ mod tests {
                 username: "user".to_owned(),
                 password: SecretString::from("pass"),
             },
-            fence_in_write_statement: DEFAULT_FENCE_IN_WRITE_STATEMENT,
             pool: DatabasePoolConfig::default(),
         }
     }

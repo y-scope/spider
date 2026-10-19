@@ -11,7 +11,6 @@ use spider_core::types::id::SchedulerId;
 use spider_core::types::io::TaskGraphInput;
 use spider_core::types::io::TaskGraphInputBuilder;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
-use spider_storage::DatabaseConfig;
 use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
 use spider_storage::db::ExternalJobOrchestration;
@@ -168,39 +167,33 @@ async fn test_register_job_invalid_resource_group() {
 #[ignore = "requires MariaDB"]
 async fn a_register_over_the_packet_size_writes_no_row() -> anyhow::Result<()> {
     let job_submission = submission_with_input(b"fits");
-    for fence_in_write_statement in [false, true] {
-        let scratch = ScratchDatabase::create().await;
-        let config = DatabaseConfig {
-            fence_in_write_statement,
-            ..scratch.config()
-        };
-        let raw_pool = create_raw_pool(&config).await;
-        let storage = MariaDbStorageConnector::connect(&config).await?;
-        let rg_id = create_test_resource_group(&storage).await;
-        let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
-            .fetch_one(&raw_pool)
-            .await?;
-        let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
-        assert!(
-            oversized.compressed_serialized_job_inputs().len() as u64 > max_allowed_packet,
-            "the oversized job inputs should not compress below the packet size"
-        );
+    let scratch = ScratchDatabase::create().await;
+    let config = scratch.config();
+    let raw_pool = create_raw_pool(&config).await;
+    let storage = MariaDbStorageConnector::connect(&config).await?;
+    let rg_id = create_test_resource_group(&storage).await;
+    let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
+        .fetch_one(&raw_pool)
+        .await?;
+    let oversized = submission_with_input(&incompressible(max_allowed_packet + 1));
+    assert!(
+        oversized.compressed_serialized_job_inputs().len() as u64 > max_allowed_packet,
+        "the oversized job inputs should not compress below the packet size"
+    );
 
-        let result = storage.register(rg_id, &oversized).await;
+    let result = storage.register(rg_id, &oversized).await;
 
-        assert!(
-            matches!(result, Err(DbError::Sql(_))),
-            "a register over the packet size should be an SQL error with {config:?}, got \
-             {result:?}"
-        );
-        assert_eq!(job_ids(&raw_pool).await?, Vec::new(), "{config:?}");
-        let job_id = storage.register(rg_id, &job_submission).await?;
-        assert_eq!(job_ids(&raw_pool).await?, vec![job_id], "{config:?}");
+    assert!(
+        matches!(result, Err(DbError::Sql(_))),
+        "a register over the packet size should be an SQL error with {config:?}, got {result:?}"
+    );
+    assert_eq!(job_ids(&raw_pool).await?, Vec::new(), "{config:?}");
+    let job_id = storage.register(rg_id, &job_submission).await?;
+    assert_eq!(job_ids(&raw_pool).await?, vec![job_id], "{config:?}");
 
-        raw_pool.close().await;
-        drop(storage);
-        scratch.drop_database().await;
-    }
+    raw_pool.close().await;
+    drop(storage);
+    scratch.drop_database().await;
     Ok(())
 }
 

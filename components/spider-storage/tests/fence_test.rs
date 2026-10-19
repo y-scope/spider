@@ -30,85 +30,80 @@ const SELECT_FENCE_FOR_SHARE_QUERY: &str =
 #[ignore = "requires MariaDB"]
 async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyhow::Result<()> {
     let job_submission = flat_submission();
-    for fence_in_write_statement in [false, true] {
-        let scratch = ScratchDatabase::create().await;
-        let config = DatabaseConfig {
-            fence_in_write_statement,
-            ..scratch.config()
-        };
-        let raw_pool = create_raw_pool(&config).await;
-        let older = connect(&config).await;
-        let rg_id = create_test_resource_group(&older).await;
-        let ready_job_id = older.register(rg_id, &job_submission).await?;
-        let running_job_id = older.register(rg_id, &job_submission).await?;
-        older.start(running_job_id).await?;
-        let expired_job_id = older.register(rg_id, &job_submission).await?;
-        older.start(expired_job_id).await?;
-        older.fail(expired_job_id, "expired".to_owned()).await?;
-        sqlx::query("UPDATE `jobs` SET `ended_at` = NOW() - INTERVAL 1 HOUR WHERE `id` = ?;")
-            .bind(expired_job_id)
-            .execute(&raw_pool)
-            .await?;
-        let newer = connect(&config).await;
+    let scratch = ScratchDatabase::create().await;
+    let config = scratch.config();
+    let raw_pool = create_raw_pool(&config).await;
+    let older = connect(&config).await;
+    let rg_id = create_test_resource_group(&older).await;
+    let ready_job_id = older.register(rg_id, &job_submission).await?;
+    let running_job_id = older.register(rg_id, &job_submission).await?;
+    older.start(running_job_id).await?;
+    let expired_job_id = older.register(rg_id, &job_submission).await?;
+    older.start(expired_job_id).await?;
+    older.fail(expired_job_id, "expired".to_owned()).await?;
+    sqlx::query("UPDATE `jobs` SET `ended_at` = NOW() - INTERVAL 1 HOUR WHERE `id` = ?;")
+        .bind(expired_job_id)
+        .execute(&raw_pool)
+        .await?;
+    let newer = connect(&config).await;
 
-        let results = [
-            (
-                "register",
-                older.register(rg_id, &job_submission).await.map(|_| ()),
-            ),
-            ("start", older.start(ready_job_id).await),
-            (
-                "set_state",
-                older.set_state(running_job_id, JobState::Cancelled).await,
-            ),
-            (
-                "commit_outputs",
-                older
-                    .commit_outputs(running_job_id, vec![b"outputs".to_vec()], false)
-                    .await,
-            ),
-            ("cancel", older.cancel(running_job_id, false).await),
-            (
-                "fail",
-                older.fail(running_job_id, "fenced".to_owned()).await,
-            ),
-            (
-                "delete_expired_terminated_jobs",
-                older.delete_expired_terminated_jobs(60).await.map(|_| ()),
-            ),
-        ];
+    let results = [
+        (
+            "register",
+            older.register(rg_id, &job_submission).await.map(|_| ()),
+        ),
+        ("start", older.start(ready_job_id).await),
+        (
+            "set_state",
+            older.set_state(running_job_id, JobState::Cancelled).await,
+        ),
+        (
+            "commit_outputs",
+            older
+                .commit_outputs(running_job_id, vec![b"outputs".to_vec()], false)
+                .await,
+        ),
+        ("cancel", older.cancel(running_job_id, false).await),
+        (
+            "fail",
+            older.fail(running_job_id, "fenced".to_owned()).await,
+        ),
+        (
+            "delete_expired_terminated_jobs",
+            older.delete_expired_terminated_jobs(60).await.map(|_| ()),
+        ),
+    ];
 
-        for (writer, result) in results {
-            assert_fenced(
-                &result,
-                &older,
-                &newer,
-                &format!("{writer} with {config:?}"),
-            );
-        }
-        assert_eq!(
-            job_states(&raw_pool).await,
-            vec![
-                (ready_job_id, JobState::Ready),
-                (running_job_id, JobState::Running),
-                (expired_job_id, JobState::Failed),
-            ],
-            "{config:?}"
+    for (writer, result) in results {
+        assert_fenced(
+            &result,
+            &older,
+            &newer,
+            &format!("{writer} with {config:?}"),
         );
-        newer.start(ready_job_id).await?;
-        newer
-            .commit_outputs(running_job_id, vec![b"outputs".to_vec()], false)
-            .await?;
-        assert_eq!(
-            newer.delete_expired_terminated_jobs(60).await?,
-            vec![expired_job_id],
-            "{config:?}"
-        );
-        newer.register(rg_id, &job_submission).await?;
-
-        raw_pool.close().await;
-        scratch.drop_database().await;
     }
+    assert_eq!(
+        job_states(&raw_pool).await,
+        vec![
+            (ready_job_id, JobState::Ready),
+            (running_job_id, JobState::Running),
+            (expired_job_id, JobState::Failed),
+        ],
+        "{config:?}"
+    );
+    newer.start(ready_job_id).await?;
+    newer
+        .commit_outputs(running_job_id, vec![b"outputs".to_vec()], false)
+        .await?;
+    assert_eq!(
+        newer.delete_expired_terminated_jobs(60).await?,
+        vec![expired_job_id],
+        "{config:?}"
+    );
+    newer.register(rg_id, &job_submission).await?;
+
+    raw_pool.close().await;
+    scratch.drop_database().await;
     Ok(())
 }
 
@@ -140,157 +135,136 @@ async fn connectors_with_different_fence_ids_are_independent() -> anyhow::Result
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Result<()> {
-    for fence_in_write_statement in [false, true] {
-        let scratch = ScratchDatabase::create().await;
-        let config = DatabaseConfig {
-            fence_in_write_statement,
-            ..scratch.config()
-        };
-        let unprivileged_config = DatabaseConfig {
-            credentials: scratch.create_user_without_global_privileges().await,
-            ..config.clone()
-        };
-        let older = connect(&config).await;
-        let rg_id = create_test_resource_group(&older).await;
-        let job_id = older.register(rg_id, &flat_submission()).await?;
-        let raw_pool = create_raw_pool(&config).await;
-        let root_pool = create_root_pool(&config).await;
-        let mut raw_connection = raw_pool.acquire().await?;
-        let mut raw_tx = raw_connection.begin().await?;
-        sqlx::query(SELECT_FENCE_FOR_SHARE_QUERY)
-            .bind(config.fence_id)
-            .execute(&mut *raw_tx)
-            .await?;
+    let scratch = ScratchDatabase::create().await;
+    let config = scratch.config();
+    let unprivileged_config = DatabaseConfig {
+        credentials: scratch.create_user_without_global_privileges().await,
+        ..config.clone()
+    };
+    let older = connect(&config).await;
+    let rg_id = create_test_resource_group(&older).await;
+    let job_id = older.register(rg_id, &flat_submission()).await?;
+    let raw_pool = create_raw_pool(&config).await;
+    let root_pool = create_root_pool(&config).await;
+    let mut raw_connection = raw_pool.acquire().await?;
+    let mut raw_tx = raw_connection.begin().await?;
+    sqlx::query(SELECT_FENCE_FOR_SHARE_QUERY)
+        .bind(config.fence_id)
+        .execute(&mut *raw_tx)
+        .await?;
 
-        let first_bump_attempt_deadline = tokio::time::Instant::now() + Duration::from_secs(4);
-        let newer_connect_join_handle =
-            tokio::spawn(async move { connect(&unprivileged_config).await });
-        tokio::time::timeout_at(
-            first_bump_attempt_deadline,
-            wait_for_queued_fence_bump(&root_pool, config.fence_id),
+    let first_bump_attempt_deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    let newer_connect_join_handle =
+        tokio::spawn(async move { connect(&unprivileged_config).await });
+    tokio::time::timeout_at(
+        first_bump_attempt_deadline,
+        wait_for_queued_fence_bump(&root_pool, config.fence_id),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        panic!("connect should queue its fence bump behind the open transaction with {config:?}")
+    });
+    assert!(
+        !newer_connect_join_handle.is_finished(),
+        "connect should wait for the open transaction with {config:?}"
+    );
+    let starting_older = older.clone();
+    let older_start_join_handle = tokio::spawn(async move { starting_older.start(job_id).await });
+    let registering_older = older.clone();
+    let older_register_join_handle =
+        tokio::spawn(async move { registering_older.register(rg_id, &flat_submission()).await });
+    tokio::time::timeout_at(
+        first_bump_attempt_deadline,
+        wait_for_blocked_statements(&root_pool, "%`storage_fence`%LOCK IN SHARE MODE%", 2),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "the older connector's start and register should queue behind the fence bump with \
+             {config:?}"
         )
-        .await
-        .unwrap_or_else(|_| {
-            panic!(
-                "connect should queue its fence bump behind the open transaction with {config:?}"
-            )
-        });
-        assert!(
-            !newer_connect_join_handle.is_finished(),
-            "connect should wait for the open transaction with {config:?}"
-        );
-        let starting_older = older.clone();
-        let older_start_join_handle =
-            tokio::spawn(async move { starting_older.start(job_id).await });
-        let registering_older = older.clone();
-        let older_register_join_handle =
-            tokio::spawn(
-                async move { registering_older.register(rg_id, &flat_submission()).await },
-            );
-        tokio::time::timeout_at(
-            first_bump_attempt_deadline,
-            wait_for_blocked_statements(&root_pool, "%`storage_fence`%LOCK IN SHARE MODE%", 2),
-        )
-        .await
-        .unwrap_or_else(|_| {
-            panic!(
-                "the older connector's start and register should queue behind the fence bump with \
-                 {config:?}"
-            )
-        });
-        assert!(
-            !older_start_join_handle.is_finished(),
-            "the older connector's start should wait for the fence bump with {config:?}"
-        );
-        assert!(
-            !older_register_join_handle.is_finished(),
-            "the older connector's register should wait for the fence bump with {config:?}"
-        );
+    });
+    assert!(
+        !older_start_join_handle.is_finished(),
+        "the older connector's start should wait for the fence bump with {config:?}"
+    );
+    assert!(
+        !older_register_join_handle.is_finished(),
+        "the older connector's register should wait for the fence bump with {config:?}"
+    );
 
-        raw_tx.commit().await?;
-        let newer =
-            tokio::time::timeout(Duration::from_secs(5), newer_connect_join_handle).await??;
-        let start_result =
-            tokio::time::timeout(Duration::from_secs(5), older_start_join_handle).await??;
-        let register_result =
-            tokio::time::timeout(Duration::from_secs(5), older_register_join_handle).await??;
-        for (writer, result) in [
-            ("start", start_result),
-            ("register", register_result.map(|_| ())),
-        ] {
-            assert_fenced(
-                &result,
-                &older,
-                &newer,
-                &format!("{writer} that starts while the fence bump is queued with {config:?}"),
-            );
-        }
-        assert_eq!(
-            job_states(&root_pool).await,
-            vec![(job_id, JobState::Ready)],
-            "{config:?}"
+    raw_tx.commit().await?;
+    let newer = tokio::time::timeout(Duration::from_secs(5), newer_connect_join_handle).await??;
+    let start_result =
+        tokio::time::timeout(Duration::from_secs(5), older_start_join_handle).await??;
+    let register_result =
+        tokio::time::timeout(Duration::from_secs(5), older_register_join_handle).await??;
+    for (writer, result) in [
+        ("start", start_result),
+        ("register", register_result.map(|_| ())),
+    ] {
+        assert_fenced(
+            &result,
+            &older,
+            &newer,
+            &format!("{writer} that starts while the fence bump is queued with {config:?}"),
         );
-        drop(raw_connection);
-        raw_pool.close().await;
-        root_pool.close().await;
-        scratch.drop_database().await;
     }
+    assert_eq!(
+        job_states(&root_pool).await,
+        vec![(job_id, JobState::Ready)],
+        "{config:?}"
+    );
+    drop(raw_connection);
+    raw_pool.close().await;
+    root_pool.close().await;
+    scratch.drop_database().await;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn writes_that_passed_the_fence_hold_it_until_they_commit() -> anyhow::Result<()> {
-    for fence_in_write_statement in [false, true] {
-        let scratch = ScratchDatabase::create().await;
-        let config = DatabaseConfig {
-            fence_in_write_statement,
-            ..scratch.config()
-        };
-        let unprivileged_config = DatabaseConfig {
-            credentials: scratch.create_user_without_global_privileges().await,
-            ..config.clone()
-        };
-        let root_pool = create_root_pool(&config).await;
-        let first = connect(&config).await;
-        let rg_id = create_test_resource_group(&first).await;
-        let ready_job_id = first.register(rg_id, &flat_submission()).await?;
+    let scratch = ScratchDatabase::create().await;
+    let config = scratch.config();
+    let unprivileged_config = DatabaseConfig {
+        credentials: scratch.create_user_without_global_privileges().await,
+        ..config.clone()
+    };
+    let root_pool = create_root_pool(&config).await;
+    let first = connect(&config).await;
+    let rg_id = create_test_resource_group(&first).await;
+    let ready_job_id = first.register(rg_id, &flat_submission()).await?;
 
-        let register_statement_pattern = if fence_in_write_statement {
-            "INSERT INTO `jobs`%`storage_fence`%"
-        } else {
-            "INSERT INTO `jobs`%VALUES (?, ?, ?)"
-        };
-        let (registered_job_id, second) = commit_behind_a_queued_fence_bump(
-            &root_pool,
-            &unprivileged_config,
-            "resource_groups",
-            rg_id.get(),
-            register_statement_pattern,
-            async move { first.register(rg_id, &flat_submission()).await },
-        )
-        .await?;
-        commit_behind_a_queued_fence_bump(
-            &root_pool,
-            &unprivileged_config,
-            "jobs",
-            ready_job_id.get(),
-            "SELECT `state` FROM `jobs`%",
-            async move { second.start(ready_job_id).await },
-        )
-        .await?;
+    let (registered_job_id, second) = commit_behind_a_queued_fence_bump(
+        &root_pool,
+        &unprivileged_config,
+        "resource_groups",
+        rg_id.get(),
+        "INSERT INTO `jobs`%`storage_fence`%",
+        async move { first.register(rg_id, &flat_submission()).await },
+    )
+    .await?;
+    commit_behind_a_queued_fence_bump(
+        &root_pool,
+        &unprivileged_config,
+        "jobs",
+        ready_job_id.get(),
+        "SELECT `state` FROM `jobs`%",
+        async move { second.start(ready_job_id).await },
+    )
+    .await?;
 
-        assert_eq!(
-            job_states(&root_pool).await,
-            vec![
-                (ready_job_id, JobState::Running),
-                (registered_job_id, JobState::Ready),
-            ],
-            "{config:?}"
-        );
-        root_pool.close().await;
-        scratch.drop_database().await;
-    }
+    assert_eq!(
+        job_states(&root_pool).await,
+        vec![
+            (ready_job_id, JobState::Running),
+            (registered_job_id, JobState::Ready),
+        ],
+        "{config:?}"
+    );
+    root_pool.close().await;
+    scratch.drop_database().await;
     Ok(())
 }
 
@@ -457,78 +431,78 @@ async fn connect_retries_the_fence_bump_without_the_process_privilege() -> anyho
 #[ignore = "requires MariaDB"]
 async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Result<()> {
     let job_submission = flat_submission();
-    for fence_in_write_statement in [false, true] {
-        let scratch = ScratchDatabase::create().await;
-        let config = DatabaseConfig {
-            fence_in_write_statement,
-            ..scratch.config()
-        };
-        let raw_pool = create_raw_pool(&config).await;
-        let storage = connect(&config).await;
-        let rg_id = create_test_resource_group(&storage).await;
-        let running_job_id = storage.register(rg_id, &job_submission).await?;
-        let ready_job_id = storage.register(rg_id, &job_submission).await?;
-        storage.start(running_job_id).await?;
+    let scratch = ScratchDatabase::create().await;
+    let config = scratch.config();
+    let raw_pool = create_raw_pool(&config).await;
+    let storage = connect(&config).await;
+    let rg_id = create_test_resource_group(&storage).await;
+    let running_job_id = storage.register(rg_id, &job_submission).await?;
+    let ready_job_id = storage.register(rg_id, &job_submission).await?;
+    storage.start(running_job_id).await?;
 
-        let state_mismatch_result = storage.start(running_job_id).await;
+    let state_mismatch_result = storage.start(running_job_id).await;
+    assert!(
+        matches!(
+            state_mismatch_result,
+            Err(DbError::UnexpectedJobState {
+                current: JobState::Running,
+                ..
+            })
+        ),
+        "expected UnexpectedJobState with {config:?}, got {state_mismatch_result:?}"
+    );
+
+    sqlx::query("DELETE FROM `storage_fence` WHERE `id` = ?;")
+        .bind(config.fence_id)
+        .execute(&raw_pool)
+        .await?;
+    let results = [
+        (
+            "register",
+            storage.register(rg_id, &job_submission).await.map(|_| ()),
+        ),
+        ("start", storage.start(ready_job_id).await),
+    ];
+    for (writer, result) in results {
         assert!(
-            matches!(
-                state_mismatch_result,
-                Err(DbError::UnexpectedJobState {
-                    current: JobState::Running,
-                    ..
-                })
-            ),
-            "expected UnexpectedJobState with {config:?}, got {state_mismatch_result:?}"
+            matches!(result, Err(DbError::CorruptedDbState(_))),
+            "expected CorruptedDbState from {writer} with {config:?}, got {result:?}"
         );
-
-        sqlx::query("DELETE FROM `storage_fence` WHERE `id` = ?;")
-            .bind(config.fence_id)
-            .execute(&raw_pool)
-            .await?;
-        let results = [
-            (
-                "register",
-                storage.register(rg_id, &job_submission).await.map(|_| ()),
-            ),
-            ("start", storage.start(ready_job_id).await),
-        ];
-        for (writer, result) in results {
-            assert!(
-                matches!(result, Err(DbError::CorruptedDbState(_))),
-                "expected CorruptedDbState from {writer} with {config:?}, got {result:?}"
-            );
-        }
-        assert_eq!(
-            job_states(&raw_pool).await,
-            vec![
-                (running_job_id, JobState::Running),
-                (ready_job_id, JobState::Ready),
-            ],
-            "{config:?}"
-        );
-
-        let newer = connect(&config).await;
-        let fenced_result = storage.start(ready_job_id).await;
-        assert_fenced(&fenced_result, &storage, &newer, &format!("{config:?}"));
-        newer.start(ready_job_id).await?;
-
-        raw_pool.close().await;
-        scratch.drop_database().await;
     }
+    assert_eq!(
+        job_states(&raw_pool).await,
+        vec![
+            (running_job_id, JobState::Running),
+            (ready_job_id, JobState::Ready),
+        ],
+        "{config:?}"
+    );
+
+    let newer = connect(&config).await;
+    let fenced_result = storage.start(ready_job_id).await;
+    assert_fenced(&fenced_result, &storage, &newer, &format!("{config:?}"));
+    newer.start(ready_job_id).await?;
+
+    raw_pool.close().await;
+    scratch.drop_database().await;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn in_statement_register_maps_a_missing_resource_group() {
-    assert_register_maps_a_missing_resource_group(true).await;
-}
+async fn register_maps_a_missing_resource_group() {
+    let missing_rg_id = ResourceGroupId::from(u64::MAX);
+    let scratch = ScratchDatabase::create().await;
+    let config = scratch.config();
+    let storage = connect(&config).await;
 
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn register_after_a_fence_check_maps_a_missing_resource_group() {
-    assert_register_maps_a_missing_resource_group(false).await;
+    let result = storage.register(missing_rg_id, &flat_submission()).await;
+
+    assert!(
+        matches!(result, Err(DbError::ResourceGroupNotFound(id)) if id == missing_rg_id),
+        "expected ResourceGroupNotFound with {config:?}, got {result:?}"
+    );
+    scratch.drop_database().await;
 }
 
 /// # Returns
@@ -579,33 +553,6 @@ fn assert_fenced<ValueType: Debug>(
         ),
         "expected Fenced ({context}), got {result:?}"
     );
-}
-
-/// Asserts that a registration in a missing resource group fails with
-/// [`DbError::ResourceGroupNotFound`], with the fence check in the insert statement if
-/// `fence_in_write_statement` is set, or in a separate locking read otherwise.
-///
-/// # Panics
-///
-/// Panics if the registration does not fail with [`DbError::ResourceGroupNotFound`] of the missing
-/// resource group, or forwards [`ScratchDatabase::create`]'s, [`connect`]'s and
-/// [`ScratchDatabase::drop_database`]'s panics.
-async fn assert_register_maps_a_missing_resource_group(fence_in_write_statement: bool) {
-    let missing_rg_id = ResourceGroupId::from(u64::MAX);
-    let scratch = ScratchDatabase::create().await;
-    let config = DatabaseConfig {
-        fence_in_write_statement,
-        ..scratch.config()
-    };
-    let storage = connect(&config).await;
-
-    let result = storage.register(missing_rg_id, &flat_submission()).await;
-
-    assert!(
-        matches!(result, Err(DbError::ResourceGroupNotFound(id)) if id == missing_rg_id),
-        "expected ResourceGroupNotFound with {config:?}, got {result:?}"
-    );
-    scratch.drop_database().await;
 }
 
 /// # Returns
