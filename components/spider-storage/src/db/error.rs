@@ -59,9 +59,6 @@ pub enum DbError {
     #[error("Value deserialization failure: {0}")]
     ValueDeserializationFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("invalid database config: {0}")]
-    InvalidConfig(String),
-
     #[error(transparent)]
     Sql(#[from] sqlx::error::Error),
 }

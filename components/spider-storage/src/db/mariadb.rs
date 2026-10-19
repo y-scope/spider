@@ -59,7 +59,6 @@ impl MariaDbStorageConnector {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`Self::pool_options`]'s return values on failure.
     /// * Forwards [`sqlx::pool::PoolOptions::connect_with`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
     /// * Forwards [`bump_fence`]'s return values on failure.
@@ -80,10 +79,9 @@ impl MariaDbStorageConnector {
             .port(config.port)
             .database(&config.name)
             .username(&config.credentials.username)
-            .password(config.credentials.password.expose_secret())
-            .statement_cache_capacity(config.pool.statement_cache_capacity);
+            .password(config.credentials.password.expose_secret());
 
-        let pool = Self::pool_options(config)?
+        let pool = Self::pool_options(config)
             .after_connect(|connection, _| {
                 Box::pin(async move {
                     sqlx::query(SET_WAIT_TIMEOUT_QUERY)
@@ -134,33 +132,17 @@ impl MariaDbStorageConnector {
         })
     }
 
-    /// Builds the connection pool options from `config`.
-    ///
     /// # Returns
     ///
-    /// The pool options on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`DbError::InvalidConfig`] if `config.pool.min_connections` exceeds
-    ///   `config.max_connections`.
-    fn pool_options(config: &DatabaseConfig) -> Result<MySqlPoolOptions, DbError> {
-        if config.pool.min_connections > config.max_connections {
-            return Err(DbError::InvalidConfig(format!(
-                "`pool.min_connections` ({}) exceeds `max_connections` ({})",
-                config.pool.min_connections, config.max_connections
-            )));
-        }
+    /// The connection pool options built from `config`.
+    fn pool_options(config: &DatabaseConfig) -> MySqlPoolOptions {
         let pool_options = MySqlPoolOptions::new()
             .max_connections(config.max_connections)
-            .min_connections(config.pool.min_connections)
-            .test_before_acquire(config.pool.test_before_acquire);
-        if config.pool.test_before_acquire {
-            return Ok(pool_options);
+            .test_before_acquire(config.pool.check_connection_before_use);
+        if config.pool.check_connection_before_use {
+            return pool_options;
         }
-        Ok(pool_options.max_lifetime(Duration::from_secs(UNPINGED_CONNECTION_MAX_LIFETIME_SEC)))
+        pool_options.max_lifetime(Duration::from_secs(UNPINGED_CONNECTION_MAX_LIFETIME_SEC))
     }
 
     /// Checks, inside a transaction that writes, that no newer storage session has fenced this one
@@ -1547,8 +1529,6 @@ mod tests {
     use serial_test::serial;
     use spider_core::types::id::SessionId;
     use sqlx::Connection;
-    use sqlx::MySqlConnection;
-    use sqlx::Row;
     use sqlx::mysql::MySqlPoolOptions;
 
     use super::MariaDbStorageConnector;
@@ -1602,93 +1582,42 @@ mod tests {
         })
     }
 
-    /// # Returns
-    ///
-    /// The number of prepared statements that `connection`'s session has closed, on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * Forwards [`sqlx::RawSql::fetch_one`]'s return values on failure.
-    /// * Forwards [`sqlx::Row::try_get`]'s return values on failure.
-    /// * Forwards [`str::parse`]'s return values on failure.
-    async fn num_closed_statements(connection: &mut MySqlConnection) -> anyhow::Result<usize> {
-        let row = sqlx::raw_sql("SHOW SESSION STATUS LIKE 'Com_stmt_close';")
-            .fetch_one(connection)
-            .await?;
-        Ok(row.try_get::<String, _>("Value")?.parse()?)
-    }
-
     #[test]
-    fn pool_options_apply_the_pool_config() -> anyhow::Result<()> {
+    fn pool_options_apply_the_pool_config() {
         let config = DatabaseConfig {
             max_connections: 8,
             pool: DatabasePoolConfig {
-                test_before_acquire: true,
-                min_connections: 3,
-                ..DatabasePoolConfig::default()
+                check_connection_before_use: true,
             },
             ..base_config()
         };
 
-        let options = MariaDbStorageConnector::pool_options(&config)?;
+        let options = MariaDbStorageConnector::pool_options(&config);
 
         assert_eq!(options.get_max_connections(), config.max_connections);
-        assert_eq!(options.get_min_connections(), config.pool.min_connections);
         assert!(options.get_test_before_acquire());
         assert_eq!(
             options.get_max_lifetime(),
             MySqlPoolOptions::new().get_max_lifetime()
         );
-        Ok(())
     }
 
     #[test]
-    fn pool_options_cap_the_lifetime_without_the_acquire_ping() -> anyhow::Result<()> {
+    fn pool_options_cap_the_lifetime_without_the_connection_check() {
         let config = DatabaseConfig {
             pool: DatabasePoolConfig {
-                test_before_acquire: false,
-                ..DatabasePoolConfig::default()
+                check_connection_before_use: false,
             },
             ..base_config()
         };
 
-        let options = MariaDbStorageConnector::pool_options(&config)?;
+        let options = MariaDbStorageConnector::pool_options(&config);
 
         assert!(!options.get_test_before_acquire());
         assert_eq!(
             options.get_max_lifetime(),
             Some(Duration::from_secs(UNPINGED_CONNECTION_MAX_LIFETIME_SEC))
         );
-        Ok(())
-    }
-
-    #[test]
-    fn pool_options_reject_min_connections_above_max_connections() -> anyhow::Result<()> {
-        let config_at_max = DatabaseConfig {
-            max_connections: 4,
-            pool: DatabasePoolConfig {
-                min_connections: 4,
-                ..DatabasePoolConfig::default()
-            },
-            ..base_config()
-        };
-        let config_above_max = DatabaseConfig {
-            pool: DatabasePoolConfig {
-                min_connections: 5,
-                ..config_at_max.pool
-            },
-            ..config_at_max.clone()
-        };
-
-        MariaDbStorageConnector::pool_options(&config_at_max)?;
-        let result = MariaDbStorageConnector::pool_options(&config_above_max);
-        assert!(
-            matches!(result, Err(DbError::InvalidConfig(_))),
-            "expected an invalid config error, got {result:?}"
-        );
-        Ok(())
     }
 
     #[tokio::test]
@@ -1712,45 +1641,6 @@ mod tests {
                 .fetch_one(&mut **connection)
                 .await?;
             assert_eq!(wait_timeout, SESSION_WAIT_TIMEOUT_SEC);
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore = "requires MariaDB"]
-    #[serial]
-    async fn pooled_connections_use_the_statement_cache_capacity() -> anyhow::Result<()> {
-        const DISTINCT_QUERIES: [&str; 2] = ["SELECT 1;", "SELECT 2;"];
-
-        let base_config = DatabaseConfig {
-            max_connections: 1,
-            ..mariadb_config()?
-        };
-        for (statement_cache_capacity, expected_num_closed_statements) in [
-            (1, DISTINCT_QUERIES.len()),
-            (DatabasePoolConfig::default().statement_cache_capacity, 0),
-        ] {
-            let config = DatabaseConfig {
-                pool: DatabasePoolConfig {
-                    statement_cache_capacity,
-                    ..DatabasePoolConfig::default()
-                },
-                ..base_config.clone()
-            };
-            let connector = MariaDbStorageConnector::connect(&config).await?;
-            let mut connection = connector.pool.acquire().await?;
-
-            let num_closed_statements_before = num_closed_statements(&mut connection).await?;
-            for query in DISTINCT_QUERIES {
-                sqlx::query(query).execute(&mut *connection).await?;
-            }
-            let num_closed_statements_after = num_closed_statements(&mut connection).await?;
-
-            assert_eq!(
-                num_closed_statements_after - num_closed_statements_before,
-                expected_num_closed_statements,
-                "{config:?}"
-            );
         }
         Ok(())
     }

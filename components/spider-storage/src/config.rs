@@ -13,9 +13,6 @@ pub const DB_USERNAME_ENV: &str = "SPIDER_STORAGE_DB_USERNAME";
 /// Environment variable that supplies the database password.
 pub const DB_PASSWORD_ENV: &str = "SPIDER_STORAGE_DB_PASSWORD";
 
-/// The default capacity of each connection's prepared statement cache, equal to sqlx's default.
-pub const DEFAULT_STATEMENT_CACHE_CAPACITY: usize = 100;
-
 /// Top-level configuration for the storage gRPC server.
 ///
 /// Pairs the server's listening endpoint with the [`RuntimeConfig`] used to build the storage
@@ -71,27 +68,11 @@ pub struct DatabaseConfig {
 }
 
 /// Configuration of the database connection pool.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DatabasePoolConfig {
-    /// Whether a connection is pinged before it is handed out by the pool.
-    pub test_before_acquire: bool,
-
-    /// The capacity of each connection's prepared statement cache.
-    pub statement_cache_capacity: usize,
-
-    /// The number of connections the pool maintains even when they are idle.
-    pub min_connections: u32,
-}
-
-impl Default for DatabasePoolConfig {
-    fn default() -> Self {
-        Self {
-            test_before_acquire: false,
-            statement_cache_capacity: DEFAULT_STATEMENT_CACHE_CAPACITY,
-            min_connections: 0,
-        }
-    }
+    /// Whether the pool pings a connection before handing it out.
+    pub check_connection_before_use: bool,
 }
 
 /// Credentials for authenticating with the database.
@@ -244,9 +225,7 @@ mod tests {
         assert_eq!(
             config.pool,
             DatabasePoolConfig {
-                test_before_acquire: false,
-                statement_cache_capacity: 100,
-                min_connections: 0,
+                check_connection_before_use: false,
             }
         );
         Ok(())
@@ -255,19 +234,13 @@ mod tests {
     #[test]
     fn deserialize_parses_every_lever_key() -> anyhow::Result<()> {
         let config = deserialize_with(serde_json::json!({
-            "pool": {
-                "test_before_acquire": true,
-                "statement_cache_capacity": 7,
-                "min_connections": 3,
-            },
+            "pool": {"check_connection_before_use": true},
         }))?;
 
         assert_eq!(
             config.pool,
             DatabasePoolConfig {
-                test_before_acquire: true,
-                statement_cache_capacity: 7,
-                min_connections: 3,
+                check_connection_before_use: true,
             }
         );
         Ok(())
@@ -275,14 +248,12 @@ mod tests {
 
     #[test]
     fn deserialize_fills_missing_pool_keys_with_defaults() -> anyhow::Result<()> {
-        let config = deserialize_with(serde_json::json!({"pool": {"min_connections": 4}}))?;
+        let config = deserialize_with(serde_json::json!({"pool": {}}))?;
 
         assert_eq!(
             config.pool,
             DatabasePoolConfig {
-                test_before_acquire: false,
-                statement_cache_capacity: 100,
-                min_connections: 4,
+                check_connection_before_use: false,
             }
         );
         Ok(())
@@ -290,15 +261,24 @@ mod tests {
 
     #[test]
     fn deserialize_rejects_unknown_pool_keys() {
-        let misspelled_pool_key =
-            deserialize_with(serde_json::json!({"pool": {"test_before_acquir": false}}));
+        for unknown_pool_key in [
+            "check_connection_before_us",
+            "test_before_acquire",
+            "statement_cache_capacity",
+            "min_connections",
+        ] {
+            let result = deserialize_with(
+                serde_json::json!({"pool": {unknown_pool_key: serde_json::Value::Null}}),
+            );
 
-        assert!(
-            misspelled_pool_key
+            let error_message = result
                 .expect_err("an unknown pool key should be rejected")
-                .to_string()
-                .contains("unknown field `test_before_acquir`")
-        );
+                .to_string();
+            assert!(
+                error_message.contains(&format!("unknown field `{unknown_pool_key}`")),
+                "unexpected error for `{unknown_pool_key}`: {error_message}"
+            );
+        }
     }
 
     #[test]

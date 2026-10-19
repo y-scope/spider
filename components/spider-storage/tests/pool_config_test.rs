@@ -16,43 +16,9 @@ use sqlx::mysql::MySqlConnectOptions;
 use super::mariadb_infra::ScratchDatabase;
 use super::mariadb_infra::create_test_resource_group;
 
-const CONNECTION_IDS_QUERY: &str =
-    "SELECT `ID` FROM `information_schema`.`PROCESSLIST` WHERE `DB` = ?;";
-
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn connect_opens_min_connections() -> anyhow::Result<()> {
-    const MAX_CONNECTIONS: u32 = 32;
-    const MIN_CONNECTIONS: u32 = 24;
-
-    let scratch = ScratchDatabase::create().await;
-    let base_config = scratch.config();
-    let config = DatabaseConfig {
-        max_connections: MAX_CONNECTIONS,
-        pool: DatabasePoolConfig {
-            min_connections: MIN_CONNECTIONS,
-            ..base_config.pool
-        },
-        ..base_config
-    };
-    let mut observer = connect_outside_database(&config).await;
-
-    let connector = MariaDbStorageConnector::connect(&config).await?;
-    let min_connections = usize::try_from(MIN_CONNECTIONS)?;
-    wait_for_connection_ids(&mut observer, CONNECTION_IDS_QUERY, &config.name, |ids| {
-        ids.len() >= min_connections
-    })
-    .await;
-
-    drop(connector);
-    observer.close().await?;
-    scratch.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_before_acquire_replaces_a_killed_idle_connection() -> anyhow::Result<()> {
+async fn check_connection_before_use_replaces_a_killed_idle_connection() -> anyhow::Result<()> {
     let result = add_resource_group_after_killing_the_idle_connection(true).await;
 
     assert!(
@@ -64,7 +30,7 @@ async fn test_before_acquire_replaces_a_killed_idle_connection() -> anyhow::Resu
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn no_test_before_acquire_hands_out_a_killed_idle_connection() -> anyhow::Result<()> {
+async fn no_check_connection_before_use_hands_out_a_killed_idle_connection() -> anyhow::Result<()> {
     let result = add_resource_group_after_killing_the_idle_connection(false).await;
 
     assert!(
@@ -91,8 +57,10 @@ async fn no_test_before_acquire_hands_out_a_killed_idle_connection() -> anyhow::
 ///   [`create_test_resource_group`]'s, [`connect_outside_database`]'s and
 ///   [`wait_for_connection_ids`]'s panics.
 async fn add_resource_group_after_killing_the_idle_connection(
-    test_before_acquire: bool,
+    check_connection_before_use: bool,
 ) -> Result<ResourceGroupId, DbError> {
+    const CONNECTION_IDS_QUERY: &str =
+        "SELECT `ID` FROM `information_schema`.`PROCESSLIST` WHERE `DB` = ?;";
     const IDLE_CONNECTION_IDS_QUERY: &str = "SELECT `ID` FROM `information_schema`.`PROCESSLIST` \
                                              WHERE `DB` = ? AND `COMMAND` = 'Sleep';";
 
@@ -101,9 +69,7 @@ async fn add_resource_group_after_killing_the_idle_connection(
     let config = DatabaseConfig {
         max_connections: 1,
         pool: DatabasePoolConfig {
-            test_before_acquire,
-            min_connections: 0,
-            ..base_config.pool
+            check_connection_before_use,
         },
         ..base_config
     };

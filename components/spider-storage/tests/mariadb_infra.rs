@@ -260,25 +260,17 @@ pub fn create_mariadb_config() -> DatabaseConfig {
 /// Overrides the database flags of `config` with the values of the following environment
 /// variables, for each one that is set:
 ///
-/// * `SPIDER_TEST_DB_TEST_BEFORE_ACQUIRE` (`true` or `false`): `pool.test_before_acquire`.
-/// * `SPIDER_TEST_DB_STATEMENT_CACHE_CAPACITY` (an unsigned integer):
-///   `pool.statement_cache_capacity`.
-/// * `SPIDER_TEST_DB_MIN_CONNECTIONS` (an unsigned integer): `pool.min_connections`.
+/// * `SPIDER_TEST_DB_CHECK_CONNECTION_BEFORE_USE` (`true` or `false`):
+///   `pool.check_connection_before_use`.
 ///
 /// # Panics
 ///
 /// Forwards [`read_test_db_override`]'s panics.
 pub fn apply_test_db_overrides(config: &mut DatabaseConfig) {
-    if let Some(value) = read_test_db_override("SPIDER_TEST_DB_TEST_BEFORE_ACQUIRE", str::parse) {
-        config.pool.test_before_acquire = value;
-    }
     if let Some(value) =
-        read_test_db_override("SPIDER_TEST_DB_STATEMENT_CACHE_CAPACITY", str::parse)
+        read_test_db_override("SPIDER_TEST_DB_CHECK_CONNECTION_BEFORE_USE", str::parse)
     {
-        config.pool.statement_cache_capacity = value;
-    }
-    if let Some(value) = read_test_db_override("SPIDER_TEST_DB_MIN_CONNECTIONS", str::parse) {
-        config.pool.min_connections = value;
+        config.pool.check_connection_before_use = value;
     }
 }
 
