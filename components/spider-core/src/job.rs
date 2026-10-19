@@ -13,6 +13,7 @@ pub enum JobState {
     Succeeded,
     Failed,
     Cancelled,
+    BlockingOnChildren,
 }
 
 impl JobState {
@@ -35,13 +36,23 @@ impl JobState {
         match to {
             Self::Ready => false,
             Self::Running => matches!(from, Self::Ready),
-            Self::CommitReady => matches!(from, Self::Running),
-            Self::CleanupReady => matches!(from, Self::Running | Self::CommitReady),
-            Self::Succeeded => matches!(from, Self::Running | Self::CommitReady),
-            Self::Failed => matches!(from, Self::Running | Self::CommitReady | Self::CleanupReady),
+            Self::BlockingOnChildren => matches!(from, Self::Running),
+            Self::CommitReady => matches!(from, Self::Running | Self::BlockingOnChildren),
+            Self::CleanupReady | Self::Succeeded => matches!(
+                from,
+                Self::Running | Self::CommitReady | Self::BlockingOnChildren
+            ),
+            Self::Failed => matches!(
+                from,
+                Self::Running | Self::CommitReady | Self::CleanupReady | Self::BlockingOnChildren
+            ),
             Self::Cancelled => matches!(
                 from,
-                Self::Ready | Self::Running | Self::CommitReady | Self::CleanupReady
+                Self::Ready
+                    | Self::Running
+                    | Self::CommitReady
+                    | Self::CleanupReady
+                    | Self::BlockingOnChildren
             ),
         }
     }
