@@ -5,7 +5,6 @@ on:
     paths: &monitored_paths
       - ".github/workflows/docs.yaml"
       - "docs/**"
-      - "examples/wolf/quick-start/**"
       - "taskfile.yaml"
       - "taskfiles/docs.yaml"
       - "tools/yscope-dev-utils"
@@ -32,7 +31,7 @@ jobs:
     strategy:
       matrix:
         os: ["macos-latest", "ubuntu-24.04"]
-        task: ["huntsman", "wolf"]
+        task: ["huntsman"]
     runs-on: "${{matrix.os}}"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
