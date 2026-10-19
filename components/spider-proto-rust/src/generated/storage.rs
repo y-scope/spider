@@ -243,6 +243,7 @@ pub enum JobState {
     Succeeded = 5,
     Failed = 6,
     Cancelled = 7,
+    BlockingOnChildren = 8,
 }
 impl JobState {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -259,6 +260,7 @@ impl JobState {
             Self::Succeeded => "SUCCEEDED",
             Self::Failed => "FAILED",
             Self::Cancelled => "CANCELLED",
+            Self::BlockingOnChildren => "BLOCKING_ON_CHILDREN",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -272,6 +274,7 @@ impl JobState {
             "SUCCEEDED" => Some(Self::Succeeded),
             "FAILED" => Some(Self::Failed),
             "CANCELLED" => Some(Self::Cancelled),
+            "BLOCKING_ON_CHILDREN" => Some(Self::BlockingOnChildren),
             _ => None,
         }
     }
