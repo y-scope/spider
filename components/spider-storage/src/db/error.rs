@@ -38,8 +38,11 @@ pub enum DbError {
         expected: ExpectedStates,
     },
 
-    #[error("storage session {mine} is fenced off by the newer session {current}")]
-    Fenced { mine: SessionId, current: SessionId },
+    #[error("storage session {current} is fenced off by the newer session {newer}")]
+    Fenced {
+        current: SessionId,
+        newer: SessionId,
+    },
 
     #[error("database corrupted: {0}")]
     CorruptedDbState(String),

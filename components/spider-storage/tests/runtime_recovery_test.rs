@@ -316,8 +316,8 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
         matches!(
             start_result,
             Err(StorageServerError::Cache(CacheError::Internal(InternalError::Db(
-                DbError::Fenced { mine, current }
-            )))) if mine == superseded_service.session_id() && current == service.session_id()
+                DbError::Fenced { current, newer }
+            )))) if current == superseded_service.session_id() && newer == service.session_id()
         ),
         "expected a fenced start, got {start_result:?}"
     );
@@ -325,8 +325,8 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
     assert!(
         matches!(
             register_error.downcast_ref::<StorageServerError>(),
-            Some(StorageServerError::Db(DbError::Fenced { mine, current }))
-                if *mine == superseded_service.session_id() && *current == service.session_id()
+            Some(StorageServerError::Db(DbError::Fenced { current, newer }))
+                if *current == superseded_service.session_id() && *newer == service.session_id()
         ),
         "expected a fenced registration, got {register_error:?}"
     );

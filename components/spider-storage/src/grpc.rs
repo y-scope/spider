@@ -1040,8 +1040,8 @@ mod tests {
             let status = handler(
                 &grpc_service,
                 StorageServerError::Db(DbError::Fenced {
-                    mine: 1,
-                    current: 2,
+                    current: 1,
+                    newer: 2,
                 }),
                 "test",
             );

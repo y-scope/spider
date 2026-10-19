@@ -322,8 +322,8 @@ async fn connect_never_lowers_the_fence() -> anyhow::Result<()> {
     assert!(
         matches!(
             result,
-            Err(DbError::Fenced { mine, current })
-                if mine == newer.session_id() && current == newest_session_id
+            Err(DbError::Fenced { current, newer: newer_session_id })
+                if current == newer.session_id() && newer_session_id == newest_session_id
         ),
         "expected Fenced, got {result:?}"
     );
@@ -556,7 +556,7 @@ fn flat_submission() -> ValidatedJobSubmission {
     create_validated_submission(graph, task_graph_input)
 }
 
-/// Asserts that `result` is the error of `fenced`'s write after `current` fenced it off.
+/// Asserts that `result` is the error of `fenced`'s write after `newer` fenced it off.
 ///
 /// # Type Parameters
 ///
@@ -564,18 +564,18 @@ fn flat_submission() -> ValidatedJobSubmission {
 ///
 /// # Panics
 ///
-/// Panics if `result` is not [`DbError::Fenced`] with `fenced`'s and `current`'s session IDs.
+/// Panics if `result` is not [`DbError::Fenced`] with `fenced`'s and `newer`'s session IDs.
 fn assert_fenced<ValueType: Debug>(
     result: &Result<ValueType, DbError>,
     fenced: &MariaDbStorageConnector,
-    current: &MariaDbStorageConnector,
+    newer: &MariaDbStorageConnector,
     context: &str,
 ) {
     assert!(
         matches!(
             result,
-            Err(DbError::Fenced { mine, current: current_session_id })
-                if *mine == fenced.session_id() && *current_session_id == current.session_id()
+            Err(DbError::Fenced { current, newer: newer_session_id })
+                if *current == fenced.session_id() && *newer_session_id == newer.session_id()
         ),
         "expected Fenced ({context}), got {result:?}"
     );

@@ -180,11 +180,11 @@ impl MariaDbStorageConnector {
             table = STORAGE_FENCE_TABLE_NAME,
         );
 
-        let current = sqlx::query_scalar::<_, SessionId>(QUERY)
+        let fence_session_id = sqlx::query_scalar::<_, SessionId>(QUERY)
             .bind(self.fence_id)
             .fetch_optional(connection)
             .await?;
-        self.ensure_fence_holds(current)
+        self.ensure_fence_holds(fence_session_id)
     }
 
     /// Reads the fence row without locking it, to tell why a write with the fence in its statement
@@ -202,30 +202,30 @@ impl MariaDbStorageConnector {
             table = STORAGE_FENCE_TABLE_NAME,
         );
 
-        let current = sqlx::query_scalar::<_, SessionId>(QUERY)
+        let fence_session_id = sqlx::query_scalar::<_, SessionId>(QUERY)
             .bind(self.fence_id)
             .fetch_optional(connection)
             .await?;
-        self.ensure_fence_holds(current)
+        self.ensure_fence_holds(fence_session_id)
     }
 
-    /// Checks that `current`, the session ID read from the fence row, is this connector's.
+    /// Checks that `fence_session_id`, the session ID read from the fence row, is this connector's.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * [`DbError::Fenced`] if `current` is a session ID other than this connector's.
-    /// * [`DbError::CorruptedDbState`] if `current` is `None`, that is, the fence row does not
-    ///   exist.
-    fn ensure_fence_holds(&self, current: Option<SessionId>) -> Result<(), DbError> {
-        let current = current.ok_or_else(|| {
+    /// * [`DbError::Fenced`] if `fence_session_id` is a session ID other than this connector's.
+    /// * [`DbError::CorruptedDbState`] if `fence_session_id` is `None`, that is, the fence row does
+    ///   not exist.
+    fn ensure_fence_holds(&self, fence_session_id: Option<SessionId>) -> Result<(), DbError> {
+        let fence_session_id = fence_session_id.ok_or_else(|| {
             DbError::CorruptedDbState(format!("storage fence `{}` does not exist", self.fence_id))
         })?;
-        if current != self.session_id {
+        if fence_session_id != self.session_id {
             return Err(DbError::Fenced {
-                mine: self.session_id,
-                current,
+                current: self.session_id,
+                newer: fence_session_id,
             });
         }
         Ok(())
@@ -1868,8 +1868,17 @@ mod tests {
             connection.close().await?;
 
             match (result, is_snapshot_isolation_on) {
-                (Err(DbError::Fenced { mine, current }), false) => {
-                    assert_eq!((mine, current), (older.session_id, newer.session_id));
+                (
+                    Err(DbError::Fenced {
+                        current,
+                        newer: newer_session_id,
+                    }),
+                    false,
+                ) => {
+                    assert_eq!(
+                        (current, newer_session_id),
+                        (older.session_id, newer.session_id)
+                    );
                 }
                 (Err(DbError::Sql(e)), true) => {
                     assert!(has_mysql_error_number(&e, &[MYSQL_ER_CHECKREAD]), "{e}");
