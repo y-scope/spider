@@ -80,7 +80,6 @@ impl MariaDbStorageConnector {
             .database(&config.name)
             .username(&config.credentials.username)
             .password(config.credentials.password.expose_secret());
-        let fence_id = config.fence_id.unwrap_or(PRODUCTION_FENCE_ID);
 
         let pool = Self::pool_options(config)
             .after_connect(|connection, _| {
@@ -113,6 +112,8 @@ impl MariaDbStorageConnector {
         sqlx::query(storage_fence_creation_query())
             .execute(&pool)
             .await?;
+
+        let fence_id = config.fence_id.unwrap_or(DEFAULT_FENCE_ID);
         sqlx::query(INSERT_FENCE_QUERY)
             .bind(fence_id)
             .execute(&pool)
@@ -884,7 +885,7 @@ const STORAGE_FENCE_TABLE_NAME: &str = "storage_fence";
 
 /// The ID of the `storage_fence` row that a storage service fences its writes with unless
 /// [`DatabaseConfig::fence_id`] overrides it.
-const PRODUCTION_FENCE_ID: u64 = 0;
+const DEFAULT_FENCE_ID: u64 = 0;
 
 /// The number of seconds that a database session may idle before the server closes it, which must
 /// stay above twice [`UNPINGED_CONNECTION_MAX_LIFETIME_SEC`].
@@ -896,7 +897,6 @@ const SESSION_WAIT_TIMEOUT_SEC: u64 = 900;
 /// sqlx checks the lifetime of an idle connection only in its maintenance pass, which runs once per
 /// this lifetime, so a pooled connection can idle on the server for up to twice this lifetime.
 const UNPINGED_CONNECTION_MAX_LIFETIME_SEC: u64 = 300;
-
 const _: () = assert!(2 * UNPINGED_CONNECTION_MAX_LIFETIME_SEC < SESSION_WAIT_TIMEOUT_SEC);
 
 const UPDATE_JOB_STATE: &str = formatcp!(
@@ -1210,13 +1210,6 @@ fn map_job_insert_error(error: sqlx::Error, resource_group_id: ResourceGroupId) 
     error.into()
 }
 
-/// Closes a connection detached from the pool, logging a failure instead of returning it.
-async fn close_detached_connection(connection: MySqlConnection) {
-    if let Err(e) = connection.close().await {
-        tracing::warn!(error = % e, "Failed to close a detached database connection.");
-    }
-}
-
 /// Raises the fence row `fence_id` to `session_id` unless it already holds a newer session, so that
 /// every storage session that connected earlier with the same fence ID fails its next write with
 /// [`DbError::Fenced`].
@@ -1230,7 +1223,9 @@ async fn close_detached_connection(connection: MySqlConnection) {
 async fn bump_fence(pool: &MySqlPool, fence_id: u64, session_id: SessionId) -> Result<(), DbError> {
     let mut connection = pool.acquire().await?.detach();
     let result = bump_fence_on_connection(pool, &mut connection, fence_id, session_id).await;
-    close_detached_connection(connection).await;
+    if let Err(e) = connection.close().await {
+        tracing::warn!(error = % e, "Failed to close a detached database connection.");
+    }
     result
 }
 
@@ -1251,24 +1246,23 @@ async fn bump_fence_on_connection(
     session_id: SessionId,
 ) -> Result<(), DbError> {
     const MAX_ATTEMPTS: usize = 5;
-    const BLOCKER_LOOKUP_INTERVAL: Duration = Duration::from_secs(1);
-    const SET_LOCK_WAIT_TIMEOUT_QUERY: &str = "SET SESSION innodb_lock_wait_timeout = 5;";
-    const SELECT_CONNECTION_ID_QUERY: &str = "SELECT CONNECTION_ID();";
-    const BUMP_QUERY: &str = formatcp!(
-        "UPDATE `{STORAGE_FENCE_TABLE_NAME}` SET `session_id` = GREATEST(`session_id`, ?) WHERE \
-         `id` = ?;"
-    );
 
-    sqlx::query(SET_LOCK_WAIT_TIMEOUT_QUERY)
+    sqlx::query("SET SESSION innodb_lock_wait_timeout = 5;")
         .execute(&mut *connection)
         .await?;
-    let connection_id: u64 = sqlx::query_scalar(SELECT_CONNECTION_ID_QUERY)
+    let connection_id: u64 = sqlx::query_scalar("SELECT CONNECTION_ID();")
         .fetch_one(&mut *connection)
         .await?;
 
     let mut is_blocker_lookup_enabled = true;
     let mut attempt = 1;
     loop {
+        const BLOCKER_LOOKUP_INTERVAL: Duration = Duration::from_secs(1);
+        const BUMP_QUERY: &str = formatcp!(
+            "UPDATE `{STORAGE_FENCE_TABLE_NAME}` SET `session_id` = GREATEST(`session_id`, ?) \
+             WHERE `id` = ?;"
+        );
+
         let update = sqlx::query(BUMP_QUERY)
             .bind(session_id)
             .bind(fence_id)
@@ -1278,41 +1272,38 @@ async fn bump_fence_on_connection(
             tokio::time::Instant::now() + BLOCKER_LOOKUP_INTERVAL,
             BLOCKER_LOOKUP_INTERVAL,
         );
-        let update_result = loop {
+        loop {
             tokio::select! {
-                update_result = &mut update => break update_result,
+                update_result = &mut update => match update_result {
+                    Ok(_) => return Ok(()),
+                    Err(e) if is_lock_wait_timeout(&e) && attempt < MAX_ATTEMPTS => {
+                        tracing::warn!(
+                            attempt,
+                            "Timed out waiting for the storage fence. Retrying."
+                        );
+                        attempt += 1;
+                        break;
+                    }
+                    Err(e) => return Err(e.into()),
+                },
                 _ = blocker_lookup_ticker.tick(), if is_blocker_lookup_enabled => {
-                    match kill_fence_blockers(pool, connection_id).await {
-                        Ok(()) => {}
-                        Err(e) if is_access_denied(&e) => {
-                            tracing::warn!(
-                                error = % e,
-                                "Cannot look up the connections that block the storage fence. \
-                                 Relying on the lock wait timeout."
-                            );
-                            is_blocker_lookup_enabled = false;
-                        }
-                        Err(e) => {
+                    if let Err(e) = kill_fence_blockers(pool, connection_id).await {
+                        if !is_access_denied(&e) {
                             tracing::warn!(
                                 error = % e,
                                 "Failed to kill the connections that block the storage fence."
                             );
+                            continue;
                         }
+                        tracing::warn!(
+                            error = % e,
+                            "Cannot look up the connections that block the storage fence. \
+                             Fall back to rely on the lock wait timeout."
+                        );
+                        is_blocker_lookup_enabled = false;
                     }
                 }
             }
-        };
-
-        match update_result {
-            Ok(_) => return Ok(()),
-            Err(e) if is_lock_wait_timeout(&e) && attempt < MAX_ATTEMPTS => {
-                tracing::warn!(
-                    attempt,
-                    "Timed out waiting for the storage fence. Retrying."
-                );
-                attempt += 1;
-            }
-            Err(e) => return Err(e.into()),
         }
     }
 }
