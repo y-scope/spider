@@ -7,6 +7,9 @@
 use spider_core::types::id::JobId;
 use spider_core::types::id::TaskInstanceId;
 
+use crate::cache::tree::TreeEvent;
+use crate::cache::tree::TreeEventKind;
+
 #[cfg(feature = "test-hooks")]
 mod armed;
 #[cfg(not(feature = "test-hooks"))]
@@ -76,6 +79,23 @@ pub enum EventKindTag {
     CancelRoot,
 }
 
+impl EventKindTag {
+    /// # Returns
+    ///
+    /// The tag of `kind`.
+    #[must_use]
+    pub const fn of(kind: &TreeEventKind) -> Self {
+        match kind {
+            TreeEventKind::Start => Self::Start,
+            TreeEventKind::RegularTasksDone => Self::RegularTasksDone,
+            TreeEventKind::CommitDone => Self::CommitDone,
+            TreeEventKind::CleanupDone => Self::CleanupDone,
+            TreeEventKind::TerminalFailure { .. } => Self::TerminalFailure,
+            TreeEventKind::CancelRoot => Self::CancelRoot,
+        }
+    }
+}
+
 /// What a hit of a hook point is about. A filter matches the fields that it sets.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HookContext {
@@ -110,5 +130,23 @@ impl HookContext {
             event_kinds: vec![kind],
             task_instance_id: None,
         }
+    }
+
+    /// # Returns
+    ///
+    /// The context of a committer round of the tree rooted at `root_id` over `events`.
+    pub fn round<'event_lifetime>(
+        root_id: JobId,
+        events: impl IntoIterator<Item = &'event_lifetime TreeEvent>,
+    ) -> Self {
+        let mut context = Self {
+            root_id: Some(root_id),
+            ..Self::default()
+        };
+        for event in events {
+            context.job_ids.push(event.job_id);
+            context.event_kinds.push(EventKindTag::of(&event.kind));
+        }
+        context
     }
 }

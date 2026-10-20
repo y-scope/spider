@@ -13,6 +13,9 @@ pub enum CacheError {
 
     #[error(transparent)]
     StaleState(#[from] StaleStateError),
+
+    #[error("storage service is shutting down")]
+    ServiceStopping,
 }
 
 impl From<DbError> for CacheError {
@@ -75,6 +78,9 @@ pub enum InternalError {
 
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
+
+    #[error("job tree poisoned: its committer exited abnormally")]
+    TreePoisoned,
 
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),
