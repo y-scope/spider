@@ -147,8 +147,7 @@ impl MariaDbStorageConnector {
         pool_options.max_lifetime(Duration::from_secs(UNPINGED_CONNECTION_MAX_LIFETIME_SEC))
     }
 
-    /// Checks, inside a transaction that writes, that no newer storage session has fenced this one
-    /// off.
+    /// Checks that no newer storage session has fenced the current session off.
     ///
     /// # Errors
     ///
@@ -169,8 +168,8 @@ impl MariaDbStorageConnector {
         self.ensure_fence_holds(fence_session_id)
     }
 
-    /// Reads the fence row without locking it, to tell why a write with the fence in its statement
-    /// wrote no row.
+    /// Reads the fence row without locking it to tell why a previous write with the fence in its
+    /// statement wrote no row.
     ///
     /// # Errors
     ///
@@ -191,7 +190,7 @@ impl MariaDbStorageConnector {
         self.ensure_fence_holds(fence_session_id)
     }
 
-    /// Checks that `fence_session_id`, the session ID read from the fence row, is this connector's.
+    /// Checks that the current connector's session ID is what the current fence holds.
     ///
     /// # Errors
     ///
@@ -260,7 +259,7 @@ impl MariaDbStorageConnector {
     /// * [`DbError::ResourceGroupNotFound`] if `resource_group_id` does not exist.
     /// * Forwards [`Self::probe_fence`]'s return values on failure.
     /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
-    async fn insert_fenced_job(
+    async fn insert_job_with_fence(
         &self,
         connection: &mut MySqlConnection,
         resource_group_id: ResourceGroupId,
@@ -294,7 +293,7 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         let mut connection = self.pool.acquire().await?;
-        self.insert_fenced_job(&mut connection, resource_group_id, job_submission)
+        self.insert_job_with_fence(&mut connection, resource_group_id, job_submission)
             .await
     }
 
