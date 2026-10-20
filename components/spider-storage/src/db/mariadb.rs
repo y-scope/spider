@@ -1226,10 +1226,30 @@ async fn close_detached_connection(connection: MySqlConnection) {
 /// Returns an error if:
 ///
 /// * Forwards [`sqlx::Pool::acquire`]'s return values on failure.
+/// * Forwards [`bump_fence_on_connection`]'s return values on failure.
+async fn bump_fence(pool: &MySqlPool, fence_id: u64, session_id: SessionId) -> Result<(), DbError> {
+    let mut connection = pool.acquire().await?.detach();
+    let result = bump_fence_on_connection(pool, &mut connection, fence_id, session_id).await;
+    close_detached_connection(connection).await;
+    result
+}
+
+/// Raises the fence row `fence_id` to `session_id` on `connection`, killing through `pool` the
+/// connections that block the update and retrying the update when it times out waiting for a lock.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
 /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure, including a lock wait
 ///   timeout on the last attempt.
 /// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
-async fn bump_fence(pool: &MySqlPool, fence_id: u64, session_id: SessionId) -> Result<(), DbError> {
+async fn bump_fence_on_connection(
+    pool: &MySqlPool,
+    connection: &mut MySqlConnection,
+    fence_id: u64,
+    session_id: SessionId,
+) -> Result<(), DbError> {
     const MAX_ATTEMPTS: usize = 5;
     const BLOCKER_LOOKUP_INTERVAL: Duration = Duration::from_secs(1);
     const SET_LOCK_WAIT_TIMEOUT_QUERY: &str = "SET SESSION innodb_lock_wait_timeout = 5;";
@@ -1239,68 +1259,62 @@ async fn bump_fence(pool: &MySqlPool, fence_id: u64, session_id: SessionId) -> R
          `id` = ?;"
     );
 
-    let mut connection = pool.acquire().await?.detach();
-    let result: Result<(), DbError> = async {
-        sqlx::query(SET_LOCK_WAIT_TIMEOUT_QUERY)
-            .execute(&mut connection)
-            .await?;
-        let connection_id: u64 = sqlx::query_scalar(SELECT_CONNECTION_ID_QUERY)
-            .fetch_one(&mut connection)
-            .await?;
+    sqlx::query(SET_LOCK_WAIT_TIMEOUT_QUERY)
+        .execute(&mut *connection)
+        .await?;
+    let connection_id: u64 = sqlx::query_scalar(SELECT_CONNECTION_ID_QUERY)
+        .fetch_one(&mut *connection)
+        .await?;
 
-        let mut is_blocker_lookup_enabled = true;
-        let mut attempt = 1;
-        loop {
-            let update = sqlx::query(BUMP_QUERY)
-                .bind(session_id)
-                .bind(fence_id)
-                .execute(&mut connection);
-            tokio::pin!(update);
-            let mut blocker_lookup_ticker = tokio::time::interval_at(
-                tokio::time::Instant::now() + BLOCKER_LOOKUP_INTERVAL,
-                BLOCKER_LOOKUP_INTERVAL,
-            );
-            let update_result = loop {
-                tokio::select! {
-                    update_result = &mut update => break update_result,
-                    _ = blocker_lookup_ticker.tick(), if is_blocker_lookup_enabled => {
-                        match kill_fence_blockers(pool, connection_id).await {
-                            Ok(()) => {}
-                            Err(e) if is_access_denied(&e) => {
-                                tracing::warn!(
-                                    error = % e,
-                                    "Cannot look up the connections that block the storage fence. \
-                                     Relying on the lock wait timeout."
-                                );
-                                is_blocker_lookup_enabled = false;
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    error = % e,
-                                    "Failed to kill the connections that block the storage fence."
-                                );
-                            }
+    let mut is_blocker_lookup_enabled = true;
+    let mut attempt = 1;
+    loop {
+        let update = sqlx::query(BUMP_QUERY)
+            .bind(session_id)
+            .bind(fence_id)
+            .execute(&mut *connection);
+        tokio::pin!(update);
+        let mut blocker_lookup_ticker = tokio::time::interval_at(
+            tokio::time::Instant::now() + BLOCKER_LOOKUP_INTERVAL,
+            BLOCKER_LOOKUP_INTERVAL,
+        );
+        let update_result = loop {
+            tokio::select! {
+                update_result = &mut update => break update_result,
+                _ = blocker_lookup_ticker.tick(), if is_blocker_lookup_enabled => {
+                    match kill_fence_blockers(pool, connection_id).await {
+                        Ok(()) => {}
+                        Err(e) if is_access_denied(&e) => {
+                            tracing::warn!(
+                                error = % e,
+                                "Cannot look up the connections that block the storage fence. \
+                                 Relying on the lock wait timeout."
+                            );
+                            is_blocker_lookup_enabled = false;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = % e,
+                                "Failed to kill the connections that block the storage fence."
+                            );
                         }
                     }
                 }
-            };
-
-            match update_result {
-                Ok(_) => return Ok(()),
-                Err(e) if is_lock_wait_timeout(&e) && attempt < MAX_ATTEMPTS => {
-                    tracing::warn!(
-                        attempt,
-                        "Timed out waiting for the storage fence. Retrying."
-                    );
-                    attempt += 1;
-                }
-                Err(e) => return Err(e.into()),
             }
+        };
+
+        match update_result {
+            Ok(_) => return Ok(()),
+            Err(e) if is_lock_wait_timeout(&e) && attempt < MAX_ATTEMPTS => {
+                tracing::warn!(
+                    attempt,
+                    "Timed out waiting for the storage fence. Retrying."
+                );
+                attempt += 1;
+            }
+            Err(e) => return Err(e.into()),
         }
     }
-    .await;
-    close_detached_connection(connection).await;
-    result
 }
 
 /// Kills every connection to this database whose transaction, open since before the connection
