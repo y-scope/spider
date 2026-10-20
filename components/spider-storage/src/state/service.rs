@@ -1274,6 +1274,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_job_twice_is_stale_and_not_fatal() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = register_test_job(&service).await?;
+
+        service.start_job(job_id).await?;
+        service
+            .create_task_instance(
+                TEST_SESSION_ID,
+                job_id,
+                TaskId::Index(0),
+                ExecutionManagerId::random(),
+            )
+            .await?;
+        let result = service.start_job(job_id).await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::StaleState(
+                    StaleStateError::JobAlreadyStarted
+                )))
+            ),
+            "a second start should be stale, got {result:?}"
+        );
+        assert!(!service.shutdown_handle().is_fatal());
+        assert!(!service.shutdown_handle().is_cancelled());
+        assert_eq!(service.get_job_state(job_id).await?, JobState::Running);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_job_after_cancel_job_is_stale_and_not_fatal() -> anyhow::Result<()> {
+        let service = create_test_service();
+        let job_id = register_test_job(&service).await?;
+
+        assert_eq!(service.cancel_job(job_id).await?, JobState::Cancelled);
+        let result = service.start_job(job_id).await;
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::StaleState(
+                    StaleStateError::JobAlreadyStarted
+                )))
+            ),
+            "a start after a cancel should be stale, got {result:?}"
+        );
+        assert!(!service.shutdown_handle().is_fatal());
+        assert!(!service.shutdown_handle().is_cancelled());
+        assert_eq!(service.get_job_state(job_id).await?, JobState::Cancelled);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn start_job_returns_job_not_found_when_not_in_cache() -> anyhow::Result<()> {
         let service = create_test_service();
         let result = service.start_job(JobId::random()).await;
@@ -2238,5 +2290,51 @@ mod tests {
             "update heartbeat should fail for unregistered execution manager"
         );
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_during_a_graceful_shutdown_is_stopped() {
+        let service = create_test_service();
+        let shutdown_handle = service.shutdown_handle().clone();
+
+        let result = service
+            .spawn_body(async move {
+                shutdown_handle.shut_down_gracefully();
+                Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                    InternalError::InboundQueueChannelClosed,
+                )))
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(StorageServerError::Stopping(_))),
+            "a body failing during a graceful shutdown should be stopped, got {result:?}"
+        );
+        assert!(!service.shutdown_handle().is_fatal());
+    }
+
+    #[tokio::test]
+    async fn a_body_failing_with_a_fatal_shutdown_keeps_its_error() {
+        let service = create_test_service();
+        let shutdown_handle = service.shutdown_handle().clone();
+
+        let result = service
+            .spawn_body(async move {
+                shutdown_handle.shut_down_fatally();
+                Err::<(), _>(StorageServerError::from(CacheError::Internal(
+                    InternalError::InboundQueueChannelClosed,
+                )))
+            })
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(StorageServerError::Cache(CacheError::Internal(
+                    InternalError::InboundQueueChannelClosed
+                )))
+            ),
+            "a body failing with a fatal shutdown should keep its error, got {result:?}"
+        );
     }
 }
