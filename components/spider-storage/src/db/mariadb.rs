@@ -244,6 +244,46 @@ impl MariaDbStorageConnector {
             .bind(job_submission.compressed_serialized_task_graph())
             .bind(job_submission.compressed_serialized_job_inputs())
     }
+
+    /// Registers `job_submission` in `resource_group_id` with the fence in the `jobs` insert.
+    ///
+    /// # Returns
+    ///
+    /// The ID of the inserted job on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::CorruptedDbState`] if the insert is fenced off while the fence still holds this
+    ///   connector's session.
+    /// * [`DbError::ResourceGroupNotFound`] if `resource_group_id` does not exist.
+    /// * Forwards [`Self::probe_fence`]'s return values on failure.
+    /// * Forwards [`sqlx::query::Query::execute`]'s return values on failure.
+    async fn insert_fenced_job(
+        &self,
+        connection: &mut MySqlConnection,
+        resource_group_id: ResourceGroupId,
+        job_submission: &ValidatedJobSubmission,
+    ) -> Result<JobId, DbError> {
+        match self
+            .fenced_register_query(resource_group_id, job_submission)
+            .execute(&mut *connection)
+            .await
+        {
+            Ok(result) => Ok(JobId::from(result.last_insert_id())),
+            Err(e) if has_mysql_error_number(&e, &[MYSQL_ER_BAD_NULL_ERROR]) => {
+                self.probe_fence(connection).await?;
+                Err(DbError::CorruptedDbState(
+                    "fenced insert wrote no row while the fence holds this session".to_owned(),
+                ))
+            }
+            Err(e) if has_mysql_error_number(&e, &[MYSQL_ER_FK_CONSTRAINT]) => {
+                Err(DbError::ResourceGroupNotFound(resource_group_id))
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[async_trait]
@@ -254,20 +294,8 @@ impl ExternalJobOrchestration for MariaDbStorageConnector {
         job_submission: &ValidatedJobSubmission,
     ) -> Result<JobId, DbError> {
         let mut connection = self.pool.acquire().await?;
-        let job_id = execute_fenced_job_insert(
-            self.fenced_register_query(resource_group_id, job_submission),
-            &mut connection,
-            resource_group_id,
-        )
-        .await?;
-        if let Some(job_id) = job_id {
-            return Ok(job_id);
-        }
-
-        self.probe_fence(&mut connection).await?;
-        Err(DbError::CorruptedDbState(
-            "fenced insert wrote no row while the fence holds this session".to_owned(),
-        ))
+        self.insert_fenced_job(&mut connection, resource_group_id, job_submission)
+            .await
     }
 
     async fn get_state(&self, job_id: JobId) -> Result<JobState, DbError> {
@@ -1163,51 +1191,6 @@ async fn transition_job_state(
     .await?;
 
     Ok(())
-}
-
-/// Runs `query`, a registration's `jobs` insert that carries the fence, on `connection`.
-///
-/// # Returns
-///
-/// The ID of the inserted job on success, or `None` if the insert wrote no row because its fence
-/// predicate did not hold.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`DbError::CorruptedDbState`] if the insert wrote more than one row.
-/// * Forwards [`sqlx::query::Query::execute`]'s return values as mapped by [`map_job_insert_error`]
-///   on failure, other than a `NULL` resource group ID.
-async fn execute_fenced_job_insert(
-    query: Query<'_, MySql, MySqlArguments>,
-    connection: &mut MySqlConnection,
-    resource_group_id: ResourceGroupId,
-) -> Result<Option<JobId>, DbError> {
-    match query.execute(connection).await {
-        Ok(result) => match result.rows_affected() {
-            0 => Ok(None),
-            1 => Ok(Some(JobId::from(result.last_insert_id()))),
-            rows_affected => Err(DbError::CorruptedDbState(format!(
-                "a fenced job insert wrote {rows_affected} rows"
-            ))),
-        },
-        Err(e) if has_mysql_error_number(&e, &[MYSQL_ER_BAD_NULL_ERROR]) => Ok(None),
-        Err(e) => Err(map_job_insert_error(e, resource_group_id)),
-    }
-}
-
-/// Maps `error`, the failure of a `jobs` insert for `resource_group_id`, to a [`DbError`].
-///
-/// # Returns
-///
-/// [`DbError::ResourceGroupNotFound`] for a foreign key violation, or `error` as a [`DbError`]
-/// otherwise.
-fn map_job_insert_error(error: sqlx::Error, resource_group_id: ResourceGroupId) -> DbError {
-    if has_mysql_error_number(&error, &[MYSQL_ER_FK_CONSTRAINT]) {
-        return DbError::ResourceGroupNotFound(resource_group_id);
-    }
-    error.into()
 }
 
 /// Raises the fence row `fence_id` to `session_id` unless it already holds a newer session, so that
