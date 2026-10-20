@@ -837,3 +837,362 @@ fn close_and_answer(
         let _ = pending.reply.send(reply());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use spider_core::job::JobState;
+    use spider_core::task::DataTypeDescriptor;
+    use spider_core::task::ExecutionPolicy;
+    use spider_core::task::TaskDescriptor;
+    use spider_core::task::TaskGraph as SubmittedTaskGraph;
+    use spider_core::task::TdlContext;
+    use spider_core::task::TerminationTaskDescriptor;
+    use spider_core::task::ValueTypeDescriptor;
+    use spider_core::types::id::ExecutionManagerId;
+    use spider_core::types::id::JobId;
+    use spider_core::types::id::ResourceGroupId;
+    use spider_core::types::id::TaskId;
+    use spider_core::types::io::TaskGraphInput;
+    use spider_core::types::io::TaskGraphInputBuilder;
+
+    use super::*;
+    use crate::cache::error::StaleStateError;
+    use crate::cache::tree::TreeEvent;
+    use crate::db::ExternalJobOrchestration;
+    use crate::job_submission::create_validated_submission;
+    use crate::state::test_utils::MockDbConnector;
+    use crate::state::test_utils::MockInboundQueueSender;
+    use crate::state::test_utils::MockTaskInstancePoolConnector;
+    use crate::state::test_utils::create_test_tree_env;
+
+    type TestEnv = TreeEnv<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
+
+    type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePoolConnector>;
+
+    /// # Returns
+    ///
+    /// A one-task graph whose task takes and returns one byte-typed value, with a cleanup task if
+    /// `with_cleanup`, and its inputs.
+    fn one_task_graph(with_cleanup: bool) -> (SubmittedTaskGraph, TaskGraphInput) {
+        let tdl_context = TdlContext {
+            package: "test_pkg".to_owned(),
+            task_func: "test_fn".to_owned(),
+        };
+        let cleanup_task = with_cleanup.then(|| TerminationTaskDescriptor {
+            tdl_context: tdl_context.clone(),
+            execution_policy: None,
+        });
+        let bytes_type = DataTypeDescriptor::Value(ValueTypeDescriptor::bytes());
+        let mut task_graph = SubmittedTaskGraph::new(None, cleanup_task)
+            .expect("task graph creation should succeed");
+        task_graph
+            .insert_task(TaskDescriptor {
+                tdl_context,
+                execution_policy: Some(ExecutionPolicy::default()),
+                inputs: vec![bytes_type.clone()],
+                outputs: vec![bytes_type],
+                input_sources: None,
+            })
+            .expect("task insertion should succeed");
+        let mut inputs = TaskGraphInputBuilder::new();
+        inputs
+            .append_task_input(&[0u8; 4])
+            .expect("task input appending should succeed");
+        (task_graph, inputs.build())
+    }
+
+    /// Registers a one-task job in the mock database and creates its tree.
+    ///
+    /// # Returns
+    ///
+    /// The job's control block.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registration or the tree creation fails.
+    async fn create_job(env: &TestEnv, with_cleanup: bool) -> TestJcb {
+        let (task_graph, inputs) = one_task_graph(with_cleanup);
+        let submission = create_validated_submission(task_graph, inputs);
+        let owner_id = ResourceGroupId::random();
+        let job_id = env
+            .db
+            .register(owner_id, &submission)
+            .await
+            .expect("mock registration should succeed");
+        create_root_tree(env, job_id, owner_id, submission)
+            .await
+            .expect("tree creation should succeed")
+    }
+
+    fn event(jcb: &TestJcb, kind: TreeEventKind) -> TreeEvent {
+        TreeEvent {
+            job_id: jcb.id(),
+            kind,
+        }
+    }
+
+    /// Waits until every task of the environment's task tracker has exited.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a task is still running after 5 seconds.
+    async fn wait_for_committers(env: &TestEnv) {
+        env.task_tracker.close();
+        tokio::time::timeout(Duration::from_secs(5), env.task_tracker.wait())
+            .await
+            .expect("every committer should exit");
+    }
+
+    #[tokio::test]
+    async fn committer_exits_when_its_root_becomes_terminal() -> anyhow::Result<()> {
+        let (env, mut job_cache_gc_receiver) =
+            create_test_tree_env(MockDbConnector::default(), MockInboundQueueSender);
+        let jcb = create_job(&env, false).await;
+
+        jcb.start().await?;
+        let context = jcb
+            .create_task_instance(TaskId::Index(0), ExecutionManagerId::random())
+            .await?;
+        let state = jcb
+            .succeed_task_instance(context.task_instance_id, 0, vec![vec![1, 2]])
+            .await?;
+        assert_eq!(state, JobState::Succeeded);
+        assert_eq!(job_cache_gc_receiver.try_recv(), Ok(jcb.id()));
+        assert_eq!(
+            env.db.states.get(&jcb.id()).map(|state| *state),
+            Some(JobState::Succeeded)
+        );
+        wait_for_committers(&env).await;
+
+        let start = jcb.start().await;
+        assert!(
+            matches!(
+                start,
+                Err(CacheError::StaleState(StaleStateError::JobAlreadyStarted))
+            ),
+            "a start after the committer exited should be stale, got {start:?}"
+        );
+        let cancel = jcb.cancel().await;
+        assert!(
+            matches!(
+                cancel,
+                Err(CacheError::StaleState(
+                    StaleStateError::JobAlreadyTerminated(JobState::Succeeded)
+                ))
+            ),
+            "a cancel after the committer exited should be stale, got {cancel:?}"
+        );
+        assert!(!env.shutdown_handle.is_fatal());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn committer_stays_while_its_root_is_not_terminal() -> anyhow::Result<()> {
+        let (env, _job_cache_gc_receiver) =
+            create_test_tree_env(MockDbConnector::default(), MockInboundQueueSender);
+        let jcb = create_job(&env, true).await;
+
+        jcb.start().await?;
+        assert_eq!(jcb.cancel().await?, JobState::CleanupReady);
+        let reply = jcb
+            .tree()
+            .submit(event(&jcb, TreeEventKind::CancelRoot))
+            .await?;
+        assert!(
+            matches!(
+                reply,
+                Ok(TreeOutcome::Stale(
+                    StaleStateError::JobCancellationAlreadyRequested
+                ))
+            ),
+            "a second cancel should be planned stale, got {reply:?}"
+        );
+        assert!(!jcb.tree().is_stopping());
+        assert!(
+            !env.task_tracker.is_empty(),
+            "the committer should still run"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_guard_dropped_after_the_token_is_cancelled_does_not_poison() {
+        for cancels_first in [false, true] {
+            let shutdown_handle = ShutdownHandle::new();
+            let (_tree, receivers) = TreeControlBlock::new(
+                JobId::from(1),
+                shutdown_handle.clone(),
+                TestHooks::default(),
+            );
+            let guard = PoisonOnAbnormalExit {
+                receivers,
+                shutdown_handle: shutdown_handle.clone(),
+                root_id: JobId::from(1),
+                disarmed: false,
+            };
+            if cancels_first {
+                shutdown_handle.shut_down_gracefully();
+            }
+            drop(guard);
+            assert_eq!(shutdown_handle.is_fatal(), !cancels_first);
+            assert!(shutdown_handle.is_cancelled());
+        }
+    }
+
+    #[cfg(feature = "test-hooks")]
+    mod hooked {
+        use super::*;
+        use crate::test_hooks::HookAction;
+        use crate::test_hooks::HookCount;
+        use crate::test_hooks::HookFilter;
+
+        /// Arms `action` at `point`, submits a start and a cancel, and checks that the committer
+        /// poisons the service and wakes both waiters.
+        ///
+        /// # Panics
+        ///
+        /// Panics if any check fails.
+        async fn assert_fault_poisons_the_tree(point: HookPoint, action: HookAction) {
+            let (env, _job_cache_gc_receiver) =
+                create_test_tree_env(MockDbConnector::default(), MockInboundQueueSender);
+            let jcb = create_job(&env, false).await;
+            let _hook = env
+                .hooks
+                .arm(point, HookFilter::root(jcb.id()), action, HookCount::Once);
+
+            let start = jcb.tree().submit(event(&jcb, TreeEventKind::Start));
+            let cancel = jcb.tree().submit(event(&jcb, TreeEventKind::CancelRoot));
+            for reply in [start.await, cancel.await] {
+                assert!(
+                    reply.is_err(),
+                    "the reply channel should close without a reply, got {reply:?}"
+                );
+            }
+            wait_for_committers(&env).await;
+            assert!(env.shutdown_handle.is_fatal());
+            assert!(env.shutdown_handle.is_cancelled());
+            let later = jcb.start().await;
+            assert!(
+                matches!(later, Err(CacheError::ServiceStopping)),
+                "a later event should be answered Stopping, got {later:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn shutdown_finishes_the_round_in_flight_and_answers_the_queued_event_with_stopping()
+        -> anyhow::Result<()> {
+            let (env, _job_cache_gc_receiver) =
+                create_test_tree_env(MockDbConnector::default(), MockInboundQueueSender);
+            let jcb = create_job(&env, false).await;
+            let pause = env.hooks.arm(
+                HookPoint::CommitterAfterCommit,
+                HookFilter::root(jcb.id()),
+                HookAction::Pause,
+                HookCount::Once,
+            );
+
+            let start = jcb.tree().submit(event(&jcb, TreeEventKind::Start));
+            pause.reached(1).await;
+            let cancel = jcb.tree().submit(event(&jcb, TreeEventKind::CancelRoot));
+            env.shutdown_handle.shut_down_gracefully();
+
+            let start = start.await;
+            assert!(
+                matches!(start, Ok(Ok(TreeOutcome::Applied(JobState::Running)))),
+                "the round in flight should be applied, got {start:?}"
+            );
+            let cancel = cancel.await;
+            assert!(
+                matches!(cancel, Ok(Err(CacheError::ServiceStopping))),
+                "the queued event should be answered Stopping, got {cancel:?}"
+            );
+            wait_for_committers(&env).await;
+            let late = jcb
+                .tree()
+                .submit(event(&jcb, TreeEventKind::CancelRoot))
+                .await;
+            assert!(
+                matches!(late, Ok(Ok(TreeOutcome::Untracked))),
+                "an event after the committer exited should be untracked, got {late:?}"
+            );
+            assert!(!env.shutdown_handle.is_fatal());
+            assert_eq!(jcb.state().await, JobState::Running);
+            assert_eq!(
+                env.db.states.get(&jcb.id()).map(|state| *state),
+                Some(JobState::Running)
+            );
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn a_round_requeued_before_the_db_transaction_collects_its_inputs_again()
+        -> anyhow::Result<()> {
+            for point in [
+                HookPoint::CommitterBeforePlan,
+                HookPoint::CommitterBeforeDbTransaction,
+            ] {
+                let (env, _job_cache_gc_receiver) =
+                    create_test_tree_env(MockDbConnector::default(), MockInboundQueueSender);
+                let jcb = create_job(&env, false).await;
+                let mut state = CommitterState::new_root(jcb.clone());
+                let (reply, mut reply_receiver) = tokio::sync::oneshot::channel();
+                let pending = Pending {
+                    event: event(&jcb, TreeEventKind::Start),
+                    reply,
+                };
+                let _pause = env.hooks.arm(
+                    point,
+                    HookFilter::root(jcb.id()),
+                    HookAction::Pause,
+                    HookCount::Once,
+                );
+                env.shutdown_handle.shut_down_gracefully();
+
+                let requeued = run_tree_state_transaction(&mut state, Queued::new(pending), &env)
+                    .await?
+                    .expect("a round stopped before its DB transaction should be requeued");
+                assert_eq!(requeued.input, None, "{point:?}");
+                assert_eq!(
+                    env.db.states.get(&jcb.id()).map(|state| *state),
+                    Some(JobState::Ready),
+                    "{point:?}"
+                );
+
+                let requeued = run_tree_state_transaction(&mut state, requeued, &env).await?;
+                assert!(
+                    requeued.is_none(),
+                    "{point:?}: the replanned round should be answered"
+                );
+                let reply = reply_receiver.try_recv();
+                assert!(
+                    matches!(reply, Ok(Ok(TreeOutcome::Applied(JobState::Running)))),
+                    "{point:?}: the replanned start should be applied, got {reply:?}"
+                );
+                assert_eq!(jcb.state().await, JobState::Running, "{point:?}");
+                assert_eq!(
+                    env.db.states.get(&jcb.id()).map(|state| *state),
+                    Some(JobState::Running),
+                    "{point:?}"
+                );
+            }
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn crash_before_the_db_transaction_poisons_the_tree() {
+            assert_fault_poisons_the_tree(
+                HookPoint::CommitterBeforeDbTransaction,
+                HookAction::Crash,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn panic_in_the_apply_poisons_the_tree() {
+            assert_fault_poisons_the_tree(HookPoint::CommitterAfterApplyJob, HookAction::Panic)
+                .await;
+        }
+    }
+}
