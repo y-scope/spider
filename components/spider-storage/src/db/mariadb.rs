@@ -1676,7 +1676,7 @@ mod tests {
             assert_eq!(snapshot_session_id, older.session_id);
 
             // A new connection will bump the session ID in the fence. Any connections from the old
-            // session should be rejected.
+            // audsession should be rejected.
             let newer = MariaDbStorageConnector::connect(&config).await?;
             let result = older.check_fence(&mut connection).await;
             sqlx::raw_sql("ROLLBACK;").execute(&mut connection).await?;
