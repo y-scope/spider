@@ -30,6 +30,9 @@ spiderConfig:
     # Host and port for the database service. When "database" is in `bundled`, the host is
     # automatically set to the bundled service name (ignored). When external, set these to the
     # external service's address.
+    # An external database must grant `username` the `PROCESS` privilege
+    # (`GRANT PROCESS ON *.* TO '<username>'@'%';`). Without it, a restarted storage service takes
+    # over from a crashed predecessor only after the predecessor's database connection times out.
     host: "127.0.0.1"
     max_connections: 64
     name: "spider-db"

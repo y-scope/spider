@@ -1,0 +1,6 @@
+configs:
+  spider-database-init-script:
+    content: |
+      docker_process_sql <<EOSQL
+      GRANT PROCESS ON *.* TO '$$(docker_sql_escape_string_literal "$${MARIADB_USER}")'@'%';
+      EOSQL

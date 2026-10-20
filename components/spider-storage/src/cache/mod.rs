@@ -3,3 +3,4 @@ pub mod io;
 pub mod job;
 mod sync;
 pub mod task;
+pub mod tree;

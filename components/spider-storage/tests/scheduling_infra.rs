@@ -103,14 +103,22 @@ use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::RecoverableJobContext;
+use spider_storage::db::TreeTransition;
 use spider_storage::inbound_queue::InboundQueueSender;
 use spider_storage::job_submission::ValidatedJobSubmission;
+use spider_storage::state::JobCache;
+use spider_storage::state::JobCacheGcHandle;
+use spider_storage::state::TreeEnv;
+use spider_storage::state::create_root_tree;
 use spider_storage::task_instance_pool::TaskInstanceMetadata;
 use spider_storage::task_instance_pool::TaskInstancePoolConnector;
+use spider_storage::test_hooks::TestHooks;
+use spider_utils::shutdown::ShutdownHandle;
 use tabled::Table;
 use tabled::Tabled;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
+use tokio_util::task::TaskTracker;
 
 /// A handler that generates mock task outputs from an [`ExecutionContext`], which simulates the
 /// execution of a TDL task.
@@ -152,28 +160,7 @@ pub struct NoopDbConnector {}
 
 #[async_trait]
 impl InternalJobOrchestration for NoopDbConnector {
-    async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn commit_outputs(
-        &self,
-        _job_id: JobId,
-        _job_outputs: Vec<TaskOutput>,
-        _has_commit_task: bool,
-    ) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
+    async fn apply_tree_transition(&self, _transition: TreeTransition) -> Result<(), DbError> {
         Ok(())
     }
 
@@ -340,17 +327,20 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
     let (db_connector, job_id, resource_group_id) = db_connector_factory(&job_submission).await;
     let task_instance_pool = MockTaskInstancePool::new();
 
-    // Create and start the JCB.
-    let inner_jcb = SharedJobControlBlock::create(
-        job_id,
-        resource_group_id,
-        job_submission,
+    // Create the job's tree and start the job.
+    let tree_env = TreeEnv {
+        db: db_connector,
+        job_cache: JobCache::new(),
+        job_cache_gc_handle: JobCacheGcHandle::new(mpsc::unbounded_channel().0),
         inbound_queue_sender,
-        db_connector,
-        task_instance_pool,
-    )
-    .await
-    .expect("failed to create JCB");
+        task_instance_pool_connector: task_instance_pool,
+        shutdown_handle: ShutdownHandle::new(),
+        task_tracker: TaskTracker::new(),
+        hooks: TestHooks::default(),
+    };
+    let inner_jcb = create_root_tree(&tree_env, job_id, resource_group_id, job_submission)
+        .await
+        .expect("failed to create JCB");
 
     inner_jcb.start().await.expect("failed to start JCB");
 
@@ -476,13 +466,8 @@ const NUM_EXECUTION_MANAGERS: usize = 64;
 /// directory path where the instrumentation file will be written.
 const INSTRUMENT_OUTPUT_DIR_ENV: &str = "SPIDER_TEST_INSTRUMENT_OUTPUT_DIR";
 
-/// The concrete JCB type parameterized by the DB connector.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation.
-type TestJcb<DbConnectorType> =
-    SharedJobControlBlock<MockInboundQueueSender, DbConnectorType, MockTaskInstancePool>;
+/// The concrete JCB type.
+type TestJcb = SharedJobControlBlock<MockInboundQueueSender, MockTaskInstancePool>;
 
 /// A message sent through the mock inbound queue.
 ///
@@ -595,17 +580,13 @@ impl TaskInstancePoolConnector for MockTaskInstancePool {
 /// Thin wrapper around [`TestJcb`] that optionally records latency samples for each JCB
 /// operation. When `instrument_sender` is `None`, calls are forwarded without any timing
 /// overhead.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
-struct InstrumentedJcb<DbConnectorType: InternalJobOrchestration> {
-    jcb: TestJcb<DbConnectorType>,
+struct InstrumentedJcb {
+    jcb: TestJcb,
     instrument_sender: Option<InstrumentSender>,
 }
 
-impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType> {
+impl InstrumentedJcb {
     /// Wraps [`SharedJobControlBlock::create_task_instance`] with optional latency recording.
     async fn create_task_instance(
         &self,
@@ -734,18 +715,14 @@ impl<DbConnectorType: InternalJobOrchestration> InstrumentedJcb<DbConnectorType>
 
 /// Per-execution-manager context. All fields are cheaply cloneable (via `Arc` or built-in `Clone`
 /// impls), so each execution manager owns its own copy without shared `Arc<EmContext>` indirection.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
 #[derive(Clone)]
-struct EmContext<DbConnectorType: InternalJobOrchestration> {
+struct EmContext {
     /// The MPMC inbound-queue receiver. Each clone can concurrently await messages without
     /// serialization.
     receiver: async_channel::Receiver<InboundMessage>,
 
     /// The instrumented JCB under test.
-    jcb: InstrumentedJcb<DbConnectorType>,
+    jcb: InstrumentedJcb,
 
     /// Stable execution manager identity used when registering task instances.
     execution_manager_id: ExecutionManagerId,
@@ -841,14 +818,7 @@ const fn is_stale_state(err: &CacheError) -> bool {
 }
 
 /// If `state` is terminal, broadcasts it on the watch channel.
-///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-fn broadcast_if_terminated<DbConnectorType: InternalJobOrchestration>(
-    ctx: &EmContext<DbConnectorType>,
-    state: JobState,
-) {
+fn broadcast_if_terminated(ctx: &EmContext, state: JobState) {
     if state.is_terminal() {
         let _ = ctx.terminal_state_sender.send(Some(state));
     }
@@ -901,10 +871,6 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 /// The execution manager loops until either the done signal fires or the receiver is closed
 /// (returns `None`).
 ///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-///
 /// # Failure injection
 ///
 /// For each task index received, the execution manager flips a coin:
@@ -920,9 +886,7 @@ fn collect_instrument_table(receiver: mpsc::UnboundedReceiver<InstrumentSample>)
 /// # Errors
 ///
 /// Forwards all errors that are not [`CacheError::StaleState`].
-async fn run_execution_manager<DbConnectorType: InternalJobOrchestration + 'static>(
-    mut ctx: EmContext<DbConnectorType>,
-) -> anyhow::Result<()> {
+async fn run_execution_manager(mut ctx: EmContext) -> anyhow::Result<()> {
     let mut rng = rand::rngs::StdRng::from_os_rng();
     loop {
         let msg = tokio::select! {
@@ -962,10 +926,6 @@ async fn run_execution_manager<DbConnectorType: InternalJobOrchestration + 'stat
 
 /// Processes a single task index to simulate task execution according to the given policy.
 ///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-///
 /// # Errors
 ///
 /// Returns an error if:
@@ -973,8 +933,8 @@ async fn run_execution_manager<DbConnectorType: InternalJobOrchestration + 'stat
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::fail_task_instance`]'s return values on failure.
-async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
-    ctx: &EmContext<DbConnectorType>,
+async fn process_task(
+    ctx: &EmContext,
     rng: &mut impl Rng,
     task_index: TaskIndex,
 ) -> Result<(), CacheError> {
@@ -1050,10 +1010,6 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 
 /// Processes a commit-ready message: creates a commit task instance and succeeds it.
 ///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-///
 /// # Errors
 ///
 /// Returns an error if:
@@ -1067,9 +1023,7 @@ async fn process_task<DbConnectorType: InternalJobOrchestration + 'static>(
 ///
 /// * The commit task's execution context does not carry decodable task-graph outputs.
 /// * The commit task's execution context carries an empty task-graph output list.
-async fn process_commit<DbConnectorType: InternalJobOrchestration>(
-    ctx: &EmContext<DbConnectorType>,
-) -> Result<(), CacheError> {
+async fn process_commit(ctx: &EmContext) -> Result<(), CacheError> {
     let exec_ctx = ctx
         .jcb
         .create_task_instance(TaskId::Commit, ctx.execution_manager_id)
@@ -1092,19 +1046,13 @@ async fn process_commit<DbConnectorType: InternalJobOrchestration>(
 
 /// Processes a cleanup-ready message: creates a cleanup task instance and succeeds it.
 ///
-/// # Type Parameters
-///
-/// * `DbConnectorType` - The DB-layer connector implementation used by the JCB.
-///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`SharedJobControlBlock::create_task_instance`]'s return values on failure.
 /// * Forwards [`SharedJobControlBlock::succeed_cleanup_task_instance`]'s return values of failure.
-async fn process_cleanup<DbConnectorType: InternalJobOrchestration>(
-    ctx: &EmContext<DbConnectorType>,
-) -> Result<(), CacheError> {
+async fn process_cleanup(ctx: &EmContext) -> Result<(), CacheError> {
     let exec_ctx = ctx
         .jcb
         .create_task_instance(TaskId::Cleanup, ctx.execution_manager_id)

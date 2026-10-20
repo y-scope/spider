@@ -1,6 +1,7 @@
 name: "spider"
 
 include:
+  - "./configs/database.yaml"
   - "./configs/scheduler/${SPIDER_SCHEDULER_POLICY:-resource_group_round_robin}.yaml"
   - "./configs/storage.yaml"
   - "./configs/worker.yaml"
@@ -55,6 +56,9 @@ services:
       MYSQL_PASSWORD: "${SPIDER_STORAGE_DB_PASSWORD:-spider-password}"
       MYSQL_ROOT_PASSWORD: "${SPIDER_DATABASE_ROOT_PASSWORD:-spider-root-password}"
       MYSQL_USER: "${SPIDER_STORAGE_DB_USERNAME:-spider-user}"
+    configs:
+      - source: "spider-database-init-script"
+        target: "/docker-entrypoint-initdb.d/grant-process.sh"
     volumes:
       - type: "volume"
         source: "spider-database-data"

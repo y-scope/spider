@@ -13,6 +13,9 @@ pub enum CacheError {
 
     #[error(transparent)]
     StaleState(#[from] StaleStateError),
+
+    #[error("storage service is shutting down")]
+    ServiceStopping,
 }
 
 impl From<DbError> for CacheError {
@@ -73,8 +76,22 @@ pub enum InternalError {
     #[error("job has no cleanup task")]
     UndefinedCleanupTask,
 
-    #[error("job terminated unexpectedly")]
-    UnexpectedJobTermination,
+    #[error("job {job_id:?} is cached as {actual}, but a committed transition expects {expected}")]
+    CacheDbDivergence {
+        job_id: JobId,
+        expected: JobState,
+        actual: JobState,
+    },
+
+    #[error("job tree poisoned: its committer exited abnormally")]
+    TreePoisoned,
+
+    #[error("spawned handler body failed: {0}")]
+    HandlerBodyFailed(String),
+
+    #[cfg(feature = "test-hooks")]
+    #[error("injected fault: {0}")]
+    InjectedFault(String),
 
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),

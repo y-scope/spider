@@ -1,0 +1,14 @@
+{{- if has "database" .Values.spiderConfig.bundled }}
+apiVersion: "v1"
+kind: "ConfigMap"
+metadata:
+  name: {{ include "spider.componentFullname" (dict "root" . "component" "database-init") }}
+  labels:
+    {{- include "spider.labels" . | nindent 4 }}
+    app.kubernetes.io/component: "database"
+data:
+  grant-process.sh: |
+    docker_process_sql <<EOSQL
+    GRANT PROCESS ON *.* TO '$(docker_sql_escape_string_literal "${MARIADB_USER}")'@'%';
+    EOSQL
+{{- end }}
