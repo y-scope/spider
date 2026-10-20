@@ -164,31 +164,6 @@ impl InternalJobOrchestration for NoopDbConnector {
         Ok(())
     }
 
-    async fn start(&self, _job_id: JobId) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn set_state(&self, _job_id: JobId, _state: JobState) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn commit_outputs(
-        &self,
-        _job_id: JobId,
-        _job_outputs: Vec<TaskOutput>,
-        _has_commit_task: bool,
-    ) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn cancel(&self, _job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
-        Ok(())
-    }
-
-    async fn fail(&self, _job_id: JobId, _error_message: String) -> Result<(), DbError> {
-        Ok(())
-    }
-
     async fn delete_expired_terminated_jobs(
         &self,
         _expire_after_sec: u64,

@@ -55,10 +55,10 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
     let rg_id = create_test_resource_group(&older).await;
     let ready_job_id = older.register(rg_id, &job_submission).await?;
     let running_job_id = older.register(rg_id, &job_submission).await?;
-    older.start(running_job_id).await?;
+    start(&older, &[running_job_id]).await?;
     let expired_job_id = older.register(rg_id, &job_submission).await?;
-    older.start(expired_job_id).await?;
-    older.fail(expired_job_id, "expired".to_owned()).await?;
+    start(&older, &[expired_job_id]).await?;
+    apply(&older, vec![failure(expired_job_id, "expired")]).await?;
     sqlx::query("UPDATE `jobs` SET `ended_at` = NOW() - INTERVAL 1 HOUR WHERE `id` = ?;")
         .bind(expired_job_id)
         .execute(&raw_pool)
@@ -70,21 +70,37 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
             "register",
             older.register(rg_id, &job_submission).await.map(|_| ()),
         ),
-        ("start", older.start(ready_job_id).await),
+        ("start", start(&older, &[ready_job_id]).await),
         (
-            "set_state",
-            older.set_state(running_job_id, JobState::Cancelled).await,
+            "cancel",
+            apply(
+                &older,
+                vec![JobStateUpdate::new(
+                    running_job_id,
+                    JobState::Running,
+                    JobState::Cancelled,
+                )],
+            )
+            .await,
         ),
         (
-            "commit_outputs",
-            older
-                .commit_outputs(running_job_id, vec![b"outputs".to_vec()], false)
-                .await,
+            "success with outputs",
+            succeed(&older, &[running_job_id], &[b"outputs".to_vec()]).await,
         ),
-        ("cancel", older.cancel(running_job_id, false).await),
         (
-            "fail",
-            older.fail(running_job_id, "fenced".to_owned()).await,
+            "failure",
+            apply(&older, vec![failure(running_job_id, "fenced")]).await,
+        ),
+        (
+            "transition of several rows",
+            apply(
+                &older,
+                vec![
+                    JobStateUpdate::new(ready_job_id, JobState::Ready, JobState::Running),
+                    failure(running_job_id, "fenced"),
+                ],
+            )
+            .await,
         ),
         (
             "delete_expired_terminated_jobs",
@@ -109,10 +125,8 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
         ],
         "{config:?}"
     );
-    newer.start(ready_job_id).await?;
-    newer
-        .commit_outputs(running_job_id, vec![b"outputs".to_vec()], false)
-        .await?;
+    start(&newer, &[ready_job_id]).await?;
+    succeed(&newer, &[running_job_id], &[b"outputs".to_vec()]).await?;
     assert_eq!(
         newer.delete_expired_terminated_jobs(60).await?,
         vec![expired_job_id],
@@ -144,8 +158,8 @@ async fn connectors_with_different_fence_ids_are_independent() -> anyhow::Result
 
     let first_job_id = first.register(rg_id, &job_submission).await?;
     let second_job_id = second.register(rg_id, &job_submission).await?;
-    first.start(first_job_id).await?;
-    second.start(second_job_id).await?;
+    start(&first, &[first_job_id]).await?;
+    start(&second, &[second_job_id]).await?;
     isolated_test_db.drop_database().await;
     Ok(())
 }
@@ -189,7 +203,8 @@ async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Resul
         "connect should wait for the open transaction with {config:?}"
     );
     let starting_older = older.clone();
-    let older_start_join_handle = tokio::spawn(async move { starting_older.start(job_id).await });
+    let older_start_join_handle =
+        tokio::spawn(async move { start(&starting_older, &[job_id]).await });
     let registering_older = older.clone();
     let older_register_join_handle =
         tokio::spawn(async move { registering_older.register(rg_id, &flat_submission()).await });
@@ -272,8 +287,8 @@ async fn writes_that_passed_the_fence_hold_it_until_they_commit() -> anyhow::Res
         &unprivileged_config,
         "jobs",
         ready_job_id.get(),
-        "SELECT `state` FROM `jobs`%",
-        async move { second.start(ready_job_id).await },
+        "UPDATE `jobs`%",
+        async move { start(&second, &[ready_job_id]).await },
     )
     .await?;
 
@@ -464,18 +479,12 @@ async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Resu
     let rg_id = create_test_resource_group(&storage).await;
     let running_job_id = storage.register(rg_id, &job_submission).await?;
     let ready_job_id = storage.register(rg_id, &job_submission).await?;
-    storage.start(running_job_id).await?;
+    start(&storage, &[running_job_id]).await?;
 
-    let state_mismatch_result = storage.start(running_job_id).await;
+    let state_mismatch_result = start(&storage, &[running_job_id]).await;
     assert!(
-        matches!(
-            state_mismatch_result,
-            Err(DbError::UnexpectedJobState {
-                current: JobState::Running,
-                ..
-            })
-        ),
-        "expected UnexpectedJobState with {config:?}, got {state_mismatch_result:?}"
+        matches!(state_mismatch_result, Err(DbError::CorruptedDbState(_))),
+        "expected CorruptedDbState with {config:?}, got {state_mismatch_result:?}"
     );
 
     sqlx::query("DELETE FROM `storage_fence` WHERE `id` = ?;")
@@ -487,7 +496,7 @@ async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Resu
             "register",
             storage.register(rg_id, &job_submission).await.map(|_| ()),
         ),
-        ("start", storage.start(ready_job_id).await),
+        ("start", start(&storage, &[ready_job_id]).await),
     ];
     for (writer, result) in results {
         assert!(
@@ -505,9 +514,9 @@ async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Resu
     );
 
     let newer = connect(&config).await;
-    let fenced_result = storage.start(ready_job_id).await;
+    let fenced_result = start(&storage, &[ready_job_id]).await;
     assert_fenced(&fenced_result, &storage, &newer, &format!("{config:?}"));
-    newer.start(ready_job_id).await?;
+    start(&newer, &[ready_job_id]).await?;
 
     raw_pool.close().await;
     isolated_test_db.drop_database().await;
@@ -1196,6 +1205,32 @@ async fn wait_for_reissued_statement(pool: &MySqlPool, statement_pattern: &str) 
             max_running_time_ms = running_time_ms;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Writes `updates` through `storage` in one tree transition.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`InternalJobOrchestration::apply_tree_transition`]'s return values on failure.
+async fn apply(
+    storage: &MariaDbStorageConnector,
+    updates: Vec<JobStateUpdate>,
+) -> Result<(), DbError> {
+    storage
+        .apply_tree_transition(TreeTransition { updates })
+        .await
+}
+
+/// # Returns
+///
+/// The update that fails the `Running` job `job_id` with `error_message`.
+fn failure(job_id: JobId, error_message: &str) -> JobStateUpdate {
+    JobStateUpdate {
+        error_message: Some(error_message.to_owned()),
+        ..JobStateUpdate::new(job_id, JobState::Running, JobState::Failed)
     }
 }
 

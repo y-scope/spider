@@ -29,9 +29,6 @@ pub enum DbError {
     #[error("execution manager `{0:?}` is already dead")]
     ExecutionManagerAlreadyDead(ExecutionManagerId),
 
-    #[error("job in state {from} cannot transit into state {to}")]
-    InvalidJobStateTransition { from: JobState, to: JobState },
-
     #[error("job in state {current}, expect state {expected}")]
     UnexpectedJobState {
         current: JobState,

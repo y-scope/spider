@@ -183,36 +183,6 @@ impl InternalJobOrchestration for MockDbConnector {
         Ok(())
     }
 
-    async fn start(&self, job_id: JobId) -> Result<(), DbError> {
-        self.states.insert(job_id, JobState::Running);
-        Ok(())
-    }
-
-    async fn set_state(&self, job_id: JobId, state: JobState) -> Result<(), DbError> {
-        self.states.insert(job_id, state);
-        Ok(())
-    }
-
-    async fn commit_outputs(
-        &self,
-        job_id: JobId,
-        _job_outputs: Vec<TaskOutput>,
-        _has_commit_task: bool,
-    ) -> Result<(), DbError> {
-        self.states.insert(job_id, JobState::Succeeded);
-        Ok(())
-    }
-
-    async fn cancel(&self, job_id: JobId, _has_cleanup_task: bool) -> Result<(), DbError> {
-        self.states.insert(job_id, JobState::Cancelled);
-        Ok(())
-    }
-
-    async fn fail(&self, job_id: JobId, _error_message: String) -> Result<(), DbError> {
-        self.states.insert(job_id, JobState::Failed);
-        Ok(())
-    }
-
     async fn delete_expired_terminated_jobs(
         &self,
         _expire_after_sec: u64,

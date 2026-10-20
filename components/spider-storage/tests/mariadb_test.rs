@@ -15,10 +15,12 @@ use spider_storage::db::DbError;
 use spider_storage::db::ExecutionManagerLivenessManagement;
 use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
+use spider_storage::db::JobStateUpdate;
 use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::db::ResourceGroupManagement;
 use spider_storage::db::SchedulerRegistrationManagement;
 use spider_storage::db::SessionManagement;
+use spider_storage::db::TreeTransition;
 use spider_storage::job_submission::ValidatedJobSubmission;
 use sqlx::MySqlPool;
 use tokio::sync::Barrier;
@@ -99,6 +101,30 @@ async fn job_ids(pool: &MySqlPool) -> Result<Vec<JobId>, sqlx::Error> {
     sqlx::query_scalar("SELECT `id` FROM `jobs` ORDER BY `id`;")
         .fetch_all(pool)
         .await
+}
+
+/// Applies `update` to its job in one tree transition.
+///
+/// # Panics
+///
+/// Panics if the tree transition fails.
+async fn apply_update(storage: &MariaDbStorageConnector, update: JobStateUpdate) {
+    storage
+        .apply_tree_transition(TreeTransition {
+            updates: vec![update],
+        })
+        .await
+        .expect("tree transition should succeed");
+}
+
+/// # Returns
+///
+/// The update that fails the running job `job_id` with `error_message`.
+fn failure(job_id: JobId, error_message: &str) -> JobStateUpdate {
+    JobStateUpdate {
+        error_message: Some(error_message.to_owned()),
+        ..JobStateUpdate::new(job_id, JobState::Running, JobState::Failed)
+    }
 }
 
 /// Registers a new execution manager with `127.0.0.1` as the IP address.
@@ -199,77 +225,6 @@ async fn a_register_over_the_packet_size_writes_no_row() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_start_job() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Running);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_start_job_wrong_state() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    let result = storage.start(job_id).await;
-    assert!(
-        matches!(result, Err(DbError::UnexpectedJobState { .. })),
-        "expected UnexpectedJobState, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_cancel_job_without_cleanup_transitions_to_cancelled() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    storage
-        .cancel(job_id, false)
-        .await
-        .expect("cancel should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Cancelled);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
 async fn test_get_outputs_succeeded_job() {
     let storage = create_mariadb_connector().await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -281,12 +236,21 @@ async fn test_get_outputs_succeeded_job() {
         .await
         .expect("register should succeed");
 
-    storage.start(job_id).await.expect("start should succeed");
+    apply_update(
+        &storage,
+        JobStateUpdate::new(job_id, JobState::Ready, JobState::Running),
+    )
+    .await;
 
     let outputs = vec![vec![1, 2, 3]];
-    InternalJobOrchestration::commit_outputs(&storage, job_id, outputs.clone(), false)
-        .await
-        .expect("commit_outputs should succeed");
+    apply_update(
+        &storage,
+        JobStateUpdate {
+            outputs: Some(outputs.clone()),
+            ..JobStateUpdate::new(job_id, JobState::Running, JobState::Succeeded)
+        },
+    )
+    .await;
 
     let retrieved = storage
         .get_outputs(job_id)
@@ -328,11 +292,13 @@ async fn test_get_error_failed_job() {
         .await
         .expect("register should succeed");
 
-    storage.start(job_id).await.expect("start should succeed");
+    apply_update(
+        &storage,
+        JobStateUpdate::new(job_id, JobState::Ready, JobState::Running),
+    )
+    .await;
 
-    InternalJobOrchestration::fail(&storage, job_id, "something broke".to_string())
-        .await
-        .expect("fail should succeed");
+    apply_update(&storage, failure(job_id, "something broke")).await;
 
     let error_msg = storage
         .get_error(job_id)
@@ -363,274 +329,6 @@ async fn test_get_error_wrong_state() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_cancel_job_with_cleanup_transitions_to_cleanup_ready() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, false, true);
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    InternalJobOrchestration::cancel(&storage, job_id, true)
-        .await
-        .expect("cancel should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::CleanupReady);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_cancel_already_terminal() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    InternalJobOrchestration::cancel(&storage, job_id, false)
-        .await
-        .expect("first cancel should succeed");
-
-    let result = InternalJobOrchestration::cancel(&storage, job_id, false).await;
-    match result {
-        Err(DbError::InvalidJobStateTransition { from, to }) => {
-            assert_eq!(from, JobState::Cancelled);
-            assert_eq!(to, JobState::Cancelled);
-        }
-        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_set_state_valid_transition() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    InternalJobOrchestration::set_state(&storage, job_id, JobState::Running)
-        .await
-        .expect("set_state should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Running);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_set_state_invalid_transition() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    // Ready -> Succeeded is not a valid transition
-    let result = InternalJobOrchestration::set_state(&storage, job_id, JobState::Succeeded).await;
-    match result {
-        Err(DbError::InvalidJobStateTransition { from, to }) => {
-            assert_eq!(from, JobState::Ready);
-            assert_eq!(to, JobState::Succeeded);
-        }
-        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_commit_outputs_without_commit_task() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    InternalJobOrchestration::commit_outputs(&storage, job_id, vec![vec![]], false)
-        .await
-        .expect("commit_outputs should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Succeeded);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_commit_outputs_with_commit_task() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, true, false);
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    // Transition to Running via set_state
-    InternalJobOrchestration::set_state(&storage, job_id, JobState::Running)
-        .await
-        .expect("set_state should succeed");
-
-    InternalJobOrchestration::commit_outputs(&storage, job_id, vec![vec![]], true)
-        .await
-        .expect("commit_outputs should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::CommitReady);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_cancel_commit_ready_job_without_cleanup_transitions_to_cancelled() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = build_flat_task_graph(1, TEST_INPUT_PAYLOAD_SIZE, true, false);
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    InternalJobOrchestration::commit_outputs(&storage, job_id, vec![vec![]], true)
-        .await
-        .expect("commit_outputs should succeed");
-
-    InternalJobOrchestration::cancel(&storage, job_id, false)
-        .await
-        .expect("cancel should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Cancelled);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_commit_outputs_wrong_state() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    // Job is in Ready state, not Running
-    let result =
-        InternalJobOrchestration::commit_outputs(&storage, job_id, vec![vec![]], false).await;
-    match result {
-        Err(DbError::InvalidJobStateTransition { from, to }) => {
-            assert_eq!(from, JobState::Ready);
-            assert_eq!(to, JobState::Succeeded);
-        }
-        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_fail_job() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    InternalJobOrchestration::fail(&storage, job_id, "some error".to_string())
-        .await
-        .expect("fail should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Failed);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_fail_terminal_state() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    storage.start(job_id).await.expect("start should succeed");
-
-    InternalJobOrchestration::fail(&storage, job_id, "first error".to_string())
-        .await
-        .expect("first fail should succeed");
-
-    let result = InternalJobOrchestration::fail(&storage, job_id, "second error".to_string()).await;
-    match result {
-        Err(DbError::InvalidJobStateTransition { from, to }) => {
-            assert_eq!(from, JobState::Failed);
-            assert_eq!(to, JobState::Failed);
-        }
-        other => panic!("expected InvalidJobStateTransition, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
 async fn test_delete_expired_terminated_jobs() {
     let storage = create_mariadb_connector().await;
@@ -643,11 +341,13 @@ async fn test_delete_expired_terminated_jobs() {
         .await
         .expect("register should succeed");
 
-    storage.start(job_id).await.expect("start should succeed");
+    apply_update(
+        &storage,
+        JobStateUpdate::new(job_id, JobState::Ready, JobState::Running),
+    )
+    .await;
 
-    InternalJobOrchestration::fail(&storage, job_id, "expired".to_string())
-        .await
-        .expect("fail should succeed");
+    apply_update(&storage, failure(job_id, "expired")).await;
 
     // Wait so that `ended_at` is strictly in the past relative to NOW() - INTERVAL.
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -857,33 +557,6 @@ async fn test_verify_nonexistent_resource_group() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_start_job_not_found() {
-    let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::random();
-
-    let result = storage.start(fake_job_id).await;
-    assert!(
-        matches!(result, Err(DbError::JobNotFound(_))),
-        "expected JobNotFound, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_set_state_job_not_found() {
-    let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::random();
-
-    let result =
-        InternalJobOrchestration::set_state(&storage, fake_job_id, JobState::Running).await;
-    assert!(
-        matches!(result, Err(DbError::JobNotFound(_))),
-        "expected JobNotFound, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
 async fn test_get_state_job_not_found() {
     let storage = create_mariadb_connector().await;
     let fake_job_id = JobId::random();
@@ -923,70 +596,6 @@ async fn test_get_error_job_not_found() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn test_commit_outputs_job_not_found() {
-    let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::random();
-
-    let result =
-        InternalJobOrchestration::commit_outputs(&storage, fake_job_id, vec![vec![]], false).await;
-    assert!(
-        matches!(result, Err(DbError::JobNotFound(_))),
-        "expected JobNotFound, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_cancel_job_not_found() {
-    let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::random();
-
-    let result = InternalJobOrchestration::cancel(&storage, fake_job_id, false).await;
-    assert!(
-        matches!(result, Err(DbError::JobNotFound(_))),
-        "expected JobNotFound, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_fail_job_not_found() {
-    let storage = create_mariadb_connector().await;
-    let fake_job_id = JobId::random();
-
-    let result = InternalJobOrchestration::fail(&storage, fake_job_id, "error".to_string()).await;
-    assert!(
-        matches!(result, Err(DbError::JobNotFound(_))),
-        "expected JobNotFound, got {result:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn test_cancel_from_ready_state() {
-    let storage = create_mariadb_connector().await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let (graph, task_graph_input) = single_task_graph();
-    let job_submission = create_validated_submission(graph, task_graph_input);
-
-    let job_id = storage
-        .register(rg_id, &job_submission)
-        .await
-        .expect("register should succeed");
-
-    InternalJobOrchestration::cancel(&storage, job_id, false)
-        .await
-        .expect("cancel from Ready should succeed");
-
-    let state = storage
-        .get_state(job_id)
-        .await
-        .expect("get_state should succeed");
-    assert_eq!(state, JobState::Cancelled);
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
 #[serial_test::file_serial]
 async fn test_delete_expired_terminated_jobs_no_match() {
     let storage = create_mariadb_connector().await;
@@ -999,11 +608,13 @@ async fn test_delete_expired_terminated_jobs_no_match() {
         .await
         .expect("register should succeed");
 
-    storage.start(job_id).await.expect("start should succeed");
+    apply_update(
+        &storage,
+        JobStateUpdate::new(job_id, JobState::Ready, JobState::Running),
+    )
+    .await;
 
-    InternalJobOrchestration::fail(&storage, job_id, "recent failure".to_string())
-        .await
-        .expect("fail should succeed");
+    apply_update(&storage, failure(job_id, "recent failure")).await;
 
     // Large window — the just-failed job should not be expired yet.
     let deleted = storage
