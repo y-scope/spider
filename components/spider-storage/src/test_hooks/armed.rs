@@ -10,6 +10,8 @@ use spider_utils::shutdown::ShutdownHandle;
 use tokio::sync::Notify;
 use tokio::sync::Semaphore;
 
+use crate::cache::error::CacheError;
+use crate::cache::error::InternalError;
 use crate::test_hooks::EventKindTag;
 use crate::test_hooks::HookContext;
 use crate::test_hooks::HookPoint;
@@ -104,6 +106,17 @@ impl InjectedFault {
     }
 }
 
+impl From<InjectedFault> for CacheError {
+    fn from(fault: InjectedFault) -> Self {
+        match fault {
+            InjectedFault::Stopping => Self::ServiceStopping,
+            fault @ InjectedFault::Crash(_) => {
+                InternalError::InjectedFault(format!("{fault:?}")).into()
+            }
+        }
+    }
+}
+
 /// The hooks of one storage runtime.
 #[derive(Clone, Default)]
 pub struct TestHooks {
@@ -152,6 +165,14 @@ impl TestHooks {
         ArmedHook {
             state,
             hooks: self.clone(),
+        }
+    }
+
+    /// Releases every waiter of every hook armed now, and makes every later pause of those hooks
+    /// return at once.
+    pub fn release_all(&self) {
+        for hook in &self.lock().hooks {
+            hook.semaphore.close();
         }
     }
 

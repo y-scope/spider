@@ -1019,6 +1019,7 @@ mod tests {
     use crate::state::test_utils::MockDbConnector;
     use crate::state::test_utils::MockInboundQueueSender;
     use crate::state::test_utils::MockTaskInstancePoolConnector;
+    use crate::test_hooks::TestHooks;
 
     type TestGrpcServiceState =
         GrpcServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
@@ -1109,6 +1110,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             shutdown_handle: shutdown_handle.clone(),
+            hooks: TestHooks::default(),
         });
         GrpcServiceState::new(service_state, shutdown_handle)
     }

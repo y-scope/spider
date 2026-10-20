@@ -451,8 +451,6 @@ impl Plan {
 /// * The state of the event's job, which is in the tree, was not collected.
 /// * A `Ready` root's `Start`, or a `Running` job's `RegularTasksDone`, has no collected input.
 /// * A `CancelRoot` does not name the root of the tree.
-// TODO: remove this `allow` once the tree committer plans its events with this function.
-#[allow(dead_code)]
 #[must_use]
 pub(crate) fn plan_event(
     structure: &TreeStructure,

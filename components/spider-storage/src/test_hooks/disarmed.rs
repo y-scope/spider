@@ -2,6 +2,7 @@
 
 use spider_utils::shutdown::ShutdownHandle;
 
+use crate::cache::error::CacheError;
 use crate::test_hooks::HookContext;
 use crate::test_hooks::HookPoint;
 
@@ -16,6 +17,12 @@ impl InjectedFault {
     #[must_use]
     pub const fn is_stopping(self) -> bool {
         match self {}
+    }
+}
+
+impl From<InjectedFault> for CacheError {
+    fn from(fault: InjectedFault) -> Self {
+        match fault {}
     }
 }
 

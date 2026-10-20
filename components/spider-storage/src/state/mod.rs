@@ -3,6 +3,7 @@ pub mod job_cache;
 pub mod job_cache_gc;
 pub mod runtime;
 pub mod service;
+pub mod tree_committer;
 
 pub use error::StorageServerError;
 pub use job_cache::JobCache;
@@ -11,8 +12,11 @@ pub use job_cache_gc::JobCacheGcHandle;
 pub use job_cache_gc::create_job_cache_gc;
 pub use runtime::Runtime;
 pub use runtime::create_runtime;
+pub use runtime::create_runtime_with_hooks;
 pub use service::ServiceState;
 pub use service::ServiceStateParams;
+pub use tree_committer::TreeEnv;
+pub use tree_committer::create_root_tree;
 
 #[cfg(test)]
 pub(crate) mod test_utils;

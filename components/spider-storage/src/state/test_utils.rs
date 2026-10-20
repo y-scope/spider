@@ -15,10 +15,14 @@ use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
 use spider_core::types::scheduler::RegisteredScheduler;
+use spider_utils::shutdown::ShutdownHandle;
+use tokio::sync::mpsc;
+use tokio_util::task::TaskTracker;
 
 use crate::cache::error::InternalError;
 use crate::cache::task::SharedTaskControlBlock;
 use crate::cache::task::SharedTerminationTaskControlBlock;
+use crate::cache::tree::TreeControlBlock;
 use crate::db::DbError;
 use crate::db::DbStorage;
 use crate::db::ExecutionManagerLivenessManagement;
@@ -31,8 +35,12 @@ use crate::db::SessionManagement;
 use crate::db::TreeTransition;
 use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::state::JobCache;
+use crate::state::JobCacheGcHandle;
+use crate::state::TreeEnv;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::TestHooks;
 
 /// The maximum total size of one job's outputs that [`MockDbConnector`] accepts in a tree
 /// transition.
@@ -402,4 +410,49 @@ impl TaskInstancePoolConnector for MockTaskInstancePoolConnector {
     ) -> Result<(), InternalError> {
         Ok(())
     }
+}
+
+/// # Returns
+///
+/// The control block of a tree rooted at `root_id` that has no committer: every event submitted
+/// through it is answered as if the tree were quiescent.
+#[must_use]
+pub fn create_detached_tree(root_id: JobId) -> TreeControlBlock {
+    TreeControlBlock::new(root_id, ShutdownHandle::new(), TestHooks::default()).0
+}
+
+/// Creates a tree environment over `db` and `inbound_queue_sender`, with a fresh job cache,
+/// shutdown handle, task tracker and test hooks.
+///
+/// # Returns
+///
+/// A pair, containing:
+///
+/// * The tree environment.
+/// * The receiver of the jobs that the environment enqueues for cache GC.
+#[must_use]
+pub fn create_test_tree_env<InboundQueueSenderType: InboundQueueSender>(
+    db: MockDbConnector,
+    inbound_queue_sender: InboundQueueSenderType,
+) -> (
+    TreeEnv<InboundQueueSenderType, MockDbConnector, MockTaskInstancePoolConnector>,
+    mpsc::UnboundedReceiver<JobId>,
+) {
+    let (job_cache_gc_sender, job_cache_gc_receiver) = mpsc::unbounded_channel();
+    let shutdown_handle = ShutdownHandle::new();
+    let hooks = TestHooks::default();
+    hooks.register_runtime(&shutdown_handle);
+    (
+        TreeEnv {
+            db,
+            job_cache: JobCache::new(),
+            job_cache_gc_handle: JobCacheGcHandle::new(job_cache_gc_sender),
+            inbound_queue_sender,
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            shutdown_handle,
+            task_tracker: TaskTracker::new(),
+            hooks,
+        },
+        job_cache_gc_receiver,
+    )
 }
