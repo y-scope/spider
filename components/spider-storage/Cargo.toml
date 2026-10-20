@@ -15,6 +15,10 @@ path = "src/bin/grpc_server.rs"
 [[test]]
 name = "test_spider_storage"
 path = "tests/test_spider_storage.rs"
+required-features = ["test-hooks"]
+
+[features]
+test-hooks = []
 
 [dependencies]
 async-channel = { workspace = true }
