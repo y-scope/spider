@@ -9,7 +9,7 @@ use crate::db::DbError;
 #[derive(thiserror::Error, Debug)]
 pub enum StorageServerError {
     #[error(transparent)]
-    Cache(#[from] CacheError),
+    Cache(CacheError),
 
     #[error(transparent)]
     Db(#[from] DbError),
@@ -31,4 +31,13 @@ pub enum StorageServerError {
 
     #[error("serde: {0}")]
     Serde(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<CacheError> for StorageServerError {
+    fn from(error: CacheError) -> Self {
+        match error {
+            CacheError::ServiceStopping => Self::Stopping(error.to_string()),
+            error => Self::Cache(error),
+        }
+    }
 }
