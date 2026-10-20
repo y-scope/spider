@@ -1330,12 +1330,15 @@ async fn kill_fence_blockers(
     waiting_connection_id: u64,
 ) -> Result<(), sqlx::Error> {
     const SELECT_BLOCKERS_QUERY: &str =
-        "SELECT DISTINCT `b`.`trx_mysql_thread_id` FROM `information_schema`.`INNODB_LOCK_WAITS` \
-         `w` JOIN `information_schema`.`INNODB_TRX` `r` ON `r`.`trx_id` = `w`.`requesting_trx_id` \
-         JOIN `information_schema`.`INNODB_TRX` `b` ON `b`.`trx_id` = `w`.`blocking_trx_id` JOIN \
-         `information_schema`.`PROCESSLIST` `p` ON `p`.`ID` = `b`.`trx_mysql_thread_id` WHERE \
-         `r`.`trx_mysql_thread_id` = ? AND `b`.`trx_mysql_thread_id` <> ? AND `p`.`DB` = \
-         DATABASE() AND `b`.`trx_started` <= `r`.`trx_wait_started`;";
+        "SELECT DISTINCT `blocker`.`trx_mysql_thread_id` FROM \
+         `information_schema`.`INNODB_LOCK_WAITS` `lock_wait` JOIN \
+         `information_schema`.`INNODB_TRX` `waiter` ON `waiter`.`trx_id` = \
+         `lock_wait`.`requesting_trx_id` JOIN `information_schema`.`INNODB_TRX` `blocker` ON \
+         `blocker`.`trx_id` = `lock_wait`.`blocking_trx_id` JOIN \
+         `information_schema`.`PROCESSLIST` `blocker_process` ON `blocker_process`.`ID` = \
+         `blocker`.`trx_mysql_thread_id` WHERE `waiter`.`trx_mysql_thread_id` = ? AND \
+         `blocker`.`trx_mysql_thread_id` <> ? AND `blocker_process`.`DB` = DATABASE() AND \
+         `blocker`.`trx_started` <= `waiter`.`trx_wait_started`;";
 
     let blocker_connection_ids: Vec<u64> = sqlx::query_scalar(SELECT_BLOCKERS_QUERY)
         .bind(waiting_connection_id)
