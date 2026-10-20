@@ -24,7 +24,7 @@ use sqlx::MySqlPool;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
 
-use super::mariadb_infra::ScratchDatabase;
+use super::mariadb_infra::IsolatedTestDb;
 use super::mariadb_infra::create_mariadb_config;
 use super::mariadb_infra::create_mariadb_connector;
 use super::mariadb_infra::create_raw_pool;
@@ -167,8 +167,8 @@ async fn test_register_job_invalid_resource_group() {
 #[ignore = "requires MariaDB"]
 async fn a_register_over_the_packet_size_writes_no_row() -> anyhow::Result<()> {
     let job_submission = submission_with_input(b"fits");
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let raw_pool = create_raw_pool(&config).await;
     let storage = MariaDbStorageConnector::connect(&config).await?;
     let rg_id = create_test_resource_group(&storage).await;
@@ -193,7 +193,7 @@ async fn a_register_over_the_packet_size_writes_no_row() -> anyhow::Result<()> {
 
     raw_pool.close().await;
     drop(storage);
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 

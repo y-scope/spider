@@ -27,7 +27,7 @@ use spider_storage::state::create_runtime;
 use spider_storage::state::runtime::RuntimeConfig;
 use spider_storage::task_instance_pool::TaskInstancePoolConfig;
 
-use crate::mariadb_infra::ScratchDatabase;
+use crate::mariadb_infra::IsolatedTestDb;
 use crate::mariadb_infra::create_mariadb_config;
 use crate::mariadb_infra::create_mariadb_connector;
 use crate::task_graph_builder::build_flat_task_graph;
@@ -295,11 +295,11 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyhow::Result<()> {
-    let scratch = ScratchDatabase::create().await;
+    let isolated_test_db = IsolatedTestDb::create().await;
     let config = RuntimeConfig {
         db: DatabaseConfig {
             fence_id: Some(1),
-            ..scratch.config()
+            ..isolated_test_db.config()
         },
         ..create_runtime_config()
     };
@@ -332,7 +332,7 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
     );
     let reader = MariaDbStorageConnector::connect(&DatabaseConfig {
         fence_id: Some(2),
-        ..scratch.config()
+        ..isolated_test_db.config()
     })
     .await?;
     assert_eq!(service.get_job_state(job_id).await?, JobState::Ready);
@@ -342,7 +342,7 @@ async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyh
 
     runtime.stop().await?;
     superseded_runtime.stop().await?;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 

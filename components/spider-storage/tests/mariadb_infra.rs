@@ -21,19 +21,19 @@ use sqlx::mysql::MySqlPoolOptions;
 ///
 /// The database is dropped by [`Self::drop_database`], or otherwise when the value is dropped,
 /// including when the test panics.
-pub struct ScratchDatabase {
+pub struct IsolatedTestDb {
     name: String,
     test_username: String,
     root_options: MySqlConnectOptions,
     is_dropped: bool,
 }
 
-impl ScratchDatabase {
+impl IsolatedTestDb {
     /// Creates a uniquely named database and grants the test user every privilege on it.
     ///
     /// # Returns
     ///
-    /// The newly created [`ScratchDatabase`].
+    /// The newly created [`IsolatedTestDb`].
     ///
     /// # Panics
     ///
@@ -54,12 +54,12 @@ impl ScratchDatabase {
              `SPIDER_STORAGE_DB_PASSWORD` if it is unset",
         );
 
-        let name = format!("scratch_{:016x}", rand::random::<u64>());
+        let name = format!("isolated_test_{:016x}", rand::random::<u64>());
         sqlx::raw_sql(&format!("CREATE DATABASE `{name}`;"))
             .execute(&mut root_connection)
             .await
-            .expect("scratch database creation should succeed");
-        let scratch = Self {
+            .expect("isolated test database creation should succeed");
+        let isolated_test_db = Self {
             name,
             test_username: base_config.credentials.username,
             root_options,
@@ -67,17 +67,17 @@ impl ScratchDatabase {
         };
         sqlx::raw_sql(&format!(
             "GRANT ALL PRIVILEGES ON `{name}`.* TO '{username}'@'%';",
-            name = scratch.name,
-            username = scratch.test_username,
+            name = isolated_test_db.name,
+            username = isolated_test_db.test_username,
         ))
         .execute(&mut root_connection)
         .await
-        .expect("scratch database grant should succeed");
+        .expect("isolated test database grant should succeed");
         root_connection
             .close()
             .await
             .expect("closing the `root` connection should succeed");
-        scratch
+        isolated_test_db
     }
 
     /// # Returns
@@ -129,9 +129,9 @@ impl ScratchDatabase {
     ///
     /// Panics if the database drop fails.
     pub async fn drop_database(mut self) {
-        drop_scratch_database(&self.root_options, &self.name, &self.test_username)
+        drop_isolated_test_db(&self.root_options, &self.name, &self.test_username)
             .await
-            .expect("scratch database drop should succeed");
+            .expect("isolated test database drop should succeed");
         self.is_dropped = true;
     }
 
@@ -146,9 +146,9 @@ impl ScratchDatabase {
     ///
     /// Panics if the connection as `root`, the user creation or a grant fails.
     async fn create_user(&self, has_process_privilege: bool) -> DatabaseCredentials {
-        const PASSWORD: &str = "scratch-password";
+        const PASSWORD: &str = "isolated-test-password";
 
-        let username = scratch_username(&self.name, has_process_privilege);
+        let username = isolated_test_db_username(&self.name, has_process_privilege);
         let mut root_connection = self
             .root_options
             .connect()
@@ -161,7 +161,7 @@ impl ScratchDatabase {
         ))
         .execute(&mut root_connection)
         .await
-        .expect("the scratch user creation should succeed");
+        .expect("the isolated test database user creation should succeed");
         if has_process_privilege {
             sqlx::raw_sql(&format!("GRANT PROCESS ON *.* TO '{username}'@'%';"))
                 .execute(&mut root_connection)
@@ -179,7 +179,7 @@ impl ScratchDatabase {
     }
 }
 
-impl Drop for ScratchDatabase {
+impl Drop for IsolatedTestDb {
     fn drop(&mut self) {
         if self.is_dropped {
             return;
@@ -193,15 +193,18 @@ impl Drop for ScratchDatabase {
                 .build()
                 .map_err(sqlx::Error::Io)?
                 .block_on(async {
-                    kill_scratch_database_connections(&root_options, &name).await?;
-                    drop_scratch_database(&root_options, &name, &test_username).await
+                    kill_isolated_test_db_connections(&root_options, &name).await?;
+                    drop_isolated_test_db(&root_options, &name, &test_username).await
                 })
         })
         .join();
         match drop_result {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => eprintln!("Failed to drop scratch database `{}`: {e}", self.name),
-            Err(_) => eprintln!("Panicked while dropping scratch database `{}`.", self.name),
+            Ok(Err(e)) => eprintln!("Failed to drop isolated test database `{}`: {e}", self.name),
+            Err(_) => eprintln!(
+                "Panicked while dropping isolated test database `{}`.",
+                self.name
+            ),
         }
     }
 }
@@ -391,7 +394,7 @@ pub fn has_mysql_error_number(error: &sqlx::Error, number: u16) -> bool {
 /// * Forwards [`sqlx::ConnectOptions::connect`]'s return values on failure.
 /// * Forwards [`sqlx::query::QueryScalar::fetch_all`]'s return values on failure.
 /// * Forwards [`sqlx::Connection::close`]'s return values on failure.
-async fn kill_scratch_database_connections(
+async fn kill_isolated_test_db_connections(
     root_options: &MySqlConnectOptions,
     name: &str,
 ) -> Result<(), sqlx::Error> {
@@ -415,8 +418,8 @@ async fn kill_scratch_database_connections(
 }
 
 /// Revokes `test_username`'s privileges on the database `name`, then drops the database and the
-/// users that [`ScratchDatabase::create_user_without_global_privileges`] and
-/// [`ScratchDatabase::create_user_with_the_process_privilege`] may have created for it, over a new
+/// users that [`IsolatedTestDb::create_user_without_global_privileges`] and
+/// [`IsolatedTestDb::create_user_with_the_process_privilege`] may have created for it, over a new
 /// connection made with `root_options`.
 ///
 /// # Errors
@@ -426,7 +429,7 @@ async fn kill_scratch_database_connections(
 /// * Forwards [`sqlx::ConnectOptions::connect`]'s return values on failure.
 /// * Forwards [`sqlx::RawSql::execute`]'s return values on failure, other than a missing grant.
 /// * Forwards [`sqlx::Connection::close`]'s return values on failure.
-async fn drop_scratch_database(
+async fn drop_isolated_test_db(
     root_options: &MySqlConnectOptions,
     name: &str,
     test_username: &str,
@@ -447,8 +450,8 @@ async fn drop_scratch_database(
     sqlx::raw_sql(&format!(
         "DROP DATABASE IF EXISTS `{name}`; DROP USER IF EXISTS '{username}'@'%', \
          '{process_username}'@'%';",
-        username = scratch_username(name, false),
-        process_username = scratch_username(name, true),
+        username = isolated_test_db_username(name, false),
+        process_username = isolated_test_db_username(name, true),
     ))
     .execute(&mut root_connection)
     .await?;
@@ -457,9 +460,9 @@ async fn drop_scratch_database(
 
 /// # Returns
 ///
-/// The name of the user that [`ScratchDatabase::create_user`] creates for the database `name`,
+/// The name of the user that [`IsolatedTestDb::create_user`] creates for the database `name`,
 /// with the global `PROCESS` privilege if `has_process_privilege` is set.
-fn scratch_username(name: &str, has_process_privilege: bool) -> String {
+fn isolated_test_db_username(name: &str, has_process_privilege: bool) -> String {
     if has_process_privilege {
         return format!("{name}_process_user");
     }

@@ -13,7 +13,7 @@ use sqlx::Connection;
 use sqlx::MySqlConnection;
 use sqlx::mysql::MySqlConnectOptions;
 
-use super::mariadb_infra::ScratchDatabase;
+use super::mariadb_infra::IsolatedTestDb;
 use super::mariadb_infra::create_test_resource_group;
 
 #[tokio::test]
@@ -53,7 +53,7 @@ async fn no_check_connection_before_use_hands_out_a_killed_idle_connection() -> 
 ///
 /// * The connector fails to connect.
 /// * The kill fails.
-/// * Forwards [`ScratchDatabase::create`]'s, [`ScratchDatabase::drop_database`]'s,
+/// * Forwards [`IsolatedTestDb::create`]'s, [`IsolatedTestDb::drop_database`]'s,
 ///   [`create_test_resource_group`]'s, [`connect_outside_database`]'s and
 ///   [`wait_for_connection_ids`]'s panics.
 async fn add_resource_group_after_killing_the_idle_connection(
@@ -64,8 +64,8 @@ async fn add_resource_group_after_killing_the_idle_connection(
     const IDLE_CONNECTION_IDS_QUERY: &str = "SELECT `ID` FROM `information_schema`.`PROCESSLIST` \
                                              WHERE `DB` = ? AND `COMMAND` = 'Sleep';";
 
-    let scratch = ScratchDatabase::create().await;
-    let base_config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let base_config = isolated_test_db.config();
     let config = DatabaseConfig {
         max_connections: 1,
         pool: DatabasePoolConfig {
@@ -112,7 +112,7 @@ async fn add_resource_group_after_killing_the_idle_connection(
         .close()
         .await
         .expect("closing the observer connection should succeed");
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     result
 }
 

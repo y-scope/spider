@@ -15,7 +15,7 @@ use spider_storage::job_submission::ValidatedJobSubmission;
 use sqlx::Acquire;
 use sqlx::MySqlPool;
 
-use super::mariadb_infra::ScratchDatabase;
+use super::mariadb_infra::IsolatedTestDb;
 use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
 use super::mariadb_infra::has_mysql_error_number;
@@ -31,8 +31,8 @@ const SELECT_FENCE_FOR_SHARE_QUERY: &str =
 #[ignore = "requires MariaDB"]
 async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyhow::Result<()> {
     let job_submission = flat_submission();
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let raw_pool = create_raw_pool(&config).await;
     let older = connect(&config).await;
     let rg_id = create_test_resource_group(&older).await;
@@ -104,22 +104,22 @@ async fn newer_connector_fences_off_older_connector_with_same_fence_id() -> anyh
     newer.register(rg_id, &job_submission).await?;
 
     raw_pool.close().await;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn connectors_with_different_fence_ids_are_independent() -> anyhow::Result<()> {
-    let scratch = ScratchDatabase::create().await;
+    let isolated_test_db = IsolatedTestDb::create().await;
     let first = connect(&DatabaseConfig {
         fence_id: Some(1),
-        ..scratch.config()
+        ..isolated_test_db.config()
     })
     .await;
     let second = connect(&DatabaseConfig {
         fence_id: Some(2),
-        ..scratch.config()
+        ..isolated_test_db.config()
     })
     .await;
     let rg_id = create_test_resource_group(&first).await;
@@ -129,17 +129,19 @@ async fn connectors_with_different_fence_ids_are_independent() -> anyhow::Result
     let second_job_id = second.register(rg_id, &job_submission).await?;
     first.start(first_job_id).await?;
     second.start(second_job_id).await?;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Result<()> {
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let unprivileged_config = DatabaseConfig {
-        credentials: scratch.create_user_without_global_privileges().await,
+        credentials: isolated_test_db
+            .create_user_without_global_privileges()
+            .await,
         ..config.clone()
     };
     let older = connect(&config).await;
@@ -219,17 +221,19 @@ async fn connect_waits_for_transactions_that_passed_the_fence() -> anyhow::Resul
     drop(raw_connection);
     raw_pool.close().await;
     root_pool.close().await;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn writes_that_passed_the_fence_hold_it_until_they_commit() -> anyhow::Result<()> {
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let unprivileged_config = DatabaseConfig {
-        credentials: scratch.create_user_without_global_privileges().await,
+        credentials: isolated_test_db
+            .create_user_without_global_privileges()
+            .await,
         ..config.clone()
     };
     let root_pool = create_root_pool(&config).await;
@@ -265,7 +269,7 @@ async fn writes_that_passed_the_fence_hold_it_until_they_commit() -> anyhow::Res
         "{config:?}"
     );
     root_pool.close().await;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
@@ -274,8 +278,8 @@ async fn writes_that_passed_the_fence_hold_it_until_they_commit() -> anyhow::Res
 async fn connect_never_lowers_the_fence() -> anyhow::Result<()> {
     const SELECT_FENCE_QUERY: &str = "SELECT `session_id` FROM `storage_fence` WHERE `id` = ?;";
 
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let raw_pool = create_raw_pool(&config).await;
     let older = connect(&config).await;
     let rg_id = create_test_resource_group(&older).await;
@@ -303,7 +307,7 @@ async fn connect_never_lowers_the_fence() -> anyhow::Result<()> {
         "expected Fenced, got {result:?}"
     );
     raw_pool.close().await;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
@@ -314,8 +318,8 @@ async fn connect_kills_an_orphaned_fence_holder_when_privileged() -> anyhow::Res
         "SELECT `id` FROM `resource_groups` WHERE `id` = ? FOR UPDATE;";
 
     for is_root_the_killer in [true, false] {
-        let scratch = ScratchDatabase::create().await;
-        let config = scratch.config();
+        let isolated_test_db = IsolatedTestDb::create().await;
+        let config = isolated_test_db.config();
         let root_config = DatabaseConfig {
             credentials: root_credentials(),
             ..config.clone()
@@ -324,7 +328,9 @@ async fn connect_kills_an_orphaned_fence_holder_when_privileged() -> anyhow::Res
             (config, root_config.clone())
         } else {
             let process_privileged_config = DatabaseConfig {
-                credentials: scratch.create_user_with_the_process_privilege().await,
+                credentials: isolated_test_db
+                    .create_user_with_the_process_privilege()
+                    .await,
                 ..config
             };
             (process_privileged_config.clone(), process_privileged_config)
@@ -382,7 +388,7 @@ async fn connect_kills_an_orphaned_fence_holder_when_privileged() -> anyhow::Res
         drop(unrelated_holder_connection);
         raw_pool.close().await;
         root_pool.close().await;
-        scratch.drop_database().await;
+        isolated_test_db.drop_database().await;
     }
     Ok(())
 }
@@ -390,10 +396,12 @@ async fn connect_kills_an_orphaned_fence_holder_when_privileged() -> anyhow::Res
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn connect_retries_the_fence_bump_without_the_process_privilege() -> anyhow::Result<()> {
-    let scratch = ScratchDatabase::create().await;
-    let user_config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let user_config = isolated_test_db.config();
     let unprivileged_config = DatabaseConfig {
-        credentials: scratch.create_user_without_global_privileges().await,
+        credentials: isolated_test_db
+            .create_user_without_global_privileges()
+            .await,
         ..user_config.clone()
     };
     let _older = connect(&user_config).await;
@@ -424,7 +432,7 @@ async fn connect_retries_the_fence_bump_without_the_process_privilege() -> anyho
     drop(orphan_connection);
     raw_pool.close().await;
     unprivileged_pool.close().await;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
@@ -432,8 +440,8 @@ async fn connect_retries_the_fence_bump_without_the_process_privilege() -> anyho
 #[ignore = "requires MariaDB"]
 async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Result<()> {
     let job_submission = flat_submission();
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let raw_pool = create_raw_pool(&config).await;
     let storage = connect(&config).await;
     let rg_id = create_test_resource_group(&storage).await;
@@ -485,7 +493,7 @@ async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Resu
     newer.start(ready_job_id).await?;
 
     raw_pool.close().await;
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 
@@ -493,8 +501,8 @@ async fn a_state_mismatch_or_a_missing_fence_row_is_not_fenced() -> anyhow::Resu
 #[ignore = "requires MariaDB"]
 async fn register_maps_a_missing_resource_group() {
     let missing_rg_id = ResourceGroupId::from(u64::MAX);
-    let scratch = ScratchDatabase::create().await;
-    let config = scratch.config();
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = isolated_test_db.config();
     let storage = connect(&config).await;
 
     let result = storage.register(missing_rg_id, &flat_submission()).await;
@@ -503,7 +511,7 @@ async fn register_maps_a_missing_resource_group() {
         matches!(result, Err(DbError::ResourceGroupNotFound(id)) if id == missing_rg_id),
         "expected ResourceGroupNotFound with {config:?}, got {result:?}"
     );
-    scratch.drop_database().await;
+    isolated_test_db.drop_database().await;
 }
 
 /// # Returns
