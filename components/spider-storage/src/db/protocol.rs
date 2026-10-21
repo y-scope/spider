@@ -29,6 +29,48 @@ pub struct RecoverableJobContext {
     pub outputs: Option<Vec<TaskOutput>>,
 }
 
+/// One guarded job state update of a tree transition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobStateUpdate {
+    pub job_id: JobId,
+
+    /// The exact state the job's row must be in.
+    pub from: JobState,
+
+    pub to: JobState,
+
+    /// The job outputs to persist, if any.
+    pub outputs: Option<Vec<TaskOutput>>,
+
+    /// The error message to persist, if any.
+    pub error_message: Option<String>,
+}
+
+impl JobStateUpdate {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// An update of `job_id` from `from` to `to` that writes no outputs and no error message.
+    #[must_use]
+    pub const fn new(job_id: JobId, from: JobState, to: JobState) -> Self {
+        Self {
+            job_id,
+            from,
+            to,
+            outputs: None,
+            error_message: None,
+        }
+    }
+}
+
+/// The database part of one tree state transaction: every job row it updates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeTransition {
+    /// At most one update per job.
+    pub updates: Vec<JobStateUpdate>,
+}
+
 /// The database storage interface. A database storage must implement the following traits:
 ///
 /// * [`ExternalJobOrchestration`]
@@ -140,6 +182,29 @@ pub trait ExternalJobOrchestration {
 /// Defines the internal storage interface for job storage in the database.
 #[async_trait]
 pub trait InternalJobOrchestration: Clone + Send + Sync {
+    /// Writes one tree transition in a single fenced database transaction.
+    ///
+    /// Every update is guarded by its exact `from` state. Nothing is written unless every update
+    /// matches its row.
+    ///
+    /// # Parameters
+    ///
+    /// * `transition` - The updates to write.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
+    /// * [`DbError::OutputsTooLarge`] if an update's serialized outputs are too large for one
+    ///   statement. Nothing is sent to the database then.
+    /// * [`DbError::ValueSerializationFailure`] if an update's outputs fail to serialize.
+    /// * [`DbError::CorruptedDbState`] if:
+    ///   * An update's row is missing or not in its `from` state.
+    ///   * The storage fence row does not exist.
+    /// * Forwards [`sqlx::error::Error`] on DB operation failure.
+    async fn apply_tree_transition(&self, transition: TreeTransition) -> Result<(), DbError>;
+
     /// Starts a job.
     ///
     /// # Parameters
