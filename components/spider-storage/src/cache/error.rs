@@ -76,6 +76,10 @@ pub enum InternalError {
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 
+    #[cfg(feature = "test-hooks")]
+    #[error("injected fault: {0}")]
+    InjectedFault(String),
+
     #[error("task instance pool corrupted: {0}")]
     TaskInstancePoolCorrupted(String),
 

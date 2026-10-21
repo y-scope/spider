@@ -24,6 +24,7 @@ use crate::task_instance_pool::TaskInstancePoolConfig;
 use crate::task_instance_pool::TaskInstancePoolConnector;
 use crate::task_instance_pool::TaskInstancePoolHandle;
 use crate::task_instance_pool::create_task_instance_pool;
+use crate::test_hooks::TestHooks;
 
 /// Runtime configuration for the storage service.
 #[derive(Clone, Debug, Deserialize)]
@@ -145,7 +146,27 @@ impl<
     }
 }
 
-/// Creates a storage server runtime from the given configurations.
+/// Creates a storage server runtime from the given configurations, with no test hook armed.
+///
+/// # Returns
+///
+/// Forwards [`create_runtime_with_hooks`]'s return values on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`create_runtime_with_hooks`]'s return values on failure.
+pub async fn create_runtime(
+    config: &RuntimeConfig,
+) -> Result<
+    Runtime<InboundQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
+    StorageServerError,
+> {
+    create_runtime_with_hooks(config, TestHooks::default()).await
+}
+
+/// Creates a storage server runtime from the given configurations, with `hooks` as its test hooks.
 ///
 /// # Returns
 ///
@@ -157,9 +178,11 @@ impl<
 ///
 /// * Forwards [`MariaDbStorageConnector::connect`]'s return values on failure.
 /// * Forwards [`create_task_instance_pool`]'s return values on failure.
+/// * Forwards [`recover_job_cache`]'s return values on failure.
 /// * Forwards [`create_job_cache_gc`]'s return values on failure.
-pub async fn create_runtime(
+pub async fn create_runtime_with_hooks(
     config: &RuntimeConfig,
+    hooks: TestHooks,
 ) -> Result<
     Runtime<InboundQueueSenderHandle, MariaDbStorageConnector, TaskInstancePoolHandle>,
     StorageServerError,
@@ -180,6 +203,7 @@ pub async fn create_runtime(
         &db,
         inbound_queue_sender.clone(),
         task_instance_pool_connector.clone(),
+        &hooks,
     )
     .await?;
     let (job_cache_gc_handle, job_cache_gc_join_handle) = create_job_cache_gc(
@@ -197,6 +221,7 @@ pub async fn create_runtime(
         task_instance_pool_connector,
         job_cache_gc_handle,
         shutdown_handle: shutdown_handle.clone(),
+        hooks,
     });
 
     Ok(Runtime {
@@ -210,7 +235,7 @@ pub async fn create_runtime(
 
 const STOP_BACKGROUND_TASKS_TIMEOUT_SEC: u64 = 30;
 
-/// Recovers jobs from persistent storage into the cache.
+/// Recovers jobs from persistent storage into the cache, with `hooks` as their test hooks.
 ///
 /// # Returns
 ///
@@ -231,6 +256,7 @@ async fn recover_job_cache<
     db: &DbConnectorType,
     inbound_queue_sender: InboundQueueSenderType,
     task_instance_pool_connector: TaskInstancePoolConnectorType,
+    hooks: &TestHooks,
 ) -> Result<
     JobCache<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     StorageServerError,
@@ -244,6 +270,7 @@ async fn recover_job_cache<
             inbound_queue_sender.clone(),
             db.clone(),
             task_instance_pool_connector.clone(),
+            hooks.clone(),
         )
         .await?;
         job_cache.insert(jcb).await?;
@@ -301,6 +328,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle,
             shutdown_handle: shutdown_handle.clone(),
+            hooks: TestHooks::default(),
         });
 
         // Wired with a real job cache GC task, which should always be terminated without errors.

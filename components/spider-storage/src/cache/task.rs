@@ -26,6 +26,9 @@ use crate::cache::sync::Reader;
 use crate::cache::sync::SharedRw;
 use crate::cache::sync::Writer;
 use crate::job_submission::ValidatedJobSubmission;
+use crate::test_hooks::HookContext;
+use crate::test_hooks::HookPoint;
+use crate::test_hooks::TestHooks;
 
 /// Represents the task graph in the cache as a collection of TCBs.
 pub struct TaskGraph {
@@ -312,6 +315,9 @@ impl SharedTaskControlBlock {
 
     /// Marks a task instance as succeeded.
     ///
+    /// `hooks` fire at [`HookPoint::PhaseABeforeSuccessorLock`] with the context that `context`
+    /// builds, after the outputs are written.
+    ///
     /// # Returns
     ///
     /// A vector of indices of the child tasks that become ready after the task instance succeeds.
@@ -327,18 +333,24 @@ impl SharedTaskControlBlock {
     ///     in a terminal state.
     /// * Forwards [`TaskControlBlockBase::succeed_task_instance`]'s return values on failure.
     /// * Forwards [`TaskControlBlock::write_outputs`]'s return values on failure.
+    /// * Forwards [`TestHooks::hit`]'s return values on failure.
     pub async fn succeed_task_instance(
         &self,
         instance_id: TaskInstanceId,
         task_outputs: Vec<TaskOutput>,
+        hooks: &TestHooks,
+        context: impl FnOnce() -> HookContext,
     ) -> Result<Vec<TaskIndex>, CacheError> {
         let mut tcb = self.inner.lock().await;
         tcb.base.succeed_task_instance(instance_id)?;
 
         // NOTE: The following execution can only fail due to internal errors because the cache
         // state has already been updated.
+        tcb.write_outputs(task_outputs).await?;
+        hooks
+            .hit(HookPoint::PhaseABeforeSuccessorLock, context)
+            .await?;
         let result: Result<_, InternalError> = {
-            tcb.write_outputs(task_outputs).await?;
             let mut ready_child_indices = Vec::new();
             for child in &tcb.children {
                 let mut child_tcb = child.inner.lock().await;
@@ -1026,6 +1038,25 @@ mod tests {
     use super::*;
     use crate::job_submission::create_validated_submission;
 
+    /// Marks the task instance `id` of `tcb` as succeeded with `task_outputs`, with no hook armed.
+    ///
+    /// # Returns
+    ///
+    /// Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values.
+    async fn succeed_instance(
+        tcb: &SharedTaskControlBlock,
+        id: TaskInstanceId,
+        task_outputs: Vec<TaskOutput>,
+    ) -> Result<Vec<TaskIndex>, CacheError> {
+        tcb.succeed_task_instance(
+            id,
+            task_outputs,
+            &TestHooks::default(),
+            HookContext::default,
+        )
+        .await
+    }
+
     /// # Returns
     ///
     /// A unique task instance ID issued by a global atomic counter.
@@ -1376,7 +1407,7 @@ mod tests {
         let actual_inputs = deserialize_task_inputs(&ctx.serialized_task_io);
         assert_eq!(actual_inputs, expected, "task {task_index} inputs mismatch");
         let outputs = compute_outputs(&actual_inputs);
-        tcb.succeed_task_instance(id, outputs)
+        succeed_instance(&tcb, id, outputs)
             .await
             .expect("succeed should work")
     }
@@ -1408,7 +1439,7 @@ mod tests {
             assert_eq!(actual_inputs, expected, "task inputs mismatch");
             barrier.wait().await;
             let outputs = compute_outputs(&actual_inputs);
-            tcb.succeed_task_instance(id, outputs)
+            succeed_instance(&tcb, id, outputs)
                 .await
                 .expect("succeed should work")
         })
@@ -1726,7 +1757,7 @@ mod tests {
                     .get_task_control_block(0)
                     .expect("task 0 should exist")
             },
-            succeed(tcb, id) => tcb.succeed_task_instance(id, vec![vec![0u8; 4]]).await,
+            succeed(tcb, id) => succeed_instance(tcb, id, vec![vec![0u8; 4]]).await,
         }
     }
 
@@ -1960,7 +1991,7 @@ mod tests {
         );
 
         // Succeed on the removed instance should fail.
-        let result = tcb.succeed_task_instance(id_a, vec![vec![0u8; 4]]).await;
+        let result = succeed_instance(&tcb, id_a, vec![vec![0u8; 4]]).await;
         assert!(
             matches!(
                 result,
@@ -2005,7 +2036,7 @@ mod tests {
         );
 
         // Succeed on removed instance A should fail.
-        let result = tcb.succeed_task_instance(id_a, vec![vec![0u8; 4]]).await;
+        let result = succeed_instance(&tcb, id_a, vec![vec![0u8; 4]]).await;
         assert!(
             matches!(
                 result,
@@ -2018,7 +2049,7 @@ mod tests {
         );
 
         // Instance B can still succeed.
-        tcb.succeed_task_instance(id_b, vec![vec![0u8; 4]])
+        succeed_instance(&tcb, id_b, vec![vec![0u8; 4]])
             .await
             .expect("succeed B should work after A was force-removed");
     }

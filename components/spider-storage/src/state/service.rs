@@ -34,6 +34,7 @@ use crate::state::JobCache;
 use crate::state::JobCacheGcHandle;
 use crate::state::StorageServerError;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::TestHooks;
 
 /// Bundle of constructor parameters for [`ServiceState::new`].
 ///
@@ -57,6 +58,7 @@ pub struct ServiceStateParams<
     pub task_instance_pool_connector: TaskInstancePoolConnectorType,
     pub job_cache_gc_handle: JobCacheGcHandle,
     pub shutdown_handle: ShutdownHandle,
+    pub hooks: TestHooks,
 }
 
 /// Per-request service state providing access to the storage layer.
@@ -108,7 +110,9 @@ impl<
             task_instance_pool_connector,
             job_cache_gc_handle,
             shutdown_handle,
+            hooks,
         } = params;
+        hooks.register_runtime(&shutdown_handle);
         Self {
             inner: Arc::new(ServiceStateInner {
                 db,
@@ -120,6 +124,7 @@ impl<
                 job_cache_gc_handle,
                 has_previous_scheduler_connection: tokio::sync::Mutex::new(false),
                 shutdown_handle,
+                hooks,
             }),
         }
     }
@@ -177,6 +182,7 @@ impl<
             self.inner.inbound_queue_sender.clone(),
             self.inner.db.clone(),
             self.inner.task_instance_pool_connector.clone(),
+            self.inner.hooks.clone(),
         )
         .await?;
 
@@ -839,6 +845,7 @@ struct ServiceStateInner<
     job_cache_gc_handle: JobCacheGcHandle,
     has_previous_scheduler_connection: tokio::sync::Mutex<bool>,
     shutdown_handle: ShutdownHandle,
+    hooks: TestHooks,
 }
 
 #[cfg(test)]
@@ -903,6 +910,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         })
     }
 
@@ -931,6 +939,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         (service, sender)
     }
@@ -1013,6 +1022,7 @@ mod tests {
             MockInboundQueueSender,
             MockDbConnector::default(),
             MockTaskInstancePoolConnector,
+            TestHooks::default(),
         )
         .await
         .expect("JCB creation should succeed")
@@ -1207,6 +1217,7 @@ mod tests {
             sender,
             db,
             MockTaskInstancePoolConnector,
+            TestHooks::default(),
         )
         .await?;
         service.inner.job_cache.insert(jcb).await?;
@@ -1563,6 +1574,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         let job_id = JobId::random();
         let jcb = create_test_jcb(job_id).await;
@@ -1590,6 +1602,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
@@ -1640,6 +1653,7 @@ mod tests {
             task_instance_pool_connector: MockTaskInstancePoolConnector,
             job_cache_gc_handle: JobCacheGcHandle::new(sender),
             shutdown_handle: ShutdownHandle::new(),
+            hooks: TestHooks::default(),
         });
         let (compressed_serialized_task_graph, compressed_serialized_task_graph_input) =
             create_test_job_submission();
