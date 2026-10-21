@@ -76,6 +76,9 @@ pub enum InternalError {
     #[error("job terminated unexpectedly")]
     UnexpectedJobTermination,
 
+    #[error("spawned handler body failed: {0}")]
+    HandlerBodyFailed(String),
+
     #[cfg(feature = "test-hooks")]
     #[error("injected fault: {0}")]
     InjectedFault(String),

@@ -3,6 +3,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use spider_utils::shutdown::ShutdownHandle;
 use tokio::task::JoinHandle;
+use tokio_util::task::TaskTracker;
 
 use crate::cache::error::CacheError;
 use crate::cache::error::InternalError;
@@ -51,6 +52,7 @@ pub struct Runtime<
     service_state:
         ServiceState<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>,
     shutdown_handle: ShutdownHandle,
+    task_tracker: TaskTracker,
     task_instance_pool_join_handle: JoinHandle<Result<(), InternalError>>,
     job_cache_gc_join_handle: JoinHandle<Result<(), InternalError>>,
     stop_timeout: Duration,
@@ -64,8 +66,8 @@ impl<
 {
     /// Stops the runtime.
     ///
-    /// The background tasks will be cancelled and joined. The errors of the background tasks are
-    /// logged.
+    /// The background tasks, including every task in the service's task tracker, will be cancelled
+    /// and joined. The errors of the background tasks are logged.
     ///
     /// # Errors
     ///
@@ -75,6 +77,7 @@ impl<
     ///   timeout, or exits on an error or a panic.
     pub async fn stop(self) -> Result<(), StorageServerError> {
         self.shutdown_handle.shut_down_gracefully();
+        self.task_tracker.close();
 
         let join_task_instance_pool = async {
             match self.task_instance_pool_join_handle.await {
@@ -110,9 +113,13 @@ impl<
             }
         };
 
-        let (is_task_instance_pool_stopped, is_job_cache_gc_stopped) =
+        let (is_task_instance_pool_stopped, is_job_cache_gc_stopped, ()) =
             tokio::time::timeout(self.stop_timeout, async {
-                tokio::join!(join_task_instance_pool, join_job_cache_gc)
+                tokio::join!(
+                    join_task_instance_pool,
+                    join_job_cache_gc,
+                    self.task_tracker.wait()
+                )
             })
             .await
             .map_err(|_| {
@@ -225,6 +232,7 @@ pub async fn create_runtime_with_hooks(
     });
 
     Ok(Runtime {
+        task_tracker: service_state.task_tracker().clone(),
         service_state,
         shutdown_handle,
         task_instance_pool_join_handle,
@@ -333,6 +341,7 @@ mod tests {
 
         // Wired with a real job cache GC task, which should always be terminated without errors.
         Runtime {
+            task_tracker: service_state.task_tracker().clone(),
             service_state,
             shutdown_handle,
             task_instance_pool_join_handle: mock_task_instance_pool_handle,
