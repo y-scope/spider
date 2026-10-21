@@ -1128,7 +1128,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_start_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
+    async fn start_job_returns_job_not_found_if_not_exist() -> anyhow::Result<()> {
         let service = create_test_service();
         let job_id = JobId::random();
         let result = service.start_job(job_id).await;
@@ -1140,7 +1140,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_start_job_rejects_terminal_jobs_not_in_cache() -> anyhow::Result<()> {
+    async fn start_job_rejects_terminal_jobs_not_in_cache() -> anyhow::Result<()> {
         for state in [JobState::Succeeded, JobState::Failed, JobState::Cancelled] {
             let db = MockDbConnector::default();
             let job_id = JobId::random();
