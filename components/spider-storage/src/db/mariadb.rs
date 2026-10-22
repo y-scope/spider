@@ -1371,11 +1371,16 @@ impl UpdateStatement {
     /// The statement's SQL text, with the fence predicate if `is_fenced`.
     fn sql(&self, is_fenced: bool) -> String {
         const FENCE_PREDICATE: &str = formatcp!(
-            " AND EXISTS (SELECT 1 FROM `{STORAGE_FENCE_TABLE_NAME}` WHERE `id` = ? AND \
-             `session_id` = ? LOCK IN SHARE MODE)"
+            " AND EXISTS (SELECT 1 FROM `{table}` WHERE `id` = ? AND `session_id` = ? LOCK IN \
+             SHARE MODE)",
+            table = STORAGE_FENCE_TABLE_NAME,
+        );
+        const UPDATE_PREFIX: &str = formatcp!(
+            "UPDATE `{table}` FORCE INDEX (PRIMARY) SET `state` = ?",
+            table = JOBS_TABLE_NAME,
         );
 
-        let mut sql = format!("UPDATE `{JOBS_TABLE_NAME}` FORCE INDEX (PRIMARY) SET `state` = ?");
+        let mut sql = UPDATE_PREFIX.to_owned();
         if self.has_outputs() {
             sql.push_str(", `serialized_job_outputs` = CASE `id`");
             sql.push_str(&" WHEN ? THEN ?".repeat(self.rows.len()));
