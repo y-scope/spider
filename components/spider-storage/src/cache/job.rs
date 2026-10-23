@@ -28,6 +28,9 @@ use crate::inbound_queue::InboundQueueSender;
 use crate::job_submission::ValidatedJobSubmission;
 use crate::task_instance_pool::TaskInstanceMetadata;
 use crate::task_instance_pool::TaskInstancePoolConnector;
+use crate::test_hooks::HookContext;
+use crate::test_hooks::HookPoint;
+use crate::test_hooks::TestHooks;
 
 /// A shareable control block for a job.
 ///
@@ -75,6 +78,7 @@ impl<
         inbound_queue_sender: InboundQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
+        hooks: TestHooks,
     ) -> Result<Self, CacheError> {
         let num_tasks = job_submission.task_graph().get_num_tasks();
         let task_graph = TaskGraph::create(job_submission).await?;
@@ -90,6 +94,7 @@ impl<
             inner: Arc::new(JobControlBlock {
                 id,
                 owner_id,
+                hooks,
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },
@@ -124,6 +129,7 @@ impl<
         inbound_queue_sender: InboundQueueSenderType,
         db_connector: DbConnectorType,
         task_instance_pool_connector: TaskInstancePoolConnectorType,
+        hooks: TestHooks,
     ) -> Result<Self, CacheError> {
         let RecoverableJobContext {
             id,
@@ -194,6 +200,7 @@ impl<
             inner: Arc::new(JobControlBlock {
                 id,
                 owner_id: resource_group_id,
+                hooks,
                 job_execution_state: JobExecutionStateHandle {
                     inner: tokio::sync::RwLock::new(job_execution_state),
                 },
@@ -370,6 +377,7 @@ impl<
     /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
     /// * Forwards [`JobExecutionStateHandle::write_running`]'s return values on failure.
     /// * Forwards [`SharedTaskControlBlock::succeed_task_instance`]'s return values on failure.
+    /// * Forwards [`JobControlBlock::hit_hook`]'s return values on failure.
     /// * Forwards [`InboundQueueSender::send_task_ready`]'s return values on failure.
     /// * Forwards [`InboundQueueSender::send_commit_ready`]'s return values on failure.
     /// * Forwards [`SharedJobControlBlock::commit_outputs`]'s return values on failure.
@@ -388,7 +396,11 @@ impl<
             .get_task_control_block(task_index)
             .ok_or(InternalError::TaskIndexOutOfBound)?;
         let ready_task_indices = tcb
-            .succeed_task_instance(task_instance_id, task_outputs)
+            .succeed_task_instance(task_instance_id, task_outputs, &jcb.hooks, || {
+                jcb.hook_context(Some(task_instance_id))
+            })
+            .await?;
+        jcb.hit_hook(HookPoint::PhaseAAfterTcbFlip, Some(task_instance_id))
             .await?;
         // NOTE: `fetch_sub` returns the previous value, so the new count is the returned value
         // minus 1.
@@ -413,6 +425,8 @@ impl<
 
         // Release the read lock prior to acquiring a write lock for committing job outputs.
         drop(job);
+        jcb.hit_hook(HookPoint::PhaseABeforeSubmit, Some(task_instance_id))
+            .await?;
         let mut job = jcb.job_execution_state.write_running().await?;
         let job_outputs = job.task_graph.read_output_payloads().await?;
         let has_commit_task = job.task_graph.has_commit_task();
@@ -659,6 +673,7 @@ impl<
     /// * [`InternalError::TaskIndexOutOfBound`] if the task index is out of range.
     /// * Forwards [`JobExecutionStateHandle::read_running`]'s return values on failure.
     /// * Forwards [`SharedTaskControlBlock::register_task_instance`]'s return values on failure.
+    /// * Forwards [`JobControlBlock::hit_hook`]'s return values on failure.
     /// * Forwards [`TaskInstancePoolConnector::register_task_instance`]'s return values on failure.
     async fn create_regular_task_instance(
         jcb: &JobControlBlock<
@@ -678,6 +693,11 @@ impl<
             .task_instance_pool_connector
             .get_next_available_task_instance_id();
         let execution_context = tcb.register_task_instance(task_instance_id).await?;
+        jcb.hit_hook(
+            HookPoint::CreateInstanceBeforePoolSend,
+            Some(task_instance_id),
+        )
+        .await?;
         let registration = TaskInstanceMetadata {
             resource_group_id: jcb.owner_id,
             job_id: jcb.id,
@@ -821,9 +841,9 @@ impl<
 
 /// The control block for a job.
 ///
-/// This struct holds the immutable identity of a job and a handle to its execution state. All
-/// mutable state and connectors live inside [`JobExecutionState`] and are protected by the
-/// read-write lock in [`JobExecutionStateHandle`].
+/// This struct holds the immutable identity of a job, its test hooks, and a handle to its execution
+/// state. All mutable state and connectors live inside [`JobExecutionState`] and are protected by
+/// the read-write lock in [`JobExecutionStateHandle`].
 ///
 /// # Type Parameters
 ///
@@ -837,11 +857,47 @@ struct JobControlBlock<
 > {
     id: JobId,
     owner_id: ResourceGroupId,
+    hooks: TestHooks,
     job_execution_state: JobExecutionStateHandle<
         InboundQueueSenderType,
         DbConnectorType,
         TaskInstancePoolConnectorType,
     >,
+}
+
+impl<
+    InboundQueueSenderType: InboundQueueSender,
+    DbConnectorType: InternalJobOrchestration,
+    TaskInstancePoolConnectorType: TaskInstancePoolConnector,
+> JobControlBlock<InboundQueueSenderType, DbConnectorType, TaskInstancePoolConnectorType>
+{
+    /// Fires the job's hooks at `point` for this job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`TestHooks::hit`]'s return values on failure.
+    async fn hit_hook(
+        &self,
+        point: HookPoint,
+        task_instance_id: Option<TaskInstanceId>,
+    ) -> Result<(), CacheError> {
+        Ok(self
+            .hooks
+            .hit(point, || self.hook_context(task_instance_id))
+            .await?)
+    }
+
+    /// # Returns
+    ///
+    /// The hook context of this job, for a hit about `task_instance_id`, if any.
+    fn hook_context(&self, task_instance_id: Option<TaskInstanceId>) -> HookContext {
+        HookContext {
+            task_instance_id,
+            ..HookContext::job(self.id)
+        }
+    }
 }
 
 /// A concurrency-safe handle to a job's execution state.

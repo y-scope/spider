@@ -11,6 +11,7 @@ pub use job_cache_gc::JobCacheGcHandle;
 pub use job_cache_gc::create_job_cache_gc;
 pub use runtime::Runtime;
 pub use runtime::create_runtime;
+pub use runtime::create_runtime_with_hooks;
 pub use service::ServiceState;
 pub use service::ServiceStateParams;
 

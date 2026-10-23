@@ -107,6 +107,7 @@ use spider_storage::inbound_queue::InboundQueueSender;
 use spider_storage::job_submission::ValidatedJobSubmission;
 use spider_storage::task_instance_pool::TaskInstanceMetadata;
 use spider_storage::task_instance_pool::TaskInstancePoolConnector;
+use spider_storage::test_hooks::TestHooks;
 use tabled::Table;
 use tabled::Tabled;
 use tokio::sync::mpsc;
@@ -348,6 +349,7 @@ pub async fn run_workload<DbConnectorType: InternalJobOrchestration + 'static>(
         inbound_queue_sender,
         db_connector,
         task_instance_pool,
+        TestHooks::default(),
     )
     .await
     .expect("failed to create JCB");
