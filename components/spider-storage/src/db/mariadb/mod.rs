@@ -213,24 +213,6 @@ mod tests {
 
     /// # Returns
     ///
-    /// A config of a database that the tests never connect to, with the default pool options.
-    fn base_config() -> DatabaseConfig {
-        DatabaseConfig {
-            host: "db".to_owned(),
-            port: 3306,
-            name: "spider".to_owned(),
-            max_connections: 8,
-            fence_id: None,
-            credentials: DatabaseCredentials {
-                username: "user".to_owned(),
-                password: SecretString::from("pass"),
-            },
-            pool: DatabasePoolConfig::default(),
-        }
-    }
-
-    /// # Returns
-    ///
     /// A config of the test `MariaDB` database that the environment names, with a random fence ID
     /// and the default pool options, on success.
     ///
@@ -250,6 +232,24 @@ mod tests {
             credentials: DatabaseCredentials::from_env()?,
             ..base_config()
         })
+    }
+
+    /// # Returns
+    ///
+    /// A config of a database that the tests never connect to, with the default pool options.
+    fn base_config() -> DatabaseConfig {
+        DatabaseConfig {
+            host: "db".to_owned(),
+            port: 3306,
+            name: "spider".to_owned(),
+            max_connections: 8,
+            fence_id: None,
+            credentials: DatabaseCredentials {
+                username: "user".to_owned(),
+                password: SecretString::from("pass"),
+            },
+            pool: DatabasePoolConfig::default(),
+        }
     }
 
     #[test]

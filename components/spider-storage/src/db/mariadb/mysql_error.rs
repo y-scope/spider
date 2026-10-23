@@ -3,6 +3,9 @@ use sqlx::mysql::MySqlDatabaseError;
 /// `MySQL` error number for foreign key constraint violation.
 pub(super) const MYSQL_ER_FK_CONSTRAINT: u16 = 1452;
 
+/// `MySQL` error number for a `NULL` written to a `NOT NULL` column.
+pub(super) const MYSQL_ER_BAD_NULL_ERROR: u16 = 1048;
+
 /// `MySQL` error number for duplicate entry.
 const MYSQL_ER_DUP_ENTRY: u16 = 1062;
 
@@ -14,9 +17,6 @@ const MYSQL_ER_SPECIFIC_ACCESS_DENIED: u16 = 1227;
 
 /// `MySQL` error number for a missing privilege on a table.
 const MYSQL_ER_TABLE_ACCESS_DENIED: u16 = 1142;
-
-/// `MySQL` error number for a `NULL` written to a `NOT NULL` column.
-pub(super) const MYSQL_ER_BAD_NULL_ERROR: u16 = 1048;
 
 /// # Returns
 ///
