@@ -16,12 +16,6 @@ use crate::db::mariadb::run_read_committed_tx;
 use crate::db::mariadb::schema::EXECUTION_MANAGERS_TABLE_NAME;
 use crate::db::mariadb::schema::RESOURCE_GROUPS_TABLE_NAME;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, MySqlEnum)]
-pub(super) enum ExecutionManagerState {
-    Alive,
-    Dead,
-}
-
 #[async_trait]
 impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
     async fn register_execution_manager(
@@ -134,6 +128,12 @@ impl ExecutionManagerLivenessManagement for MariaDbStorageConnector {
         })
         .await
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, MySqlEnum)]
+pub(super) enum ExecutionManagerState {
+    Alive,
+    Dead,
 }
 
 /// Marks stale execution managers dead and returns their IDs, in a transaction run on `conn`.
