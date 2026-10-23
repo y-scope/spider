@@ -12,6 +12,10 @@ use crate::db::mariadb::mysql_error::is_access_denied;
 use crate::db::mariadb::mysql_error::is_lock_wait_timeout;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
 
+/// The ID of the `storage_fence` row that a storage service fences its writes with unless
+/// [`DatabaseConfig::fence_id`](crate::config::DatabaseConfig::fence_id) overrides it.
+pub(super) const DEFAULT_FENCE_ID: u64 = 0;
+
 impl MariaDbStorageConnector {
     /// Checks that no newer storage session has fenced the current session off.
     ///
@@ -84,10 +88,6 @@ impl MariaDbStorageConnector {
         Ok(())
     }
 }
-
-/// The ID of the `storage_fence` row that a storage service fences its writes with unless
-/// [`DatabaseConfig::fence_id`](crate::config::DatabaseConfig::fence_id) overrides it.
-pub(super) const DEFAULT_FENCE_ID: u64 = 0;
 
 /// Raises the fence row `fence_id` to `session_id` unless it already holds a newer session, so that
 /// every storage session that connected earlier with the same fence ID fails its next write with
