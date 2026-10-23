@@ -12,6 +12,13 @@ use crate::db::mariadb::fence::FencePredicate;
 use crate::db::mariadb::schema::JOBS_TABLE_NAME;
 use crate::db::mariadb::schema::STORAGE_FENCE_TABLE_NAME;
 
+/// The upper bound of the payload bound to one statement.
+pub(super) const MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
+
+/// The bytes of a packet that an `UPDATE` statement's text and its values other than one row's
+/// outputs may take.
+pub(super) const MAX_STATEMENT_OVERHEAD: u64 = 64 * 1024;
+
 impl MariaDbStorageConnector {
     /// Writes `transition` as
     /// [`apply_tree_transition`](crate::db::InternalJobOrchestration::apply_tree_transition)
@@ -82,13 +89,6 @@ impl MariaDbStorageConnector {
         Err(guard_miss)
     }
 }
-
-/// The upper bound of the payload bound to one statement.
-pub(super) const MAX_STATEMENT_PAYLOAD: u64 = 4 * 1024 * 1024;
-
-/// The bytes of a packet that an `UPDATE` statement's text and its values other than one row's
-/// outputs may take.
-pub(super) const MAX_STATEMENT_OVERHEAD: u64 = 64 * 1024;
 
 /// The maximum number of IDs in one statement's `IN` list.
 const IN_LIST_MAX_IDS: usize = 500;

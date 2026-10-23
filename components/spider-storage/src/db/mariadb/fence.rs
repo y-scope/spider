@@ -74,6 +74,16 @@ impl MariaDbStorageConnector {
         self.ensure_fence_holds(fence_session_id)
     }
 
+    /// # Returns
+    ///
+    /// The fence predicate's parameters for this connector.
+    pub(super) const fn fence(&self) -> FencePredicate {
+        FencePredicate {
+            fence_id: self.fence_id,
+            session_id: self.session_id,
+        }
+    }
+
     /// Checks that the current connector's session ID is what the current fence holds.
     ///
     /// # Errors
@@ -94,16 +104,6 @@ impl MariaDbStorageConnector {
             });
         }
         Ok(())
-    }
-
-    /// # Returns
-    ///
-    /// The fence predicate's parameters for this connector.
-    pub(super) const fn fence(&self) -> FencePredicate {
-        FencePredicate {
-            fence_id: self.fence_id,
-            session_id: self.session_id,
-        }
     }
 }
 
