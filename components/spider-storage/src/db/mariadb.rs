@@ -230,10 +230,11 @@ impl MariaDbStorageConnector {
         job_submission: &'submission_lifetime ValidatedJobSubmission,
     ) -> Query<'submission_lifetime, MySql, MySqlArguments> {
         const QUERY: &str = formatcp!(
-            "INSERT INTO `{JOBS_TABLE_NAME}` (`resource_group_id`, \
-             `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`) VALUES \
-             ((SELECT ? FROM `{STORAGE_FENCE_TABLE_NAME}` WHERE `id` = ? AND `session_id` = ? \
-             LOCK IN SHARE MODE), ?, ?);"
+            "INSERT INTO `{jobs_table}` (`resource_group_id`, `compressed_serialized_task_graph`, \
+             `compressed_serialized_job_inputs`) VALUES ((SELECT ? FROM `{fence_table}` WHERE \
+             `id` = ? AND `session_id` = ? LOCK IN SHARE MODE), ?, ?);",
+            jobs_table = JOBS_TABLE_NAME,
+            fence_table = STORAGE_FENCE_TABLE_NAME,
         );
 
         sqlx::query(QUERY)
@@ -1241,8 +1242,8 @@ async fn bump_fence_on_connection(
     loop {
         const BLOCKER_LOOKUP_INTERVAL: Duration = Duration::from_secs(1);
         const BUMP_QUERY: &str = formatcp!(
-            "UPDATE `{STORAGE_FENCE_TABLE_NAME}` SET `session_id` = GREATEST(`session_id`, ?) \
-             WHERE `id` = ?;"
+            "UPDATE `{table}` SET `session_id` = GREATEST(`session_id`, ?) WHERE `id` = ?;",
+            table = STORAGE_FENCE_TABLE_NAME,
         );
 
         let update = sqlx::query(BUMP_QUERY)
@@ -1645,8 +1646,10 @@ mod tests {
     #[serial]
     async fn the_fence_check_sees_the_bump_despite_an_older_snapshot() -> anyhow::Result<()> {
         const MYSQL_ER_CHECKREAD: u16 = 1020;
-        const SELECT_FENCE_QUERY: &str =
-            formatcp!("SELECT `session_id` FROM `{STORAGE_FENCE_TABLE_NAME}` WHERE `id` = ?;");
+        const SELECT_FENCE_QUERY: &str = formatcp!(
+            "SELECT `session_id` FROM `{table}` WHERE `id` = ?;",
+            table = STORAGE_FENCE_TABLE_NAME,
+        );
 
         let config = mariadb_config()?;
         for is_snapshot_isolation_on in [false, true] {
