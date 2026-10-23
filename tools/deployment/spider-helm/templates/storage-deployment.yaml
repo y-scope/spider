@@ -7,6 +7,8 @@ metadata:
     app.kubernetes.io/component: "storage"
 spec:
   replicas: 1
+  strategy:
+    type: "Recreate"
   selector:
     matchLabels:
       {{- include "spider.selectorLabels" . | nindent 6 }}

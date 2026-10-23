@@ -67,6 +67,8 @@ pub trait ExternalJobOrchestration {
     /// Returns an error if:
     ///
     /// * [`DbError::ResourceGroupNotFound`] if the `resource_group_id` does not exist.
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
+    /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn register(
         &self,
@@ -148,6 +150,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::UnexpectedJobState`] if the job is not in [`JobState::Ready`] state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
@@ -165,6 +168,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if transition from current state to `state` is
     ///   invalid.
@@ -190,6 +194,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if the current job state is not
     ///   [`JobState::Running`].
@@ -219,6 +224,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if the job is not in a cancellable state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
@@ -236,6 +242,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::JobNotFound`] if the `job_id` does not exist.
     /// * [`DbError::InvalidJobStateTransition`] if the job is already in a terminal state.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
@@ -257,6 +264,7 @@ pub trait InternalJobOrchestration: Clone + Send + Sync {
     ///
     /// Returns an error if:
     ///
+    /// * [`DbError::Fenced`] if a newer storage session has fenced this one off.
     /// * [`DbError::CorruptedDbState`] if the data in the DB is corrupted.
     /// * Forwards [`sqlx::error::Error`] on DB operation failure.
     async fn delete_expired_terminated_jobs(

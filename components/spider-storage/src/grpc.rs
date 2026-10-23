@@ -77,7 +77,8 @@ impl<
     /// The [`Status`] to send to the client:
     ///
     /// * `INTERNAL` for:
-    ///   * A fatal cache-internal error (the service will restart).
+    ///   * A fatal error (the service will restart): a cache-internal error, a corrupted database,
+    ///     or a storage session fenced off by a newer one.
     ///   * Any other (database or otherwise unexpected) error.
     /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
     /// * `NOT_FOUND` for a missing job.
@@ -262,7 +263,8 @@ impl<
     /// * `UNAUTHENTICATED` for an unknown or unauthorized resource group.
     /// * `ALREADY_EXISTS` for a duplicate external resource group ID.
     /// * `INTERNAL` for:
-    ///   * A fatal cache-internal error (the service will restart).
+    ///   * A fatal error (the service will restart): a cache-internal error, a corrupted database,
+    ///     or a storage session fenced off by a newer one.
     ///   * Any other unexpected failure.
     pub fn resource_group_management_service_error_handler(
         &self,
@@ -310,7 +312,8 @@ impl<
     /// * `FAILED_PRECONDITION` when the execution manager has already been reaped.
     /// * `INVALID_ARGUMENT` for an illegal execution manager ID.
     /// * `INTERNAL` for:
-    ///   * A fatal cache-internal error (the service will restart).
+    ///   * A fatal error (the service will restart): a cache-internal error, a corrupted database,
+    ///     or a storage session fenced off by a newer one.
     ///   * Any other unexpected failure.
     pub fn execution_manager_liveness_service_error_handler(
         &self,
@@ -384,6 +387,7 @@ impl<
     ///
     /// * The error is [`CacheError::Internal`].
     /// * The error is [`DbError::CorruptedDbState`].
+    /// * The error is [`DbError::Fenced`].
     /// * `strict_mode` is enabled.
     ///
     /// Non-fatal errors are logged as warnings. Fatal errors are logged as errors before the
@@ -417,6 +421,16 @@ impl<
                     service,
                     tag,
                     "Internal error in the database layer. Cancelling service."
+                );
+                self.shutdown_handle.shut_down_fatally();
+            }
+
+            StorageServerError::Db(e @ DbError::Fenced { .. }) => {
+                tracing::error!(
+                    error = % e,
+                    service,
+                    tag,
+                    "The storage session is fenced off by a newer session. Cancelling service."
                 );
                 self.shutdown_handle.shut_down_fatally();
             }
@@ -965,4 +979,93 @@ fn make_job_state_response(
     Response::new(storage::JobStateResponse {
         state: storage::JobState::from(state).into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use spider_utils::shutdown::ShutdownHandle;
+    use tonic::Code;
+    use tonic::Status;
+
+    use super::GrpcServiceState;
+    use crate::db::DbError;
+    use crate::inbound_queue::create_inbound_queue;
+    use crate::state::JobCache;
+    use crate::state::JobCacheGcHandle;
+    use crate::state::ServiceState;
+    use crate::state::ServiceStateParams;
+    use crate::state::StorageServerError;
+    use crate::state::test_utils::MockDbConnector;
+    use crate::state::test_utils::MockInboundQueueSender;
+    use crate::state::test_utils::MockTaskInstancePoolConnector;
+
+    type TestGrpcServiceState =
+        GrpcServiceState<MockInboundQueueSender, MockDbConnector, MockTaskInstancePoolConnector>;
+
+    type ErrorHandler = fn(&TestGrpcServiceState, StorageServerError, &'static str) -> Status;
+
+    #[test]
+    fn fenced_is_fatal_in_every_error_handler() {
+        let handlers: [(&str, ErrorHandler); 6] = [
+            (
+                "job orchestration",
+                TestGrpcServiceState::job_orchestration_service_error_handler,
+            ),
+            (
+                "task instance management",
+                TestGrpcServiceState::task_instance_management_service_error_handler,
+            ),
+            (
+                "inbound queue",
+                TestGrpcServiceState::inbound_queue_service_error_handler,
+            ),
+            (
+                "resource group management",
+                TestGrpcServiceState::resource_group_management_service_error_handler,
+            ),
+            (
+                "execution manager liveness",
+                TestGrpcServiceState::execution_manager_liveness_service_error_handler,
+            ),
+            (
+                "scheduler registration",
+                TestGrpcServiceState::scheduler_registration_service_error_handler,
+            ),
+        ];
+
+        for (name, handler) in handlers {
+            let shutdown_handle = ShutdownHandle::new();
+            let grpc_service = create_test_grpc_service(shutdown_handle.clone());
+
+            let status = handler(
+                &grpc_service,
+                StorageServerError::Db(DbError::Fenced {
+                    current: 1,
+                    newer: 2,
+                }),
+                "test",
+            );
+
+            assert_eq!(status.code(), Code::Internal, "{name}");
+            assert!(shutdown_handle.is_fatal(), "{name}");
+        }
+    }
+
+    /// # Returns
+    ///
+    /// A [`TestGrpcServiceState`] over mocks that shuts down through `shutdown_handle`.
+    fn create_test_grpc_service(shutdown_handle: ShutdownHandle) -> TestGrpcServiceState {
+        let (_inbound_queue_sender_handle, inbound_queue_receiver_handle) = create_inbound_queue();
+        let service_state = ServiceState::new(ServiceStateParams {
+            db: MockDbConnector::default(),
+            session_id: 0,
+            job_cache: JobCache::new(),
+            inbound_queue_sender: MockInboundQueueSender,
+            inbound_queue_receiver: inbound_queue_receiver_handle,
+            task_instance_pool_connector: MockTaskInstancePoolConnector,
+            job_cache_gc_handle: JobCacheGcHandle::new(tokio::sync::mpsc::unbounded_channel().0),
+            shutdown_handle: shutdown_handle.clone(),
+        });
+        GrpcServiceState::new(service_state, shutdown_handle)
+    }
 }

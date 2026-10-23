@@ -9,9 +9,13 @@ use spider_core::types::id::TaskInstanceId;
 use spider_core::types::io::TaskOutput;
 use spider_core::types::io::TaskOutputsSerializer;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
+use spider_storage::DatabaseConfig;
 use spider_storage::cache::error::CacheError;
+use spider_storage::cache::error::InternalError;
 use spider_storage::cache::error::StaleStateError;
+use spider_storage::db::DbError;
 use spider_storage::db::ExternalJobOrchestration;
+use spider_storage::db::MariaDbStorageConnector;
 use spider_storage::inbound_queue::CleanupTaskMarker;
 use spider_storage::inbound_queue::CommitTaskMarker;
 use spider_storage::inbound_queue::InboundQueueEntry;
@@ -23,6 +27,7 @@ use spider_storage::state::create_runtime;
 use spider_storage::state::runtime::RuntimeConfig;
 use spider_storage::task_instance_pool::TaskInstancePoolConfig;
 
+use crate::mariadb_infra::IsolatedTestDb;
 use crate::mariadb_infra::create_mariadb_config;
 use crate::mariadb_infra::create_mariadb_connector;
 use crate::task_graph_builder::build_flat_task_graph;
@@ -284,6 +289,60 @@ async fn restarted_storage_cache_recovers_cleanup_ready_job() -> anyhow::Result<
         JobState::Cancelled
     );
     recovered_runtime.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires MariaDB"]
+async fn a_superseded_runtime_cannot_start_or_register_after_a_restart() -> anyhow::Result<()> {
+    let isolated_test_db = IsolatedTestDb::create().await;
+    let config = RuntimeConfig {
+        db: DatabaseConfig {
+            fence_id: Some(1),
+            ..isolated_test_db.config()
+        },
+        ..create_runtime_config()
+    };
+    let superseded_runtime = create_runtime(&config).await?;
+    let superseded_service = superseded_runtime.get_service_state();
+    let job_id = register_job(&superseded_service, false, false).await?;
+
+    let runtime = create_runtime(&config).await?;
+    let service = runtime.get_service_state();
+    let start_result = superseded_service.start_job(job_id).await;
+    let register_result = register_job(&superseded_service, false, false).await;
+
+    assert!(
+        matches!(
+            start_result,
+            Err(StorageServerError::Cache(CacheError::Internal(InternalError::Db(
+                DbError::Fenced { current, newer }
+            )))) if current == superseded_service.session_id() && newer == service.session_id()
+        ),
+        "expected a fenced start, got {start_result:?}"
+    );
+    let register_error = register_result.expect_err("a superseded registration should fail");
+    assert!(
+        matches!(
+            register_error.downcast_ref::<StorageServerError>(),
+            Some(StorageServerError::Db(DbError::Fenced { current, newer }))
+                if *current == superseded_service.session_id() && *newer == service.session_id()
+        ),
+        "expected a fenced registration, got {register_error:?}"
+    );
+    let reader = MariaDbStorageConnector::connect(&DatabaseConfig {
+        fence_id: Some(2),
+        ..isolated_test_db.config()
+    })
+    .await?;
+    assert_eq!(service.get_job_state(job_id).await?, JobState::Ready);
+    assert_eq!(reader.get_state(job_id).await?, JobState::Ready);
+    service.start_job(job_id).await?;
+    assert_eq!(reader.get_state(job_id).await?, JobState::Running);
+
+    runtime.stop().await?;
+    superseded_runtime.stop().await?;
+    isolated_test_db.drop_database().await;
     Ok(())
 }
 

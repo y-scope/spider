@@ -4,6 +4,7 @@ use spider_core::job::JobState;
 use spider_core::types::id::ExecutionManagerId;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
+use spider_core::types::id::SessionId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {
@@ -35,6 +36,12 @@ pub enum DbError {
     UnexpectedJobState {
         current: JobState,
         expected: ExpectedStates,
+    },
+
+    #[error("storage session {current} is fenced off by the newer session {newer}")]
+    Fenced {
+        current: SessionId,
+        newer: SessionId,
     },
 
     #[error("database corrupted: {0}")]

@@ -44,6 +44,15 @@ pub struct DatabaseConfig {
     /// The maximum number of database connections maintained by the pool.
     pub max_connections: u32,
 
+    /// A test-only override of the ID of the `storage_fence` row that this storage service fences
+    /// its writes with. It cannot be set from a configuration file.
+    ///
+    /// Tests set it so that several storage services can share one database without fencing each
+    /// other off. `None`, the default, is the expected value on every production code path, and
+    /// makes storage use the production fence row.
+    #[serde(skip)]
+    pub fence_id: Option<u64>,
+
     /// The credentials used to connect to the database.
     ///
     /// By default, Spider expects the database credentials to be supplied through the following
@@ -56,6 +65,18 @@ pub struct DatabaseConfig {
     /// configuration file.
     #[serde(skip_serializing)]
     pub credentials: DatabaseCredentials,
+
+    /// The connection pool options.
+    #[serde(default)]
+    pub pool: DatabasePoolConfig,
+}
+
+/// Configuration of the database connection pool.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DatabasePoolConfig {
+    /// Whether the pool pings a connection before handing it out.
+    pub check_connection_before_use: bool,
 }
 
 /// Credentials for authenticating with the database.
@@ -120,6 +141,8 @@ impl TryFrom<Option<RawCredentials>> for DatabaseCredentials {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use secrecy::ExposeSecret;
     use serial_test::serial;
 
@@ -131,11 +154,162 @@ mod tests {
     /// The database password supplied through the environment in these tests.
     const ENV_PASSWORD: &str = "env-pass";
 
+    /// Restores the credential environment variables to their saved values when dropped.
+    struct CredentialEnvVarsGuard {
+        saved_values: [(&'static str, Option<OsString>); 2],
+    }
+
+    impl CredentialEnvVarsGuard {
+        /// # Returns
+        ///
+        /// A guard that holds the current values of the credential environment variables.
+        fn save() -> Self {
+            Self {
+                saved_values: [DB_USERNAME_ENV, DB_PASSWORD_ENV]
+                    .map(|name| (name, std::env::var_os(name))),
+            }
+        }
+    }
+
+    impl Drop for CredentialEnvVarsGuard {
+        fn drop(&mut self) {
+            for (name, saved_value) in &self.saved_values {
+                // SAFETY: these variables are read only by serialized tests, and the guard is only
+                // dropped by serialized tests, so mutating this process-global state does not race
+                // with other tests.
+                unsafe {
+                    match saved_value {
+                        Some(saved_value) => std::env::set_var(name, saved_value),
+                        None => std::env::remove_var(name),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Deserializes a [`DatabaseConfig`] from the required keys, with explicit credentials, merged
+    /// with `extra_keys`.
+    ///
+    /// # Returns
+    ///
+    /// The deserialized config on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`serde_json::from_value`]'s return values on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `extra_keys` is not a JSON object.
+    fn deserialize_with(extra_keys: serde_json::Value) -> serde_json::Result<DatabaseConfig> {
+        let mut config = serde_json::json!({
+            "host": "db",
+            "port": 3306,
+            "name": "spider",
+            "max_connections": 8,
+            "credentials": {"username": "user", "password": "pass"},
+        });
+        let serde_json::Value::Object(extra_keys) = extra_keys else {
+            panic!("the extra keys should be a JSON object");
+        };
+        config
+            .as_object_mut()
+            .expect("the base config should be a JSON object")
+            .extend(extra_keys);
+        serde_json::from_value(config)
+    }
+
+    #[test]
+    fn deserialize_fills_missing_lever_keys_with_defaults() -> anyhow::Result<()> {
+        let config = deserialize_with(serde_json::json!({}))?;
+
+        assert_eq!(config.fence_id, None);
+        assert_eq!(
+            config.pool,
+            DatabasePoolConfig {
+                check_connection_before_use: false,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_parses_every_lever_key() -> anyhow::Result<()> {
+        let config = deserialize_with(serde_json::json!({
+            "pool": {"check_connection_before_use": true},
+        }))?;
+
+        assert_eq!(
+            config.pool,
+            DatabasePoolConfig {
+                check_connection_before_use: true,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_fills_missing_pool_keys_with_defaults() -> anyhow::Result<()> {
+        let config = deserialize_with(serde_json::json!({"pool": {}}))?;
+
+        assert_eq!(
+            config.pool,
+            DatabasePoolConfig {
+                check_connection_before_use: false,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_rejects_unknown_pool_keys() {
+        for unknown_pool_key in [
+            "check_connection_before_us",
+            "test_before_acquire",
+            "statement_cache_capacity",
+            "min_connections",
+        ] {
+            let result = deserialize_with(
+                serde_json::json!({"pool": {unknown_pool_key: serde_json::Value::Null}}),
+            );
+
+            let error_message = result
+                .expect_err("an unknown pool key should be rejected")
+                .to_string();
+            assert!(
+                error_message.contains(&format!("unknown field `{unknown_pool_key}`")),
+                "unexpected error for `{unknown_pool_key}`: {error_message}"
+            );
+        }
+    }
+
+    #[test]
+    fn deserialize_accepts_unknown_top_level_keys() -> anyhow::Result<()> {
+        let config = deserialize_with(serde_json::json!({
+            "fence_in_write_statement": false,
+            "retired_key": 1,
+        }))?;
+
+        assert_eq!(config.pool, DatabasePoolConfig::default());
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_ignores_the_fence_id_key() -> anyhow::Result<()> {
+        let config = deserialize_with(serde_json::json!({"fence_id": 7}))?;
+
+        assert_eq!(config.fence_id, None);
+        Ok(())
+    }
+
     #[serial]
     #[test]
     fn deserialize_resolves_credentials_from_env() -> anyhow::Result<()> {
-        // SAFETY: these variables are read-only by the serialized credential tests, so mutating
-        // this process-global state does not race with other tests.
+        let _credential_env_vars_guard = CredentialEnvVarsGuard::save();
+        // SAFETY: these variables are read only by serialized tests, so mutating this
+        // process-global state does not race with other tests.
         unsafe {
             std::env::set_var(DB_USERNAME_ENV, ENV_USERNAME);
             std::env::set_var(DB_PASSWORD_ENV, ENV_PASSWORD);
@@ -143,10 +317,6 @@ mod tests {
         let config: DatabaseConfig = serde_json::from_str(
             r#"{"host": "db", "port": 3306, "name": "spider", "max_connections": 8}"#,
         )?;
-        unsafe {
-            std::env::remove_var(DB_USERNAME_ENV);
-            std::env::remove_var(DB_PASSWORD_ENV);
-        }
 
         assert_eq!(config.credentials.username, ENV_USERNAME);
         assert_eq!(config.credentials.password.expose_secret(), ENV_PASSWORD);
@@ -156,8 +326,9 @@ mod tests {
     #[serial]
     #[test]
     fn read_credential_from_env() -> anyhow::Result<()> {
-        // SAFETY: these variables are read only by this test, so mutating this process-global state
-        // does not race with other tests.
+        let _credential_env_vars_guard = CredentialEnvVarsGuard::save();
+        // SAFETY: these variables are read only by serialized tests, so mutating this
+        // process-global state does not race with other tests.
 
         // Both variables set: the credentials are read from the environment.
         unsafe {
@@ -169,8 +340,6 @@ mod tests {
         // A variable unset: an error naming the missing variable is returned.
         unsafe { std::env::remove_var(DB_PASSWORD_ENV) };
         let password_unset = DatabaseCredentials::from_env();
-
-        unsafe { std::env::remove_var(DB_USERNAME_ENV) };
 
         let credentials = both_set?;
         assert_eq!(credentials.username, ENV_USERNAME);

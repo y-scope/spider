@@ -10,4 +10,5 @@ pub mod task_instance_pool;
 pub use config::CredentialsError;
 pub use config::DatabaseConfig;
 pub use config::DatabaseCredentials;
+pub use config::DatabasePoolConfig;
 pub use config::ServerConfig;
