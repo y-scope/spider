@@ -5,6 +5,7 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
+use spider_core::types::io::TaskOutput;
 use spider_storage::DatabaseConfig;
 use spider_storage::db::DbError;
 use spider_storage::db::ExternalJobOrchestration;
@@ -1015,7 +1016,7 @@ async fn start(storage: &MariaDbStorageConnector, job_ids: &[JobId]) -> Result<(
 async fn succeed(
     storage: &MariaDbStorageConnector,
     job_ids: &[JobId],
-    outputs: &[Vec<u8>],
+    outputs: &[TaskOutput],
 ) -> Result<(), DbError> {
     storage
         .apply_tree_transition(TreeTransition {

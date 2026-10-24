@@ -129,7 +129,6 @@ async fn in_statement_writes_after_the_bump_are_fenced_despite_an_older_snapshot
                 &mut raw_connection,
                 is_snapshot_isolation_on,
                 &holder,
-                test_fence_id(&config),
             )
             .await?;
             let newer = connect(&config).await;
@@ -285,6 +284,10 @@ async fn commit_with_a_queued_fence_bump(
 
 /// Begins a transaction at `isolation_level` on `connection`.
 ///
+/// # Type Parameters
+///
+/// * `'connection` - The lifetime of the connection borrowed by the transaction.
+///
 /// # Returns
 ///
 /// The transaction on success.
@@ -294,7 +297,7 @@ async fn commit_with_a_queued_fence_bump(
 /// Returns an error if:
 ///
 /// * Forwards [`sqlx::RawSql::execute`]'s return values on failure.
-/// * Forwards [`sqlx::Connection::begin`]'s return values on failure.
+/// * Forwards [`sqlx::Acquire::begin`]'s return values on failure.
 async fn begin_at_isolation_level<'connection>(
     connection: &'connection mut MySqlConnection,
     isolation_level: &str,
@@ -308,7 +311,7 @@ async fn begin_at_isolation_level<'connection>(
 }
 
 /// Sets `innodb_snapshot_isolation` on `connection`, starts a transaction with a consistent
-/// snapshot on it, and reads the fence row `fence_id` in that snapshot.
+/// snapshot on it, and reads `holder`'s fence row in that snapshot.
 ///
 /// # Errors
 ///
@@ -325,7 +328,6 @@ async fn begin_snapshot_and_read_the_fence(
     connection: &mut MySqlConnection,
     is_snapshot_isolation_on: bool,
     holder: &MariaDbStorageConnector,
-    fence_id: u64,
 ) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(&format!(
         "SET SESSION innodb_snapshot_isolation = {};",
@@ -346,7 +348,7 @@ async fn begin_snapshot_and_read_the_fence(
         .await?;
     let seen_session_id: SessionId =
         sqlx::query_scalar("SELECT `session_id` FROM `storage_fence` WHERE `id` = ?;")
-            .bind(fence_id)
+            .bind(holder.fence_id)
             .fetch_one(&mut *connection)
             .await?;
     assert_eq!(seen_session_id, holder.session_id());

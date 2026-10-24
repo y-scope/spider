@@ -29,9 +29,14 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// # Returns
+    ///
+    /// A fixture with an isolated database and its connected pools.
+    ///
     /// # Panics
     ///
-    /// Panics if the connection fails.
+    /// Panics if the storage connector cannot connect, or forwards [`IsolatedTestDb::create`],
+    /// [`IsolatedTestDb::config`], and [`create_raw_pool`]'s panics.
     async fn create() -> Self {
         let isolated_test_db = IsolatedTestDb::create().await;
         let config = isolated_test_db.config();
@@ -48,6 +53,10 @@ impl Fixture {
     }
 
     /// Closes the connections and drops the isolated test database.
+    ///
+    /// # Panics
+    ///
+    /// Forwards [`IsolatedTestDb::drop_database`]'s panics.
     async fn finish(self) {
         self.pool.close().await;
         drop(self.storage);
@@ -120,13 +129,6 @@ impl Fixture {
 
 /// # Returns
 ///
-/// A tree transition of `updates`.
-const fn transition(updates: Vec<JobStateUpdate>) -> TreeTransition {
-    TreeTransition { updates }
-}
-
-/// # Returns
-///
 /// An update of each of `job_ids` from `from` to `to`, without outputs or an error message.
 fn updates(job_ids: &[JobId], from: JobState, to: JobState) -> Vec<JobStateUpdate> {
     job_ids
@@ -143,11 +145,9 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
 
     fixture
         .storage
-        .apply_tree_transition(transition(updates(
-            &job_ids[..2],
-            JobState::Ready,
-            JobState::Running,
-        )))
+        .apply_tree_transition(TreeTransition {
+            updates: updates(&job_ids[..2], JobState::Ready, JobState::Running),
+        })
         .await?;
     let mut tree_updates = job_ids[..2]
         .iter()
@@ -163,7 +163,9 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
     ));
     let result = fixture
         .storage
-        .apply_tree_transition(transition(tree_updates))
+        .apply_tree_transition(TreeTransition {
+            updates: tree_updates,
+        })
         .await;
 
     assert!(
@@ -204,13 +206,15 @@ async fn an_oversized_error_message_rejects_the_entire_transition() -> anyhow::R
     let size = max_allowed_packet + 1;
     let result = fixture
         .storage
-        .apply_tree_transition(transition(vec![
-            JobStateUpdate::new(job_ids[0], JobState::Ready, JobState::Running),
-            JobStateUpdate {
-                error_message: Some("x".repeat(usize::try_from(size)?)),
-                ..JobStateUpdate::new(job_ids[1], JobState::Ready, JobState::Failed)
-            },
-        ]))
+        .apply_tree_transition(TreeTransition {
+            updates: vec![
+                JobStateUpdate::new(job_ids[0], JobState::Ready, JobState::Running),
+                JobStateUpdate {
+                    error_message: Some("x".repeat(usize::try_from(size)?)),
+                    ..JobStateUpdate::new(job_ids[1], JobState::Ready, JobState::Failed)
+                },
+            ],
+        })
         .await;
 
     assert!(
@@ -244,7 +248,9 @@ async fn chunks_of_one_group_commit_in_one_transaction() -> anyhow::Result<()> {
     ));
     let result = fixture
         .storage
-        .apply_tree_transition(transition(tree_updates))
+        .apply_tree_transition(TreeTransition {
+            updates: tree_updates,
+        })
         .await;
     assert!(
         matches!(result, Err(DbError::CorruptedDbState(_))),
@@ -254,11 +260,9 @@ async fn chunks_of_one_group_commit_in_one_transaction() -> anyhow::Result<()> {
 
     fixture
         .storage
-        .apply_tree_transition(transition(updates(
-            group,
-            JobState::Ready,
-            JobState::Running,
-        )))
+        .apply_tree_transition(TreeTransition {
+            updates: updates(group, JobState::Ready, JobState::Running),
+        })
         .await?;
     assert_eq!(
         fixture.count_in_state(group, JobState::Running).await,
@@ -281,11 +285,9 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
     let job_ids = fixture.register_jobs(3).await;
     fixture
         .storage
-        .apply_tree_transition(transition(updates(
-            &job_ids,
-            JobState::Ready,
-            JobState::Running,
-        )))
+        .apply_tree_transition(TreeTransition {
+            updates: updates(&job_ids, JobState::Ready, JobState::Running),
+        })
         .await?;
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
@@ -321,7 +323,9 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
         .collect();
     fixture
         .storage
-        .apply_tree_transition(transition(tree_updates))
+        .apply_tree_transition(TreeTransition {
+            updates: tree_updates,
+        })
         .await?;
 
     for (job_id, outputs) in job_ids.iter().zip(job_outputs) {
@@ -341,11 +345,9 @@ async fn a_fenced_off_connector_writes_nothing() -> anyhow::Result<()> {
     for job_ids_to_start in [&job_ids[..1], &job_ids[1..]] {
         let result = fixture
             .storage
-            .apply_tree_transition(transition(updates(
-                job_ids_to_start,
-                JobState::Ready,
-                JobState::Running,
-            )))
+            .apply_tree_transition(TreeTransition {
+                updates: updates(job_ids_to_start, JobState::Ready, JobState::Running),
+            })
             .await;
 
         assert!(
@@ -373,24 +375,24 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
 
     fixture
         .storage
-        .apply_tree_transition(transition(updates(
-            &job_ids,
-            JobState::Ready,
-            JobState::Running,
-        )))
+        .apply_tree_transition(TreeTransition {
+            updates: updates(&job_ids, JobState::Ready, JobState::Running),
+        })
         .await?;
     fixture
         .storage
-        .apply_tree_transition(transition(vec![
-            JobStateUpdate {
-                outputs: Some(vec![vec![7]]),
-                ..JobStateUpdate::new(committing, JobState::Running, JobState::CommitReady)
-            },
-            JobStateUpdate {
-                error_message: Some("failed on purpose".to_owned()),
-                ..JobStateUpdate::new(failing, JobState::Running, JobState::Failed)
-            },
-        ]))
+        .apply_tree_transition(TreeTransition {
+            updates: vec![
+                JobStateUpdate {
+                    outputs: Some(vec![vec![7]]),
+                    ..JobStateUpdate::new(committing, JobState::Running, JobState::CommitReady)
+                },
+                JobStateUpdate {
+                    error_message: Some("failed on purpose".to_owned()),
+                    ..JobStateUpdate::new(failing, JobState::Running, JobState::Failed)
+                },
+            ],
+        })
         .await?;
     assert!(!fixture.has_ended_at(committing).await);
     assert!(fixture.has_ended_at(failing).await);
@@ -401,11 +403,9 @@ async fn only_terminal_states_set_the_end_timestamp() -> anyhow::Result<()> {
 
     fixture
         .storage
-        .apply_tree_transition(transition(updates(
-            &[committing],
-            JobState::CommitReady,
-            JobState::Succeeded,
-        )))
+        .apply_tree_transition(TreeTransition {
+            updates: updates(&[committing], JobState::CommitReady, JobState::Succeeded),
+        })
         .await?;
     assert!(fixture.has_ended_at(committing).await);
     assert_eq!(
