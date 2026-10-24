@@ -5,7 +5,6 @@ use spider_core::job::JobState;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::id::SessionId;
-use spider_core::types::io::TaskOutput;
 use spider_storage::DatabaseConfig;
 use spider_storage::db::DbError;
 use spider_storage::db::ExternalJobOrchestration;
@@ -579,6 +578,7 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
     for _ in 0..3 {
         job_ids.push(older.register(rg_id, &job_submission).await?);
     }
+    start(&older, &job_ids).await?;
     let raw_pool = create_raw_pool(&config).await;
     let root_pool = create_root_pool(&config).await;
     let mut raw_connection = raw_pool.acquire().await?;
@@ -599,14 +599,20 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
     .unwrap_or_else(|_| {
         panic!("connect should queue its fence bump behind the open transaction with {config:?}")
     });
-    let single_row_older = older.clone();
-    let single_row_job_id = job_ids[0];
-    let single_row_join_handle =
-        tokio::spawn(async move { start(&single_row_older, &[single_row_job_id]).await });
-    let several_rows_older = older.clone();
-    let several_row_job_ids = job_ids[1..].to_vec();
-    let several_rows_join_handle =
-        tokio::spawn(async move { start(&several_rows_older, &several_row_job_ids).await });
+    let success_update = |job_id: JobId| JobStateUpdate {
+        outputs: Some(vec![job_id.get().to_le_bytes().to_vec()]),
+        ..JobStateUpdate::new(job_id, JobState::Running, JobState::Succeeded)
+    };
+    let mut transitions = Vec::new();
+    for job_ids in [&job_ids[..1], &job_ids[1..]] {
+        let storage = older.clone();
+        let updates = job_ids.iter().copied().map(success_update).collect();
+        transitions.push(tokio::spawn(async move {
+            storage
+                .apply_tree_transition(TreeTransition { updates })
+                .await
+        }));
+    }
     tokio::time::timeout_at(
         first_bump_attempt_deadline,
         wait_for_blocked_statements(&root_pool, "%`storage_fence`%LOCK IN SHARE MODE%", 2),
@@ -617,91 +623,44 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
             "the older connector's transitions should queue behind the fence bump with {config:?}"
         )
     });
-    assert!(
-        !single_row_join_handle.is_finished(),
-        "the single-row transition should wait for the fence bump with {config:?}"
-    );
-    assert!(
-        !several_rows_join_handle.is_finished(),
-        "the transition of several rows should wait for the fence bump with {config:?}"
-    );
+    for transition in &transitions {
+        assert!(
+            !transition.is_finished(),
+            "the transition should wait for the fence bump with {config:?}"
+        );
+    }
 
     raw_tx.commit().await?;
     let newer = tokio::time::timeout(Duration::from_secs(5), newer_connect_join_handle).await??;
-    let single_row_result =
-        tokio::time::timeout(Duration::from_secs(5), single_row_join_handle).await??;
-    let several_rows_result =
-        tokio::time::timeout(Duration::from_secs(5), several_rows_join_handle).await??;
-    for (transition, result) in [
-        ("single-row", single_row_result),
-        ("several-row", several_rows_result),
-    ] {
+    for transition in transitions {
+        let result = tokio::time::timeout(Duration::from_secs(5), transition).await??;
         assert_fenced(
             &result,
             &older,
             &newer,
-            &format!(
-                "{transition} transition issued while the fence bump is queued with {config:?}"
-            ),
+            &format!("transition issued while the fence bump is queued with {config:?}"),
         );
     }
     assert_eq!(
         job_states(&root_pool).await,
         job_ids
             .iter()
-            .map(|job_id| (*job_id, JobState::Ready))
+            .map(|job_id| (*job_id, JobState::Running))
             .collect::<Vec<_>>(),
         "{config:?}"
+    );
+    let jobs_with_outputs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM `jobs` WHERE `serialized_job_outputs` IS NOT NULL;",
+    )
+    .fetch_one(&root_pool)
+    .await?;
+    assert_eq!(
+        jobs_with_outputs, 0,
+        "fenced transitions should write no outputs"
     );
     drop(raw_connection);
     raw_pool.close().await;
     root_pool.close().await;
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn a_fenced_off_outputs_transition_writes_nothing() -> anyhow::Result<()> {
-    let job_submission = flat_submission();
-    let outputs = vec![b"outputs".to_vec()];
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let raw_pool = create_raw_pool(&config).await;
-    for num_jobs in [1, 2] {
-        let older = connect(&config).await;
-        let rg_id = create_test_resource_group(&older).await;
-        let mut job_ids = Vec::new();
-        for _ in 0..num_jobs {
-            job_ids.push(older.register(rg_id, &job_submission).await?);
-        }
-        start(&older, &job_ids).await?;
-        let newer = connect(&config).await;
-
-        let result = succeed(&older, &job_ids, &outputs).await;
-
-        assert_fenced(&result, &older, &newer, &format!("{num_jobs} jobs"));
-        for job_id in &job_ids {
-            assert_eq!(
-                newer.get_state(*job_id).await?,
-                JobState::Running,
-                "{num_jobs} jobs"
-            );
-            assert!(
-                !has_outputs(&raw_pool, *job_id).await,
-                "a fenced-off success of {num_jobs} jobs should write no outputs"
-            );
-        }
-        succeed(&newer, &job_ids, &outputs).await?;
-        for job_id in &job_ids {
-            assert_eq!(
-                newer.get_outputs(*job_id).await?,
-                outputs,
-                "{num_jobs} jobs"
-            );
-        }
-    }
-    raw_pool.close().await;
     isolated_test_db.drop_database().await;
     Ok(())
 }
@@ -730,30 +689,6 @@ async fn in_statement_guard_miss_is_corruption_not_fenced() -> anyhow::Result<()
     assert_fenced(&fenced_result, &storage, &newer, "start");
     assert_eq!(newer.get_state(ready_job_id).await?, JobState::Ready);
 
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn guard_miss_in_one_statement_of_several_rows_writes_no_row() -> anyhow::Result<()> {
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let storage = connect(&config).await;
-    let rg_id = create_test_resource_group(&storage).await;
-    let job_submission = flat_submission();
-    let ready_job_id = storage.register(rg_id, &job_submission).await?;
-    let running_job_id = storage.register(rg_id, &job_submission).await?;
-    start(&storage, &[running_job_id]).await?;
-
-    let result = start(&storage, &[ready_job_id, running_job_id]).await;
-
-    assert!(
-        matches!(result, Err(DbError::CorruptedDbState(_))),
-        "expected CorruptedDbState, got {result:?}"
-    );
-    assert_eq!(storage.get_state(ready_job_id).await?, JobState::Ready);
-    assert_eq!(storage.get_state(running_job_id).await?, JobState::Running);
     isolated_test_db.drop_database().await;
     Ok(())
 }
@@ -1003,47 +938,4 @@ async fn start(storage: &MariaDbStorageConnector, job_ids: &[JobId]) -> Result<(
                 .collect(),
         })
         .await
-}
-
-/// Moves every job of `job_ids` from `Running` to `Succeeded` with `outputs` through `storage` in
-/// one tree transition.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`InternalJobOrchestration::apply_tree_transition`]'s return values on failure.
-async fn succeed(
-    storage: &MariaDbStorageConnector,
-    job_ids: &[JobId],
-    outputs: &[TaskOutput],
-) -> Result<(), DbError> {
-    storage
-        .apply_tree_transition(TreeTransition {
-            updates: job_ids
-                .iter()
-                .map(|job_id| JobStateUpdate {
-                    outputs: Some(outputs.to_vec()),
-                    ..JobStateUpdate::new(*job_id, JobState::Running, JobState::Succeeded)
-                })
-                .collect(),
-        })
-        .await
-}
-
-/// # Returns
-///
-/// Whether `job_id` has serialized outputs.
-///
-/// # Panics
-///
-/// Panics if the query fails.
-async fn has_outputs(raw_pool: &MySqlPool, job_id: JobId) -> bool {
-    sqlx::query_scalar::<_, bool>(
-        "SELECT `serialized_job_outputs` IS NOT NULL FROM `jobs` WHERE `id` = ?;",
-    )
-    .bind(job_id)
-    .fetch_one(raw_pool)
-    .await
-    .expect("the outputs query should succeed")
 }

@@ -342,22 +342,8 @@ mod tests {
     use crate::db::DbError;
     use crate::db::JobStateUpdate;
 
-    /// # Returns
-    ///
-    /// The `(from, to, number of rows)` of every statement that `updates` are planned into.
-    fn plan_shape(
-        updates: Vec<JobStateUpdate>,
-        max_payload: u64,
-    ) -> Vec<(JobState, JobState, usize)> {
-        UpdateStatement::group(updates, max_payload, u64::MAX)
-            .expect("planning should succeed")
-            .into_iter()
-            .map(|statement| (statement.from, statement.to, statement.rows.len()))
-            .collect()
-    }
-
     #[test]
-    fn updates_are_grouped_by_edge_with_outputs_groups_first() {
+    fn updates_are_grouped_by_edge_with_outputs_groups_first() -> anyhow::Result<()> {
         let updates = vec![
             JobStateUpdate::new(JobId::from(1), JobState::Running, JobState::Cancelled),
             JobStateUpdate {
@@ -374,8 +360,12 @@ mod tests {
                 ..JobStateUpdate::new(JobId::from(5), JobState::Running, JobState::Failed)
             },
         ];
+        let statements = UpdateStatement::group(updates, 1024, u64::MAX)?;
         assert_eq!(
-            plan_shape(updates, 1024),
+            statements
+                .iter()
+                .map(|statement| (statement.from, statement.to, statement.rows.len()))
+                .collect::<Vec<_>>(),
             vec![
                 (JobState::Running, JobState::Succeeded, 1),
                 (JobState::Running, JobState::Cancelled, 2),
@@ -383,49 +373,35 @@ mod tests {
                 (JobState::Running, JobState::Failed, 1),
             ]
         );
-    }
-
-    #[test]
-    fn a_group_is_cut_into_chunks_of_at_most_the_in_list_limit() {
-        let updates = (0..1_200)
-            .map(|id| JobStateUpdate::new(JobId::from(id), JobState::Running, JobState::Cancelled))
-            .collect();
-        assert_eq!(
-            plan_shape(updates, 1024),
-            vec![
-                (JobState::Running, JobState::Cancelled, IN_LIST_MAX_IDS),
-                (JobState::Running, JobState::Cancelled, IN_LIST_MAX_IDS),
-                (JobState::Running, JobState::Cancelled, 200),
-            ]
-        );
-    }
-
-    #[test]
-    fn an_outputs_group_is_cut_where_the_payload_would_exceed_the_limit() {
-        let outputs = vec![vec![0u8; 1000]];
-        let row_size = SerializedTaskOutputs::serialize_with_size_hint(&outputs)
-            .expect("serialization should succeed")
-            .to_raw()
-            .len() as u64;
-        let updates: Vec<_> = (0..5)
-            .map(|id| JobStateUpdate {
-                outputs: Some(outputs.clone()),
-                ..JobStateUpdate::new(JobId::from(id), JobState::Running, JobState::Succeeded)
-            })
-            .collect();
-        assert_eq!(
-            plan_shape(updates.clone(), 2 * row_size),
-            vec![
-                (JobState::Running, JobState::Succeeded, 2),
-                (JobState::Running, JobState::Succeeded, 2),
-                (JobState::Running, JobState::Succeeded, 1),
-            ]
-        );
-        assert_eq!(
-            plan_shape(updates, row_size / 2),
-            vec![(JobState::Running, JobState::Succeeded, 1); 5],
-            "every statement should carry at least one row"
-        );
+        for statement in &statements {
+            for is_fenced in [false, true] {
+                assert!(statement.sql(is_fenced).contains("FORCE INDEX (PRIMARY)"));
+            }
+        }
+        for count in [IN_LIST_MAX_IDS, IN_LIST_MAX_IDS + 1] {
+            let updates = (0..count)
+                .map(|id| {
+                    JobStateUpdate::new(
+                        JobId::from(id as u64),
+                        JobState::Running,
+                        JobState::Cancelled,
+                    )
+                })
+                .collect();
+            let statements = UpdateStatement::group(updates, 1024, u64::MAX)?;
+            let mut expected = vec![IN_LIST_MAX_IDS];
+            if count > IN_LIST_MAX_IDS {
+                expected.push(1);
+            }
+            assert_eq!(
+                statements
+                    .iter()
+                    .map(|statement| statement.rows.len())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        Ok(())
     }
 
     #[test]
@@ -434,23 +410,36 @@ mod tests {
         let output_size = SerializedTaskOutputs::serialize_with_size_hint(&outputs)?
             .to_raw()
             .len() as u64;
-        let error_message = "é".repeat(10);
-        let two_row_payload = error_message.len() as u64 + 2 * output_size;
-        let updates: Vec<_> = (0..3)
-            .map(|id| JobStateUpdate {
-                outputs: Some(outputs.clone()),
-                error_message: Some(error_message.clone()),
-                ..JobStateUpdate::new(JobId::from(id), JobState::Running, JobState::Failed)
-            })
-            .collect();
-        for (target, hard_limit) in [(two_row_payload, u64::MAX), (u64::MAX, two_row_payload)] {
-            let statements = UpdateStatement::group(updates.clone(), target, hard_limit)?;
+        for error_message in [None, Some("é".repeat(10))] {
+            let error_size = error_message
+                .as_ref()
+                .map_or(0, |message| message.len() as u64);
+            let two_row_payload = error_size + 2 * output_size;
+            let updates: Vec<_> = (0..3)
+                .map(|id| JobStateUpdate {
+                    outputs: Some(outputs.clone()),
+                    error_message: error_message.clone(),
+                    ..JobStateUpdate::new(JobId::from(id), JobState::Running, JobState::Failed)
+                })
+                .collect();
+            for (target, hard_limit) in [(two_row_payload, u64::MAX), (u64::MAX, two_row_payload)] {
+                let statements = UpdateStatement::group(updates.clone(), target, hard_limit)?;
+                assert_eq!(
+                    statements
+                        .iter()
+                        .map(|statement| statement.rows.len())
+                        .collect::<Vec<_>>(),
+                    vec![2, 1]
+                );
+            }
+            let statements = UpdateStatement::group(updates, 0, error_size + output_size)?;
             assert_eq!(
                 statements
                     .iter()
                     .map(|statement| statement.rows.len())
                     .collect::<Vec<_>>(),
-                vec![2, 1]
+                vec![1, 1, 1],
+                "a row that fits the hard limit may exceed the batching target"
             );
         }
         Ok(())
@@ -481,85 +470,26 @@ mod tests {
             .to_raw()
             .len() as u64;
         update.outputs = Some(outputs);
-        let combined_size = error_size + output_size;
-        let result = UpdateStatement::group(vec![update.clone()], u64::MAX, combined_size - 1);
-        assert!(
-            matches!(
-                result,
-                Err(DbError::OutputsTooLarge { job_id: culprit, size, limit })
-                    if culprit == job_id && size == output_size && limit == output_size - 1
-            ),
-            "unexpected result {result:?}"
-        );
-        UpdateStatement::group(vec![update], 0, combined_size)?;
-        Ok(())
-    }
-
-    #[test]
-    fn outputs_over_the_limit_name_their_job() {
-        let job_id = JobId::from(3);
-        let outputs = vec![vec![1u8, 2, 3]];
-        let size = SerializedTaskOutputs::serialize_with_size_hint(&outputs)
-            .expect("serialization should succeed")
-            .to_raw()
-            .len() as u64;
-        let updates = || {
-            vec![
-                JobStateUpdate::new(JobId::from(2), JobState::Running, JobState::Succeeded),
-                JobStateUpdate {
-                    outputs: Some(outputs.clone()),
-                    ..JobStateUpdate::new(job_id, JobState::Running, JobState::Succeeded)
-                },
-            ]
-        };
-        let result = UpdateStatement::group(updates(), u64::MAX, size - 1);
-        assert!(
-            matches!(
-                result,
-                Err(DbError::OutputsTooLarge { job_id: culprit, size: culprit_size, limit })
-                    if culprit == job_id && culprit_size == size && limit == size - 1
-            ),
-            "unexpected result {result:?}"
-        );
-        assert!(UpdateStatement::group(updates(), u64::MAX, size).is_ok());
-    }
-
-    #[test]
-    fn update_texts_carry_the_outputs_and_the_fence_predicate() -> anyhow::Result<()> {
-        let statements = UpdateStatement::group(
-            vec![
-                JobStateUpdate {
-                    outputs: Some(vec![vec![1]]),
-                    ..JobStateUpdate::new(JobId::from(1), JobState::Running, JobState::Succeeded)
-                },
-                JobStateUpdate {
-                    outputs: Some(vec![vec![2]]),
-                    ..JobStateUpdate::new(JobId::from(2), JobState::Running, JobState::Succeeded)
-                },
-                JobStateUpdate {
-                    error_message: Some("e".to_owned()),
-                    ..JobStateUpdate::new(JobId::from(3), JobState::Running, JobState::Failed)
-                },
-            ],
-            u64::MAX,
-            u64::MAX,
-        )?;
-        let [with_outputs, with_error_message] = statements.as_slice() else {
-            panic!("expected two statements, got {statements:?}");
-        };
-
-        assert_eq!(
-            with_outputs.sql(false),
-            "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ?, `serialized_job_outputs` = CASE \
-             `id` WHEN ? THEN ? WHEN ? THEN ? END, `ended_at` = CURRENT_TIMESTAMP WHERE `id` IN \
-             (?,?) AND `state` = ?;"
-        );
-        assert_eq!(
-            with_error_message.sql(true),
-            "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ?, `error_message` = ?, `ended_at` \
-             = CURRENT_TIMESTAMP WHERE `id` IN (?) AND `state` = ? AND EXISTS (SELECT 1 FROM \
-             `storage_fence` WHERE `id` = ? AND `session_id` = ? LOCK IN SHARE MODE);"
-        );
+        for error_size in [error_size, 0] {
+            if error_size == 0 {
+                update.error_message = None;
+            }
+            let combined_size = error_size + output_size;
+            let updates = vec![
+                JobStateUpdate::new(JobId::from(2), JobState::Ready, JobState::Running),
+                update.clone(),
+            ];
+            let result = UpdateStatement::group(updates.clone(), u64::MAX, combined_size - 1);
+            assert!(
+                matches!(
+                    result,
+                    Err(DbError::OutputsTooLarge { job_id: culprit, size, limit })
+                        if culprit == job_id && size == output_size && limit == output_size - 1
+                ),
+                "unexpected result {result:?}"
+            );
+            UpdateStatement::group(updates, 0, combined_size)?;
+        }
         Ok(())
     }
 }

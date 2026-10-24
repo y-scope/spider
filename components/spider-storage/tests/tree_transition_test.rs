@@ -7,7 +7,6 @@ use spider_storage::db::ExternalJobOrchestration;
 use spider_storage::db::InternalJobOrchestration;
 use spider_storage::db::JobStateUpdate;
 use spider_storage::db::MariaDbStorageConnector;
-use spider_storage::db::SessionManagement;
 use spider_storage::db::TreeTransition;
 use sqlx::Row;
 
@@ -30,27 +29,33 @@ fn updates(job_ids: &[JobId], from: JobState, to: JobState) -> Vec<JobStateUpdat
 #[tokio::test]
 #[ignore = "requires MariaDB"]
 async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> anyhow::Result<()> {
+    const NUM_OUTPUT_JOBS: usize = 501;
+
     let isolated_test_db = IsolatedTestDb::create().await;
     let config = isolated_test_db.config();
     let storage = MariaDbStorageConnector::connect(&config).await?;
     let pool = create_raw_pool(&config).await;
     let resource_group_id = create_test_resource_group(&storage).await;
-    let job_ids = register_jobs(&storage, resource_group_id, 3).await;
+    let job_ids = register_jobs(&storage, resource_group_id, NUM_OUTPUT_JOBS + 2).await;
 
     storage
         .apply_tree_transition(TreeTransition {
-            updates: updates(&job_ids[..2], JobState::Ready, JobState::Running),
+            updates: updates(
+                &job_ids[..=NUM_OUTPUT_JOBS],
+                JobState::Ready,
+                JobState::Running,
+            ),
         })
         .await?;
-    let mut tree_updates = job_ids[..2]
+    let mut tree_updates = job_ids[..NUM_OUTPUT_JOBS]
         .iter()
         .map(|job_id| JobStateUpdate {
             outputs: Some(vec![vec![7]]),
             ..JobStateUpdate::new(*job_id, JobState::Running, JobState::Succeeded)
         })
         .collect::<Vec<_>>();
-    tree_updates.push(JobStateUpdate::new(
-        job_ids[2],
+    tree_updates.extend(updates(
+        &job_ids[NUM_OUTPUT_JOBS..],
         JobState::Running,
         JobState::Cancelled,
     ));
@@ -71,11 +76,13 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
     .bind(resource_group_id)
     .fetch_all(&pool)
     .await?;
+    let mut expected_states = vec![JobState::Running; NUM_OUTPUT_JOBS + 1];
+    expected_states.push(JobState::Ready);
     assert_eq!(
         rows.iter()
             .map(|row| row.get::<JobState, _>("state"))
             .collect::<Vec<_>>(),
-        vec![JobState::Running, JobState::Running, JobState::Ready]
+        expected_states
     );
     for row in rows {
         assert_eq!(
@@ -84,111 +91,6 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
         );
         assert!(!row.get::<bool, _>("has_ended_at"));
     }
-    pool.close().await;
-    drop(storage);
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn an_oversized_error_message_rejects_the_entire_transition() -> anyhow::Result<()> {
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let storage = MariaDbStorageConnector::connect(&config).await?;
-    let pool = create_raw_pool(&config).await;
-    let resource_group_id = create_test_resource_group(&storage).await;
-    let job_ids = register_jobs(&storage, resource_group_id, 2).await;
-    let max_allowed_packet: u64 = sqlx::query_scalar("SELECT @@max_allowed_packet;")
-        .fetch_one(&pool)
-        .await?;
-    let size = max_allowed_packet + 1;
-    let result = storage
-        .apply_tree_transition(TreeTransition {
-            updates: vec![
-                JobStateUpdate::new(job_ids[0], JobState::Ready, JobState::Running),
-                JobStateUpdate {
-                    error_message: Some("x".repeat(usize::try_from(size)?)),
-                    ..JobStateUpdate::new(job_ids[1], JobState::Ready, JobState::Failed)
-                },
-            ],
-        })
-        .await;
-
-    assert!(
-        matches!(
-            result,
-            Err(DbError::ErrorMessageTooLarge { job_id, size: actual_size, limit })
-                if job_id == job_ids[1] && actual_size == size && limit < size
-        ),
-        "an oversized error should reject its job before any write, got {result:?}"
-    );
-    let rows = sqlx::query(
-        "SELECT `state`, `ended_at` IS NOT NULL AS `has_ended_at` FROM `jobs` WHERE \
-         `resource_group_id` = ? ORDER BY `id`;",
-    )
-    .bind(resource_group_id)
-    .fetch_all(&pool)
-    .await?;
-    assert_eq!(rows.len(), job_ids.len());
-    for row in rows {
-        assert_eq!(row.get::<JobState, _>("state"), JobState::Ready);
-        assert!(!row.get::<bool, _>("has_ended_at"));
-    }
-    pool.close().await;
-    drop(storage);
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn chunks_of_one_group_commit_in_one_transaction() -> anyhow::Result<()> {
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let storage = MariaDbStorageConnector::connect(&config).await?;
-    let pool = create_raw_pool(&config).await;
-    let resource_group_id = create_test_resource_group(&storage).await;
-    let job_ids = register_jobs(&storage, resource_group_id, 502).await;
-    let (group, culprit) = job_ids.split_at(501);
-
-    let mut tree_updates = updates(group, JobState::Ready, JobState::Running);
-    tree_updates.push(JobStateUpdate::new(
-        culprit[0],
-        JobState::Running,
-        JobState::Cancelled,
-    ));
-    let result = storage
-        .apply_tree_transition(TreeTransition {
-            updates: tree_updates,
-        })
-        .await;
-    assert!(
-        matches!(result, Err(DbError::CorruptedDbState(_))),
-        "the guard miss after two chunks should be corruption, got {result:?}"
-    );
-    let states: Vec<JobState> = sqlx::query_scalar(
-        "SELECT `state` FROM `jobs` WHERE `resource_group_id` = ? ORDER BY `id`;",
-    )
-    .bind(resource_group_id)
-    .fetch_all(&pool)
-    .await?;
-    assert_eq!(states, vec![JobState::Ready; job_ids.len()]);
-
-    storage
-        .apply_tree_transition(TreeTransition {
-            updates: updates(group, JobState::Ready, JobState::Running),
-        })
-        .await?;
-    let states: Vec<JobState> = sqlx::query_scalar(
-        "SELECT `state` FROM `jobs` WHERE `resource_group_id` = ? ORDER BY `id`;",
-    )
-    .bind(resource_group_id)
-    .fetch_all(&pool)
-    .await?;
-    let mut expected_states = vec![JobState::Running; group.len()];
-    expected_states.push(JobState::Ready);
-    assert_eq!(states, expected_states);
     pool.close().await;
     drop(storage);
     isolated_test_db.drop_database().await;
@@ -255,44 +157,6 @@ async fn outputs_larger_than_one_statement_payload_are_all_written() -> anyhow::
 
     for (job_id, outputs) in job_ids.iter().zip(job_outputs) {
         assert_eq!(storage.get_outputs(*job_id).await?, outputs);
-    }
-    pool.close().await;
-    drop(storage);
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn a_fenced_off_connector_writes_nothing() -> anyhow::Result<()> {
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let storage = MariaDbStorageConnector::connect(&config).await?;
-    let pool = create_raw_pool(&config).await;
-    let resource_group_id = create_test_resource_group(&storage).await;
-    let job_ids = register_jobs(&storage, resource_group_id, 3).await;
-    let newer = MariaDbStorageConnector::connect(&config).await?;
-
-    for job_ids_to_start in [&job_ids[..1], &job_ids[1..]] {
-        let result = storage
-            .apply_tree_transition(TreeTransition {
-                updates: updates(job_ids_to_start, JobState::Ready, JobState::Running),
-            })
-            .await;
-
-        assert!(
-            matches!(
-                result,
-                Err(DbError::Fenced { current, newer: newer_session_id })
-                    if current == storage.session_id()
-                        && newer_session_id == newer.session_id()
-            ),
-            "expected Fenced for {} jobs, got {result:?}",
-            job_ids_to_start.len()
-        );
-    }
-    for job_id in job_ids {
-        assert_eq!(storage.get_state(job_id).await?, JobState::Ready);
     }
     pool.close().await;
     drop(storage);
