@@ -37,7 +37,7 @@ impl MariaDbStorageConnector {
     ///
     /// The insert, bound to register `job_submission` in `resource_group_id` while the fence row
     /// holds this connector's session.
-    fn fenced_register_query<'submission_lifetime>(
+    pub(super) fn fenced_register_query<'submission_lifetime>(
         &self,
         resource_group_id: ResourceGroupId,
         job_submission: &'submission_lifetime ValidatedJobSubmission,
