@@ -1,21 +1,23 @@
 use std::env::VarError;
 use std::fmt::Display;
+use std::time::Duration;
 
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use spider_core::types::id::ResourceGroupId;
 use spider_core::types::resource_group::ExternalResourceGroupCredentials;
-use spider_storage::DatabaseConfig;
-use spider_storage::DatabaseCredentials;
-use spider_storage::DatabasePoolConfig;
-use spider_storage::db::MariaDbStorageConnector;
-use spider_storage::db::ResourceGroupManagement;
 use sqlx::ConnectOptions;
 use sqlx::Connection;
 use sqlx::MySqlPool;
 use sqlx::mysql::MySqlConnectOptions;
 use sqlx::mysql::MySqlDatabaseError;
 use sqlx::mysql::MySqlPoolOptions;
+
+use super::storage::DatabaseConfig;
+use super::storage::DatabaseCredentials;
+use super::storage::DatabasePoolConfig;
+use super::storage::db::MariaDbStorageConnector;
+use super::storage::db::ResourceGroupManagement;
 
 /// A uniquely named database that exists for the duration of one test.
 ///
@@ -291,9 +293,10 @@ pub const fn test_fence_id(config: &DatabaseConfig) -> u64 {
         .expect("a test config should set a fence ID")
 }
 
-/// Reads the `MariaDB` root password from `MARIADB_ROOT_PASSWORD`, falling back to
-/// `SPIDER_STORAGE_DB_PASSWORD`, since the test container of `tools/scripts/mariadb/start.py` sets
-/// both passwords to the same value.
+/// Reads the `MariaDB` root password from the test environment.
+///
+/// Uses `MARIADB_ROOT_PASSWORD`, falling back to `SPIDER_STORAGE_DB_PASSWORD`, since the test
+/// container of `tools/scripts/mariadb/start.py` sets both passwords to the same value.
 ///
 /// # Returns
 ///
@@ -379,6 +382,32 @@ pub fn has_mysql_error_number(error: &sqlx::Error, number: u16) -> bool {
     database_error
         .try_downcast_ref::<MySqlDatabaseError>()
         .is_some_and(|mysql_error| mysql_error.number() == number)
+}
+
+/// Waits until an exclusive lock request on the fence row `fence_id` is queued, which a shared
+/// lock request without waiting then conflicts with.
+///
+/// # Panics
+///
+/// Panics if a probe fails for any reason other than the lock conflict.
+pub async fn wait_for_queued_fence_bump(pool: &MySqlPool, fence_id: u64) {
+    const MYSQL_ER_LOCK_WAIT_TIMEOUT: u16 = 1205;
+
+    loop {
+        let mut probe_tx = pool.begin().await.expect("probe should begin");
+        let probe_result = sqlx::query(
+            "SELECT `session_id` FROM `storage_fence` WHERE `id` = ? LOCK IN SHARE MODE NOWAIT;",
+        )
+        .bind(fence_id)
+        .execute(&mut *probe_tx)
+        .await;
+        probe_tx.rollback().await.expect("probe should roll back");
+        match probe_result {
+            Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+            Err(e) if has_mysql_error_number(&e, MYSQL_ER_LOCK_WAIT_TIMEOUT) => return,
+            Err(e) => panic!("unexpected probe failure: {e}"),
+        }
+    }
 }
 
 /// Kills every connection to the database `name` over a new connection made with `root_options`.

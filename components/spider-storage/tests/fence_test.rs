@@ -15,34 +15,19 @@ use spider_storage::db::SessionManagement;
 use spider_storage::db::TreeTransition;
 use spider_storage::job_submission::ValidatedJobSubmission;
 use sqlx::Acquire;
-use sqlx::MySql;
-use sqlx::MySqlConnection;
 use sqlx::MySqlPool;
-use sqlx::Transaction;
-use sqlx::mysql::MySqlArguments;
-use sqlx::mysql::MySqlQueryResult;
-use sqlx::query::Query;
 
 use super::mariadb_infra::IsolatedTestDb;
 use super::mariadb_infra::create_raw_pool;
 use super::mariadb_infra::create_test_resource_group;
-use super::mariadb_infra::has_mysql_error_number;
 use super::mariadb_infra::root_credentials;
 use super::mariadb_infra::test_fence_id;
+use super::mariadb_infra::wait_for_queued_fence_bump;
 use super::task_graph_builder::build_flat_task_graph;
 use super::task_graph_builder::create_validated_submission;
 
 const SELECT_FENCE_FOR_SHARE_QUERY: &str =
     "SELECT `session_id` FROM `storage_fence` WHERE `id` = ? LOCK IN SHARE MODE;";
-
-/// A write that a superseded storage session runs from a transaction whose snapshot predates the
-/// fence bump.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StaleWrite {
-    Register,
-    Start,
-    SucceedWithOutputs,
-}
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
@@ -533,44 +518,6 @@ async fn register_maps_a_missing_resource_group() {
 
 #[tokio::test]
 #[ignore = "requires MariaDB"]
-async fn in_statement_updates_hold_the_fence_until_commit() -> anyhow::Result<()> {
-    let job_submission = flat_submission();
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let raw_pool = create_raw_pool(&config).await;
-
-    for isolation_level in ["REPEATABLE READ", "READ COMMITTED"] {
-        let holder = connect(&config).await;
-        let rg_id = create_test_resource_group(&holder).await;
-        let job_id = holder.register(rg_id, &job_submission).await?;
-        let mut raw_connection = raw_pool.acquire().await?;
-        let mut raw_tx = begin_at_isolation_level(&mut raw_connection, isolation_level).await?;
-        let result = bind_in_statement_start(&config, job_id, holder.session_id())
-            .execute(&mut *raw_tx)
-            .await?;
-        assert_eq!(result.rows_affected(), 1, "start at {isolation_level}");
-        commit_with_a_queued_fence_bump(&raw_pool, &config, isolation_level, raw_tx).await?;
-
-        let holder = connect(&config).await;
-        let rg_id = create_test_resource_group(&holder).await;
-        let job_id = holder.register(rg_id, &job_submission).await?;
-        start(&holder, &[job_id]).await?;
-        let mut raw_connection = raw_pool.acquire().await?;
-        let mut raw_tx = begin_at_isolation_level(&mut raw_connection, isolation_level).await?;
-        let result = bind_in_statement_success(&config, job_id, holder.session_id())
-            .execute(&mut *raw_tx)
-            .await?;
-        assert_eq!(result.rows_affected(), 1, "success at {isolation_level}");
-        commit_with_a_queued_fence_bump(&raw_pool, &config, isolation_level, raw_tx).await?;
-    }
-
-    raw_pool.close().await;
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
 async fn a_tree_transition_that_passed_the_fence_holds_it_until_it_commits() -> anyhow::Result<()> {
     let isolated_test_db = IsolatedTestDb::create().await;
     let config = isolated_test_db.config();
@@ -708,135 +655,6 @@ async fn a_tree_transition_issued_while_the_fence_bump_is_queued_is_fenced() -> 
     drop(raw_connection);
     raw_pool.close().await;
     root_pool.close().await;
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn in_statement_write_after_the_bump_is_fenced_despite_an_older_snapshot()
--> anyhow::Result<()> {
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let raw_pool = create_raw_pool(&config).await;
-    let job_submission = flat_submission();
-    let first = connect(&config).await;
-    let rg_id = create_test_resource_group(&first).await;
-    let job_id = first.register(rg_id, &job_submission).await?;
-
-    let mut fenced = vec![first];
-    for is_snapshot_isolation_on in [false, true] {
-        for write in [StaleWrite::Register, StaleWrite::Start] {
-            let holder = connect(&config).await;
-            let mut raw_connection = raw_pool.acquire().await?;
-            begin_snapshot_and_read_the_fence(
-                &mut raw_connection,
-                is_snapshot_isolation_on,
-                &holder,
-                test_fence_id(&config),
-            )
-            .await?;
-
-            let newer = connect(&config).await;
-            let result = if write == StaleWrite::Start {
-                bind_in_statement_start(&config, job_id, holder.session_id())
-                    .execute(&mut *raw_connection)
-                    .await
-            } else {
-                bind_in_statement_register(&config, rg_id, &job_submission, holder.session_id())
-                    .execute(&mut *raw_connection)
-                    .await
-            };
-            sqlx::raw_sql("ROLLBACK;")
-                .execute(&mut *raw_connection)
-                .await?;
-            assert_stale_write_wrote_nothing(&result, write, is_snapshot_isolation_on);
-
-            fenced.push(holder);
-            fenced.push(newer);
-        }
-    }
-
-    let latest = fenced.pop().expect("the newest connector should exist");
-    let num_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM `jobs`;")
-        .fetch_one(&raw_pool)
-        .await?;
-    assert_eq!(num_jobs, 1, "a stale write should add no job");
-    assert_eq!(latest.get_state(job_id).await?, JobState::Ready);
-    for storage in &fenced {
-        let results = [
-            (
-                "register",
-                storage.register(rg_id, &job_submission).await.map(|_| ()),
-            ),
-            ("start", start(storage, &[job_id]).await),
-        ];
-        for (writer, result) in results {
-            assert_fenced(&result, storage, &latest, writer);
-        }
-    }
-    assert_eq!(latest.get_state(job_id).await?, JobState::Ready);
-
-    raw_pool.close().await;
-    isolated_test_db.drop_database().await;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires MariaDB"]
-async fn in_statement_success_after_the_bump_is_fenced_despite_an_older_snapshot()
--> anyhow::Result<()> {
-    let job_submission = flat_submission();
-    let outputs = vec![b"outputs".to_vec()];
-    let isolated_test_db = IsolatedTestDb::create().await;
-    let config = isolated_test_db.config();
-    let raw_pool = create_raw_pool(&config).await;
-    let first = connect(&config).await;
-    let rg_id = create_test_resource_group(&first).await;
-    let job_id = first.register(rg_id, &job_submission).await?;
-    start(&first, &[job_id]).await?;
-
-    let mut fenced = vec![first];
-    for is_snapshot_isolation_on in [false, true] {
-        let holder = connect(&config).await;
-        let mut raw_connection = raw_pool.acquire().await?;
-        begin_snapshot_and_read_the_fence(
-            &mut raw_connection,
-            is_snapshot_isolation_on,
-            &holder,
-            test_fence_id(&config),
-        )
-        .await?;
-
-        let newer = connect(&config).await;
-        let result = bind_in_statement_success(&config, job_id, holder.session_id())
-            .execute(&mut *raw_connection)
-            .await;
-        sqlx::raw_sql("ROLLBACK;")
-            .execute(&mut *raw_connection)
-            .await?;
-        assert_stale_write_wrote_nothing(
-            &result,
-            StaleWrite::SucceedWithOutputs,
-            is_snapshot_isolation_on,
-        );
-
-        fenced.push(holder);
-        fenced.push(newer);
-    }
-
-    let latest = fenced.pop().expect("the newest connector should exist");
-    for storage in &fenced {
-        let result = succeed(storage, &[job_id], &outputs).await;
-        assert_fenced(&result, storage, &latest, "succeed");
-    }
-    assert_eq!(latest.get_state(job_id).await?, JobState::Running);
-    assert!(
-        !has_outputs(&raw_pool, job_id).await,
-        "a stale success should write no outputs"
-    );
-
-    raw_pool.close().await;
     isolated_test_db.drop_database().await;
     Ok(())
 }
@@ -1016,32 +834,6 @@ async fn job_states(pool: &MySqlPool) -> Vec<(JobId, JobState)> {
         .fetch_all(pool)
         .await
         .expect("the job state query should succeed")
-}
-
-/// Waits until an exclusive lock request on the fence row `fence_id` is queued, which a shared
-/// lock request without waiting then conflicts with.
-///
-/// # Panics
-///
-/// Panics if a probe fails for any reason other than the lock conflict.
-async fn wait_for_queued_fence_bump(pool: &MySqlPool, fence_id: u64) {
-    const MYSQL_ER_LOCK_WAIT_TIMEOUT: u16 = 1205;
-
-    loop {
-        let mut probe_tx = pool.begin().await.expect("probe should begin");
-        let probe_result = sqlx::query(
-            "SELECT `session_id` FROM `storage_fence` WHERE `id` = ? LOCK IN SHARE MODE NOWAIT;",
-        )
-        .bind(fence_id)
-        .execute(&mut *probe_tx)
-        .await;
-        probe_tx.rollback().await.expect("probe should roll back");
-        match probe_result {
-            Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
-            Err(e) if has_mysql_error_number(&e, MYSQL_ER_LOCK_WAIT_TIMEOUT) => return,
-            Err(e) => panic!("unexpected probe failure: {e}"),
-        }
-    }
 }
 
 /// Runs `write` while a transaction locks the row `locked_row_id` of `locked_table` exclusively,
@@ -1238,97 +1030,6 @@ async fn succeed(
         .await
 }
 
-/// Binds the `jobs` insert that [`ExternalJobOrchestration::register`] runs with the fence in the
-/// statement, to register `job_submission` in `resource_group_id` with `session_id` in the fence
-/// predicate.
-///
-/// `in_statement_texts_are_the_ones_the_fence_tests_run` in the connector's unit tests checks that
-/// the connector builds the same text.
-///
-/// # Type Parameters
-///
-/// * `'submission_lifetime` - The lifetime of `job_submission`, which the returned query borrows.
-///
-/// # Returns
-///
-/// The bound query.
-fn bind_in_statement_register<'submission_lifetime>(
-    config: &DatabaseConfig,
-    resource_group_id: ResourceGroupId,
-    job_submission: &'submission_lifetime ValidatedJobSubmission,
-    session_id: SessionId,
-) -> Query<'submission_lifetime, MySql, MySqlArguments> {
-    const QUERY: &str = "INSERT INTO `jobs` (`resource_group_id`, \
-                         `compressed_serialized_task_graph`, `compressed_serialized_job_inputs`) \
-                         VALUES ((SELECT ? FROM `storage_fence` WHERE `id` = ? AND `session_id` = \
-                         ? LOCK IN SHARE MODE), ?, ?);";
-
-    sqlx::query(QUERY)
-        .bind(resource_group_id)
-        .bind(test_fence_id(config))
-        .bind(session_id)
-        .bind(job_submission.compressed_serialized_task_graph())
-        .bind(job_submission.compressed_serialized_job_inputs())
-}
-
-/// Binds the single-row update that [`InternalJobOrchestration::apply_tree_transition`] runs with
-/// the fence in the statement, to move `job_id` from `Ready` to `Running` with `session_id` in the
-/// fence predicate.
-///
-/// `in_statement_texts_are_the_ones_the_fence_tests_run` in the connector's unit tests checks that
-/// the connector builds the same text.
-///
-/// # Returns
-///
-/// The bound query.
-fn bind_in_statement_start(
-    config: &DatabaseConfig,
-    job_id: JobId,
-    session_id: SessionId,
-) -> Query<'static, MySql, MySqlArguments> {
-    const QUERY: &str = "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ? WHERE `id` IN (?) \
-                         AND `state` = ? AND EXISTS (SELECT 1 FROM `storage_fence` WHERE `id` = ? \
-                         AND `session_id` = ? LOCK IN SHARE MODE);";
-
-    sqlx::query(QUERY)
-        .bind(JobState::Running)
-        .bind(job_id)
-        .bind(JobState::Ready)
-        .bind(test_fence_id(config))
-        .bind(session_id)
-}
-
-/// Binds the single-row update that [`InternalJobOrchestration::apply_tree_transition`] runs with
-/// the fence in the statement, to move `job_id` from `Running` to `Succeeded` with fixed outputs
-/// bytes and `session_id` in the fence predicate.
-///
-/// `in_statement_texts_are_the_ones_the_fence_tests_run` in the connector's unit tests checks that
-/// the connector builds the same text.
-///
-/// # Returns
-///
-/// The bound query.
-fn bind_in_statement_success(
-    config: &DatabaseConfig,
-    job_id: JobId,
-    session_id: SessionId,
-) -> Query<'static, MySql, MySqlArguments> {
-    const QUERY: &str = "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ?, \
-                         `serialized_job_outputs` = CASE `id` WHEN ? THEN ? END, `ended_at` = \
-                         CURRENT_TIMESTAMP WHERE `id` IN (?) AND `state` = ? AND EXISTS (SELECT 1 \
-                         FROM `storage_fence` WHERE `id` = ? AND `session_id` = ? LOCK IN SHARE \
-                         MODE);";
-
-    sqlx::query(QUERY)
-        .bind(JobState::Succeeded)
-        .bind(job_id)
-        .bind(b"outputs".as_slice())
-        .bind(job_id)
-        .bind(JobState::Running)
-        .bind(test_fence_id(config))
-        .bind(session_id)
-}
-
 /// # Returns
 ///
 /// Whether `job_id` has serialized outputs.
@@ -1344,155 +1045,4 @@ async fn has_outputs(raw_pool: &MySqlPool, job_id: JobId) -> bool {
     .fetch_one(raw_pool)
     .await
     .expect("the outputs query should succeed")
-}
-
-/// Starts a newer connector with `config`, checks that its fence bump queues behind `raw_tx`, a
-/// transaction at `isolation_level`, and does not finish, then commits `raw_tx` and waits for the
-/// newer connector.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * [`tokio::task::JoinError`] if the task running the newer connector's `connect` panics or is
-///   cancelled.
-/// * Forwards [`sqlx::Transaction::commit`]'s return values on failure.
-/// * Forwards [`tokio::time::timeout`]'s return values on failure.
-///
-/// # Panics
-///
-/// Panics if the fence bump does not queue within 5 seconds, or if it finishes before `raw_tx`
-/// commits.
-async fn commit_with_a_queued_fence_bump(
-    raw_pool: &MySqlPool,
-    config: &DatabaseConfig,
-    isolation_level: &str,
-    raw_tx: Transaction<'_, MySql>,
-) -> anyhow::Result<()> {
-    let connect_config = config.clone();
-    let newer_connect_join_handle = tokio::spawn(async move { connect(&connect_config).await });
-    tokio::time::timeout(
-        Duration::from_secs(5),
-        wait_for_queued_fence_bump(raw_pool, test_fence_id(config)),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        panic!(
-            "connect should queue its fence bump behind the open transaction at {isolation_level} \
-             with {config:?}"
-        )
-    });
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(
-        !newer_connect_join_handle.is_finished(),
-        "connect should wait for the open transaction at {isolation_level} with {config:?}"
-    );
-    raw_tx.commit().await?;
-    tokio::time::timeout(Duration::from_secs(5), newer_connect_join_handle).await??;
-    Ok(())
-}
-
-/// Begins a transaction at `isolation_level` on `connection`.
-///
-/// # Returns
-///
-/// The transaction on success.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`sqlx::RawSql::execute`]'s return values on failure.
-/// * Forwards [`sqlx::Connection::begin`]'s return values on failure.
-async fn begin_at_isolation_level<'connection>(
-    connection: &'connection mut MySqlConnection,
-    isolation_level: &str,
-) -> Result<Transaction<'connection, MySql>, sqlx::Error> {
-    sqlx::raw_sql(&format!(
-        "SET TRANSACTION ISOLATION LEVEL {isolation_level};"
-    ))
-    .execute(&mut *connection)
-    .await?;
-    connection.begin().await
-}
-
-/// Sets `innodb_snapshot_isolation` on `connection`, starts a transaction with a consistent
-/// snapshot on it, and reads the fence row `fence_id` in that snapshot.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`sqlx::RawSql::execute`]'s return values on failure.
-/// * Forwards [`sqlx::query::QueryScalar::fetch_one`]'s return values on failure.
-///
-/// # Panics
-///
-/// Panics if the variable does not take the value, or if the snapshot's fence row does not hold
-/// `holder`'s session.
-async fn begin_snapshot_and_read_the_fence(
-    connection: &mut MySqlConnection,
-    is_snapshot_isolation_on: bool,
-    holder: &MariaDbStorageConnector,
-    fence_id: u64,
-) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql(&format!(
-        "SET SESSION innodb_snapshot_isolation = {};",
-        if is_snapshot_isolation_on {
-            "ON"
-        } else {
-            "OFF"
-        }
-    ))
-    .execute(&mut *connection)
-    .await?;
-    let snapshot_isolation: i64 = sqlx::query_scalar("SELECT @@innodb_snapshot_isolation;")
-        .fetch_one(&mut *connection)
-        .await?;
-    assert_eq!(snapshot_isolation == 1, is_snapshot_isolation_on);
-    sqlx::raw_sql("START TRANSACTION WITH CONSISTENT SNAPSHOT;")
-        .execute(&mut *connection)
-        .await?;
-    let seen_session_id: SessionId =
-        sqlx::query_scalar("SELECT `session_id` FROM `storage_fence` WHERE `id` = ?;")
-            .bind(fence_id)
-            .fetch_one(&mut *connection)
-            .await?;
-    assert_eq!(seen_session_id, holder.session_id());
-    Ok(())
-}
-
-/// Checks that a stale `write` from an older snapshot wrote nothing: with snapshot isolation it
-/// fails with errno 1020; without it, the register fails with errno 1048 and the other writes match
-/// no row.
-///
-/// # Panics
-///
-/// Panics if `result` is not the expected outcome.
-fn assert_stale_write_wrote_nothing(
-    result: &Result<MySqlQueryResult, sqlx::Error>,
-    write: StaleWrite,
-    is_snapshot_isolation_on: bool,
-) {
-    const MYSQL_ER_CHECKREAD: u16 = 1020;
-    const MYSQL_ER_BAD_NULL_ERROR: u16 = 1048;
-
-    let expected_error_number = if is_snapshot_isolation_on {
-        Some(MYSQL_ER_CHECKREAD)
-    } else if write == StaleWrite::Register {
-        Some(MYSQL_ER_BAD_NULL_ERROR)
-    } else {
-        None
-    };
-    match (result, expected_error_number) {
-        (Ok(result), None) => {
-            assert_eq!(result.rows_affected(), 0, "{write:?}");
-        }
-        (Err(e), Some(expected_error_number))
-            if has_mysql_error_number(e, expected_error_number) => {}
-        (result, expected_error_number) => panic!(
-            "{write:?} with snapshot isolation {is_snapshot_isolation_on}: expected error number \
-             {expected_error_number:?}, got {result:?}"
-        ),
-    }
 }

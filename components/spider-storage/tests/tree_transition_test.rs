@@ -141,7 +141,21 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
     let fixture = Fixture::create().await;
     let job_ids = fixture.register_jobs(3).await;
 
-    let mut tree_updates = updates(&job_ids[..2], JobState::Ready, JobState::Running);
+    fixture
+        .storage
+        .apply_tree_transition(transition(updates(
+            &job_ids[..2],
+            JobState::Ready,
+            JobState::Running,
+        )))
+        .await?;
+    let mut tree_updates = job_ids[..2]
+        .iter()
+        .map(|job_id| JobStateUpdate {
+            outputs: Some(vec![vec![7]]),
+            ..JobStateUpdate::new(*job_id, JobState::Running, JobState::Succeeded)
+        })
+        .collect::<Vec<_>>();
     tree_updates.push(JobStateUpdate::new(
         job_ids[2],
         JobState::Running,
@@ -156,7 +170,25 @@ async fn guard_miss_is_corruption_and_rolls_back_every_earlier_statement() -> an
         matches!(result, Err(DbError::CorruptedDbState(_))),
         "a guard miss should be corruption, got {result:?}"
     );
-    assert_eq!(fixture.count_in_state(&job_ids, JobState::Ready).await, 3);
+    assert_eq!(
+        fixture
+            .count_in_state(&job_ids[..2], JobState::Running)
+            .await,
+        2
+    );
+    assert_eq!(
+        fixture.storage.get_state(job_ids[2]).await?,
+        JobState::Ready
+    );
+    for job_id in &job_ids {
+        let outputs: Option<Vec<u8>> =
+            sqlx::query_scalar("SELECT `serialized_job_outputs` FROM `jobs` WHERE `id` = ?;")
+                .bind(job_id)
+                .fetch_one(&fixture.pool)
+                .await?;
+        assert_eq!(outputs, None);
+        assert!(!fixture.has_ended_at(*job_id).await);
+    }
     fixture.finish().await;
     Ok(())
 }

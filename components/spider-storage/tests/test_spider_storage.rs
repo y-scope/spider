@@ -1,3 +1,5 @@
+use spider_storage as storage;
+
 mod mariadb_infra;
 mod scheduling_infra;
 mod task_graph_builder;
