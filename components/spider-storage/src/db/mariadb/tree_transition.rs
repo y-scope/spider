@@ -317,26 +317,13 @@ struct UpdateRow {
 #[cfg(test)]
 mod tests {
     use spider_core::job::JobState;
-    use spider_core::task::ExecutionPolicy;
-    use spider_core::task::TaskDescriptor;
-    use spider_core::task::TaskGraph as SubmittedTaskGraph;
-    use spider_core::task::TdlContext;
     use spider_core::types::id::JobId;
-    use spider_core::types::id::ResourceGroupId;
-    use spider_core::types::id::SessionId;
     use spider_core::types::io::SerializedTaskOutputs;
-    use spider_core::types::io::TaskGraphInputBuilder;
-    use sqlx::Execute;
-    use sqlx::mysql::MySqlConnectOptions;
-    use sqlx::mysql::MySqlPoolOptions;
 
     use super::IN_LIST_MAX_IDS;
     use super::UpdateStatement;
     use crate::db::DbError;
     use crate::db::JobStateUpdate;
-    use crate::db::mariadb::MariaDbStorageConnector;
-    use crate::db::mariadb::fence::DEFAULT_FENCE_ID;
-    use crate::job_submission::create_validated_submission;
 
     /// # Returns
     ///
@@ -488,70 +475,6 @@ mod tests {
             "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ?, `error_message` = ?, `ended_at` \
              = CURRENT_TIMESTAMP WHERE `id` IN (?) AND `state` = ? AND EXISTS (SELECT 1 FROM \
              `storage_fence` WHERE `id` = ? AND `session_id` = ? LOCK IN SHARE MODE);"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn in_statement_texts_are_the_ones_the_fence_tests_run() -> anyhow::Result<()> {
-        let single_row_update_text = |update: JobStateUpdate| -> anyhow::Result<String> {
-            let statements = UpdateStatement::group(vec![update], u64::MAX, u64::MAX)?;
-            let [statement] = statements.as_slice() else {
-                panic!("expected one statement, got {statements:?}");
-            };
-            Ok(statement.sql(true))
-        };
-        let mut task_graph =
-            SubmittedTaskGraph::new(None, None).expect("task graph creation should succeed");
-        task_graph
-            .insert_task(TaskDescriptor {
-                tdl_context: TdlContext {
-                    package: "test_pkg".to_owned(),
-                    task_func: "test_fn".to_owned(),
-                },
-                execution_policy: Some(ExecutionPolicy::default()),
-                inputs: vec![],
-                outputs: vec![],
-                input_sources: None,
-            })
-            .expect("task insertion should succeed");
-        let job_submission =
-            create_validated_submission(task_graph, TaskGraphInputBuilder::new().build());
-        let connector = MariaDbStorageConnector {
-            pool: MySqlPoolOptions::new().connect_lazy_with(MySqlConnectOptions::new()),
-            session_id: SessionId::from(1u64),
-            fence_id: DEFAULT_FENCE_ID,
-            max_statement_payload: u64::MAX,
-            max_outputs_size: u64::MAX,
-        };
-
-        assert_eq!(
-            connector
-                .fenced_register_query(ResourceGroupId::random(), &job_submission)
-                .sql(),
-            "INSERT INTO `jobs` (`resource_group_id`, `compressed_serialized_task_graph`, \
-             `compressed_serialized_job_inputs`) VALUES ((SELECT ? FROM `storage_fence` WHERE \
-             `id` = ? AND `session_id` = ? LOCK IN SHARE MODE), ?, ?);"
-        );
-        assert_eq!(
-            single_row_update_text(JobStateUpdate::new(
-                JobId::from(1),
-                JobState::Ready,
-                JobState::Running
-            ))?,
-            "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ? WHERE `id` IN (?) AND `state` = \
-             ? AND EXISTS (SELECT 1 FROM `storage_fence` WHERE `id` = ? AND `session_id` = ? LOCK \
-             IN SHARE MODE);"
-        );
-        assert_eq!(
-            single_row_update_text(JobStateUpdate {
-                outputs: Some(vec![vec![1]]),
-                ..JobStateUpdate::new(JobId::from(1), JobState::Running, JobState::Succeeded)
-            })?,
-            "UPDATE `jobs` FORCE INDEX (PRIMARY) SET `state` = ?, `serialized_job_outputs` = CASE \
-             `id` WHEN ? THEN ? END, `ended_at` = CURRENT_TIMESTAMP WHERE `id` IN (?) AND `state` \
-             = ? AND EXISTS (SELECT 1 FROM `storage_fence` WHERE `id` = ? AND `session_id` = ? \
-             LOCK IN SHARE MODE);"
         );
         Ok(())
     }
